@@ -17,6 +17,40 @@ MANA Wash Manager is built in five versions, each with its own goal, its own fea
 
 Each version is a real, usable release — not a demo. The gate to the next version is "is this one a stable daily habit," never the calendar.
 
+## Implementation status (as of 2026-09-23)
+
+V0.1 and most of V1.0 are built and verified — not just planned. Treat this section as the honest source of truth; update it as work lands rather than trusting the feature tables below to reflect reality on their own.
+
+**Done, verified on a real device** (a USB-connected Android phone, running against the real API and a real Cloudflare D1 database — not a simulator, not mocked):
+
+- Monorepo scaffolded exactly as in Tech stack: `apps/mobile` (React Native CLI, **Android only**), `apps/api` (Cloudflare Worker + Hono), `packages/domain`, `packages/db`
+- Prisma schema + hand-written D1 migration SQL, seeded with MANA's real menu — verified by running the actual SQL against real SQLite
+- Domain logic (`calculatePrice`, `canTransition`) — 13/13 unit tests passing, strict-mode clean
+- API routes: OTP login (dev bypass — see Pending), customer lookup/create, service + vehicle-type list/create, price upsert, job create/list-today/update-status/mark-paid, all owner-role-gated where it matters
+- Mobile screens: **Login**, **New Wash** (lookup → multi-service select → live price → submit), **Job Board** (list, status advance, mark paid, auto-refresh on focus), **Settings** (owner-only: edit prices, add a vehicle type, **add a service**)
+- Full job lifecycle tested twice on-device: Waiting → Washing → Ready → Paid, multi-service pricing verified correct (e.g. Mini SUV Exterior Wash + Tyre Dressing = ₹350 + ₹50 = ₹400)
+- Owner settings fully exercised on-device: edited an existing price, added a vehicle type ("Bike"), added a new service ("Ceramic Coating") — the new service correctly showed blank "Set price" cells across all five vehicle types, including the one added moments earlier in the same session
+- `mana_db` created for real on Cloudflare; local migrations applied; the Worker serves real seeded data via `wrangler dev`
+- Repo pushed to GitHub: `admin-sprixia/ManaWashManager`, `main` branch
+- Six real bugs found and fixed during device testing — worth knowing if you touch this code: Gradle's node_modules paths in a monorepo, Metro not resolving `package.json` "exports" (broke Hono's client), Hermes' incomplete `URLSearchParams` (needed a polyfill), the Job Board not refreshing after navigating back to it, a seeded phone number that didn't match what the login screen actually sends, and (in testing itself, not the app) `adb`'s tap coordinates drifting on a scrolled screen — fixed by reading exact element bounds via `uiautomator dump` instead of estimating from screenshots
+
+**Pending for V0.1 to be fully "done":**
+
+- A real MSG91 account and secret — still running on the `DEV_OTP_BYPASS` dev-only shortcut (phone `9100000000`, code `000000`)
+- `wrangler d1 migrations apply mana_db --remote` — the real D1 database is provisioned but still empty; only the local dev copy has data
+- `npm run deploy` — the Worker only runs locally (`wrangler dev` + `adb reverse`); there's no public `*.workers.dev` URL yet
+- Automated on-device tests (Maestro) — all testing so far has been manual (live device + adb), not automated
+
+**Not started (V1.0 features):**
+
+- Today dashboard (cars washed, revenue, cash vs UPI split)
+- Customer profile screen — the visit-history data and API already exist (`customerRepo.getHistory`), just no dedicated screen for it yet
+- WhatsApp thank-you button
+- Discount entry in the New Wash UI — the API already supports `discount`/`discountReason`, the app just always sends `discount: 0`
+- iOS build — deliberately out of scope per your direction (Android-only; MANA's customer base doesn't use iPhones). No `ios/` folder exists.
+
+**V1.2, V2.0, V3.0, V4.0:** not started, as planned — nothing here has been pulled forward.
+
 ## Architecture and engineering principles
 
 These are non-negotiable from the very first commit, because retrofitting them onto a live app with real transaction history is far more expensive than building them in now.
@@ -93,13 +127,13 @@ Why `price_at_time` on `job_services` instead of always joining to the live pric
 
 **Why:** this is the smallest possible slice that is still safe to run on real customers on day one, and it proves the core data model (organizations → customers → vehicles → jobs) before anything else is built on top of it.
 
-| Feature | Description | Priority |
-| --- | --- | --- |
-| New job entry | Phone or reg. number lookup → auto-fill existing customer, or quick-add a new one | Must have |
-| Service picker | Select from the owner's current service list, price auto-fills from `service_prices` | Must have |
-| Mark paid | Cash or UPI, total shown before confirming | Must have |
-| Job list (today) | Flat list of today's jobs — no status board yet, that's V1.0 | Must have |
-| Owner settings: services & prices | Add/edit a service, add/edit a vehicle type, set prices — built now because V0.1 has nothing to seed it with otherwise | Must have |
+| Feature | Description | Priority | Status |
+| --- | --- | --- | --- |
+| New job entry | Phone or reg. number lookup → auto-fill existing customer, or quick-add a new one | Must have | ✅ Done |
+| Service picker | Select from the owner's current service list, price auto-fills from `service_prices` | Must have | ✅ Done |
+| Mark paid | Cash or UPI, total shown before confirming | Must have | ✅ Done |
+| Job list (today) | Flat list of today's jobs — no status board yet, that's V1.0 | Must have | ✅ Done (superseded by V1.0's status board, also done) |
+| Owner settings: services & prices | Add/edit a service, add/edit a vehicle type, set prices — built now because V0.1 has nothing to seed it with otherwise | Must have | ✅ Done — editing prices, adding a vehicle type, and adding a service are all tested on-device |
 
 ### Final flow of V0.1
 
@@ -134,14 +168,14 @@ No status board yet — that's what V1.0 adds on top of this same core flow.
 
 ### Feature table
 
-| Feature | Description | Priority |
-| --- | --- | --- |
-| Today dashboard | Cars washed, revenue, cash vs UPI split, pending jobs | Must have |
-| Job status board | Waiting → Washing → Ready → Paid, tap to advance | Must have |
-| Customer profile | Visit count, lifetime spend, last visit, full service history | Must have |
-| WhatsApp thank-you | Pre-filled `wa.me` link, one tap to send after a job completes | Must have |
-| Basic reports | Today / this week: cars, revenue, cash vs UPI, new vs repeat | Should have |
-| Add-ons and discounts | Add-on services on top of the main wash; discounts require a reason | Should have |
+| Feature | Description | Priority | Status |
+| --- | --- | --- | --- |
+| Today dashboard | Cars washed, revenue, cash vs UPI split, pending jobs | Must have | ⏳ Not started |
+| Job status board | Waiting → Washing → Ready → Paid, tap to advance | Must have | ✅ Done — full lifecycle tested twice on-device |
+| Customer profile | Visit count, lifetime spend, last visit, full service history | Must have | 🟡 Partial — the API and data exist (`customerRepo.getHistory`); no screen yet |
+| WhatsApp thank-you | Pre-filled `wa.me` link, one tap to send after a job completes | Must have | ⏳ Not started |
+| Basic reports | Today / this week: cars, revenue, cash vs UPI, new vs repeat | Should have | ⏳ Not started |
+| Add-ons and discounts | Add-on services on top of the main wash; discounts require a reason | Should have | 🟡 Partial — add-ons work (multi-select services in New Wash); discount entry has no UI yet, API always receives `discount: 0` |
 
 ### Final flow of V1.0
 

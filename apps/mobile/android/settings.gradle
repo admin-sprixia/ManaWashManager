@@ -1,0 +1,6 @@
+rootProject.name = 'ManaWashManager'
+// Paths go up 3 levels (android -> mobile -> apps -> repo root) because this is an npm
+// workspaces monorepo: node_modules is hoisted to the repo root, not local to apps/mobile.
+apply from: file("../../../node_modules/@react-native-community/cli-platform-android/native_modules.gradle"); applyNativeModulesSettingsGradle(settings)
+include ':app'
+includeBuild('../../../node_modules/@react-native/gradle-plugin')

@@ -1,0 +1,147 @@
+// This schema is the source of truth for TypeScript types (via `prisma generate`).
+// The actual database schema that provisions D1 lives in
+// apps/api/migrations/0001_init.sql — written by hand because D1 is applied through
+// `wrangler d1 migrations`, not through `prisma migrate`. Keep the two in sync.
+//
+// Naming convention (see the app build plan's "Naming conventions" section):
+//   - Prisma models: PascalCase singular, mapped to a snake_case plural table via @@map.
+//   - Columns: snake_case via @map, with `_id` for foreign keys and `_at` for timestamps.
+//   - Money: stored as an Int in paise (1 rupee = 100 paise) to avoid float rounding.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  phone     String   @unique
+  role      String   @default("staff") // "owner" | "staff"
+  createdAt DateTime @default(now()) @map("created_at")
+
+  jobsCreated Job[]     @relation("JobCreatedBy")
+  expenses    Expense[]
+
+  @@map("users")
+}
+
+model VehicleType {
+  id        String @id @default(uuid())
+  name      String
+  sortOrder Int    @default(0) @map("sort_order")
+
+  servicePrices ServicePrice[]
+  vehicles      Vehicle[]
+
+  @@map("vehicle_types")
+}
+
+model Service {
+  id          String  @id @default(uuid())
+  name        String
+  description String?
+  active      Boolean @default(true)
+  sortOrder   Int     @default(0) @map("sort_order")
+
+  prices      ServicePrice[]
+  jobServices JobService[]
+
+  @@map("services")
+}
+
+model ServicePrice {
+  id            String @id @default(uuid())
+  serviceId     String @map("service_id")
+  vehicleTypeId String @map("vehicle_type_id")
+  price         Int // paise
+
+  service     Service     @relation(fields: [serviceId], references: [id])
+  vehicleType VehicleType @relation(fields: [vehicleTypeId], references: [id])
+
+  @@unique([serviceId, vehicleTypeId])
+  @@map("service_prices")
+}
+
+model Customer {
+  id               String   @id @default(uuid())
+  name             String?
+  phone            String   @unique
+  source           String? // google | friend | board | instagram | other
+  marketingConsent Boolean  @default(false) @map("marketing_consent")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  vehicles Vehicle[]
+  jobs     Job[]
+
+  @@map("customers")
+}
+
+model Vehicle {
+  id                 String  @id @default(uuid())
+  customerId         String  @map("customer_id")
+  registrationNumber String  @unique @map("registration_number")
+  make               String?
+  model              String?
+  vehicleTypeId      String  @map("vehicle_type_id")
+
+  customer    Customer    @relation(fields: [customerId], references: [id])
+  vehicleType VehicleType @relation(fields: [vehicleTypeId], references: [id])
+  jobs        Job[]
+
+  @@map("vehicles")
+}
+
+model Job {
+  id              String    @id @default(uuid())
+  customerId      String    @map("customer_id")
+  vehicleId       String    @map("vehicle_id")
+  createdByUserId String    @map("created_by_user_id")
+  status          String    @default("waiting") // waiting | washing | ready | paid | void
+  subtotal        Int
+  discount        Int       @default(0)
+  discountReason  String?   @map("discount_reason")
+  total           Int
+  paymentMethod   String?   @map("payment_method") // cash | upi | other
+  paymentStatus   String    @default("pending") @map("payment_status")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  completedAt     DateTime? @map("completed_at")
+
+  customer    Customer     @relation(fields: [customerId], references: [id])
+  vehicle     Vehicle      @relation(fields: [vehicleId], references: [id])
+  createdBy   User         @relation("JobCreatedBy", fields: [createdByUserId], references: [id])
+  jobServices JobService[]
+
+  @@map("jobs")
+}
+
+model JobService {
+  jobId       String @map("job_id")
+  serviceId   String @map("service_id")
+  priceAtTime Int    @map("price_at_time") // copied at creation time — never re-joins to the live price
+  quantity    Int    @default(1)
+
+  job     Job     @relation(fields: [jobId], references: [id])
+  service Service @relation(fields: [serviceId], references: [id])
+
+  @@id([jobId, serviceId])
+  @@map("job_services")
+}
+
+model Expense {
+  id              String   @id @default(uuid())
+  category        String
+  amount          Int // paise
+  description     String?
+  date            DateTime
+  createdByUserId String   @map("created_by_user_id")
+
+  createdBy User @relation(fields: [createdByUserId], references: [id])
+
+  @@map("expenses")
+}

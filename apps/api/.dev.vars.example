@@ -1,0 +1,10 @@
+# Copy this file to `.dev.vars` (gitignored) for local `wrangler dev`.
+# In production these are set with: wrangler secret put <NAME>
+JWT_SECRET=change-me-to-a-long-random-string
+MSG91_API_KEY=your-msg91-authkey
+WHATSAPP_API_TOKEN=
+WHATSAPP_PHONE_NUMBER_ID=
+
+# Dev-only: skips real MSG91 SMS, accepts DEV_OTP_CODE for any phone. Never set in production.
+DEV_OTP_BYPASS=true
+DEV_OTP_CODE=000000

@@ -18,7 +18,7 @@ const navTheme = {
   ...DefaultTheme,
   colors: {
     ...DefaultTheme.colors,
-    background: colors.white,
+    background: colors.surface,
     primary: colors.water,
     text: colors.waterInk,
     border: colors.border,
@@ -29,17 +29,13 @@ const navTheme = {
 export function RootNavigator() {
   return (
     <NavigationContainer theme={navTheme}>
-      <Stack.Navigator
-        initialRouteName="JobBoard"
-        screenOptions={{
-          headerStyle: { backgroundColor: colors.white },
-          headerTintColor: colors.water,
-          headerTitleStyle: { color: colors.waterInk },
-        }}
-      >
-        <Stack.Screen name="JobBoard" component={JobBoardScreen} options={{ title: 'MANA' }} />
-        <Stack.Screen name="NewWash" component={NewWashScreen} options={{ title: 'New Wash' }} />
-        <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings' }} />
+      {/* headerShown: false — every screen now owns its full header treatment (a GradientHero
+          for Login/Job Board, a ScreenHeader for New Wash/Settings), so the native stack
+          header would just duplicate it. */}
+      <Stack.Navigator initialRouteName="JobBoard" screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="JobBoard" component={JobBoardScreen} />
+        <Stack.Screen name="NewWash" component={NewWashScreen} options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="Settings" component={SettingsScreen} options={{ animation: 'slide_from_right' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );

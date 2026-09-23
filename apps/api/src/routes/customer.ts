@@ -1,43 +1,13 @@
 import { Hono } from 'hono';
+import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { createDbClient, customerRepo, vehicleRepo } from '@mana/db';
 import { requireAuth } from '../middleware/auth';
 import type { Env } from '../types';
 
-export const customerRoutes = new Hono<{ Bindings: Env }>();
-customerRoutes.use('*', requireAuth);
-
-// The single most-used lookup in the app: type a phone or reg. number, get the customer back.
-customerRoutes.get('/lookup', async (c) => {
-  const phone = c.req.query('phone');
-  const registrationNumber = c.req.query('registrationNumber');
-
-  const db = createDbClient(c.env.DB);
-
-  if (registrationNumber) {
-    const vehicle = await vehicleRepo.findByRegistration(db, registrationNumber);
-    if (!vehicle) return c.json(null);
-    const customer = await customerRepo.findById(db, vehicle.customerId);
-    const history = await customerRepo.getHistory(db, vehicle.customerId);
-    return c.json({ customer, vehicle, visitCount: history.length, lastVisit: history[0]?.createdAt ?? null });
-  }
-
-  if (!phone) return c.json({ error: 'phone_or_registrationNumber_required' }, 400);
-
-  const customer = await customerRepo.findByPhone(db, phone);
-  if (!customer) return c.json(null);
-
-  const [vehicles, history] = await Promise.all([
-    vehicleRepo.listForCustomer(db, customer.id),
-    customerRepo.getHistory(db, customer.id),
-  ]);
-
-  return c.json({ customer, vehicles, visitCount: history.length, lastVisit: history[0]?.createdAt ?? null });
-});
-
-customerRoutes.get('/:id/history', async (c) => {
-  const db = createDbClient(c.env.DB);
-  return c.json(await customerRepo.getHistory(db, c.req.param('id')));
+const lookupQuerySchema = z.object({
+  phone: z.string().optional(),
+  registrationNumber: z.string().optional(),
 });
 
 const createCustomerSchema = z.object({
@@ -52,23 +22,88 @@ const createCustomerSchema = z.object({
   }),
 });
 
-// Quick-add: a brand new customer and their first vehicle in one call (New Wash screen, step 2).
-customerRoutes.post('/', async (c) => {
-  const body = createCustomerSchema.parse(await c.req.json());
-  const db = createDbClient(c.env.DB);
+// Chained in one expression, with every input declared via `zValidator` — see the comment
+// in routes/auth.ts for why both matter for Hono RPC's client typing.
+export const customerRoutes = new Hono<{ Bindings: Env }>()
+  .use('*', requireAuth)
+  // The single most-used lookup in the app: type a phone or reg. number, get the customer back.
+  .get('/lookup', zValidator('query', lookupQuerySchema), async (c) => {
+    const { phone, registrationNumber } = c.req.valid('query');
+    const db = createDbClient(c.env.DB);
 
-  const customer = await customerRepo.create(db, {
-    phone: body.phone,
-    name: body.name,
-    source: body.source,
-  });
-  const vehicle = await vehicleRepo.create(db, {
-    customerId: customer.id,
-    registrationNumber: body.vehicle.registrationNumber,
-    vehicleTypeId: body.vehicle.vehicleTypeId,
-    make: body.vehicle.make,
-    model: body.vehicle.model,
-  });
+    if (registrationNumber) {
+      const vehicle = await vehicleRepo.findByRegistration(db, registrationNumber);
+      if (!vehicle) return c.json(null);
+      const customer = await customerRepo.findById(db, vehicle.customerId);
+      const history = await customerRepo.getHistory(db, vehicle.customerId);
+      return c.json({ customer, vehicle, visitCount: history.length, lastVisit: history[0]?.createdAt ?? null });
+    }
 
-  return c.json({ customer, vehicle }, 201);
-});
+    if (!phone) return c.json({ error: 'phone_or_registrationNumber_required' as const }, 400);
+
+    const customer = await customerRepo.findByPhone(db, phone);
+    if (!customer) return c.json(null);
+
+    const [vehicles, history] = await Promise.all([
+      vehicleRepo.listForCustomer(db, customer.id),
+      customerRepo.getHistory(db, customer.id),
+    ]);
+
+    return c.json({ customer, vehicles, visitCount: history.length, lastVisit: history[0]?.createdAt ?? null });
+  })
+  .get('/:id/history', async (c) => {
+    const db = createDbClient(c.env.DB);
+    return c.json(await customerRepo.getHistory(db, c.req.param('id')));
+  })
+  // Quick-add: a brand new customer and their first vehicle in one call (New Wash screen, step 2).
+  .post('/', zValidator('json', createCustomerSchema), async (c) => {
+    const body = c.req.valid('json');
+    const db = createDbClient(c.env.DB);
+
+    const customer = await customerRepo.create(db, {
+      phone: body.phone,
+      name: body.name,
+      source: body.source,
+    });
+    const vehicle = await vehicleRepo.create(db, {
+      customerId: customer.id,
+      registrationNumber: body.vehicle.registrationNumber,
+      vehicleTypeId: body.vehicle.vehicleTypeId,
+      make: body.vehicle.make,
+      model: body.vehicle.model,
+    });
+
+    return c.json({ customer, vehicle }, 201);
+  })
+  // New Wash: find-or-create by phone + registration so returning customers and new plates both work.
+  .post('/ensure', zValidator('json', createCustomerSchema), async (c) => {
+    const body = c.req.valid('json');
+    const db = createDbClient(c.env.DB);
+    const registrationNumber = body.vehicle.registrationNumber.trim().toUpperCase().replace(/\s+/g, '');
+
+    const existingVehicle = await vehicleRepo.findByRegistration(db, registrationNumber);
+    if (existingVehicle) {
+      const customer = await customerRepo.findById(db, existingVehicle.customerId);
+      if (!customer) return c.json({ error: 'customer_missing' as const }, 500);
+      return c.json({ customer, vehicle: existingVehicle });
+    }
+
+    let customer = await customerRepo.findByPhone(db, body.phone);
+    if (!customer) {
+      customer = await customerRepo.create(db, {
+        phone: body.phone,
+        name: body.name,
+        source: body.source,
+      });
+    }
+
+    const vehicle = await vehicleRepo.create(db, {
+      customerId: customer.id,
+      registrationNumber,
+      vehicleTypeId: body.vehicle.vehicleTypeId,
+      make: body.vehicle.make,
+      model: body.vehicle.model,
+    });
+
+    return c.json({ customer, vehicle }, 201);
+  });

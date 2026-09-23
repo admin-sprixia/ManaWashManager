@@ -1,23 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { RootNavigator } from './src/navigation/RootNavigator';
-import { getSessionToken } from './src/api/session';
+import { AuthProvider, useAuth } from './src/api/auth';
 import { colors } from './src/theme';
 
-export default function App() {
-  const [checkingSession, setCheckingSession] = useState(true);
-  const [loggedIn, setLoggedIn] = useState(false);
+function AppBody() {
+  const { checking, loggedIn, signIn, bootstrap } = useAuth();
 
   useEffect(() => {
-    void (async () => {
-      const token = await getSessionToken();
-      setLoggedIn(Boolean(token));
-      setCheckingSession(false);
-    })();
-  }, []);
+    void bootstrap();
+  }, [bootstrap]);
 
-  if (checkingSession) {
+  if (checking) {
     return (
       <View style={styles.loading}>
         <ActivityIndicator color={colors.water} size="large" />
@@ -25,7 +21,17 @@ export default function App() {
     );
   }
 
-  return loggedIn ? <RootNavigator /> : <LoginScreen onLoggedIn={() => setLoggedIn(true)} />;
+  return loggedIn ? <RootNavigator /> : <LoginScreen onLoggedIn={signIn} />;
+}
+
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <AuthProvider>
+        <AppBody />
+      </AuthProvider>
+    </SafeAreaProvider>
+  );
 }
 
 const styles = StyleSheet.create({

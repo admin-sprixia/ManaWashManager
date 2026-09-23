@@ -5,6 +5,58 @@ MANA's own operations app: job tracking, customer history, payments — built pe
 new job entry, customer/vehicle lookup, service picker with owner-editable pricing, the job
 status board, and mark-paid.
 
+## Run the app
+
+Everything below assumes setup is already done (see [Setup](#setup) if starting from a fresh
+clone — D1 created, migrations applied, `.dev.vars` filled in). Once that's done, running it
+day to day is two terminals left open + your phone on USB.
+
+**Terminal 1 — the API**
+
+```bash
+cd apps/api
+npm run dev
+```
+
+Leave this running. Confirm it's up: `curl http://localhost:8787/health` → `{"ok":true}`.
+
+**Terminal 2 — Metro (the JS bundler)**
+
+```bash
+cd apps/mobile
+npx react-native start
+```
+
+Leave this running too.
+
+**Every time you (re)connect the phone over USB** — forward both ports:
+
+```bash
+adb reverse tcp:8081 tcp:8081
+adb reverse tcp:8787 tcp:8787
+```
+
+**Install and launch on the phone:**
+
+```bash
+cd apps/mobile
+npx react-native run-android
+```
+
+Only needed the first time, or after adding/upgrading a native dependency (e.g. a new
+`react-native-*` package). For everyday JS-only edits, Metro's Fast Refresh updates the
+already-installed app automatically — no need to re-run this; just reopen the app from the
+phone if it's not already in the foreground.
+
+**Sign in** — real MSG91 isn't wired up yet, so use the dev OTP bypass:
+
+- Phone: `9100000000`
+- Code: `000000`
+
+If the app ever shows "Cannot connect to Metro" or a red error screen, check Terminals 1 and 2
+are both still running and the `adb reverse` step was re-run after the last USB reconnect —
+that covers the two most common causes.
+
 ## Structure
 
 ```text

@@ -12,8 +12,10 @@ const API_BASE_URL = 'http://localhost:8787';
  * here at build time. See the build plan's "API layer" row in Tech stack.
  */
 export const api = hc<AppType>(API_BASE_URL, {
-  headers: async () => {
+  headers: async (): Promise<Record<string, string>> => {
     const token = await getSessionToken();
-    return token ? { Authorization: `Bearer ${token}` } : {};
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return headers;
   },
 });

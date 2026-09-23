@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
+  Linking,
   Pressable,
   SectionList,
   RefreshControl,
@@ -18,6 +19,7 @@ import { colors, radius, shadow, spacing, statusColors, typography } from '../th
 import { api } from '../api/client';
 import { getSessionUser } from '../api/session';
 import { useAuth } from '../api/auth';
+import { buildWhatsAppLink, formatRupees } from '../utils/format';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { canTransition, type JobStatus } from '@mana/domain';
 
@@ -27,7 +29,7 @@ interface JobListItem {
   id: string;
   status: JobStatus;
   total: number;
-  customer: { name: string | null; phone: string };
+  customer: { id: string; name: string | null; phone: string };
   vehicle: { registrationNumber: string; vehicleType: { name: string } };
 }
 
@@ -55,10 +57,6 @@ const SECTION_DEFS: { key: string; title: string; statuses: JobStatus[] }[] = [
   { key: 'ready', title: 'Ready for pickup', statuses: ['ready'] },
   { key: 'done', title: 'Paid today', statuses: ['paid'] },
 ];
-
-function formatRupees(paise: number): string {
-  return `₹${(paise / 100).toFixed(0)}`;
-}
 
 function greeting(): string {
   const hour = new Date().getHours();
@@ -97,6 +95,7 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [needsReauth, setNeedsReauth] = useState(false);
+  const [whatsappError, setWhatsappError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -184,6 +183,18 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
     else void advance(job);
   };
 
+  const sendThankYou = (job: JobListItem) => {
+    setWhatsappError(null);
+    const headline = vehicleHeadline(job);
+    const name = job.customer.name?.trim();
+    const message =
+      `Hi${name ? ` ${name}` : ''}, thank you for choosing MANA Car Wash! ` +
+      `Your ${headline.title} is all done — we hope it looks great. See you next time 🚗`;
+    Linking.openURL(buildWhatsAppLink(job.customer.phone, message)).catch(() => {
+      setWhatsappError('Could not open WhatsApp — make sure it’s installed.');
+    });
+  };
+
   return (
     <ScreenContainer noPadding edges={['bottom']}>
       {/* Strict column: hero → CTA → list. Nothing is absolutely positioned over the cards. */}
@@ -203,15 +214,26 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
                 </Text>
               </View>
               {isOwner && (
-                <Pressable
-                  onPress={() => navigation.navigate('Settings')}
-                  style={styles.settingsBtn}
-                  hitSlop={8}
-                  accessibilityRole="button"
-                  accessibilityLabel="Settings"
-                >
-                  <Text style={styles.settingsGlyph}>⚙</Text>
-                </Pressable>
+                <View style={styles.headerActions}>
+                  <Pressable
+                    onPress={() => navigation.navigate('Reports')}
+                    style={styles.settingsBtn}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Reports"
+                  >
+                    <Text style={styles.settingsGlyph}>📊</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => navigation.navigate('Settings')}
+                    style={styles.settingsBtn}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Settings"
+                  >
+                    <Text style={styles.settingsGlyph}>⚙</Text>
+                  </Pressable>
+                </View>
               )}
             </View>
 
@@ -230,6 +252,7 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
 
         <View style={styles.ctaWrap}>
           <Button label="+ New Wash" size="lg" onPress={() => navigation.navigate('NewWash')} />
+          {whatsappError ? <Text style={styles.whatsappError}>{whatsappError}</Text> : null}
         </View>
 
         <SectionList
@@ -237,7 +260,7 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
           keyExtractor={(job) => job.id}
           stickySectionHeadersEnabled={false}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.water} colors={[colors.water]} />
+            <RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={colors.water} colors={[colors.water]} />
           }
           contentContainerStyle={styles.list}
           style={styles.listFlex}
@@ -256,14 +279,19 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
             return (
               <Card elevation="sm" style={[styles.jobCard, { borderLeftColor: tone.border }]}>
                 <View style={styles.cardHeader}>
-                  <View style={styles.cardTitleBlock}>
+                  <Pressable
+                    style={styles.cardTitleBlock}
+                    onPress={() => navigation.navigate('CustomerProfile', { customerId: item.customer.id })}
+                    accessibilityRole="button"
+                    accessibilityLabel={`View ${customerLine(item)}'s profile`}
+                  >
                     <Text style={styles.cardTitle} numberOfLines={1}>
                       {headline.title}
                     </Text>
                     <Text style={styles.cardMeta} numberOfLines={1}>
                       {headline.meta} · {customerLine(item)}
                     </Text>
-                  </View>
+                  </Pressable>
                   <StatusBadge status={item.status} />
                 </View>
 
@@ -282,6 +310,15 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
                       accessibilityLabel={action}
                     >
                       <Text style={styles.actionLabel}>{isBusy ? '…' : action}</Text>
+                    </Pressable>
+                  ) : item.status === 'paid' ? (
+                    <Pressable
+                      onPress={() => sendThankYou(item)}
+                      style={styles.actionWhatsapp}
+                      accessibilityRole="button"
+                      accessibilityLabel="Send thank-you on WhatsApp"
+                    >
+                      <Text style={styles.actionWhatsappLabel}>WhatsApp</Text>
                     </Pressable>
                   ) : null}
                 </View>
@@ -340,6 +377,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingTop: spacing.md,
     paddingBottom: spacing.sm,
+    gap: spacing.xs,
+  },
+  whatsappError: {
+    ...typography.caption,
+    color: colors.danger,
+    textAlign: 'center',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
   },
   heroTop: {
     flexDirection: 'row',
@@ -486,6 +533,19 @@ const styles = StyleSheet.create({
   actionLabel: {
     ...typography.label,
     color: colors.white,
+    fontSize: 13,
+  },
+  actionWhatsapp: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+    backgroundColor: colors.tealLight,
+    borderWidth: 1,
+    borderColor: colors.teal,
+  },
+  actionWhatsappLabel: {
+    ...typography.label,
+    color: colors.tealDeep,
     fontSize: 13,
   },
   empty: {

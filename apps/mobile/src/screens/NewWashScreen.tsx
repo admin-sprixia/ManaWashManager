@@ -26,14 +26,11 @@ import {
   type ServicePrice,
   type VehicleType,
 } from '@mana/domain';
+import { formatRupees } from '../utils/format';
 
 type NewWashScreenProps = NativeStackScreenProps<RootStackParamList, 'NewWash'>;
 
 const GROUP_ORDER: ServiceGroup[] = ['Wash', 'Interior', 'Protect', 'Add-ons', 'Other'];
-
-function formatRupees(paise: number): string {
-  return `₹${(paise / 100).toFixed(0)}`;
-}
 
 function normalizePhone(value: string): string {
   return value.replace(/\D/g, '');
@@ -72,6 +69,9 @@ export function NewWashScreen({ navigation }: NewWashScreenProps) {
   const [selectedServiceIds, setSelectedServiceIds] = useState<Set<string>>(new Set());
   const [serviceQuery, setServiceQuery] = useState('');
   const [activeGroup, setActiveGroup] = useState<ServiceGroup | 'All'>('All');
+  const [discountOpen, setDiscountOpen] = useState(false);
+  const [discountRupees, setDiscountRupees] = useState('');
+  const [discountReason, setDiscountReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -177,11 +177,31 @@ export function NewWashScreen({ navigation }: NewWashScreenProps) {
     }
   }, [vehicleTypeId, selectedServiceIds, prices]);
 
+  // Rupees in the input, paise everywhere else — money is paise end to end (see build plan).
+  const discountPaise = useMemo(() => {
+    const rupees = Number(discountRupees);
+    if (!discountRupees.trim() || !Number.isFinite(rupees) || rupees <= 0) return 0;
+    return Math.round(rupees * 100);
+  }, [discountRupees]);
+
+  // Mirrors the server's own rules exactly (@mana/domain's applyDiscount, and job.ts's
+  // "reason required" refinement) so a mistake is caught here, not as a 400 after submitting.
+  const discountExceedsSubtotal = Boolean(breakdown) && discountPaise > (breakdown?.subtotal ?? 0);
+  const discountNeedsReason = discountPaise > 0 && discountReason.trim().length === 0;
+  const finalTotal = breakdown ? Math.max(0, breakdown.subtotal - discountPaise) : 0;
+
+  const closeDiscount = () => {
+    setDiscountOpen(false);
+    setDiscountRupees('');
+    setDiscountReason('');
+  };
+
   const startWash = async () => {
     if (!vehicleTypeId || !breakdown) return;
     const phoneDigits = normalizePhone(phone);
     const reg = normalizeReg(registration);
     if (phoneDigits.length < 10 || reg.length < 4) return;
+    if (discountExceedsSubtotal || discountNeedsReason) return;
 
     setSubmitting(true);
     setError(null);
@@ -204,10 +224,14 @@ export function NewWashScreen({ navigation }: NewWashScreenProps) {
           vehicleId: ensured.vehicle.id,
           vehicleTypeId,
           services: Array.from(selectedServiceIds).map((serviceId) => ({ serviceId, quantity: 1 })),
-          discount: 0,
+          discount: discountPaise,
+          discountReason: discountPaise > 0 ? discountReason.trim() : undefined,
         },
       });
-      if (!jobRes.ok) throw new Error('Could not start the wash.');
+      if (!jobRes.ok) {
+        const body = (await jobRes.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(body?.message ?? 'Could not start the wash.');
+      }
 
       setPhone('');
       setRegistration('');
@@ -215,6 +239,7 @@ export function NewWashScreen({ navigation }: NewWashScreenProps) {
       setSelectedServiceIds(new Set());
       setServiceQuery('');
       setActiveGroup('All');
+      closeDiscount();
       navigation.navigate('JobBoard');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong.');
@@ -225,7 +250,14 @@ export function NewWashScreen({ navigation }: NewWashScreenProps) {
 
   const phoneOk = normalizePhone(phone).length >= 10;
   const regOk = normalizeReg(registration).length >= 4;
-  const canSubmit = Boolean(vehicleTypeId) && selectedServiceIds.size > 0 && phoneOk && regOk && Boolean(breakdown);
+  const canSubmit =
+    Boolean(vehicleTypeId) &&
+    selectedServiceIds.size > 0 &&
+    phoneOk &&
+    regOk &&
+    Boolean(breakdown) &&
+    !discountExceedsSubtotal &&
+    !discountNeedsReason;
 
   return (
     <ScreenContainer>
@@ -415,6 +447,49 @@ export function NewWashScreen({ navigation }: NewWashScreenProps) {
                   })
                 )}
               </View>
+              {breakdown && (
+                <>
+                  <Text style={[styles.stepHint, styles.stepHintInline]}>4 · Discount</Text>
+                  {!discountOpen ? (
+                    <Pressable onPress={() => setDiscountOpen(true)} style={styles.discountToggle} accessibilityRole="button">
+                      <Text style={styles.discountToggleText}>+ Add a discount</Text>
+                    </Pressable>
+                  ) : (
+                    <View style={styles.fieldBlock}>
+                      <View style={styles.discountHeader}>
+                        <Text style={styles.fieldLabel}>Discount amount (₹)</Text>
+                        <Pressable onPress={closeDiscount} hitSlop={8}>
+                          <Text style={styles.discountRemove}>Remove</Text>
+                        </Pressable>
+                      </View>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="0"
+                        placeholderTextColor={colors.slate}
+                        value={discountRupees}
+                        onChangeText={setDiscountRupees}
+                        keyboardType="numeric"
+                      />
+                      <View style={styles.fieldDivider} />
+                      <Text style={styles.fieldLabel}>Reason</Text>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="e.g. first wash, referral, owner's call"
+                        placeholderTextColor={colors.slate}
+                        value={discountReason}
+                        onChangeText={setDiscountReason}
+                      />
+                      {discountExceedsSubtotal ? (
+                        <Text style={styles.discountError}>
+                          Discount can’t be more than {formatRupees(breakdown.subtotal)}.
+                        </Text>
+                      ) : discountNeedsReason ? (
+                        <Text style={styles.discountError}>Add a reason so the discount can be tracked.</Text>
+                      ) : null}
+                    </View>
+                  )}
+                </>
+              )}
             </>
           )}
 
@@ -427,15 +502,20 @@ export function NewWashScreen({ navigation }: NewWashScreenProps) {
             <View>
               <Text style={styles.totalLabel}>Total</Text>
               {selectedServiceIds.size > 0 ? (
-                <Text style={styles.totalMeta}>{selectedServiceIds.size} service{selectedServiceIds.size === 1 ? '' : 's'}</Text>
+                <Text style={styles.totalMeta}>
+                  {selectedServiceIds.size} service{selectedServiceIds.size === 1 ? '' : 's'}
+                  {discountPaise > 0 && !discountExceedsSubtotal ? ` · ${formatRupees(discountPaise)} off` : ''}
+                </Text>
               ) : null}
             </View>
-            <Text style={styles.totalValue}>{breakdown ? formatRupees(breakdown.subtotal) : '₹0'}</Text>
+            <Text style={styles.totalValue}>
+              {breakdown ? formatRupees(discountExceedsSubtotal ? breakdown.subtotal : finalTotal) : '₹0'}
+            </Text>
           </View>
           <Button
             label={submitting ? 'Starting…' : 'Start Wash'}
             size="lg"
-            onPress={startWash}
+            onPress={() => void startWash()}
             loading={submitting}
             disabled={!canSubmit}
           />
@@ -649,6 +729,28 @@ const styles = StyleSheet.create({
     color: colors.slateDeep,
     padding: spacing.lg,
     textAlign: 'center',
+  },
+  discountToggle: {
+    alignSelf: 'flex-start',
+  },
+  discountToggleText: {
+    ...typography.bodyStrong,
+    color: colors.water,
+  },
+  discountHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  discountRemove: {
+    ...typography.caption,
+    color: colors.danger,
+    fontWeight: '700',
+  },
+  discountError: {
+    ...typography.caption,
+    color: colors.danger,
+    marginTop: spacing.xs,
   },
   scrollSpacer: {
     height: spacing.lg,

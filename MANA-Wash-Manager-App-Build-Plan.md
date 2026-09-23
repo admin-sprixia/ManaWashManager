@@ -19,34 +19,33 @@ Each version is a real, usable release — not a demo. The gate to the next vers
 
 ## Implementation status (as of 2026-09-23)
 
-V0.1 and most of V1.0 are built and verified — not just planned. Treat this section as the honest source of truth; update it as work lands rather than trusting the feature tables below to reflect reality on their own.
+V0.1 and **all of V1.0** are built and verified — not just planned. Treat this section as the honest source of truth; update it as work lands rather than trusting the feature tables below to reflect reality on their own.
 
 **Done, verified on a real device** (a USB-connected Android phone, running against the real API and a real Cloudflare D1 database — not a simulator, not mocked):
 
 - Monorepo scaffolded exactly as in Tech stack: `apps/mobile` (React Native CLI, **Android only**), `apps/api` (Cloudflare Worker + Hono), `packages/domain`, `packages/db`
 - Prisma schema + hand-written D1 migration SQL, seeded with MANA's real menu — verified by running the actual SQL against real SQLite
 - Domain logic (`calculatePrice`, `canTransition`) — 13/13 unit tests passing, strict-mode clean
-- API routes: OTP login (dev bypass — see Pending), customer lookup/create, service + vehicle-type list/create, price upsert, job create/list-today/update-status/mark-paid, all owner-role-gated where it matters
-- Mobile screens: **Login**, **New Wash** (lookup → multi-service select → live price → submit), **Job Board** (list, status advance, mark paid, auto-refresh on focus), **Settings** (owner-only: edit prices, add a vehicle type, **add a service**)
-- Full job lifecycle tested twice on-device: Waiting → Washing → Ready → Paid, multi-service pricing verified correct (e.g. Mini SUV Exterior Wash + Tyre Dressing = ₹350 + ₹50 = ₹400)
+- API routes: OTP login (dev bypass — see Pending), customer lookup/create/**profile with lifetime stats**, service + vehicle-type list/create, price upsert, job create/list-today/**stats**/update-status/mark-paid, all owner-role-gated where it matters
+- **Job creation and status changes return clean 4xx errors for real operator mistakes** (a service with no price set for the selected vehicle type, a discount larger than the subtotal, an already-paid job tapped twice, a job id that no longer exists) instead of a raw 500 — verified via direct API calls for every case
+- **"Today"/"this week" boundaries are computed in IST (UTC+5:30), not the Worker's own UTC clock** — a real bug fixed this pass: Cloudflare Workers run in UTC, so a naive `new Date(); setHours(0,0,0,0)` would have misfiled washes done in the first ~5.5 hours of the IST day as "yesterday"
+- Mobile screens: **Login**, **New Wash** (lookup → multi-service select → live price → optional discount → submit), **Job Board** (list, status advance, mark paid, WhatsApp thank-you, auto-refresh on focus), **Settings** (owner-only: edit prices, add a vehicle type, add a service), **Customer Profile** (visit count, lifetime spend, last visit, vehicles, full job history), **Reports** (Today / Last-7-days toggle: revenue, cars washed, pending now, new vs repeat customers, cash/UPI/other split)
+- Full job lifecycle tested repeatedly on-device: Waiting → Washing → Ready → Paid, multi-service pricing verified correct (e.g. Mini SUV Exterior Wash + Tyre Dressing = ₹350 + ₹50 = ₹400)
 - Owner settings fully exercised on-device: edited an existing price, added a vehicle type ("Bike"), added a new service ("Ceramic Coating") — the new service correctly showed blank "Set price" cells across all five vehicle types, including the one added moments earlier in the same session
+- **Discount flow fully exercised on-device**: entering a discount larger than the subtotal blocks submission with an inline error; entering a discount with no reason blocks submission with a different inline error (the server rejects both independently too — a bare `discount > 0` with no `discountReason` is a 400, matching V1.0's own "discounts require a reason" line); a valid discount + reason submits correctly and the job board shows the discounted total
+- **WhatsApp thank-you verified live**: tapping the WhatsApp action on a paid job opens the real WhatsApp app with the correct customer phone number and a pre-filled thank-you message referencing that customer's vehicle
+- **Customer Profile verified live**: correct visit count, lifetime spend (paid jobs only), last visit, vehicle list, and full chronological job history for a real customer
+- **Reports verified live**: Today/Last-7-days toggle recomputes correctly; payment-split bars are proportioned correctly against total revenue; new-vs-repeat customer counts match manual verification against seeded test data
 - `mana_db` created for real on Cloudflare; local migrations applied; the Worker serves real seeded data via `wrangler dev`
 - Repo pushed to GitHub: `admin-sprixia/ManaWashManager`, `main` branch
-- Six real bugs found and fixed during device testing — worth knowing if you touch this code: Gradle's node_modules paths in a monorepo, Metro not resolving `package.json` "exports" (broke Hono's client), Hermes' incomplete `URLSearchParams` (needed a polyfill), the Job Board not refreshing after navigating back to it, a seeded phone number that didn't match what the login screen actually sends, and (in testing itself, not the app) `adb`'s tap coordinates drifting on a scrolled screen — fixed by reading exact element bounds via `uiautomator dump` instead of estimating from screenshots
+- Real bugs found and fixed during device testing — worth knowing if you touch this code: Gradle's node_modules paths in a monorepo, Metro not resolving `package.json` "exports" (broke Hono's client), Hermes' incomplete `URLSearchParams` (needed a polyfill), the Job Board not refreshing after navigating back to it, a seeded phone number that didn't match what the login screen actually sends, the UTC-vs-IST day-boundary bug above, and (in testing itself, not the app) `adb`'s tap coordinates drifting whenever the screen scrolls or a `LayoutAnimation` reflows the list — fixed by re-reading exact element bounds via `uiautomator dump` before every tap instead of reusing coordinates across screen states
 
-**Pending for V0.1 to be fully "done":**
+**Pending for V0.1/V1.0 to be fully "done":**
 
 - A real MSG91 account and secret — still running on the `DEV_OTP_BYPASS` dev-only shortcut (phone `9100000000`, code `000000`)
 - `wrangler d1 migrations apply mana_db --remote` — the real D1 database is provisioned but still empty; only the local dev copy has data
 - `npm run deploy` — the Worker only runs locally (`wrangler dev` + `adb reverse`); there's no public `*.workers.dev` URL yet
 - Automated on-device tests (Maestro) — all testing so far has been manual (live device + adb), not automated
-
-**Not started (V1.0 features):**
-
-- Today dashboard (cars washed, revenue, cash vs UPI split)
-- Customer profile screen — the visit-history data and API already exist (`customerRepo.getHistory`), just no dedicated screen for it yet
-- WhatsApp thank-you button
-- Discount entry in the New Wash UI — the API already supports `discount`/`discountReason`, the app just always sends `discount: 0`
 - iOS build — deliberately out of scope per your direction (Android-only; MANA's customer base doesn't use iPhones). No `ios/` folder exists.
 
 **V1.2, V2.0, V3.0, V4.0:** not started, as planned — nothing here has been pulled forward.
@@ -170,12 +169,12 @@ No status board yet — that's what V1.0 adds on top of this same core flow.
 
 | Feature | Description | Priority | Status |
 | --- | --- | --- | --- |
-| Today dashboard | Cars washed, revenue, cash vs UPI split, pending jobs | Must have | ⏳ Not started |
-| Job status board | Waiting → Washing → Ready → Paid, tap to advance | Must have | ✅ Done — full lifecycle tested twice on-device |
-| Customer profile | Visit count, lifetime spend, last visit, full service history | Must have | 🟡 Partial — the API and data exist (`customerRepo.getHistory`); no screen yet |
-| WhatsApp thank-you | Pre-filled `wa.me` link, one tap to send after a job completes | Must have | ⏳ Not started |
-| Basic reports | Today / this week: cars, revenue, cash vs UPI, new vs repeat | Should have | ⏳ Not started |
-| Add-ons and discounts | Add-on services on top of the main wash; discounts require a reason | Should have | 🟡 Partial — add-ons work (multi-select services in New Wash); discount entry has no UI yet, API always receives `discount: 0` |
+| Today dashboard | Cars washed, revenue, cash vs UPI split, pending jobs | Must have | ✅ Done — Reports screen, "Today" toggle; verified on-device |
+| Job status board | Waiting → Washing → Ready → Paid, tap to advance | Must have | ✅ Done — full lifecycle tested on-device |
+| Customer profile | Visit count, lifetime spend, last visit, full service history | Must have | ✅ Done — new screen, reached by tapping a job's customer row; verified on-device |
+| WhatsApp thank-you | Pre-filled `wa.me` link, one tap to send after a job completes | Must have | ✅ Done — verified live: opens WhatsApp with the correct number and message |
+| Basic reports | Today / this week: cars, revenue, cash vs UPI, new vs repeat | Should have | ✅ Done — same Reports screen; "this week" implemented as a rolling last-7-days range rather than a Mon–Sun calendar week, to sidestep week-boundary ambiguity |
+| Add-ons and discounts | Add-on services on top of the main wash; discounts require a reason | Should have | ✅ Done — discount entry in New Wash, validated client-side and server-side (amount can't exceed subtotal, reason required when discount > 0); verified on-device |
 
 ### Final flow of V1.0
 

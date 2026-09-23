@@ -4,12 +4,16 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { JobBoardScreen } from '../screens/JobBoardScreen';
 import { NewWashScreen } from '../screens/NewWashScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
+import { CustomerProfileScreen } from '../screens/CustomerProfileScreen';
+import { ReportsScreen } from '../screens/ReportsScreen';
 import { colors } from '../theme';
 
 export type RootStackParamList = {
   JobBoard: undefined;
   NewWash: undefined;
   Settings: undefined;
+  CustomerProfile: { customerId: string };
+  Reports: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -36,6 +40,12 @@ export function RootNavigator() {
         <Stack.Screen name="JobBoard" component={JobBoardScreen} />
         <Stack.Screen name="NewWash" component={NewWashScreen} options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="Settings" component={SettingsScreen} options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen
+          name="CustomerProfile"
+          component={CustomerProfileScreen}
+          options={{ animation: 'slide_from_right' }}
+        />
+        <Stack.Screen name="Reports" component={ReportsScreen} options={{ animation: 'slide_from_right' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );

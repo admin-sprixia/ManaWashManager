@@ -51,9 +51,33 @@ export const customerRoutes = new Hono<{ Bindings: Env }>()
 
     return c.json({ customer, vehicles, visitCount: history.length, lastVisit: history[0]?.createdAt ?? null });
   })
-  .get('/:id/history', async (c) => {
+  // Customer Profile screen: full picture of one customer — their vehicles, every job they've
+  // ever had, and lifetime numbers. `lifetimeSpend` only counts paid jobs (money actually
+  // collected); `visitCount`/`lastVisit` count every job the same way `/lookup` above does,
+  // so the same customer shows identical numbers whether seen from New Wash or their profile.
+  .get('/:id', async (c) => {
     const db = createDbClient(c.env.DB);
-    return c.json(await customerRepo.getHistory(db, c.req.param('id')));
+    const id = c.req.param('id');
+    const customer = await customerRepo.findById(db, id);
+    if (!customer) return c.json(null);
+
+    const [vehicles, history] = await Promise.all([
+      vehicleRepo.listForCustomer(db, id),
+      customerRepo.getHistory(db, id),
+    ]);
+
+    const lifetimeSpend = history
+      .filter((job) => job.status === 'paid')
+      .reduce((sum, job) => sum + job.total, 0);
+
+    return c.json({
+      customer,
+      vehicles,
+      history,
+      visitCount: history.length,
+      lifetimeSpend,
+      lastVisit: history[0]?.createdAt ?? null,
+    });
   })
   // Quick-add: a brand new customer and their first vehicle in one call (New Wash screen, step 2).
   .post('/', zValidator('json', createCustomerSchema), async (c) => {

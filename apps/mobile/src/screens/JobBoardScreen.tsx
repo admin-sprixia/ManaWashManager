@@ -12,9 +12,18 @@ import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { GradientHero } from '../components/GradientHero';
-import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { StatusBadge } from '../components/StatusBadge';
+import {
+  IconChart,
+  IconCheck,
+  IconDroplet,
+  IconPlay,
+  IconPlus,
+  IconSettings,
+  IconSparkle,
+  IconWhatsApp,
+} from '../components/Icons';
 import { colors, radius, shadow, spacing, statusColors, typography } from '../theme';
 import { api } from '../api/client';
 import { getSessionUser } from '../api/session';
@@ -85,6 +94,12 @@ function actionLabel(job: JobListItem): string | null {
   if (!next) return null;
   if (next === 'washing') return 'Start wash';
   return `Mark ${STATUS_LABEL[next].toLowerCase()}`;
+}
+
+function ActionIcon({ status }: { status: JobStatus }) {
+  if (status === 'ready') return <IconCheck size={14} color={colors.white} />;
+  if (status === 'waiting') return <IconPlay size={13} color={colors.white} />;
+  return <IconDroplet size={13} color={colors.white} />;
 }
 
 export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
@@ -166,7 +181,9 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
   const stats = useMemo(() => {
     const paidJobs = safeJobs.filter((j) => j.status === 'paid');
     const revenue = paidJobs.reduce((sum, j) => sum + j.total, 0);
-    const active = safeJobs.filter((j) => j.status === 'waiting' || j.status === 'washing' || j.status === 'ready').length;
+    const active = safeJobs.filter(
+      (j) => j.status === 'waiting' || j.status === 'washing' || j.status === 'ready',
+    ).length;
     return { cars: safeJobs.length, revenue, active };
   }, [safeJobs]);
 
@@ -197,7 +214,6 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
 
   return (
     <ScreenContainer noPadding edges={['bottom']}>
-      {/* Strict column: hero → CTA → list. Nothing is absolutely positioned over the cards. */}
       <View style={styles.root}>
         <GradientHero>
           <View style={styles.heroContent}>
@@ -217,21 +233,21 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
                 <View style={styles.headerActions}>
                   <Pressable
                     onPress={() => navigation.navigate('Reports')}
-                    style={styles.settingsBtn}
+                    style={({ pressed }) => [styles.heroIconBtn, pressed && styles.heroIconPressed]}
                     hitSlop={8}
                     accessibilityRole="button"
                     accessibilityLabel="Reports"
                   >
-                    <Text style={styles.settingsGlyph}>📊</Text>
+                    <IconChart size={18} color={colors.white} />
                   </Pressable>
                   <Pressable
                     onPress={() => navigation.navigate('Settings')}
-                    style={styles.settingsBtn}
+                    style={({ pressed }) => [styles.heroIconBtn, pressed && styles.heroIconPressed]}
                     hitSlop={8}
                     accessibilityRole="button"
                     accessibilityLabel="Settings"
                   >
-                    <Text style={styles.settingsGlyph}>⚙</Text>
+                    <IconSettings size={18} color={colors.white} />
                   </Pressable>
                 </View>
               )}
@@ -251,7 +267,12 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
         </GradientHero>
 
         <View style={styles.ctaWrap}>
-          <Button label="+ New Wash" size="lg" onPress={() => navigation.navigate('NewWash')} />
+          <Button
+            label="New Wash"
+            size="lg"
+            onPress={() => navigation.navigate('NewWash')}
+            icon={<IconPlus size={18} color={colors.white} />}
+          />
           {whatsappError ? <Text style={styles.whatsappError}>{whatsappError}</Text> : null}
         </View>
 
@@ -260,28 +281,47 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
           keyExtractor={(job) => job.id}
           stickySectionHeadersEnabled={false}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={colors.water} colors={[colors.water]} />
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => void onRefresh()}
+              tintColor={colors.water}
+              colors={[colors.water]}
+            />
           }
           contentContainerStyle={styles.list}
           style={styles.listFlex}
           renderSectionHeader={({ section }) => (
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>{section.title}</Text>
-              <Text style={styles.sectionCount}>{section.data.length}</Text>
+              <View style={styles.sectionCountPill}>
+                <Text style={styles.sectionCount}>{section.data.length}</Text>
+              </View>
             </View>
           )}
-          renderItem={({ item }) => {
+          renderSectionFooter={() => <View style={styles.sectionFooter} />}
+          renderItem={({ item, index, section }) => {
             const tone = statusColors[item.status];
             const headline = vehicleHeadline(item);
             const action = actionLabel(item);
             const isBusy = busyId === item.id;
+            const isFirst = index === 0;
+            const isLast = index === section.data.length - 1;
 
             return (
-              <Card elevation="sm" style={[styles.jobCard, { borderLeftColor: tone.border }]}>
+              <View
+                style={[
+                  styles.jobRow,
+                  { borderLeftColor: tone.border },
+                  isFirst && styles.jobRowFirst,
+                  isLast && styles.jobRowLast,
+                ]}
+              >
                 <View style={styles.cardHeader}>
                   <Pressable
                     style={styles.cardTitleBlock}
-                    onPress={() => navigation.navigate('CustomerProfile', { customerId: item.customer.id })}
+                    onPress={() =>
+                      navigation.navigate('CustomerProfile', { customerId: item.customer.id })
+                    }
                     accessibilityRole="button"
                     accessibilityLabel={`View ${customerLine(item)}'s profile`}
                   >
@@ -289,7 +329,9 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
                       {headline.title}
                     </Text>
                     <Text style={styles.cardMeta} numberOfLines={1}>
-                      {headline.meta} · {customerLine(item)}
+                      {headline.meta}
+                      <Text style={styles.cardMetaDot}>  ·  </Text>
+                      {customerLine(item)}
                     </Text>
                   </Pressable>
                   <StatusBadge status={item.status} />
@@ -309,20 +351,25 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
                       accessibilityRole="button"
                       accessibilityLabel={action}
                     >
+                      {!isBusy ? <ActionIcon status={item.status} /> : null}
                       <Text style={styles.actionLabel}>{isBusy ? '…' : action}</Text>
                     </Pressable>
                   ) : item.status === 'paid' ? (
                     <Pressable
                       onPress={() => sendThankYou(item)}
-                      style={styles.actionWhatsapp}
+                      style={({ pressed }) => [
+                        styles.actionWhatsapp,
+                        pressed && styles.actionPressed,
+                      ]}
                       accessibilityRole="button"
                       accessibilityLabel="Send thank-you on WhatsApp"
                     >
-                      <Text style={styles.actionWhatsappLabel}>WhatsApp</Text>
+                      <IconWhatsApp size={16} color="#25D366" />
+                      <Text style={styles.actionWhatsappLabel}>Thank you</Text>
                     </Pressable>
                   ) : null}
                 </View>
-              </Card>
+              </View>
             );
           }}
           ListEmptyComponent={
@@ -343,14 +390,13 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
                 </>
               ) : (
                 <>
-                  <View style={styles.emptyIcon}>
-                    <View style={styles.emptyCarBody} />
-                    <View style={styles.emptyCarCabin} />
-                    <View style={[styles.emptyWheel, styles.emptyWheelLeft]} />
-                    <View style={[styles.emptyWheel, styles.emptyWheelRight]} />
+                  <View style={styles.emptyIconWrap}>
+                    <IconSparkle size={32} color={colors.water} />
                   </View>
                   <Text style={styles.emptyText}>No washes yet today</Text>
-                  <Text style={styles.emptySubtext}>Tap New Wash when the first car rolls in.</Text>
+                  <Text style={styles.emptySubtext}>
+                    Tap New Wash when the first car rolls in.
+                  </Text>
                 </>
               )}
             </View>
@@ -370,8 +416,8 @@ const styles = StyleSheet.create({
   heroContent: {
     paddingHorizontal: spacing.md,
     paddingTop: spacing.md,
-    paddingBottom: spacing.lg,
-    gap: spacing.md,
+    paddingBottom: spacing.lg + 4,
+    gap: spacing.md + 2,
   },
   ctaWrap: {
     paddingHorizontal: spacing.md,
@@ -386,7 +432,7 @@ const styles = StyleSheet.create({
   },
   headerActions: {
     flexDirection: 'row',
-    gap: spacing.sm,
+    gap: 10,
   },
   heroTop: {
     flexDirection: 'row',
@@ -399,32 +445,34 @@ const styles = StyleSheet.create({
   },
   brand: {
     ...typography.label,
-    color: 'rgba(255,255,255,0.75)',
-    letterSpacing: 4,
-    marginBottom: 4,
+    color: 'rgba(255,255,255,0.7)',
+    letterSpacing: 3.5,
+    marginBottom: 6,
   },
   greeting: {
     ...typography.title,
     color: colors.white,
+    fontSize: 28,
+    letterSpacing: -0.4,
   },
   heroSub: {
     ...typography.body,
-    color: 'rgba(255,255,255,0.78)',
-    marginTop: 4,
+    color: 'rgba(255,255,255,0.8)',
+    marginTop: 6,
+    fontSize: 15,
   },
-  settingsBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.18)',
+  heroIconBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255,255,255,0.16)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.28)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  settingsGlyph: {
-    fontSize: 18,
-    color: colors.white,
+  heroIconPressed: {
+    backgroundColor: 'rgba(255,255,255,0.28)',
   },
   statRow: {
     flexDirection: 'row',
@@ -432,29 +480,31 @@ const styles = StyleSheet.create({
   },
   statPill: {
     flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.16)',
+    backgroundColor: 'rgba(255,255,255,0.14)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.22)',
-    borderRadius: radius.md,
-    paddingVertical: spacing.sm + 2,
+    borderColor: 'rgba(255,255,255,0.2)',
+    borderRadius: radius.lg,
+    paddingVertical: spacing.md - 2,
     paddingHorizontal: spacing.md,
   },
   statValue: {
     ...typography.heading,
     color: colors.white,
-    fontSize: 22,
+    fontSize: 24,
+    letterSpacing: -0.3,
   },
   statLabel: {
     ...typography.caption,
-    color: 'rgba(255,255,255,0.72)',
-    marginTop: 2,
-    letterSpacing: 0.4,
+    color: 'rgba(255,255,255,0.7)',
+    marginTop: 4,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    fontSize: 11,
   },
   listFlex: {
     flex: 1,
   },
   list: {
-    paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,
     paddingBottom: spacing.xxl,
     flexGrow: 1,
@@ -463,27 +513,52 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
     marginBottom: spacing.sm,
+    marginTop: spacing.sm,
   },
   sectionTitle: {
     ...typography.label,
     color: colors.slateDeep,
-    letterSpacing: 0.6,
+    letterSpacing: 0.7,
     textTransform: 'uppercase',
+    fontSize: 12,
+  },
+  sectionCountPill: {
+    minWidth: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 7,
   },
   sectionCount: {
     ...typography.caption,
-    color: colors.slate,
-    backgroundColor: colors.white,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: radius.pill,
-    overflow: 'hidden',
+    color: colors.slateDeep,
+    fontSize: 12,
   },
-  jobCard: {
-    borderLeftWidth: 4,
+  sectionFooter: {
+    height: spacing.md,
+  },
+  jobRow: {
+    backgroundColor: colors.white,
+    borderLeftWidth: 3,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
     gap: spacing.sm,
-    marginBottom: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  jobRowFirst: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  jobRowLast: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -493,31 +568,40 @@ const styles = StyleSheet.create({
   },
   cardTitleBlock: {
     flex: 1,
-    gap: 2,
+    gap: 4,
+    paddingRight: spacing.xs,
   },
   cardTitle: {
     ...typography.heading,
     color: colors.waterInk,
+    fontSize: 17,
+    letterSpacing: -0.2,
   },
   cardMeta: {
     ...typography.body,
     color: colors.slateDeep,
     fontSize: 14,
   },
+  cardMetaDot: {
+    color: colors.slate,
+  },
   cardFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 2,
   },
   price: {
     ...typography.heading,
     color: colors.waterDeep,
     fontSize: 20,
+    letterSpacing: -0.3,
   },
   actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingVertical: 10,
     borderRadius: radius.pill,
     ...shadow('sm'),
   },
@@ -528,7 +612,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.amber,
   },
   actionPressed: {
-    opacity: 0.75,
+    opacity: 0.78,
   },
   actionLabel: {
     ...typography.label,
@@ -536,12 +620,15 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   actionWhatsapp: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingVertical: 10,
     borderRadius: radius.pill,
-    backgroundColor: colors.tealLight,
+    backgroundColor: '#ECFDF5',
     borderWidth: 1,
-    borderColor: colors.teal,
+    borderColor: '#A7F3D0',
   },
   actionWhatsappLabel: {
     ...typography.label,
@@ -553,47 +640,22 @@ const styles = StyleSheet.create({
     marginTop: spacing.xxl,
     paddingHorizontal: spacing.lg,
   },
-  emptyIcon: {
-    width: 72,
-    height: 48,
-    marginBottom: spacing.md,
-    position: 'relative',
-  },
-  emptyCarBody: {
-    position: 'absolute',
-    left: 4,
-    right: 4,
-    bottom: 10,
-    height: 18,
-    borderRadius: 8,
+  emptyIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: colors.waterPale,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  emptyCarCabin: {
-    position: 'absolute',
-    left: 18,
-    right: 18,
-    top: 6,
-    height: 16,
-    borderTopLeftRadius: 10,
-    borderTopRightRadius: 10,
-    backgroundColor: colors.waterLight,
-    opacity: 0.7,
-  },
-  emptyWheel: {
-    position: 'absolute',
-    bottom: 4,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: colors.waterDeep,
-    opacity: 0.35,
-  },
-  emptyWheelLeft: { left: 12 },
-  emptyWheelRight: { right: 12 },
   emptyText: {
     ...typography.bodyStrong,
     color: colors.waterInk,
     marginBottom: 4,
+    fontSize: 17,
   },
   emptySubtext: {
     ...typography.body,

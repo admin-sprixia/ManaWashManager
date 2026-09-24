@@ -5,8 +5,24 @@ import { createDbClient, serviceRepo } from '@mana/db';
 import { requireAuth, requireRole } from '../middleware/auth';
 import type { Env } from '../types';
 
-const createServiceSchema = z.object({ name: z.string().min(1), description: z.string().optional() });
-const createVehicleTypeSchema = z.object({ name: z.string().min(1) });
+const vehicleCategorySchema = z.enum(['car', 'bike']);
+const appliesToSchema = z.enum(['car', 'bike', 'both']);
+
+const createServiceSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional(),
+  appliesTo: appliesToSchema.optional(),
+});
+const createVehicleTypeSchema = z.object({
+  name: z.string().min(1),
+  category: vehicleCategorySchema.optional(),
+});
+const listServicesQuerySchema = z.object({
+  category: vehicleCategorySchema.optional(),
+});
+const listVehicleTypesQuerySchema = z.object({
+  category: vehicleCategorySchema.optional(),
+});
 const pricesQuerySchema = z.object({ vehicleTypeId: z.string().optional() });
 const upsertPriceSchema = z.object({
   serviceId: z.string(),
@@ -17,9 +33,10 @@ const upsertPriceSchema = z.object({
 // Chained in one expression, with every input declared via `zValidator` — see the comment
 // in routes/auth.ts for why both matter for Hono RPC's client typing.
 export const serviceRoutes = new Hono<{ Bindings: Env }>()
-  .get('/', async (c) => {
+  .get('/', zValidator('query', listServicesQuerySchema), async (c) => {
     const db = createDbClient(c.env.DB);
-    return c.json(await serviceRepo.listActive(db));
+    const { category } = c.req.valid('query');
+    return c.json(await serviceRepo.listActive(db, category));
   })
   // Owner-only: add a new service from the settings screen — no code change, no deploy.
   .post('/', requireAuth, requireRole('owner'), zValidator('json', createServiceSchema), async (c) => {
@@ -27,11 +44,12 @@ export const serviceRoutes = new Hono<{ Bindings: Env }>()
     const db = createDbClient(c.env.DB);
     return c.json(await serviceRepo.createService(db, body), 201);
   })
-  .get('/vehicle-types', async (c) => {
+  .get('/vehicle-types', zValidator('query', listVehicleTypesQuerySchema), async (c) => {
     const db = createDbClient(c.env.DB);
-    return c.json(await serviceRepo.listVehicleTypes(db));
+    const { category } = c.req.valid('query');
+    return c.json(await serviceRepo.listVehicleTypes(db, category));
   })
-  // Owner-only: add a new vehicle category (e.g. "Bike") from the settings screen.
+  // Owner-only: add a new vehicle size within Cars or Bikes from the settings screen.
   .post(
     '/vehicle-types',
     requireAuth,
@@ -53,5 +71,23 @@ export const serviceRoutes = new Hono<{ Bindings: Env }>()
   .put('/prices', requireAuth, requireRole('owner'), zValidator('json', upsertPriceSchema), async (c) => {
     const body = c.req.valid('json');
     const db = createDbClient(c.env.DB);
+
+    const [service, vehicleType] = await Promise.all([
+      db.service.findUnique({ where: { id: body.serviceId } }),
+      db.vehicleType.findUnique({ where: { id: body.vehicleTypeId } }),
+    ]);
+    if (!service || !vehicleType) {
+      return c.json({ error: 'not_found' as const }, 404);
+    }
+    if (service.appliesTo !== 'both' && service.appliesTo !== vehicleType.category) {
+      return c.json(
+        {
+          error: 'category_mismatch' as const,
+          message: `${service.name} is not offered for ${vehicleType.category} vehicles.`,
+        },
+        400,
+      );
+    }
+
     return c.json(await serviceRepo.upsertPrice(db, body));
   });

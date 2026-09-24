@@ -79,13 +79,13 @@ export const jobRepo = {
   },
 
   /**
-   * Aggregates for the Today dashboard / basic reports: cars washed, revenue, payment-method
-   * split, and new-vs-repeat customers — all for jobs created on/after `from`. "New" means
-   * this job is that customer's first-ever job; "repeat" means they'd visited before `from`.
+   * Aggregates for reports: cars washed, revenue, payment-method split, and new-vs-repeat
+   * customers for jobs with createdAt in `[from, to)`. "New" means this job is that
+   * customer's first-ever job; "repeat" means they'd visited before `from`.
    */
-  async getStats(db: DbClient, from: Date) {
+  async getStats(db: DbClient, from: Date, to: Date) {
     const jobs = await db.job.findMany({
-      where: { createdAt: { gte: from } },
+      where: { createdAt: { gte: from, lt: to } },
       select: { status: true, total: true, paymentMethod: true, customerId: true },
     });
 
@@ -126,5 +126,18 @@ export const jobRepo = {
       newCustomers,
       repeatCustomers,
     };
+  },
+
+  /** Job lines for a PDF / CSV export — newest first, includes customer + vehicle + services. */
+  async listForReport(db: DbClient, from: Date, to: Date) {
+    return db.job.findMany({
+      where: { createdAt: { gte: from, lt: to } },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        customer: true,
+        vehicle: { include: { vehicleType: true } },
+        jobServices: { include: { service: true } },
+      },
+    });
   },
 };

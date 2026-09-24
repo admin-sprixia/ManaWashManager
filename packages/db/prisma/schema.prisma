@@ -34,6 +34,8 @@ model User {
 model VehicleType {
   id        String @id @default(uuid())
   name      String
+  /// "car" | "bike" — drives which services appear on New Wash / Settings.
+  category  String @default("car")
   sortOrder Int    @default(0) @map("sort_order")
 
   servicePrices ServicePrice[]
@@ -47,6 +49,8 @@ model Service {
   name        String
   description String?
   active      Boolean @default(true)
+  /// "car" | "bike" | "both" — which vehicle categories this service is offered for.
+  appliesTo   String  @default("car") @map("applies_to")
   sortOrder   Int     @default(0) @map("sort_order")
 
   prices      ServicePrice[]

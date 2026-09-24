@@ -12,7 +12,7 @@ const lookupQuerySchema = z.object({
 
 const createCustomerSchema = z.object({
   phone: z.string().min(10),
-  name: z.string().optional(),
+  name: z.string().trim().min(1, 'Customer name is required'),
   source: z.enum(['google', 'friend', 'board', 'instagram', 'other']).optional(),
   vehicle: z.object({
     registrationNumber: z.string().min(4),
@@ -107,8 +107,11 @@ export const customerRoutes = new Hono<{ Bindings: Env }>()
 
     const existingVehicle = await vehicleRepo.findByRegistration(db, registrationNumber);
     if (existingVehicle) {
-      const customer = await customerRepo.findById(db, existingVehicle.customerId);
+      let customer = await customerRepo.findById(db, existingVehicle.customerId);
       if (!customer) return c.json({ error: 'customer_missing' as const }, 500);
+      if (customer.name !== body.name) {
+        customer = await customerRepo.updateName(db, customer.id, body.name);
+      }
       return c.json({ customer, vehicle: existingVehicle });
     }
 
@@ -119,6 +122,8 @@ export const customerRoutes = new Hono<{ Bindings: Env }>()
         name: body.name,
         source: body.source,
       });
+    } else if (customer.name !== body.name) {
+      customer = await customerRepo.updateName(db, customer.id, body.name);
     }
 
     const vehicle = await vehicleRepo.create(db, {

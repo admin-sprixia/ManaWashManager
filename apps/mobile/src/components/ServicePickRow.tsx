@@ -1,24 +1,26 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
-import { colors, radius, shadow, spacing, typography } from '../theme';
+import { colors, spacing, typography } from '../theme';
 
 export type ServiceGroup = 'Wash' | 'Interior' | 'Protect' | 'Add-ons' | 'Other';
 
-export const GROUP_TONE: Record<ServiceGroup, { bg: string; fg: string; accent: string; gradient: [string, string] }> = {
-  Wash: { bg: '#E0F2FE', fg: '#0369A1', accent: '#0EA5E9', gradient: ['#38BDF8', '#0369A1'] },
-  Interior: { bg: '#CCFBF1', fg: '#115E59', accent: '#0D9488', gradient: ['#2DD4BF', '#0F766E'] },
-  Protect: { bg: '#EDE9FE', fg: '#5B21B6', accent: '#8B5CF6', gradient: ['#A78BFA', '#6D28D9'] },
-  'Add-ons': { bg: '#FEF3C7', fg: '#B45309', accent: '#F59E0B', gradient: ['#FBBF24', '#D97706'] },
-  Other: { bg: '#F1F5F9', fg: '#475569', accent: '#94A3B8', gradient: ['#94A3B8', '#475569'] },
+export const GROUP_TONE: Record<
+  ServiceGroup,
+  { bg: string; fg: string; accent: string }
+> = {
+  Wash: { bg: '#E0F2FE', fg: '#0369A1', accent: '#0EA5E9' },
+  Interior: { bg: '#CCFBF1', fg: '#115E59', accent: '#0D9488' },
+  Protect: { bg: '#EDE9FE', fg: '#5B21B6', accent: '#8B5CF6' },
+  'Add-ons': { bg: '#FEF3C7', fg: '#B45309', accent: '#F59E0B' },
+  Other: { bg: '#F1F5F9', fg: '#475569', accent: '#94A3B8' },
 };
 
 function GroupIcon({ group, color }: { group: ServiceGroup; color: string }) {
   const stroke = color;
   if (group === 'Wash') {
     return (
-      <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+      <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
         <Path
           d="M12 3 C12 3 6 10 6 14.5 A6 6 0 0 0 18 14.5 C18 10 12 3 12 3 Z"
           stroke={stroke}
@@ -31,7 +33,7 @@ function GroupIcon({ group, color }: { group: ServiceGroup; color: string }) {
   }
   if (group === 'Interior') {
     return (
-      <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+      <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
         <Path d="M4 14 L7 8 H17 L20 14" stroke={stroke} strokeWidth={2} strokeLinejoin="round" />
         <Rect x="3" y="14" width="18" height="4" rx="1.5" stroke={stroke} strokeWidth={2} />
         <Circle cx="8" cy="18.5" r="1.5" fill={stroke} />
@@ -41,7 +43,7 @@ function GroupIcon({ group, color }: { group: ServiceGroup; color: string }) {
   }
   if (group === 'Protect') {
     return (
-      <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+      <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
         <Path
           d="M12 3 L19 6.5 V12 C19 16.5 15.5 20 12 21 C8.5 20 5 16.5 5 12 V6.5 L12 3 Z"
           stroke={stroke}
@@ -54,13 +56,13 @@ function GroupIcon({ group, color }: { group: ServiceGroup; color: string }) {
   }
   if (group === 'Add-ons') {
     return (
-      <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+      <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
         <Path d="M12 4 L13.5 9.5 L19 11 L13.5 12.5 L12 18 L10.5 12.5 L5 11 L10.5 9.5 Z" fill={stroke} />
       </Svg>
     );
   }
   return (
-    <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
       <Circle cx="12" cy="12" r="7" stroke={stroke} strokeWidth={2} />
     </Svg>
   );
@@ -72,60 +74,47 @@ interface ServicePickRowProps {
   priceLabel: string;
   selected: boolean;
   onPress: () => void;
+  /** Draw a hairline under the row (omit on the last item). */
+  showDivider?: boolean;
 }
 
-/** Full-width premium service row — icon badge, name, price, clear selected fill. */
-export function ServicePickRow({ name, group, priceLabel, selected, onPress }: ServicePickRowProps) {
+/** Edge-to-edge service row — no card chrome, just a clean selectable list line. */
+export function ServicePickRow({
+  name,
+  group,
+  priceLabel,
+  selected,
+  onPress,
+  showDivider = true,
+}: ServicePickRowProps) {
   const tone = GROUP_TONE[group];
-
-  if (selected) {
-    return (
-      <Pressable onPress={onPress} accessibilityRole="checkbox" accessibilityState={{ checked: true }}>
-        <LinearGradient
-          colors={tone.gradient}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[styles.row, styles.rowSelected, shadow('md')]}
-        >
-          <View style={styles.iconOn}>
-            <GroupIcon group={group} color={tone.fg} />
-          </View>
-          <View style={styles.copy}>
-            <Text style={styles.nameOn} numberOfLines={2}>
-              {name}
-            </Text>
-            <Text style={styles.metaOn}>{group}</Text>
-          </View>
-          <View style={styles.right}>
-            <Text style={styles.priceOn}>{priceLabel}</Text>
-            <View style={styles.checkOn}>
-              <Text style={styles.checkMark}>✓</Text>
-            </View>
-          </View>
-        </LinearGradient>
-      </Pressable>
-    );
-  }
 
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="checkbox"
-      accessibilityState={{ checked: false }}
-      style={[styles.row, styles.rowOff, shadow('sm')]}
+      accessibilityState={{ checked: selected }}
+      style={({ pressed }) => [
+        styles.row,
+        selected && styles.rowSelected,
+        showDivider && styles.rowDivider,
+        pressed && styles.pressed,
+      ]}
     >
-      <View style={[styles.iconOff, { backgroundColor: tone.bg }]}>
-        <GroupIcon group={group} color={tone.accent} />
+      <View style={[styles.icon, { backgroundColor: selected ? 'rgba(255,255,255,0.9)' : tone.bg }]}>
+        <GroupIcon group={group} color={selected ? colors.waterDeep : tone.accent} />
       </View>
       <View style={styles.copy}>
-        <Text style={styles.nameOff} numberOfLines={2}>
+        <Text style={[styles.name, selected && styles.nameOn]} numberOfLines={2}>
           {name}
         </Text>
-        <Text style={[styles.metaOff, { color: tone.fg }]}>{group}</Text>
+        <Text style={[styles.meta, selected ? styles.metaOn : { color: tone.fg }]}>{group}</Text>
       </View>
       <View style={styles.right}>
-        <Text style={styles.priceOff}>{priceLabel}</Text>
-        <View style={[styles.checkOff, { borderColor: tone.accent }]} />
+        <Text style={[styles.price, selected && styles.priceOn]}>{priceLabel}</Text>
+        <View style={[styles.check, selected && styles.checkOn, !selected && { borderColor: tone.accent }]}>
+          {selected ? <Text style={styles.checkMark}>✓</Text> : null}
+        </View>
       </View>
     </Pressable>
   );
@@ -138,87 +127,73 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
-    borderRadius: radius.xl,
-    minHeight: 84,
-  },
-  rowOff: {
+    minHeight: 72,
     backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.border,
   },
   rowSelected: {
-    borderWidth: 0,
+    backgroundColor: colors.waterPale,
   },
-  iconOff: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
+  rowDivider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
   },
-  iconOn: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.92)',
+  pressed: {
+    opacity: 0.88,
+  },
+  icon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   copy: {
     flex: 1,
-    gap: 3,
+    gap: 2,
   },
-  nameOff: {
+  name: {
     ...typography.bodyStrong,
     color: colors.waterInk,
     fontSize: 16,
   },
   nameOn: {
-    ...typography.bodyStrong,
-    color: colors.white,
-    fontSize: 16,
+    color: colors.waterInk,
   },
-  metaOff: {
+  meta: {
     ...typography.caption,
     fontWeight: '600',
   },
   metaOn: {
-    ...typography.caption,
-    color: 'rgba(255,255,255,0.85)',
-    fontWeight: '600',
+    color: colors.waterDeep,
   },
   right: {
     alignItems: 'flex-end',
     gap: 8,
   },
-  priceOff: {
-    ...typography.heading,
+  price: {
+    ...typography.bodyStrong,
     color: colors.waterDeep,
-    fontSize: 18,
+    fontSize: 16,
   },
   priceOn: {
-    ...typography.heading,
-    color: colors.white,
-    fontSize: 18,
+    color: colors.waterDeep,
   },
-  checkOff: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+  check: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     borderWidth: 2,
-  },
-  checkOn: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: colors.white,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  checkOn: {
+    backgroundColor: colors.water,
+    borderColor: colors.water,
+  },
   checkMark: {
-    color: colors.waterDeep,
-    fontSize: 13,
+    color: colors.white,
+    fontSize: 12,
     fontWeight: '800',
-    lineHeight: 14,
+    lineHeight: 13,
   },
 });

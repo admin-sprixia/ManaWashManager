@@ -9,8 +9,12 @@ export const customerRepo = {
     return db.customer.findUnique({ where: { id } });
   },
 
-  async create(db: DbClient, data: { phone: string; name?: string; source?: string }) {
+  async create(db: DbClient, data: { phone: string; name: string; source?: string }) {
     return db.customer.create({ data });
+  },
+
+  async updateName(db: DbClient, id: string, name: string) {
+    return db.customer.update({ where: { id }, data: { name } });
   },
 
   /** Full job history for a customer's profile screen, newest first. */

@@ -1,13 +1,35 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { LayoutAnimation, Platform, Pressable, ScrollView, StyleSheet, Text, UIManager, View } from 'react-native';
+import {
+  Alert,
+  LayoutAnimation,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  UIManager,
+  View,
+} from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { PromptModal } from '../components/PromptModal';
+import { Button } from '../components/Button';
+import { IconPlus } from '../components/Icons';
 import { colors, radius, spacing, typography } from '../theme';
 import { api } from '../api/client';
-import type { Service, ServicePrice, VehicleType } from '@mana/domain';
+import { useAuth } from '../api/auth';
+import {
+  parseServiceAppliesTo,
+  parseVehicleCategory,
+  serviceAppliesToCategory,
+  type Service,
+  type ServicePrice,
+  type VehicleCategory,
+  type VehicleType,
+} from '@mana/domain';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -20,6 +42,31 @@ function formatRupees(paise: number): string {
 
 function animate() {
   LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+}
+
+function normalizeServices(
+  rows: Array<{
+    id: string;
+    name: string;
+    description: string | null;
+    active: boolean;
+    sortOrder: number;
+    appliesTo: string;
+  }>,
+): Service[] {
+  return rows.map((s) => ({
+    ...s,
+    appliesTo: parseServiceAppliesTo(s.appliesTo),
+  }));
+}
+
+function normalizeVehicleTypes(
+  rows: Array<{ id: string; name: string; sortOrder: number; category: string }>,
+): VehicleType[] {
+  return rows.map((vt) => ({
+    ...vt,
+    category: parseVehicleCategory(vt.category),
+  }));
 }
 
 type Prompt =
@@ -36,23 +83,68 @@ type Prompt =
 
 type SettingsScreenProps = NativeStackScreenProps<RootStackParamList, 'Settings'>;
 
+const CATEGORIES: { id: VehicleCategory; label: string; hint: string }[] = [
+  { id: 'car', label: 'Cars', hint: 'Hatchback, Sedan, SUV…' },
+  { id: 'bike', label: 'Bikes', hint: 'Bike, Scooter…' },
+];
+
 export function SettingsScreen({ navigation }: SettingsScreenProps) {
+  const { user, signOut } = useAuth();
   const [services, setServices] = useState<Service[]>([]);
   const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
-  const [prices, setPrices] = useState<ServicePrice[]>([]);
+  const [prices, setPrices] = useState<(ServicePrice & { id?: string })[]>([]);
   const [prompt, setPrompt] = useState<Prompt | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [vehiclesOpen, setVehiclesOpen] = useState(false);
+  const [category, setCategory] = useState<VehicleCategory>('car');
   const [expandedServiceId, setExpandedServiceId] = useState<string | null>(null);
+  const [serviceQuery, setServiceQuery] = useState('');
+  const [signingOut, setSigningOut] = useState(false);
+
+  const initials = useMemo(() => {
+    const name = user?.name?.trim() ?? '';
+    if (!name) return 'M';
+    const parts = name.split(/\s+/).filter(Boolean);
+    if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+    return `${parts[0]![0] ?? ''}${parts[parts.length - 1]![0] ?? ''}`.toUpperCase();
+  }, [user?.name]);
+
+  const roleLabel = user?.role === 'owner' ? 'Owner' : user?.role === 'staff' ? 'Staff' : 'Signed in';
+
+  const confirmSignOut = () => {
+    if (signingOut) return;
+    Alert.alert(
+      'Sign out?',
+      'You’ll need your phone number and OTP to sign back in.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign out',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              setSigningOut(true);
+              try {
+                await signOut();
+              } catch {
+                setSigningOut(false);
+                setError('Could not sign out. Try again.');
+              }
+            })();
+          },
+        },
+      ],
+      { cancelable: true },
+    );
+  };
 
   const load = useCallback(async () => {
     const [servicesRes, vehicleTypesRes, pricesRes] = await Promise.all([
-      api.services.$get(),
-      api.services['vehicle-types'].$get(),
+      api.services.$get({ query: {} }),
+      api.services['vehicle-types'].$get({ query: {} }),
       api.services.prices.$get({ query: {} }),
     ]);
-    setServices(await servicesRes.json());
-    setVehicleTypes(await vehicleTypesRes.json());
+    setServices(normalizeServices(await servicesRes.json()));
+    setVehicleTypes(normalizeVehicleTypes(await vehicleTypesRes.json()));
     setPrices(await pricesRes.json());
   }, []);
 
@@ -61,6 +153,22 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
       void load();
     }, [load]),
   );
+
+  const typesForCategory = useMemo(
+    () => vehicleTypes.filter((vt) => vt.category === category),
+    [vehicleTypes, category],
+  );
+
+  const servicesForCategory = useMemo(
+    () => services.filter((s) => serviceAppliesToCategory(s.appliesTo, category)),
+    [services, category],
+  );
+
+  const visibleServices = useMemo(() => {
+    const q = serviceQuery.trim().toLowerCase();
+    if (!q) return servicesForCategory;
+    return servicesForCategory.filter((s) => s.name.toLowerCase().includes(q));
+  }, [servicesForCategory, serviceQuery]);
 
   const priceFor = useCallback(
     (serviceId: string, vehicleTypeId: string): number | null => {
@@ -72,15 +180,15 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
 
   const coverage = useMemo(() => {
     const map = new Map<string, { set: number; total: number }>();
-    for (const service of services) {
+    for (const service of servicesForCategory) {
       let set = 0;
-      for (const vt of vehicleTypes) {
+      for (const vt of typesForCategory) {
         if (priceFor(service.id, vt.id) != null) set += 1;
       }
-      map.set(service.id, { set, total: vehicleTypes.length });
+      map.set(service.id, { set, total: typesForCategory.length });
     }
     return map;
-  }, [services, vehicleTypes, priceFor]);
+  }, [servicesForCategory, typesForCategory, priceFor]);
 
   const closePrompt = () => setPrompt(null);
 
@@ -88,10 +196,14 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
     setError(null);
     try {
       if (prompt?.kind === 'addService') {
-        const res = await api.services.$post({ json: { name: value.trim() } });
+        const res = await api.services.$post({
+          json: { name: value.trim(), appliesTo: category },
+        });
         if (!res.ok) throw new Error('Could not add service.');
       } else if (prompt?.kind === 'addVehicleType') {
-        const res = await api.services['vehicle-types'].$post({ json: { name: value.trim() } });
+        const res = await api.services['vehicle-types'].$post({
+          json: { name: value.trim(), category },
+        });
         if (!res.ok) throw new Error('Could not add vehicle type.');
       } else if (prompt?.kind === 'editPrice') {
         const rupees = Number(value);
@@ -112,9 +224,12 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
     }
   };
 
-  const toggleVehicles = () => {
+  const switchCategory = (next: VehicleCategory) => {
+    if (next === category) return;
     animate();
-    setVehiclesOpen((open) => !open);
+    setCategory(next);
+    setExpandedServiceId(null);
+    setServiceQuery('');
   };
 
   const toggleService = (serviceId: string) => {
@@ -122,147 +237,226 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
     setExpandedServiceId((current) => (current === serviceId ? null : serviceId));
   };
 
+  const categoryMeta = CATEGORIES.find((c) => c.id === category)!;
+
   return (
     <ScreenContainer>
       <ScreenHeader title="Settings" onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={styles.subtitle}>Catalog & pricing — tap a service to edit its prices</Text>
-
-        {/* Vehicle types — collapsed by default */}
-        <Text style={styles.sectionLabel}>Vehicle types</Text>
-        <View style={styles.block}>
-          <Pressable
-            onPress={toggleVehicles}
-            style={styles.accordionHeader}
-            accessibilityRole="button"
-            accessibilityState={{ expanded: vehiclesOpen }}
-          >
-            <View style={styles.accordionCopy}>
-              <Text style={styles.accordionTitle}>
-                {vehicleTypes.length} type{vehicleTypes.length === 1 ? '' : 's'}
-              </Text>
-              <Text style={styles.accordionMeta} numberOfLines={1}>
-                {vehicleTypes.length === 0
-                  ? 'None yet'
-                  : vehiclesOpen
-                    ? 'Tap to collapse'
-                    : vehicleTypes.map((v) => v.name).join(' · ')}
-              </Text>
-            </View>
-            <Text style={styles.chevron}>{vehiclesOpen ? '▾' : '▸'}</Text>
-          </Pressable>
-
-          {vehiclesOpen && (
-            <View style={styles.accordionBody}>
-              {vehicleTypes.map((vt, index) => (
-                <View
-                  key={vt.id}
-                  style={[styles.simpleRow, index < vehicleTypes.length - 1 && styles.rowDivider]}
-                >
-                  <View style={styles.dot} />
-                  <Text style={styles.simpleRowText}>{vt.name}</Text>
-                </View>
-              ))}
+        {/* Family switch — Cars vs Bikes keep separate menus */}
+        <View style={styles.segment}>
+          {CATEGORIES.map((c) => {
+            const on = category === c.id;
+            const count = vehicleTypes.filter((vt) => vt.category === c.id).length;
+            return (
               <Pressable
-                onPress={() => setPrompt({ kind: 'addVehicleType' })}
-                style={styles.addRow}
+                key={c.id}
+                onPress={() => switchCategory(c.id)}
+                style={[styles.segmentBtn, on && styles.segmentBtnOn]}
                 accessibilityRole="button"
+                accessibilityState={{ selected: on }}
               >
-                <Text style={styles.addRowText}>+ Add vehicle type</Text>
+                <Text style={[styles.segmentLabel, on && styles.segmentLabelOn]}>{c.label}</Text>
+                <Text style={[styles.segmentMeta, on && styles.segmentMetaOn]}>
+                  {count} type{count === 1 ? '' : 's'}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <Text style={styles.subtitle}>
+          {category === 'car'
+            ? 'Car services and sizes — bikes never see these on New Wash.'
+            : 'Bike & scooter services — cars never see these on New Wash.'}
+        </Text>
+
+        {/* Vehicle sizes for this family */}
+        <View style={styles.sectionHead}>
+          <Text style={styles.sectionLabel}>Vehicle sizes</Text>
+          <Pressable
+            onPress={() => setPrompt({ kind: 'addVehicleType' })}
+            style={styles.inlineAdd}
+            accessibilityRole="button"
+          >
+            <IconPlus size={14} color={colors.water} />
+            <Text style={styles.inlineAddText}>Add</Text>
+          </Pressable>
+        </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.typeStrip}
+        >
+          {typesForCategory.length === 0 ? (
+            <Pressable
+              onPress={() => setPrompt({ kind: 'addVehicleType' })}
+              style={styles.typeEmpty}
+              accessibilityRole="button"
+            >
+              <Text style={styles.typeEmptyText}>+ Add first {categoryMeta.label.slice(0, -1).toLowerCase()} size</Text>
+            </Pressable>
+          ) : (
+            typesForCategory.map((vt) => (
+              <View key={vt.id} style={styles.typeChip}>
+                <Text style={styles.typeChipText}>{vt.name}</Text>
+              </View>
+            ))
+          )}
+        </ScrollView>
+
+        {/* Services for this family */}
+        <View style={styles.sectionHead}>
+          <View style={styles.sectionTitleRow}>
+            <Text style={styles.sectionLabel}>Services</Text>
+            <View style={styles.countBadge}>
+              <Text style={styles.countBadgeText}>{servicesForCategory.length}</Text>
+            </View>
+          </View>
+          <Pressable
+            onPress={() => setPrompt({ kind: 'addService' })}
+            style={styles.inlineAdd}
+            accessibilityRole="button"
+          >
+            <IconPlus size={14} color={colors.water} />
+            <Text style={styles.inlineAddText}>Add</Text>
+          </Pressable>
+        </View>
+
+        {servicesForCategory.length > 6 ? (
+          <View style={styles.searchBand}>
+            <Text style={styles.searchGlyph}>⌕</Text>
+            <TextInput
+              style={styles.searchInput}
+              placeholder={`Search ${categoryMeta.label.toLowerCase()} services…`}
+              placeholderTextColor={colors.slate}
+              value={serviceQuery}
+              onChangeText={setServiceQuery}
+              autoCorrect={false}
+            />
+            {serviceQuery.length > 0 ? (
+              <Pressable onPress={() => setServiceQuery('')} hitSlop={8}>
+                <Text style={styles.clearSearch}>Clear</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+
+        <View style={styles.edgeList}>
+          {visibleServices.length === 0 ? (
+            <View style={styles.emptyBlock}>
+              <Text style={styles.emptyTitle}>No {categoryMeta.label.toLowerCase()} services yet</Text>
+              <Text style={styles.emptyBody}>
+                Add services here — they only appear when a {category} is picked on New Wash.
+              </Text>
+              <Pressable onPress={() => setPrompt({ kind: 'addService' })} style={styles.emptyCta}>
+                <Text style={styles.emptyCtaText}>+ Add service</Text>
               </Pressable>
             </View>
+          ) : (
+            visibleServices.map((service, index) => {
+              const expanded = expandedServiceId === service.id;
+              const cov = coverage.get(service.id) ?? { set: 0, total: typesForCategory.length };
+              const complete = cov.total > 0 && cov.set === cov.total;
+              const missing = cov.total - cov.set;
+
+              return (
+                <View key={service.id}>
+                  <Pressable
+                    onPress={() => toggleService(service.id)}
+                    style={[
+                      styles.serviceHeader,
+                      index < visibleServices.length - 1 && !expanded && styles.rowDivider,
+                      expanded && styles.serviceHeaderOpen,
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded }}
+                  >
+                    <View style={styles.serviceCopy}>
+                      <Text style={styles.serviceName}>{service.name}</Text>
+                      <Text style={[styles.coverage, complete ? styles.coverageOk : styles.coverageWarn]}>
+                        {typesForCategory.length === 0
+                          ? 'Add a vehicle size first'
+                          : complete
+                            ? `Priced for all ${typesForCategory.length} sizes`
+                            : missing === cov.total
+                              ? 'No prices set'
+                              : `${missing} of ${cov.total} sizes missing`}
+                      </Text>
+                    </View>
+                    <Text style={styles.chevron}>{expanded ? '▾' : '▸'}</Text>
+                  </Pressable>
+
+                  {expanded && (
+                    <View style={[styles.priceList, index < visibleServices.length - 1 && styles.rowDivider]}>
+                      {typesForCategory.length === 0 ? (
+                        <Text style={styles.emptyHint}>Add a vehicle size above, then set prices.</Text>
+                      ) : (
+                        typesForCategory.map((vt, vtIndex) => {
+                          const price = priceFor(service.id, vt.id);
+                          return (
+                            <Pressable
+                              key={vt.id}
+                              onPress={() =>
+                                setPrompt({
+                                  kind: 'editPrice',
+                                  serviceId: service.id,
+                                  serviceName: service.name,
+                                  vehicleTypeId: vt.id,
+                                  vehicleTypeName: vt.name,
+                                  price,
+                                })
+                              }
+                              style={[
+                                styles.priceRow,
+                                vtIndex < typesForCategory.length - 1 && styles.priceRowDivider,
+                              ]}
+                              accessibilityRole="button"
+                              accessibilityLabel={`${vt.name} price`}
+                            >
+                              <Text style={styles.priceVehicle}>{vt.name}</Text>
+                              <View style={styles.priceRight}>
+                                <Text style={[styles.priceValue, price == null && styles.priceUnset]}>
+                                  {price != null ? formatRupees(price) : 'Set price'}
+                                </Text>
+                                <Text style={styles.priceEdit}>Edit</Text>
+                              </View>
+                            </Pressable>
+                          );
+                        })
+                      )}
+                    </View>
+                  )}
+                </View>
+              );
+            })
           )}
         </View>
 
-        {/* Services — one expandable at a time */}
-        <View style={styles.servicesHeader}>
-          <Text style={[styles.sectionLabel, styles.sectionLabelInline]}>Services</Text>
-          <Text style={styles.countBadge}>{services.length}</Text>
-        </View>
-
-        <View style={styles.block}>
-          {services.map((service, index) => {
-            const expanded = expandedServiceId === service.id;
-            const cov = coverage.get(service.id) ?? { set: 0, total: vehicleTypes.length };
-            const complete = cov.total > 0 && cov.set === cov.total;
-            const missing = cov.total - cov.set;
-
-            return (
-              <View key={service.id}>
-                <Pressable
-                  onPress={() => toggleService(service.id)}
-                  style={[
-                    styles.serviceHeader,
-                    index < services.length - 1 && !expanded && styles.rowDivider,
-                    expanded && styles.serviceHeaderOpen,
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityState={{ expanded }}
-                >
-                  <View style={styles.accordionCopy}>
-                    <Text style={styles.serviceName}>{service.name}</Text>
-                    <Text style={[styles.coverage, complete ? styles.coverageOk : styles.coverageWarn]}>
-                      {complete
-                        ? 'All prices set'
-                        : missing === cov.total
-                          ? 'No prices set'
-                          : `${missing} price${missing === 1 ? '' : 's'} missing`}
-                    </Text>
-                  </View>
-                  <Text style={styles.chevron}>{expanded ? '▾' : '▸'}</Text>
-                </Pressable>
-
-                {expanded && (
-                  <View style={[styles.priceList, index < services.length - 1 && styles.rowDivider]}>
-                    {vehicleTypes.length === 0 ? (
-                      <Text style={styles.emptyHint}>Add a vehicle type first.</Text>
-                    ) : (
-                      vehicleTypes.map((vt, vtIndex) => {
-                        const price = priceFor(service.id, vt.id);
-                        return (
-                          <Pressable
-                            key={vt.id}
-                            onPress={() =>
-                              setPrompt({
-                                kind: 'editPrice',
-                                serviceId: service.id,
-                                serviceName: service.name,
-                                vehicleTypeId: vt.id,
-                                vehicleTypeName: vt.name,
-                                price,
-                              })
-                            }
-                            style={[
-                              styles.priceRow,
-                              vtIndex < vehicleTypes.length - 1 && styles.priceRowDivider,
-                            ]}
-                            accessibilityRole="button"
-                            accessibilityLabel={`${vt.name} price`}
-                          >
-                            <Text style={styles.priceVehicle}>{vt.name}</Text>
-                            <View style={styles.priceRight}>
-                              <Text style={[styles.priceValue, price == null && styles.priceUnset]}>
-                                {price != null ? formatRupees(price) : 'Set price'}
-                              </Text>
-                              <Text style={styles.priceEdit}>Edit</Text>
-                            </View>
-                          </Pressable>
-                        );
-                      })
-                    )}
-                  </View>
-                )}
-              </View>
-            );
-          })}
-
-          <Pressable
-            onPress={() => setPrompt({ kind: 'addService' })}
-            style={[styles.addRow, services.length > 0 && styles.addRowBorder]}
-            accessibilityRole="button"
-          >
-            <Text style={styles.addRowText}>+ Add service</Text>
-          </Pressable>
+        {/* Account */}
+        <Text style={[styles.sectionLabel, styles.accountLabel]}>Account</Text>
+        <View style={styles.edgeList}>
+          <View style={styles.accountRow}>
+            <View style={styles.avatar} accessibilityElementsHidden importantForAccessibility="no">
+              <Text style={styles.avatarText}>{initials}</Text>
+            </View>
+            <View style={styles.serviceCopy}>
+              <Text style={styles.accountName} numberOfLines={1}>
+                {user?.name?.trim() || 'MANA user'}
+              </Text>
+              <Text style={styles.accountRole}>{roleLabel}</Text>
+            </View>
+          </View>
+          <View style={styles.signOutWrap}>
+            <Button
+              label={signingOut ? 'Signing out…' : 'Sign out'}
+              variant="danger"
+              onPress={confirmSignOut}
+              loading={signingOut}
+              disabled={signingOut}
+            />
+          </View>
         </View>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -271,15 +465,23 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
 
       <PromptModal
         visible={prompt?.kind === 'addService'}
-        title="Add service"
-        label="Service name (e.g. Ceramic Coating)"
+        title={`Add ${category} service`}
+        label={
+          category === 'bike'
+            ? 'Service name (e.g. Chain Clean & Lube)'
+            : 'Service name (e.g. Ceramic Coating)'
+        }
         onCancel={closePrompt}
         onSubmit={submitPrompt}
       />
       <PromptModal
         visible={prompt?.kind === 'addVehicleType'}
-        title="Add vehicle type"
-        label="Vehicle type name (e.g. Bike)"
+        title={`Add ${category} size`}
+        label={
+          category === 'bike'
+            ? 'Size name (e.g. Scooter, Sports bike)'
+            : 'Size name (e.g. Compact SUV)'
+        }
         onCancel={closePrompt}
         onSubmit={submitPrompt}
       />
@@ -301,100 +503,183 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
     paddingBottom: spacing.xl,
   },
+  segment: {
+    flexDirection: 'row',
+    backgroundColor: colors.waterPale,
+    borderRadius: radius.lg,
+    padding: 4,
+    gap: 4,
+    marginBottom: spacing.md,
+  },
+  segmentBtn: {
+    flex: 1,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: spacing.sm,
+    alignItems: 'center',
+  },
+  segmentBtnOn: {
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  segmentLabel: {
+    ...typography.bodyStrong,
+    color: colors.waterInk,
+    fontSize: 16,
+  },
+  segmentLabelOn: {
+    color: colors.waterDeep,
+  },
+  segmentMeta: {
+    ...typography.caption,
+    color: colors.slateDeep,
+    marginTop: 2,
+  },
+  segmentMetaOn: {
+    color: colors.water,
+  },
   subtitle: {
     ...typography.body,
     color: colors.slateDeep,
-    marginBottom: spacing.md,
+    marginBottom: spacing.lg,
+    lineHeight: 20,
+  },
+  sectionHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   sectionLabel: {
     ...typography.label,
     color: colors.slateDeep,
     letterSpacing: 0.8,
     textTransform: 'uppercase',
+  },
+  accountLabel: {
+    marginTop: spacing.xl,
     marginBottom: spacing.xs,
-    marginTop: spacing.sm,
   },
-  sectionLabelInline: {
-    marginTop: 0,
-    marginBottom: 0,
-  },
-  servicesHeader: {
+  inlineAdd: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: spacing.lg,
-    marginBottom: spacing.xs,
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+  },
+  inlineAddText: {
+    ...typography.bodyStrong,
+    color: colors.water,
+    fontSize: 14,
   },
   countBadge: {
-    ...typography.caption,
-    color: colors.slateDeep,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
+    backgroundColor: colors.waterPale,
+    borderRadius: radius.pill,
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: radius.pill,
+    minWidth: 24,
+    alignItems: 'center',
   },
-  block: {
+  countBadgeText: {
+    ...typography.caption,
+    color: colors.waterDeep,
+    fontWeight: '700',
+  },
+  typeStrip: {
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+    paddingRight: spacing.md,
+    marginBottom: spacing.md,
+  },
+  typeChip: {
     backgroundColor: colors.white,
-    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    overflow: 'hidden',
-  },
-  accordionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
+    borderRadius: radius.pill,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    minHeight: 64,
+    paddingVertical: spacing.sm,
   },
-  accordionCopy: {
-    flex: 1,
-    gap: 2,
-  },
-  accordionTitle: {
+  typeChipText: {
     ...typography.bodyStrong,
     color: colors.waterInk,
-    fontSize: 17,
+    fontSize: 14,
   },
-  accordionMeta: {
-    ...typography.caption,
-    color: colors.slateDeep,
-  },
-  chevron: {
-    fontSize: 16,
-    color: colors.slate,
-    width: 18,
-    textAlign: 'center',
-  },
-  accordionBody: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
+  typeEmpty: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderStyle: 'dashed',
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     backgroundColor: colors.surface,
   },
-  simpleRow: {
+  typeEmptyText: {
+    ...typography.bodyStrong,
+    color: colors.water,
+    fontSize: 14,
+  },
+  searchBand: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md - 2,
+    marginBottom: spacing.sm,
+    minHeight: 44,
   },
-  simpleRowText: {
+  searchGlyph: {
+    fontSize: 16,
+    color: colors.slate,
+  },
+  searchInput: {
+    flex: 1,
     ...typography.body,
     color: colors.waterInk,
+    paddingVertical: Platform.OS === 'ios' ? 10 : 8,
   },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.water,
+  clearSearch: {
+    ...typography.caption,
+    color: colors.water,
+    fontWeight: '600',
   },
-  rowDivider: {
+  edgeList: {
+    backgroundColor: colors.white,
+    borderTopWidth: StyleSheet.hairlineWidth,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
+    borderColor: colors.border,
+    marginHorizontal: -spacing.md,
+  },
+  emptyBlock: {
+    padding: spacing.lg,
+    gap: spacing.sm,
+  },
+  emptyTitle: {
+    ...typography.bodyStrong,
+    color: colors.waterInk,
+    fontSize: 16,
+  },
+  emptyBody: {
+    ...typography.body,
+    color: colors.slateDeep,
+    lineHeight: 20,
+  },
+  emptyCta: {
+    alignSelf: 'flex-start',
+    marginTop: spacing.xs,
+  },
+  emptyCtaText: {
+    ...typography.bodyStrong,
+    color: colors.water,
   },
   serviceHeader: {
     flexDirection: 'row',
@@ -402,11 +687,15 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
-    minHeight: 68,
+    minHeight: 64,
     backgroundColor: colors.white,
   },
   serviceHeaderOpen: {
     backgroundColor: colors.waterPale,
+  },
+  serviceCopy: {
+    flex: 1,
+    gap: 2,
   },
   serviceName: {
     ...typography.bodyStrong,
@@ -422,6 +711,16 @@ const styles = StyleSheet.create({
   coverageWarn: {
     color: colors.amberDeep,
   },
+  chevron: {
+    fontSize: 16,
+    color: colors.slate,
+    width: 18,
+    textAlign: 'center',
+  },
+  rowDivider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
   priceList: {
     backgroundColor: colors.white,
     paddingBottom: spacing.xs,
@@ -433,7 +732,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
     paddingLeft: spacing.lg,
-    marginLeft: spacing.sm,
   },
   priceRowDivider: {
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -468,18 +766,48 @@ const styles = StyleSheet.create({
     color: colors.slateDeep,
     padding: spacing.md,
   },
-  addRow: {
+  accountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
-    backgroundColor: colors.white,
+    minHeight: 72,
   },
-  addRowBorder: {
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.waterPale,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: {
+    ...typography.bodyStrong,
+    color: colors.waterDeep,
+    fontSize: 15,
+    letterSpacing: 0.4,
+  },
+  accountName: {
+    ...typography.bodyStrong,
+    color: colors.waterInk,
+    fontSize: 17,
+  },
+  accountRole: {
+    ...typography.caption,
+    color: colors.slateDeep,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginTop: 2,
+  },
+  signOutWrap: {
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
-  },
-  addRowText: {
-    ...typography.bodyStrong,
-    color: colors.water,
+    paddingTop: spacing.md,
   },
   bottomPad: {
     height: spacing.xl,
@@ -488,5 +816,6 @@ const styles = StyleSheet.create({
     color: colors.danger,
     ...typography.label,
     marginTop: spacing.md,
+    paddingHorizontal: spacing.md,
   },
 });

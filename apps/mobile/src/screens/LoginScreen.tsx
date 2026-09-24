@@ -9,7 +9,7 @@ import { api } from '../api/client';
 import { setSessionToken, setSessionUser } from '../api/session';
 
 interface LoginScreenProps {
-  onLoggedIn: () => void;
+  onLoggedIn: () => void | Promise<void>;
 }
 
 type Step = 'phone' | 'code';
@@ -53,7 +53,7 @@ export function LoginScreen({ onLoggedIn }: LoginScreenProps) {
       const body = await res.json();
       await setSessionToken(body.token);
       await setSessionUser(body.user);
-      onLoggedIn();
+      await onLoggedIn();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong.');
     } finally {

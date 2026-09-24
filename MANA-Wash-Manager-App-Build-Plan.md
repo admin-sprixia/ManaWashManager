@@ -36,14 +36,14 @@ V0.1 and **all of V1.0** are built and verified — not just planned. Treat this
 - **WhatsApp thank-you verified live**: tapping the WhatsApp action on a paid job opens the real WhatsApp app with the correct customer phone number and a pre-filled thank-you message referencing that customer's vehicle
 - **Customer Profile verified live**: correct visit count, lifetime spend (paid jobs only), last visit, vehicle list, and full chronological job history for a real customer
 - **Reports verified live**: Today/Last-7-days toggle recomputes correctly; payment-split bars are proportioned correctly against total revenue; new-vs-repeat customer counts match manual verification against seeded test data
-- `mana_db` created for real on Cloudflare; local migrations applied; the Worker serves real seeded data via `wrangler dev`
+- `mana_db` created for real on Cloudflare; local schema applied; the Worker serves real seeded data via `wrangler dev`
 - Repo pushed to GitHub: `admin-sprixia/ManaWashManager`, `main` branch
 - Real bugs found and fixed during device testing — worth knowing if you touch this code: Gradle's node_modules paths in a monorepo, Metro not resolving `package.json` "exports" (broke Hono's client), Hermes' incomplete `URLSearchParams` (needed a polyfill), the Job Board not refreshing after navigating back to it, a seeded phone number that didn't match what the login screen actually sends, the UTC-vs-IST day-boundary bug above, and (in testing itself, not the app) `adb`'s tap coordinates drifting whenever the screen scrolls or a `LayoutAnimation` reflows the list — fixed by re-reading exact element bounds via `uiautomator dump` before every tap instead of reusing coordinates across screen states
 
 **Pending for V0.1/V1.0 to be fully "done":**
 
 - A real MSG91 account and secret — still running on the `DEV_OTP_BYPASS` dev-only shortcut (phone `9100000000`, code `000000`)
-- `wrangler d1 migrations apply mana_db --remote` — the real D1 database is provisioned but still empty; only the local dev copy has data
+- `npm run db:reset:remote` (applies `apps/api/schema.sql`) — the real D1 database is provisioned but still empty; only the local dev copy has data
 - `npm run deploy` — the Worker only runs locally (`wrangler dev` + `adb reverse`); there's no public `*.workers.dev` URL yet
 - Automated on-device tests (Maestro) — all testing so far has been manual (live device + adb), not automated
 - iOS build — deliberately out of scope per your direction (Android-only; MANA's customer base doesn't use iPhones). No `ios/` folder exists.

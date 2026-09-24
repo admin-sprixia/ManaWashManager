@@ -10,8 +10,8 @@
     "predeploy": "npm run db:generate -w @mana/db",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "db:migrate:local": "wrangler d1 migrations apply mana_db --local",
-    "db:migrate:remote": "wrangler d1 migrations apply mana_db --remote"
+    "db:reset:local": "wrangler d1 execute mana_db --local --file=./schema.sql",
+    "db:reset:remote": "wrangler d1 execute mana_db --remote --file=./schema.sql"
   },
   "dependencies": {
     "@hono/zod-validator": "^0.2.2",

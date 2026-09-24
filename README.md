@@ -8,7 +8,7 @@ status board, and mark-paid.
 ## Run the app
 
 Everything below assumes setup is already done (see [Setup](#setup) if starting from a fresh
-clone — D1 created, migrations applied, `.dev.vars` filled in). Once that's done, running it
+clone — D1 created, schema applied, `.dev.vars` filled in). Once that's done, running it
 day to day is two terminals left open + your phone on USB.
 
 **Terminal 1 — the API**
@@ -75,7 +75,7 @@ how something is named or structured.
 ## What's actually running right now
 
 As of this setup pass: dependencies are installed, `mana_db` exists for real on Cloudflare
-(database id `9691507c-caf1-4987-9f7c-5093357601e1`), both migrations are applied locally,
+(database id `9691507c-caf1-4987-9f7c-5093357601e1`), the schema is applied locally,
 `npm run dev` in `apps/api` serves real data (`curl http://localhost:8787/services` returns
 MANA's actual seeded menu), **and the Android app is built, installed, and running on a real
 device** — the Login screen renders correctly in the white/water-blue theme against the local
@@ -85,7 +85,7 @@ written.
 Still needed, and each is a deliberate "go live" action rather than something to do as a side
 effect of a setup pass:
 
-1. **`npm run db:migrate:remote`** (in `apps/api`) — applies the same schema/seed to the real
+1. **`npm run db:reset:remote`** (in `apps/api`) — applies the same schema/seed to the real
    remote `mana_db`, not just the local dev copy.
 2. **`npx wrangler secret put JWT_SECRET` / `MSG91_API_KEY`** — the local `.dev.vars` has
    placeholder values only; production secrets aren't set yet.
@@ -129,13 +129,15 @@ npm run db:generate -w @mana/db
 ### 4. Apply the schema and seed MANA's menu
 
 ```bash
-npm run db:migrate:local   # creates the tables locally, for `wrangler dev`
-npm run db:migrate:remote  # same, against the real D1 database, when you're ready to deploy
+npm run db:reset:local   # recreates the tables locally, for `wrangler dev`
+npm run db:reset:remote  # same, against the real D1 database, when you're ready to deploy
 ```
 
-This runs `apps/api/migrations/0001_init.sql` (schema) and `0002_seed.sql` (MANA's actual
-services and prices from the build plan). **Edit the seed owner phone number** in
-`0002_seed.sql` (`+910000000000`) to the real owner's number before applying it for real.
+This runs `apps/api/schema.sql` — the whole schema plus MANA's car and bike menus and prices
+in one file. It **drops every table first**, so it wipes all data; that's fine until
+production has real data, after which schema changes must become incremental migrations.
+**Edit the seed owner phone number** in `schema.sql` (`9100000000`) to the real owner's
+number before applying it for real.
 
 ### 5. Set secrets
 

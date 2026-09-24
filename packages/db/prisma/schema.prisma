@@ -1,7 +1,7 @@
 // This schema is the source of truth for TypeScript types (via `prisma generate`).
 // The actual database schema that provisions D1 lives in
-// apps/api/migrations/0001_init.sql — written by hand because D1 is applied through
-// `wrangler d1 migrations`, not through `prisma migrate`. Keep the two in sync.
+// apps/api/schema.sql — written by hand because D1 is applied through
+// `wrangler d1 execute`, not through `prisma migrate`. Keep the two in sync.
 //
 // Naming convention (see the app build plan's "Naming conventions" section):
 //   - Prisma models: PascalCase singular, mapped to a snake_case plural table via @@map.

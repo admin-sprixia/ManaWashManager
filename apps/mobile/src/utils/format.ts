@@ -1,6 +1,7 @@
 /** Money is always paise (int) end to end — see the build plan's naming conventions. */
 export function formatRupees(paise: number): string {
-  return `₹${(paise / 100).toLocaleString('en-IN')}`;
+  const sign = paise < 0 ? '-' : '';
+  return `${sign}₹${(Math.abs(paise) / 100).toLocaleString('en-IN')}`;
 }
 
 /** "Today" / "Yesterday" / "3 days ago" for recent dates, falling back to a plain date

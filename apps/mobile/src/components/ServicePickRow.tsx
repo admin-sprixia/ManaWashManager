@@ -2,6 +2,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { colors, spacing, typography } from '../theme';
+import { IconCheck } from './Icons';
 
 export type ServiceGroup = 'Wash' | 'Interior' | 'Protect' | 'Add-ons' | 'Other';
 
@@ -76,6 +77,8 @@ interface ServicePickRowProps {
   onPress: () => void;
   /** Draw a hairline under the row (omit on the last item). */
   showDivider?: boolean;
+  /** Secondary line. Defaults to the group name; pass null to hide it (e.g. under a group heading). */
+  meta?: string | null;
 }
 
 /** Edge-to-edge service row — no card chrome, just a clean selectable list line. */
@@ -86,8 +89,10 @@ export function ServicePickRow({
   selected,
   onPress,
   showDivider = true,
+  meta,
 }: ServicePickRowProps) {
   const tone = GROUP_TONE[group];
+  const metaText = meta === undefined ? group : meta;
 
   return (
     <Pressable
@@ -108,12 +113,16 @@ export function ServicePickRow({
         <Text style={[styles.name, selected && styles.nameOn]} numberOfLines={2}>
           {name}
         </Text>
-        <Text style={[styles.meta, selected ? styles.metaOn : { color: tone.fg }]}>{group}</Text>
+        {metaText ? (
+          <Text style={[styles.meta, selected ? styles.metaOn : { color: tone.fg }]} numberOfLines={1}>
+            {metaText}
+          </Text>
+        ) : null}
       </View>
       <View style={styles.right}>
         <Text style={[styles.price, selected && styles.priceOn]}>{priceLabel}</Text>
         <View style={[styles.check, selected && styles.checkOn, !selected && { borderColor: tone.accent }]}>
-          {selected ? <Text style={styles.checkMark}>✓</Text> : null}
+          {selected ? <IconCheck size={13} color={colors.white} /> : null}
         </View>
       </View>
     </Pressable>
@@ -127,7 +136,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
-    minHeight: 72,
+    minHeight: 64,
     backgroundColor: colors.white,
   },
   rowSelected: {
@@ -189,11 +198,5 @@ const styles = StyleSheet.create({
   checkOn: {
     backgroundColor: colors.water,
     borderColor: colors.water,
-  },
-  checkMark: {
-    color: colors.white,
-    fontSize: 12,
-    fontWeight: '800',
-    lineHeight: 13,
   },
 });

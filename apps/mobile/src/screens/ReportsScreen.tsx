@@ -36,6 +36,9 @@ interface Stats {
   newCustomers: number;
   repeatCustomers: number;
   pendingNow: number;
+  discounts: number;
+  expenses: number;
+  net: number;
   label?: string;
   from?: string;
   to?: string;
@@ -350,6 +353,29 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
           contentContainerStyle={styles.body}
           showsVerticalScrollIndicator={false}
         >
+          <Text style={styles.sectionLabel}>Profit</Text>
+          <View style={styles.list}>
+            <StatRow label="Revenue" hint="Money collected from paid washes" value={formatRupees(stats.revenue)} />
+            <Pressable
+              onPress={() => navigation.navigate('Expenses')}
+              android_ripple={{ color: colors.waterPale }}
+              accessibilityRole="button"
+              accessibilityLabel="Open expenses"
+            >
+              <StatRow label="Expenses" hint="Tap to see every entry" value={`- ${formatRupees(stats.expenses)}`} />
+            </Pressable>
+            <View style={[styles.statRow, styles.netRow]}>
+              <View style={styles.statCopy}>
+                <Text style={styles.netLabel}>Net</Text>
+                <Text style={styles.statHint}>Revenue minus expenses</Text>
+              </View>
+              <Text style={[styles.netValue, stats.net < 0 && styles.netNegative]}>{formatRupees(stats.net)}</Text>
+            </View>
+          </View>
+          {stats.discounts > 0 ? (
+            <Text style={styles.discountNote}>Includes {formatRupees(stats.discounts)} given as discounts.</Text>
+          ) : null}
+
           {/* Snapshot — clear labels, no jargon */}
           <Text style={styles.sectionLabel}>Snapshot</Text>
           <View style={styles.list}>
@@ -476,6 +502,17 @@ function PayLine({
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  netRow: { backgroundColor: colors.surface },
+  netLabel: { ...typography.bodyStrong, color: colors.waterInk, fontSize: 17 },
+  netValue: { ...typography.heading, color: colors.teal, fontSize: 22 },
+  netNegative: { color: colors.danger },
+  discountNote: {
+    ...typography.caption,
+    color: colors.slate,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    letterSpacing: 0,
+  },
   hero: {
     paddingBottom: spacing.md,
   },

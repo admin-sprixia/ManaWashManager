@@ -7,7 +7,12 @@ export interface SessionClaims {
   phone: string;
 }
 
-const SESSION_TTL_SECONDS = 60 * 60 * 12; // 12 hours
+/**
+ * Shop phones stay signed in across shifts. A long session is safe because `requireAuth`
+ * re-reads the user on every request — deactivating someone or changing their role takes
+ * effect immediately, without waiting for the token to expire.
+ */
+const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
 export async function createSessionToken(claims: SessionClaims, secret: string): Promise<string> {
   const key = new TextEncoder().encode(secret);

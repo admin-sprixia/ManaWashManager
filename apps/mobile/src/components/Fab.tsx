@@ -1,43 +1,36 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors, gradients, shadow, spacing, typography } from '../theme';
+import { colors, gradients, radius, typography } from '../theme';
 
 interface FabProps {
   label: string;
+  icon: React.ReactNode;
   onPress: () => void;
-  accessibilityLabel?: string;
+  /** Collapse to the icon only (Material "extended FAB" behaviour while scrolling). */
+  collapsed?: boolean;
+  bottom: number;
 }
 
-/** Primary floating action — reserved for the one most common job-board action (New Wash).
- * Sits above the home indicator with a press-scale and soft elevation so it stays reachable
- * while scrolling the list. */
-export function Fab({ label, onPress, accessibilityLabel }: FabProps) {
-  const insets = useSafeAreaInsets();
-  const scale = useRef(new Animated.Value(1)).current;
+const SIZE = 60;
 
-  const pressIn = () => {
-    Animated.spring(scale, { toValue: 0.94, useNativeDriver: true, speed: 40, bounciness: 0 }).start();
-  };
-  const pressOut = () => {
-    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 40, bounciness: 6 }).start();
-  };
+/** Primary screen action, pinned bottom-right within easy thumb reach. */
+export function Fab({ label, icon, onPress, collapsed = false, bottom }: FabProps) {
+  const progress = useRef(new Animated.Value(collapsed ? 0 : 1)).current;
+
+  useEffect(() => {
+    Animated.timing(progress, { toValue: collapsed ? 0 : 1, duration: 180, useNativeDriver: false }).start();
+  }, [collapsed, progress]);
+
+  const labelWidth = progress.interpolate({ inputRange: [0, 1], outputRange: [0, 108] });
 
   return (
-    <Animated.View
-      style={[
-        styles.wrap,
-        shadow('lg'),
-        { bottom: Math.max(insets.bottom, spacing.md) + spacing.sm, transform: [{ scale }] },
-      ]}
-    >
+    <View style={[styles.wrap, { bottom }]} pointerEvents="box-none">
       <Pressable
         onPress={onPress}
-        onPressIn={pressIn}
-        onPressOut={pressOut}
         accessibilityRole="button"
-        accessibilityLabel={accessibilityLabel ?? label}
+        accessibilityLabel={label}
+        style={({ pressed }) => [styles.shadow, pressed && styles.pressed]}
       >
         <LinearGradient
           colors={gradients.fab as unknown as string[]}
@@ -45,49 +38,37 @@ export function Fab({ label, onPress, accessibilityLabel }: FabProps) {
           end={{ x: 1, y: 1 }}
           style={styles.fab}
         >
-          <View style={styles.plusWrap}>
-            <Text style={styles.plus}>+</Text>
-          </View>
-          <Text style={styles.label}>{label}</Text>
+          <View style={styles.icon}>{icon}</View>
+          <Animated.View style={{ width: labelWidth, opacity: progress, overflow: 'hidden' }}>
+            <Text style={styles.label} numberOfLines={1}>
+              {label}
+            </Text>
+          </Animated.View>
         </LinearGradient>
       </Pressable>
-    </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: {
-    position: 'absolute',
-    right: spacing.md,
-    zIndex: 20,
+  wrap: { position: 'absolute', right: 16 },
+  shadow: {
+    borderRadius: radius.pill,
+    shadowColor: colors.waterDeep,
+    shadowOpacity: 0.35,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 10,
   },
+  pressed: { transform: [{ scale: 0.96 }] },
   fab: {
+    height: SIZE,
+    minWidth: SIZE,
+    borderRadius: SIZE / 2,
     flexDirection: 'row',
     alignItems: 'center',
-    height: 56,
-    paddingLeft: spacing.sm,
-    paddingRight: spacing.lg,
-    borderRadius: 28,
-    gap: spacing.sm,
+    paddingHorizontal: 18,
   },
-  plusWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.22)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  plus: {
-    color: colors.white,
-    fontSize: 26,
-    fontWeight: '600',
-    lineHeight: 28,
-    marginTop: -1,
-  },
-  label: {
-    ...typography.bodyStrong,
-    color: colors.white,
-    fontSize: 16,
-  },
+  icon: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
+  label: { ...typography.bodyStrong, color: colors.white, fontSize: 16, paddingLeft: 10 },
 });

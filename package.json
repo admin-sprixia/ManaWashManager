@@ -1,7 +1,7 @@
 {
   "name": "mana-wash-manager",
   "private": true,
-  "version": "0.1.0",
+  "version": "2.0.0",
   "description": "MANA Wash Manager — monorepo (React Native CLI app + Cloudflare Workers API + shared TypeScript packages)",
   "workspaces": [
     "apps/*",
@@ -13,7 +13,9 @@
     "test": "npm run test --workspaces --if-present",
     "lint": "eslint . --ext .ts,.tsx",
     "format": "prettier --write .",
-    "db:generate": "npm run db:generate -w @mana/db"
+    "db:generate": "npm run db:generate -w @mana/db",
+    "version:set": "node scripts/version.mjs set",
+    "version:check": "node scripts/version.mjs check"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^7.8.0",

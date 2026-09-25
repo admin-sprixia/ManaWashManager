@@ -19,14 +19,24 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  name      String
-  phone     String   @unique
-  role      String   @default("staff") // "owner" | "staff"
-  createdAt DateTime @default(now()) @map("created_at")
+  id                String    @id @default(uuid())
+  name              String
+  phone             String    @unique
+  role              String    @default("staff") // "owner" | "staff"
+  active            Boolean   @default(true)
+  pinHash           String?   @map("pin_hash")
+  pinFailedAttempts Int       @default(0) @map("pin_failed_attempts")
+  pinLockedUntil    DateTime? @map("pin_locked_until")
+  createdAt         DateTime  @default(now()) @map("created_at")
 
-  jobsCreated Job[]     @relation("JobCreatedBy")
-  expenses    Expense[]
+  jobsCreated    Job[]      @relation("JobCreatedBy")
+  jobsPaid       Job[]      @relation("JobPaidBy")
+  jobsVoided     Job[]      @relation("JobVoidedBy")
+  jobEvents      JobEvent[]
+  expenses       Expense[]  @relation("ExpenseCreatedBy")
+  expensesVoided Expense[]  @relation("ExpenseVoidedBy")
+  couponsIssued  Coupon[]   @relation("CouponIssuedBy")
+  couponsRedeemed Coupon[]  @relation("CouponRedeemedBy")
 
   @@map("users")
 }
@@ -82,6 +92,7 @@ model Customer {
 
   vehicles Vehicle[]
   jobs     Job[]
+  coupons  Coupon[]
 
   @@map("customers")
 }
@@ -93,11 +104,16 @@ model Vehicle {
   make               String?
   model              String?
   vehicleTypeId      String  @map("vehicle_type_id")
+  /// Sync cursor for the phones' offline customer directory — see apps/api/schema.sql.
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at")
 
   customer    Customer    @relation(fields: [customerId], references: [id])
   vehicleType VehicleType @relation(fields: [vehicleTypeId], references: [id])
   jobs        Job[]
+  coupons     Coupon[]
+  reminder    VehicleReminder?
 
+  @@index([updatedAt, id])
   @@map("vehicles")
 }
 
@@ -113,15 +129,38 @@ model Job {
   total           Int
   paymentMethod   String?   @map("payment_method") // cash | upi | other
   paymentStatus   String    @default("pending") @map("payment_status")
+  paidByUserId    String?   @map("paid_by_user_id")
+  voidedByUserId  String?   @map("voided_by_user_id")
+  voidReason      String?   @map("void_reason")
   createdAt       DateTime  @default(now()) @map("created_at")
   completedAt     DateTime? @map("completed_at")
 
   customer    Customer     @relation(fields: [customerId], references: [id])
   vehicle     Vehicle      @relation(fields: [vehicleId], references: [id])
   createdBy   User         @relation("JobCreatedBy", fields: [createdByUserId], references: [id])
+  paidBy      User?        @relation("JobPaidBy", fields: [paidByUserId], references: [id])
+  voidedBy    User?        @relation("JobVoidedBy", fields: [voidedByUserId], references: [id])
   jobServices JobService[]
+  events      JobEvent[]
 
   @@map("jobs")
+}
+
+/// Append-only audit trail — rows are only ever inserted, never updated or deleted.
+model JobEvent {
+  id        String   @id @default(uuid())
+  jobId     String   @map("job_id")
+  userId    String   @map("user_id")
+  action    String // created | status_changed | paid | voided | payment_method_changed
+  fromValue String?  @map("from_value")
+  toValue   String?  @map("to_value")
+  reason    String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  job  Job  @relation(fields: [jobId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("job_events")
 }
 
 model JobService {
@@ -137,15 +176,61 @@ model JobService {
   @@map("job_services")
 }
 
+/// Comeback coupon — see apps/api/schema.sql for the redemption rules and the
+/// one-active-per-vehicle partial unique index (not expressible in Prisma).
+model Coupon {
+  id               String    @id @default(uuid())
+  code             String    @unique
+  vehicleId        String    @map("vehicle_id")
+  customerId       String    @map("customer_id")
+  percent          Int
+  status           String    @default("active") // active | redeemed | cancelled
+  expiresAt        DateTime  @map("expires_at")
+  issuedByUserId   String    @map("issued_by_user_id")
+  redeemedJobId    String?   @unique @map("redeemed_job_id")
+  redeemedByUserId String?   @map("redeemed_by_user_id")
+  redeemedAt       DateTime? @map("redeemed_at")
+  cancelledAt      DateTime? @map("cancelled_at")
+  cancelReason     String?   @map("cancel_reason") // replaced | owner_changed
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  vehicle    Vehicle  @relation(fields: [vehicleId], references: [id])
+  customer   Customer @relation(fields: [customerId], references: [id])
+  issuedBy   User     @relation("CouponIssuedBy", fields: [issuedByUserId], references: [id])
+  redeemedBy User?    @relation("CouponRedeemedBy", fields: [redeemedByUserId], references: [id])
+
+  @@index([customerId])
+  @@map("coupons")
+}
+
+model VehicleReminder {
+  vehicleId         String    @id @map("vehicle_id")
+  lastVisitAt       DateTime  @map("last_visit_at")
+  remindedAt        DateTime? @map("reminded_at")
+  remindedByUserId  String?   @map("reminded_by_user_id")
+  snoozedUntil      DateTime? @map("snoozed_until")
+  dismissedAt       DateTime? @map("dismissed_at")
+  dismissedByUserId String?   @map("dismissed_by_user_id")
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id])
+
+  @@map("vehicle_reminders")
+}
+
 model Expense {
   id              String   @id @default(uuid())
   category        String
   amount          Int // paise
   description     String?
   date            DateTime
-  createdByUserId String   @map("created_by_user_id")
+  createdByUserId String    @map("created_by_user_id")
+  voidedByUserId  String?   @map("voided_by_user_id")
+  voidReason      String?   @map("void_reason")
+  voidedAt        DateTime? @map("voided_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
 
-  createdBy User @relation(fields: [createdByUserId], references: [id])
+  createdBy User  @relation("ExpenseCreatedBy", fields: [createdByUserId], references: [id])
+  voidedBy  User? @relation("ExpenseVoidedBy", fields: [voidedByUserId], references: [id])
 
   @@map("expenses")
 }

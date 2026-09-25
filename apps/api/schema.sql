@@ -12,6 +12,9 @@
 -- not runtime-created rows (those get real UUIDs via Prisma's @default(uuid())).
 -- Money is stored in paise (1 rupee = 100 paise).
 
+DROP TABLE IF EXISTS vehicle_reminders;
+DROP TABLE IF EXISTS coupons;
+DROP TABLE IF EXISTS job_events;
 DROP TABLE IF EXISTS job_services;
 DROP TABLE IF EXISTS jobs;
 DROP TABLE IF EXISTS vehicles;
@@ -29,7 +32,11 @@ CREATE TABLE users (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   phone TEXT NOT NULL UNIQUE,
-  role TEXT NOT NULL DEFAULT 'staff',
+  role TEXT NOT NULL DEFAULT 'staff', -- owner | staff
+  active INTEGER NOT NULL DEFAULT 1,  -- deactivated users can't sign in or call the API
+  pin_hash TEXT,                      -- PBKDF2 "iterations$salt$hash"; NULL = PIN sign-in not set up
+  pin_failed_attempts INTEGER NOT NULL DEFAULT 0,
+  pin_locked_until TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -72,7 +79,11 @@ CREATE TABLE vehicles (
   registration_number TEXT NOT NULL UNIQUE,
   make TEXT,
   model TEXT,
-  vehicle_type_id TEXT NOT NULL REFERENCES vehicle_types(id)
+  vehicle_type_id TEXT NOT NULL REFERENCES vehicle_types(id),
+  -- Bumped whenever anything New Wash's customer suggestions show for this vehicle changes
+  -- (the vehicle, its owner's name/phone, or a job for that owner). Phones sync their offline
+  -- customer directory by pulling rows changed since their last cursor.
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE jobs (
@@ -87,8 +98,24 @@ CREATE TABLE jobs (
   total INTEGER NOT NULL,
   payment_method TEXT, -- cash | upi | other
   payment_status TEXT NOT NULL DEFAULT 'pending',
+  paid_by_user_id TEXT REFERENCES users(id),   -- who collected the money
+  voided_by_user_id TEXT REFERENCES users(id),
+  void_reason TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   completed_at TEXT
+);
+
+-- Append-only audit trail: every create, status change, payment, void, and correction.
+-- Never updated or deleted, so any number on a report can be traced back to who did what.
+CREATE TABLE job_events (
+  id TEXT PRIMARY KEY,
+  job_id TEXT NOT NULL REFERENCES jobs(id),
+  user_id TEXT NOT NULL REFERENCES users(id),
+  action TEXT NOT NULL, -- created | status_changed | paid | voided | payment_method_changed
+  from_value TEXT,
+  to_value TEXT,
+  reason TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE job_services (
@@ -105,14 +132,60 @@ CREATE TABLE expenses (
   amount INTEGER NOT NULL, -- paise
   description TEXT,
   date TEXT NOT NULL,
-  created_by_user_id TEXT NOT NULL REFERENCES users(id)
+  created_by_user_id TEXT NOT NULL REFERENCES users(id),
+  voided_by_user_id TEXT REFERENCES users(id),
+  void_reason TEXT,
+  voided_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Comeback coupons. Bound to the vehicle it was issued for and to that vehicle's owner at
+-- issue time: redeemable on that vehicle or the same owner's other vehicles, once, before
+-- expires_at. "Expired" is derived (status stays 'active'); a vehicle changing hands cancels it.
+CREATE TABLE coupons (
+  id TEXT PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,
+  vehicle_id TEXT NOT NULL REFERENCES vehicles(id),
+  customer_id TEXT NOT NULL REFERENCES customers(id),
+  percent INTEGER NOT NULL CHECK (percent BETWEEN 5 AND 10),
+  status TEXT NOT NULL DEFAULT 'active', -- active | redeemed | cancelled
+  expires_at TEXT NOT NULL,
+  issued_by_user_id TEXT NOT NULL REFERENCES users(id),
+  -- Claimed before the job row is written (same request), so this is deliberately not a FK.
+  redeemed_job_id TEXT UNIQUE,
+  redeemed_by_user_id TEXT REFERENCES users(id),
+  redeemed_at TEXT,
+  cancelled_at TEXT,
+  cancel_reason TEXT, -- replaced | owner_changed
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- What the team did about a vehicle's reminder. Tied to the visit it was about
+-- (last_visit_at): once the vehicle comes back, the old state no longer applies.
+CREATE TABLE vehicle_reminders (
+  vehicle_id TEXT PRIMARY KEY REFERENCES vehicles(id),
+  last_visit_at TEXT NOT NULL,
+  reminded_at TEXT,
+  reminded_by_user_id TEXT REFERENCES users(id),
+  snoozed_until TEXT,
+  dismissed_at TEXT,
+  dismissed_by_user_id TEXT REFERENCES users(id)
 );
 
 -- Indexes for the app's actual hot paths: today's job board, the dashboard, and lookups.
 CREATE INDEX idx_jobs_status ON jobs(status);
 CREATE INDEX idx_jobs_created_at ON jobs(created_at);
+CREATE INDEX idx_job_events_job_id ON job_events(job_id);
+CREATE INDEX idx_job_events_created_at ON job_events(created_at);
+CREATE INDEX idx_expenses_date ON expenses(date);
 CREATE INDEX idx_vehicles_customer_id ON vehicles(customer_id);
+CREATE INDEX idx_vehicles_updated_at ON vehicles(updated_at, id);
+CREATE INDEX idx_jobs_customer_id ON jobs(customer_id);
+CREATE INDEX idx_jobs_vehicle_id ON jobs(vehicle_id);
 CREATE INDEX idx_service_prices_service_id ON service_prices(service_id);
+CREATE INDEX idx_coupons_customer_id ON coupons(customer_id);
+-- At most one live coupon per vehicle, enforced by the database even under concurrent issues.
+CREATE UNIQUE INDEX idx_coupons_one_active_per_vehicle ON coupons(vehicle_id) WHERE status = 'active';
 
 -- ─── Seed: vehicle types ────────────────────────────────────────────────────
 
@@ -224,3 +297,8 @@ INSERT INTO service_prices (id, service_id, vehicle_type_id, price) VALUES
 -- keyboard actually produces.
 INSERT INTO users (id, name, phone, role) VALUES
   ('user_owner_seed', 'Owner', '9100000000', 'owner');
+
+-- Demo staff account for trying the Staff role end to end. Remove (or deactivate from the
+-- Team screen) before go-live; real staff are added by the owner from the app.
+INSERT INTO users (id, name, phone, role) VALUES
+  ('user_staff_seed', 'Staff Demo', '9100000001', 'staff');

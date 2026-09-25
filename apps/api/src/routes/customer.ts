@@ -1,7 +1,13 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { createDbClient, customerRepo, vehicleRepo } from '@mana/db';
+import {
+  createDbClient,
+  customerRepo,
+  directoryRepo,
+  vehicleRepo,
+  type DirectoryCursor,
+} from '@mana/db';
 import { requireAuth } from '../middleware/auth';
 import type { Env } from '../types';
 
@@ -9,6 +15,19 @@ const lookupQuerySchema = z.object({
   phone: z.string().optional(),
   registrationNumber: z.string().optional(),
 });
+
+const directoryQuerySchema = z.object({
+  /** `<ISO updatedAt>|<vehicleId>` from the previous page; omit for a full download. */
+  cursor: z.string().max(120).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(200),
+});
+
+function parseCursor(raw: string | undefined): DirectoryCursor | null {
+  if (!raw) return null;
+  const [iso, id = ''] = raw.split('|');
+  const updatedAt = new Date(iso ?? '');
+  return Number.isNaN(updatedAt.getTime()) ? null : { updatedAt, id };
+}
 
 const createCustomerSchema = z.object({
   phone: z.string().min(10),
@@ -36,7 +55,12 @@ export const customerRoutes = new Hono<{ Bindings: Env }>()
       if (!vehicle) return c.json(null);
       const customer = await customerRepo.findById(db, vehicle.customerId);
       const history = await customerRepo.getHistory(db, vehicle.customerId);
-      return c.json({ customer, vehicle, visitCount: history.length, lastVisit: history[0]?.createdAt ?? null });
+      return c.json({
+        customer,
+        vehicle,
+        visitCount: history.length,
+        lastVisit: history[0]?.createdAt ?? null,
+      });
     }
 
     if (!phone) return c.json({ error: 'phone_or_registrationNumber_required' as const }, 400);
@@ -49,7 +73,26 @@ export const customerRoutes = new Hono<{ Bindings: Env }>()
       customerRepo.getHistory(db, customer.id),
     ]);
 
-    return c.json({ customer, vehicles, visitCount: history.length, lastVisit: history[0]?.createdAt ?? null });
+    return c.json({
+      customer,
+      vehicles,
+      visitCount: history.length,
+      lastVisit: history[0]?.createdAt ?? null,
+    });
+  })
+  // New Wash's offline customer directory. Phones page through rows changed after their cursor
+  // (no cursor = full download) and keep the result on the device for instant suggestions.
+  .get('/directory', zValidator('query', directoryQuerySchema), async (c) => {
+    const { cursor, limit } = c.req.valid('query');
+    const db = createDbClient(c.env.DB);
+    const entries = await directoryRepo.page(db, parseCursor(cursor), limit);
+    const last = entries[entries.length - 1];
+    return c.json({
+      entries,
+      nextCursor: last ? `${last.updatedAt}|${last.vehicleId}` : (cursor ?? null),
+      hasMore: entries.length === limit,
+      serverTime: new Date().toISOString(),
+    });
   })
   // Customer Profile screen: full picture of one customer — their vehicles, every job they've
   // ever had, and lifetime numbers. `lifetimeSpend` only counts paid jobs (money actually
@@ -103,7 +146,10 @@ export const customerRoutes = new Hono<{ Bindings: Env }>()
   .post('/ensure', zValidator('json', createCustomerSchema), async (c) => {
     const body = c.req.valid('json');
     const db = createDbClient(c.env.DB);
-    const registrationNumber = body.vehicle.registrationNumber.trim().toUpperCase().replace(/\s+/g, '');
+    const registrationNumber = body.vehicle.registrationNumber
+      .trim()
+      .toUpperCase()
+      .replace(/\s+/g, '');
 
     const existingVehicle = await vehicleRepo.findByRegistration(db, registrationNumber);
     if (existingVehicle) {

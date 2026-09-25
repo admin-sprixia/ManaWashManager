@@ -11,7 +11,7 @@ import {
 import LinearGradient from 'react-native-linear-gradient';
 import { colors, radius, spacing, typography } from '../theme';
 
-type Kind = 'bike' | 'hatch' | 'sedan' | 'suvMini' | 'suvLarge' | 'generic';
+type Kind = 'bike' | 'scooter' | 'hatch' | 'sedan' | 'suvMini' | 'suvLarge' | 'generic';
 
 const IMAGES: Record<Kind, ImageSourcePropType> = {
   hatch: require('../assets/vehicles/vehicle-hatchback.png'),
@@ -19,12 +19,14 @@ const IMAGES: Record<Kind, ImageSourcePropType> = {
   suvMini: require('../assets/vehicles/vehicle-suv-mini.png'),
   suvLarge: require('../assets/vehicles/vehicle-suv-large.png'),
   bike: require('../assets/vehicles/vehicle-bike.png'),
+  scooter: require('../assets/vehicles/vehicle-scooter.png'),
   generic: require('../assets/vehicles/vehicle-sedan.png'),
 };
 
 export function resolveVehicleKind(name: string): Kind {
   const n = name.toLowerCase();
-  if (n.includes('bike') || n.includes('scooter') || n.includes('two')) return 'bike';
+  if (/scoot|activa|moped|step[- ]?through/.test(n)) return 'scooter';
+  if (n.includes('bike') || n.includes('two')) return 'bike';
   if (n.includes('large') && (n.includes('suv') || n.includes('xuv'))) return 'suvLarge';
   if (n.includes('mini') && n.includes('suv')) return 'suvMini';
   if (n.includes('suv') || n.includes('xuv') || n.includes('muv')) return 'suvLarge';
@@ -50,13 +52,17 @@ interface VehicleTypeCardProps {
   name: string;
   selected: boolean;
   onPress: () => void;
+  /** Smaller tile so ~2.5 cards fit on screen, hinting that the row scrolls. */
+  compact?: boolean;
 }
+
+export const VEHICLE_CARD_COMPACT_WIDTH = 142;
 
 /**
  * Gallery-style vehicle picker tile — cinematic photo, glass caption, soft selection glow.
  * Unselected cards dim slightly so the active one feels like the hero.
  */
-export function VehicleTypeCard({ name, selected, onPress }: VehicleTypeCardProps) {
+export function VehicleTypeCard({ name, selected, onPress, compact = false }: VehicleTypeCardProps) {
   const scale = useRef(new Animated.Value(selected ? 1 : 0.94)).current;
 
   useEffect(() => {
@@ -75,9 +81,9 @@ export function VehicleTypeCard({ name, selected, onPress }: VehicleTypeCardProp
         accessibilityRole="button"
         accessibilityState={{ selected }}
         accessibilityHint="Double tap to select or deselect"
-        style={[styles.cardWrap, selected && styles.cardWrapOn]}
+        style={[styles.cardWrap, compact && styles.cardWrapCompact, selected && styles.cardWrapOn]}
       >
-        <View style={[styles.card, selected && styles.cardOn]}>
+        <View style={[styles.card, compact && styles.cardCompact, selected && styles.cardOn]}>
           <Image source={vehicleImageFor(name)} style={styles.photo} resizeMode="cover" />
 
           {/* Soft top highlight */}
@@ -128,6 +134,11 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     opacity: 0.72,
   },
+  cardWrapCompact: {
+    width: VEHICLE_CARD_COMPACT_WIDTH,
+    height: 178,
+    borderRadius: 22,
+  },
   cardWrapOn: {
     opacity: 1,
     // Ambient glow under the selected card
@@ -143,6 +154,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: colors.waterMidnight,
   },
+  cardCompact: { borderRadius: 22 },
   cardOn: {
     borderWidth: 2,
     borderColor: 'rgba(125,211,252,0.95)',

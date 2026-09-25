@@ -1,6 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
-  Alert,
   LayoutAnimation,
   Platform,
   Pressable,
@@ -16,11 +15,9 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { PromptModal } from '../components/PromptModal';
-import { Button } from '../components/Button';
 import { IconPlus } from '../components/Icons';
 import { colors, radius, spacing, typography } from '../theme';
 import { api } from '../api/client';
-import { useAuth } from '../api/auth';
 import { formatRupees } from '../utils/format';
 import {
   parseServiceAppliesTo,
@@ -86,7 +83,6 @@ const CATEGORIES: { id: VehicleCategory; label: string; hint: string }[] = [
 ];
 
 export function SettingsScreen({ navigation }: SettingsScreenProps) {
-  const { user, signOut } = useAuth();
   const [services, setServices] = useState<Service[]>([]);
   const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
   const [prices, setPrices] = useState<(ServicePrice & { id?: string })[]>([]);
@@ -95,45 +91,6 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
   const [category, setCategory] = useState<VehicleCategory>('car');
   const [expandedServiceId, setExpandedServiceId] = useState<string | null>(null);
   const [serviceQuery, setServiceQuery] = useState('');
-  const [signingOut, setSigningOut] = useState(false);
-
-  const initials = useMemo(() => {
-    const name = user?.name?.trim() ?? '';
-    if (!name) return 'M';
-    const parts = name.split(/\s+/).filter(Boolean);
-    if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
-    return `${parts[0]![0] ?? ''}${parts[parts.length - 1]![0] ?? ''}`.toUpperCase();
-  }, [user?.name]);
-
-  const roleLabel = user?.role === 'owner' ? 'Owner' : user?.role === 'staff' ? 'Staff' : 'Signed in';
-
-  const confirmSignOut = () => {
-    if (signingOut) return;
-    Alert.alert(
-      'Sign out?',
-      'You’ll need your phone number and OTP to sign back in.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Sign out',
-          style: 'destructive',
-          onPress: () => {
-            void (async () => {
-              setSigningOut(true);
-              try {
-                await signOut();
-              } catch {
-                setSigningOut(false);
-                setError('Could not sign out. Try again.');
-              }
-            })();
-          },
-        },
-      ],
-      { cancelable: true },
-    );
-  };
-
   const load = useCallback(async () => {
     const [servicesRes, vehicleTypesRes, pricesRes] = await Promise.all([
       api.services.$get({ query: {} }),
@@ -431,31 +388,6 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
           )}
         </View>
 
-        {/* Account */}
-        <Text style={[styles.sectionLabel, styles.accountLabel]}>Account</Text>
-        <View style={styles.edgeList}>
-          <View style={styles.accountRow}>
-            <View style={styles.avatar} accessibilityElementsHidden importantForAccessibility="no">
-              <Text style={styles.avatarText}>{initials}</Text>
-            </View>
-            <View style={styles.serviceCopy}>
-              <Text style={styles.accountName} numberOfLines={1}>
-                {user?.name?.trim() || 'MANA user'}
-              </Text>
-              <Text style={styles.accountRole}>{roleLabel}</Text>
-            </View>
-          </View>
-          <View style={styles.signOutWrap}>
-            <Button
-              label={signingOut ? 'Signing out…' : 'Sign out'}
-              variant="danger"
-              onPress={confirmSignOut}
-              loading={signingOut}
-              disabled={signingOut}
-            />
-          </View>
-        </View>
-
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <View style={styles.bottomPad} />
       </ScrollView>
@@ -559,10 +491,6 @@ const styles = StyleSheet.create({
     color: colors.slateDeep,
     letterSpacing: 0.8,
     textTransform: 'uppercase',
-  },
-  accountLabel: {
-    marginTop: spacing.xl,
-    marginBottom: spacing.xs,
   },
   inlineAdd: {
     flexDirection: 'row',
@@ -762,49 +690,6 @@ const styles = StyleSheet.create({
     ...typography.body,
     color: colors.slateDeep,
     padding: spacing.md,
-  },
-  accountRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    minHeight: 72,
-  },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.waterPale,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: {
-    ...typography.bodyStrong,
-    color: colors.waterDeep,
-    fontSize: 15,
-    letterSpacing: 0.4,
-  },
-  accountName: {
-    ...typography.bodyStrong,
-    color: colors.waterInk,
-    fontSize: 17,
-  },
-  accountRole: {
-    ...typography.caption,
-    color: colors.slateDeep,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginTop: 2,
-  },
-  signOutWrap: {
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.md,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    paddingTop: spacing.md,
   },
   bottomPad: {
     height: spacing.xl,

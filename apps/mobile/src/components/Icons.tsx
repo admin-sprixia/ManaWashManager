@@ -74,12 +74,7 @@ export function IconPhone({ size = 18, color = '#0369A1' }: IconProps) {
 export function IconCar({ size = 18, color = '#0369A1' }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path
-        d="M5 16 L7 10 H17 L19 16"
-        stroke={color}
-        strokeWidth={1.8}
-        strokeLinejoin="round"
-      />
+      <Path d="M5 16 L7 10 H17 L19 16" stroke={color} strokeWidth={1.8} strokeLinejoin="round" />
       <Path d="M3 16 H21" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
       <Path d="M5 16 V18" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
       <Path d="M19 16 V18" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
@@ -169,26 +164,31 @@ export function IconCheck({ size = 16, color = '#FFFFFF' }: IconProps) {
 export function IconDroplet({ size = 16, color = '#FFFFFF' }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path
-        d="M12 3 C12 3 6 10 6 14.5 A6 6 0 0 0 18 14.5 C18 10 12 3 12 3 Z"
-        fill={color}
-      />
+      <Path d="M12 3 C12 3 6 10 6 14.5 A6 6 0 0 0 18 14.5 C18 10 12 3 12 3 Z" fill={color} />
     </Svg>
   );
 }
 
 /** Official-feeling WhatsApp glyph — green bubble with phone. */
-export function IconWhatsApp({ size = 18, color = '#25D366' }: IconProps) {
+// Official WhatsApp glyph geometry (Simple Icons, CC0): handset + ring + outer bubble.
+const WHATSAPP_GLYPH =
+  'M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z';
+const WHATSAPP_BUBBLE =
+  'M20.464 3.488A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z';
+
+/**
+ * WhatsApp mark. `brand` (default) is the official logo — green bubble, white ring and handset.
+ * `mono` draws the glyph in a single `color`, for placing on a green or dark button.
+ */
+export function IconWhatsApp({
+  size = 18,
+  color = '#FFFFFF',
+  variant = 'brand',
+}: IconProps & { variant?: 'brand' | 'mono' }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path
-        d="M12 2.5 C6.76 2.5 2.5 6.56 2.5 11.55 C2.5 13.25 3 14.85 3.9 16.2 L2.6 21 L7.6 19.75 C8.9 20.5 10.4 20.95 12 20.95 C17.24 20.95 21.5 16.9 21.5 11.9 C21.5 6.9 17.24 2.5 12 2.5 Z"
-        fill={color}
-      />
-      <Path
-        d="M9.3 8.4 C9.1 7.95 8.85 7.95 8.65 7.95 C8.45 7.95 8.1 8 7.85 8.3 C7.6 8.6 6.9 9.25 6.9 10.6 C6.9 11.95 7.85 13.25 8 13.4 C8.15 13.55 10 16.5 12.9 17.7 C15.3 18.7 15.8 18.5 16.3 18.45 C16.8 18.4 17.9 17.8 18.15 17.15 C18.4 16.5 18.4 15.95 18.3 15.8 C18.2 15.65 18 15.55 17.7 15.4 C17.4 15.25 16.05 14.6 15.8 14.5 C15.55 14.4 15.35 14.45 15.2 14.8 C15.05 15.15 14.55 15.75 14.4 15.9 C14.25 16.05 14.1 16.1 13.8 15.95 C13.5 15.8 12.55 15.5 11.4 14.5 C10.5 13.7 9.9 12.75 9.75 12.45 C9.6 12.15 9.75 12 9.9 11.85 C10.05 11.7 10.2 11.5 10.35 11.3 C10.5 11.1 10.55 10.95 10.65 10.75 C10.75 10.55 10.7 10.35 10.65 10.2 C10.6 10.05 10.05 8.7 9.85 8.25 L9.3 8.4 Z"
-        fill="#FFFFFF"
-      />
+      {variant === 'brand' ? <Path d={WHATSAPP_BUBBLE} fill="#25D366" /> : null}
+      <Path d={WHATSAPP_GLYPH} fill={variant === 'brand' ? '#FFFFFF' : color} />
     </Svg>
   );
 }
@@ -208,8 +208,337 @@ export function IconDownload({ size = 20, color = '#FFFFFF' }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Path d="M12 4 V14" stroke={color} strokeWidth={2.2} strokeLinecap="round" />
-      <Path d="M8 11 L12 15 L16 11" stroke={color} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
+      <Path
+        d="M8 11 L12 15 L16 11"
+        stroke={color}
+        strokeWidth={2.2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
       <Path d="M5 19 H19" stroke={color} strokeWidth={2.2} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+export function IconChevronRight({ size = 18, color = '#94A3B8' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M9 6 L15 12 L9 18"
+        stroke={color}
+        strokeWidth={2.25}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+export function IconGrid({ size = 20, color = '#FFFFFF' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Rect x={4} y={4} width={6.5} height={6.5} rx={1.8} stroke={color} strokeWidth={2} />
+      <Rect x={13.5} y={4} width={6.5} height={6.5} rx={1.8} stroke={color} strokeWidth={2} />
+      <Rect x={4} y={13.5} width={6.5} height={6.5} rx={1.8} stroke={color} strokeWidth={2} />
+      <Rect x={13.5} y={13.5} width={6.5} height={6.5} rx={1.8} stroke={color} strokeWidth={2} />
+    </Svg>
+  );
+}
+
+export function IconUsers({ size = 20, color = '#0369A1' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Circle cx={9} cy={8.5} r={3.2} stroke={color} strokeWidth={1.8} />
+      <Path
+        d="M3 19 C3 16.2 5.7 14.4 9 14.4 C12.3 14.4 15 16.2 15 19"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+      />
+      <Path
+        d="M15.5 5.6 A3 3 0 0 1 15.5 11.4"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+      />
+      <Path
+        d="M17.5 14.7 C19.6 15.3 21 16.9 21 19"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+      />
+    </Svg>
+  );
+}
+
+export function IconReceipt({ size = 20, color = '#0369A1' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M6 3.5 H18 V20.5 L15.5 19 L13 20.5 L10.5 19 L8 20.5 L6 19.2 Z"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinejoin="round"
+      />
+      <Path d="M9 8 H15" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+      <Path d="M9 11.5 H15" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+      <Path d="M9 15 H12.5" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+export function IconShield({ size = 20, color = '#0369A1' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M12 3 L19.5 6 V11.5 C19.5 16 16.4 19.6 12 21 C7.6 19.6 4.5 16 4.5 11.5 V6 Z"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinejoin="round"
+      />
+      <Path
+        d="M8.8 12 L11 14.2 L15.4 9.8"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+export function IconLock({ size = 20, color = '#0369A1' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Rect x={5} y={10.5} width={14} height={10} rx={2.5} stroke={color} strokeWidth={1.8} />
+      <Path
+        d="M8 10.5 V7.5 A4 4 0 0 1 16 7.5 V10.5"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+      />
+      <Circle cx={12} cy={15.5} r={1.4} fill={color} />
+    </Svg>
+  );
+}
+
+export function IconLogout({ size = 20, color = '#DC2626' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M14 4 H18 A2 2 0 0 1 20 6 V18 A2 2 0 0 1 18 20 H14"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+      />
+      <Path
+        d="M10 8 L6 12 L10 16"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Path d="M6 12 H15" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+export function IconBan({ size = 18, color = '#DC2626' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Circle cx={12} cy={12} r={8.5} stroke={color} strokeWidth={1.9} />
+      <Path d="M6 6 L18 18" stroke={color} strokeWidth={1.9} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+export function IconCloudOff({ size = 18, color = '#B45309' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M8 18 H17 A4 4 0 0 0 18.6 10.3 A6 6 0 0 0 7.5 8.6 A4.7 4.7 0 0 0 8 18 Z"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinejoin="round"
+      />
+      <Path d="M4 4 L20 20" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+export function IconSync({ size = 18, color = '#0369A1' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M19.5 12 A7.5 7.5 0 0 1 6.2 16.8"
+        stroke={color}
+        strokeWidth={1.9}
+        strokeLinecap="round"
+      />
+      <Path
+        d="M4.5 12 A7.5 7.5 0 0 1 17.8 7.2"
+        stroke={color}
+        strokeWidth={1.9}
+        strokeLinecap="round"
+      />
+      <Path
+        d="M18.5 3.8 V7.6 H14.7"
+        stroke={color}
+        strokeWidth={1.9}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Path
+        d="M5.5 20.2 V16.4 H9.3"
+        stroke={color}
+        strokeWidth={1.9}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+export function IconClock({ size = 16, color = '#94A3B8' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Circle cx={12} cy={12} r={8.5} stroke={color} strokeWidth={1.9} />
+      <Path
+        d="M12 7.5 V12 L15 14"
+        stroke={color}
+        strokeWidth={1.9}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+export function IconAlert({ size = 18, color = '#DC2626' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 3.5 L21 19.5 H3 Z" stroke={color} strokeWidth={1.9} strokeLinejoin="round" />
+      <Path d="M12 10 V14" stroke={color} strokeWidth={1.9} strokeLinecap="round" />
+      <Circle cx={12} cy={16.8} r={1.1} fill={color} />
+    </Svg>
+  );
+}
+
+export function IconClose({ size = 18, color = '#475569' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M6 6 L18 18" stroke={color} strokeWidth={2.2} strokeLinecap="round" />
+      <Path d="M18 6 L6 18" stroke={color} strokeWidth={2.2} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+export function IconBackspace({ size = 24, color = '#0C4A6E' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M9 5 H19 A2 2 0 0 1 21 7 V17 A2 2 0 0 1 19 19 H9 L3 12 Z"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinejoin="round"
+      />
+      <Path d="M11.5 9.5 L16 14" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+      <Path d="M16 9.5 L11.5 14" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+export function IconCash({ size = 22, color = '#0D9488' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Rect x={2.5} y={6} width={19} height={12} rx={2.2} stroke={color} strokeWidth={1.8} />
+      <Circle cx={12} cy={12} r={2.6} stroke={color} strokeWidth={1.8} />
+      <Path d="M6 9.5 V14.5" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+      <Path d="M18 9.5 V14.5" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+export function IconUpi({ size = 22, color = '#0369A1' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Rect x={3.5} y={3.5} width={7} height={7} rx={1.5} stroke={color} strokeWidth={1.8} />
+      <Rect x={13.5} y={3.5} width={7} height={7} rx={1.5} stroke={color} strokeWidth={1.8} />
+      <Rect x={3.5} y={13.5} width={7} height={7} rx={1.5} stroke={color} strokeWidth={1.8} />
+      <Path
+        d="M13.5 13.5 H16 V16 H13.5 Z M18 13.5 H20.5 M13.5 18 V20.5 M16.5 18 H20.5 V20.5"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+export function IconWallet({ size = 22, color = '#475569' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M4 7 A2 2 0 0 1 6 5 H17 V8"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Rect x={4} y={8} width={16.5} height={11} rx={2.2} stroke={color} strokeWidth={1.8} />
+      <Circle cx={16.2} cy={13.5} r={1.3} fill={color} />
+    </Svg>
+  );
+}
+
+export function IconEdit({ size = 18, color = '#0369A1' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M4 20 H8 L18.5 9.5 A2.1 2.1 0 0 0 14.5 5.5 L4 16 Z"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinejoin="round"
+      />
+      <Path d="M13 7 L17 11" stroke={color} strokeWidth={1.8} />
+    </Svg>
+  );
+}
+
+export function IconSearch({ size = 18, color = '#64748B' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Circle cx={11} cy={11} r={6.5} stroke={color} strokeWidth={2} />
+      <Path d="M16 16 L20.5 20.5" stroke={color} strokeWidth={2.2} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+export function IconTag({ size = 18, color = '#0369A1' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M3.5 12.2V4.5a1 1 0 0 1 1-1h7.7a1 1 0 0 1 .7.3l7.8 7.8a1 1 0 0 1 0 1.4l-7.7 7.7a1 1 0 0 1-1.4 0l-7.8-7.8a1 1 0 0 1-.3-.7z"
+        stroke={color}
+        strokeWidth={1.9}
+        strokeLinejoin="round"
+      />
+      <Circle cx={8.5} cy={8.5} r={1.6} fill={color} />
+    </Svg>
+  );
+}
+
+export function IconPlate({ size = 18, color = '#0369A1' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Rect x={2.5} y={6.5} width={19} height={11} rx={2.2} stroke={color} strokeWidth={1.9} />
+      <Path
+        d="M6.5 12h2M10.5 12h2M14.5 12h3"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinecap="round"
+      />
     </Svg>
   );
 }
@@ -223,6 +552,40 @@ export function IconChevronDown({ size = 18, color = '#0369A1' }: IconProps) {
         strokeWidth={2.25}
         strokeLinecap="round"
         strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+export function IconBell({ size = 20, color = '#FFFFFF' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M6 16.5 V11 a6 6 0 0 1 12 0 v5.5 l1.5 1.5 H4.5 Z"
+        stroke={color}
+        strokeWidth={1.9}
+        strokeLinejoin="round"
+      />
+      <Path
+        d="M10 20.5 a2.2 2.2 0 0 0 4 0"
+        stroke={color}
+        strokeWidth={1.9}
+        strokeLinecap="round"
+      />
+    </Svg>
+  );
+}
+
+export function IconGift({ size = 20, color = '#0369A1' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Rect x={4} y={9} width={16} height={11} rx={1.8} stroke={color} strokeWidth={1.9} />
+      <Path d="M3 9 H21 M12 9 V20" stroke={color} strokeWidth={1.9} strokeLinecap="round" />
+      <Path
+        d="M12 9 C12 9 11 4.5 8.3 4.5 A2.2 2.2 0 0 0 8.3 9 M12 9 C12 9 13 4.5 15.7 4.5 A2.2 2.2 0 0 1 15.7 9"
+        stroke={color}
+        strokeWidth={1.9}
+        strokeLinecap="round"
       />
     </Svg>
   );

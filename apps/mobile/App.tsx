@@ -4,10 +4,13 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { AuthProvider, useAuth } from './src/api/auth';
+import { SyncProvider } from './src/offline/SyncProvider';
+import { DirectoryProvider } from './src/offline/DirectoryProvider';
+import { ToastHost } from './src/components/Toast';
 import { colors } from './src/theme';
 
 function AppBody() {
-  const { checking, loggedIn, signIn, bootstrap } = useAuth();
+  const { checking, loggedIn, bootstrap } = useAuth();
 
   useEffect(() => {
     void bootstrap();
@@ -21,14 +24,19 @@ function AppBody() {
     );
   }
 
-  return loggedIn ? <RootNavigator /> : <LoginScreen onLoggedIn={signIn} />;
+  return loggedIn ? <RootNavigator /> : <LoginScreen />;
 }
 
 export default function App() {
   return (
     <SafeAreaProvider>
       <AuthProvider>
-        <AppBody />
+        <SyncProvider>
+          <DirectoryProvider>
+            <AppBody />
+            <ToastHost />
+          </DirectoryProvider>
+        </SyncProvider>
       </AuthProvider>
     </SafeAreaProvider>
   );

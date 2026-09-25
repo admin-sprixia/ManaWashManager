@@ -8,9 +8,7 @@ export const serviceRepo = {
       orderBy: { sortOrder: 'asc' },
     });
     if (!category) return services;
-    return services.filter(
-      (s) => s.appliesTo === 'both' || s.appliesTo === category,
-    );
+    return services.filter((s) => s.appliesTo === 'both' || s.appliesTo === category);
   },
 
   async listVehicleTypes(db: DbClient, category?: VehicleCategory) {
@@ -69,10 +67,7 @@ export const serviceRepo = {
   },
 
   /** Owner settings screen: add a new vehicle size within a category (e.g. Bike → Scooter). */
-  async createVehicleType(
-    db: DbClient,
-    data: { name: string; category?: VehicleCategory },
-  ) {
+  async createVehicleType(db: DbClient, data: { name: string; category?: VehicleCategory }) {
     const count = await db.vehicleType.count();
     return db.vehicleType.create({
       data: {

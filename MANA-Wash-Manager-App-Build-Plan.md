@@ -17,7 +17,7 @@ MANA Wash Manager is built in five versions, each with its own goal, its own fea
 
 Each version is a real, usable release — not a demo. The gate to the next version is "is this one a stable daily habit," never the calendar.
 
-## Implementation status (as of 2026-09-23)
+## Implementation status (as of 2026-09-25)
 
 V0.1 and **all of V1.0** are built and verified — not just planned. Treat this section as the honest source of truth; update it as work lands rather than trusting the feature tables below to reflect reality on their own.
 
@@ -29,13 +29,15 @@ V0.1 and **all of V1.0** are built and verified — not just planned. Treat this
 - API routes: OTP login (dev bypass — see Pending), customer lookup/create/**profile with lifetime stats**, service + vehicle-type list/create, price upsert, job create/list-today/**stats**/update-status/mark-paid, all owner-role-gated where it matters
 - **Job creation and status changes return clean 4xx errors for real operator mistakes** (a service with no price set for the selected vehicle type, a discount larger than the subtotal, an already-paid job tapped twice, a job id that no longer exists) instead of a raw 500 — verified via direct API calls for every case
 - **"Today"/"this week" boundaries are computed in IST (UTC+5:30), not the Worker's own UTC clock** — a real bug fixed this pass: Cloudflare Workers run in UTC, so a naive `new Date(); setHours(0,0,0,0)` would have misfiled washes done in the first ~5.5 hours of the IST day as "yesterday"
-- Mobile screens: **Login**, **New Wash** (lookup → multi-service select → live price → optional discount → submit), **Job Board** (list, status advance, mark paid, WhatsApp thank-you, auto-refresh on focus), **Settings** (owner-only: edit prices, add a vehicle type, add a service), **Customer Profile** (visit count, lifetime spend, last visit, vehicles, full job history), **Reports** (Today / Last-7-days toggle: revenue, cars washed, pending now, new vs repeat customers, cash/UPI/other split)
+- Mobile screens: **Login**, **New Wash** (Cars/Bikes family switch → lookup → multi-service select, filtered to the vehicle's category → live price → optional discount → submit; customer name is now a required field, not optional), **Job Board** (list, status advance, mark paid, WhatsApp thank-you, auto-refresh on focus), **Settings** (owner-only: separate Cars/Bikes catalogs, each with its own sizes, services, and prices), **Customer Profile** (visit count, lifetime spend, last visit, vehicles, full job history), **Reports** (Today / Last 7 days / This month / This year / Custom dates: revenue, cars washed, pending now, new vs repeat customers, cash/UPI/other split, **PDF export** of the whole report)
+- **Vehicle categories (car / bike) shipped past the original V1.0 scope**: `vehicle_types.category` and `services.applies_to` (car/bike/both) now drive which services New Wash and Settings show for a given vehicle family — enforced both client-side (UI never offers a mismatched service) and server-side, verified directly (a car service submitted against a bike vehicle type comes back as a 400 `category_mismatch`, not a silently-accepted row). The local dev database already has a real "Bike" vehicle type created through the app itself (not the seed file), which is on-device evidence the Settings catalog flow works for bikes — a full New Wash walkthrough on a bike job specifically hasn't been re-confirmed by me this pass, though.
+- **A same-day production-readiness pass found and fixed three real inconsistencies**, not feature gaps: Job Board's hero "Washes" count was including voided jobs while Reports' "Cars washed" excluded them (same day, two different numbers — now both exclude void); `services.ts`'s price-update route was querying Prisma directly instead of through `serviceRepo`, breaking the build plan's own repository-pattern rule (now routed through `serviceRepo.findById`/`getVehicleType`, and reusing the domain's `serviceAppliesToCategory` helper instead of a second hand-written copy of that check); `SettingsScreen.tsx` had its own `formatRupees` with no thousands separator, so the same price showed as "₹2500" there and "₹2,500" everywhere else (now uses the one shared formatter)
 - Full job lifecycle tested repeatedly on-device: Waiting → Washing → Ready → Paid, multi-service pricing verified correct (e.g. Mini SUV Exterior Wash + Tyre Dressing = ₹350 + ₹50 = ₹400)
 - Owner settings fully exercised on-device: edited an existing price, added a vehicle type ("Bike"), added a new service ("Ceramic Coating") — the new service correctly showed blank "Set price" cells across all five vehicle types, including the one added moments earlier in the same session
 - **Discount flow fully exercised on-device**: entering a discount larger than the subtotal blocks submission with an inline error; entering a discount with no reason blocks submission with a different inline error (the server rejects both independently too — a bare `discount > 0` with no `discountReason` is a 400, matching V1.0's own "discounts require a reason" line); a valid discount + reason submits correctly and the job board shows the discounted total
 - **WhatsApp thank-you verified live**: tapping the WhatsApp action on a paid job opens the real WhatsApp app with the correct customer phone number and a pre-filled thank-you message referencing that customer's vehicle
 - **Customer Profile verified live**: correct visit count, lifetime spend (paid jobs only), last visit, vehicle list, and full chronological job history for a real customer
-- **Reports verified live**: Today/Last-7-days toggle recomputes correctly; payment-split bars are proportioned correctly against total revenue; new-vs-repeat customer counts match manual verification against seeded test data
+- **Reports verified live on-device**: the Today/Last-7-days periods recompute correctly; payment-split bars are proportioned correctly against total revenue; new-vs-repeat customer counts match manual verification against seeded test data. The newer This-month/This-year/Custom-dates periods and the PDF export were added by a later pass and are verified by code review + typecheck/lint/tests + direct API calls (the report-window math, the 400s for a backwards or too-long custom range), **not** by tapping through them on the physical device yet — worth a real on-device pass before relying on them for an actual month-end report.
 - `mana_db` created for real on Cloudflare; local schema applied; the Worker serves real seeded data via `wrangler dev`
 - Repo pushed to GitHub: `admin-sprixia/ManaWashManager`, `main` branch
 - Real bugs found and fixed during device testing — worth knowing if you touch this code: Gradle's node_modules paths in a monorepo, Metro not resolving `package.json` "exports" (broke Hono's client), Hermes' incomplete `URLSearchParams` (needed a polyfill), the Job Board not refreshing after navigating back to it, a seeded phone number that didn't match what the login screen actually sends, the UTC-vs-IST day-boundary bug above, and (in testing itself, not the app) `adb`'s tap coordinates drifting whenever the screen scrolls or a `LayoutAnimation` reflows the list — fixed by re-reading exact element bounds via `uiautomator dump` before every tap instead of reusing coordinates across screen states
@@ -48,7 +50,26 @@ V0.1 and **all of V1.0** are built and verified — not just planned. Treat this
 - Automated on-device tests (Maestro) — all testing so far has been manual (live device + adb), not automated
 - iOS build — deliberately out of scope per your direction (Android-only; MANA's customer base doesn't use iPhones). No `ios/` folder exists.
 
-**V1.2, V2.0, V3.0, V4.0:** not started, as planned — nothing here has been pulled forward.
+**V2.0 — Team Ready: implemented.**
+
+- **Login:** SMS code or PIN. PINs are PBKDF2-SHA256 hashes (100k iterations, never returned by the API); obvious PINs like `1111` or `1234` are rejected; 5 wrong tries lock PIN login for 15 minutes. Every request re-checks the user in the database, so turning a staff member off locks them out at once.
+- **Roles:** staff can start washes, move jobs along, mark them paid, void unpaid jobs and log expenses. Prices, reports, team and staff report are owner-only, enforced by the API (403) and hidden in the app.
+- **Attribution:** each job stores who created it, who marked it paid and who voided it; the board and job detail show names.
+- **Offline:** new washes, status changes, payments, voids and expenses queue on the phone and sync when signal returns. Client-generated ids make every replay idempotent. There's a sync banner, a Sync section in More (retry/discard failed items), and optimistic updates on the board.
+- **Audit trail:** every job change writes a `job_events` row. Voids and payment-method corrections need a reason. Paid jobs can only be voided or corrected by the owner.
+- **Expenses:** anyone can log expenses by category. Staff see only their own. Voiding one keeps the record. Reports show Revenue − Expenses = Net, and so does the PDF.
+- **Owner Staff Report:** per-person sales, washes started, cash/UPI/other split, voids and corrections, plus a Corrections feed of every void and payment change with its reason.
+- **Verified:** typecheck (domain, db, api, mobile), 25 domain tests, and direct API calls for the full permission matrix, idempotent replays, lockout and deactivation. The on-device walkthrough of the offline flow is still to do.
+
+**Also shipped in 2.0.0 (early V3 slice):**
+
+- **Reminders:** a bell on the Job Board opens a per-vehicle list. A vehicle shows up as Due 10 days after its last visit and as Win them back after 30. Staff can send a WhatsApp reminder, snooze it for 3 days or dismiss it. A newer visit clears the reminder.
+- **Comeback coupons:** only the owner can issue them, for vehicles that haven't been back in 30+ days. Each gives a random 5–10% off, lasts 14 days and works once. It's valid on that vehicle or the same owner's other vehicles, and the owner's phone must match. Redemption needs internet. The claim is atomic, a vehicle can have only one live coupon, it can't be combined with a manual discount, it's cancelled if the vehicle changes owner, and voiding the job gives it back.
+- **Customer Profile redesign:** quick actions, lifetime stats, insights and visit history, with "New wash" pre-filling the plate.
+
+**Versioning:** from 2.0.0 every app and package shares one `MAJOR.MINOR.PATCH` version (see Naming conventions).
+
+**V3.0 (rest), V4.0:** not started.
 
 ## Architecture and engineering principles
 
@@ -88,11 +109,14 @@ users
   id, name, phone, role (owner/staff), created_at
 
 vehicle_types
-  id, name ("Hatchback", "Sedan", …), sort_order
-  → owner-editable list, not an enum baked into code
+  id, name ("Hatchback", "Sedan", …), category (car | bike), sort_order
+  → owner-editable list, not an enum baked into code; category keeps car and bike sizes
+    in separate lists everywhere (New Wash's vehicle picker, Settings' catalog editor)
 
 services
-  id, name, description, active, sort_order
+  id, name, description, active, applies_to (car | bike | both), sort_order
+  → applies_to is what actually filters New Wash's service list to the selected
+    vehicle's category — enforced again server-side on job creation, not just in the UI
 
 service_prices
   id, service_id, vehicle_type_id, price
@@ -169,12 +193,13 @@ No status board yet — that's what V1.0 adds on top of this same core flow.
 
 | Feature | Description | Priority | Status |
 | --- | --- | --- | --- |
-| Today dashboard | Cars washed, revenue, cash vs UPI split, pending jobs | Must have | ✅ Done — Reports screen, "Today" toggle; verified on-device |
+| Today dashboard | Cars washed, revenue, cash vs UPI split, pending jobs | Must have | ✅ Done — Reports screen, "Today" period; verified on-device |
 | Job status board | Waiting → Washing → Ready → Paid, tap to advance | Must have | ✅ Done — full lifecycle tested on-device |
 | Customer profile | Visit count, lifetime spend, last visit, full service history | Must have | ✅ Done — new screen, reached by tapping a job's customer row; verified on-device |
 | WhatsApp thank-you | Pre-filled `wa.me` link, one tap to send after a job completes | Must have | ✅ Done — verified live: opens WhatsApp with the correct number and message |
-| Basic reports | Today / this week: cars, revenue, cash vs UPI, new vs repeat | Should have | ✅ Done — same Reports screen; "this week" implemented as a rolling last-7-days range rather than a Mon–Sun calendar week, to sidestep week-boundary ambiguity |
+| Basic reports | Today / this week: cars, revenue, cash vs UPI, new vs repeat | Should have | ✅ Done, and grew past the original scope — Reports now has 5 periods (Today, Last 7 days, This month, This year, Custom From→To dates) plus a **PDF export** (summary, payment split, full job ledger) shared via the native share sheet. "Last 7 days" is a rolling range rather than a Mon–Sun calendar week, to sidestep week-boundary ambiguity. |
 | Add-ons and discounts | Add-on services on top of the main wash; discounts require a reason | Should have | ✅ Done — discount entry in New Wash, validated client-side and server-side (amount can't exceed subtotal, reason required when discount > 0); verified on-device |
+| *(beyond original scope)* Car/bike catalogs | Vehicle types and services are now categorized `car` \| `bike` \| `both`; New Wash only shows the matching menu for the selected vehicle family | — | ✅ Done — filtered client-side and re-checked server-side on job creation (a mismatched service/vehicle pairing is rejected with a 400, not silently accepted) |
 
 ### Final flow of V1.0
 
@@ -407,7 +432,7 @@ Established once here so every Worker, database, secret, table, and function is 
 | Application use-cases | verb-first camelCase function, no `Repo` suffix | `startWash()`, `markPaid()`, `addExpense()` |
 | tRPC/API routes | `{entity}.{action}`, camelCase | `job.create`, `job.markPaid`, `customer.lookup` |
 | Monorepo packages | folder path → npm package name | `apps/mobile` → `@mana/mobile`, `apps/api` → `@mana/api`, `packages/domain` → `@mana/domain`, `packages/db` → `@mana/db` |
-| Version naming | `V{major}.{minor}` — minor = additive within the same phase | `V0.1`, `V1.0`, `V1.2`, `V2.0`, `V3.0`, `V4.0` |
+| Version naming | `MAJOR.MINOR.PATCH`, one number shared by every app and package (root, `@mana/api`, `@mana/mobile`, `@mana/db`, `@mana/domain`, Android `versionName`). MAJOR = phase, MINOR = additive feature, PATCH = fix. Change it only with `npm run version:set -- X.Y.Z`; `npm run version:check` fails on drift. Android `versionCode` = MAJOR·10000 + MINOR·100 + PATCH. Git tag `vX.Y.Z` per release | `2.0.0`, `2.1.0`, `2.1.1`, `3.0.0` |
 
 **The one name that changes at V4** is the org slug — chosen once at onboarding (lowercase, kebab-case, e.g. `mana`, `sparkle-wash`), and it's what derives that organization's Worker name and D1 database name. Every other name above (bindings, secrets, claim names, table names, function names) stays identical across every organization, because the code itself is identical across organizations — only the org slug and the org's own data differ.
 

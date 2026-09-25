@@ -1,9 +1,10 @@
 {
   "name": "@mana/mobile",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
-    "android": "react-native run-android",
+    "android": "react-native run-android && npm run reverse",
+    "reverse": "for d in $(adb devices | awk 'NR>1 && $2==\"device\" {print $1}'); do adb -s $d reverse tcp:8081 tcp:8081 && adb -s $d reverse tcp:8787 tcp:8787; done",
     "ios": "react-native run-ios",
     "start": "react-native start",
     "typecheck": "tsc --noEmit",

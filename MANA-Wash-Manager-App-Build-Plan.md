@@ -61,13 +61,13 @@ V0.1 and **all of V1.0** are built and verified — not just planned. Treat this
 - **Owner Staff Report:** per-person sales, washes started, cash/UPI/other split, voids and corrections, plus a Corrections feed of every void and payment change with its reason.
 - **Verified:** typecheck (domain, db, api, mobile), 25 domain tests, and direct API calls for the full permission matrix, idempotent replays, lockout and deactivation. The on-device walkthrough of the offline flow is still to do.
 
-**Also shipped in 2.0.0 (early V3 slice):**
+**Also shipped (early V3 slice):**
 
 - **Reminders:** a bell on the Job Board opens a per-vehicle list. A vehicle shows up as Due 10 days after its last visit and as Win them back after 30. Staff can send a WhatsApp reminder, snooze it for 3 days or dismiss it. A newer visit clears the reminder.
 - **Comeback coupons:** only the owner can issue them, for vehicles that haven't been back in 30+ days. Each gives a random 5–10% off, lasts 14 days and works once. It's valid on that vehicle or the same owner's other vehicles, and the owner's phone must match. Redemption needs internet. The claim is atomic, a vehicle can have only one live coupon, it can't be combined with a manual discount, it's cancelled if the vehicle changes owner, and voiding the job gives it back.
 - **Customer Profile redesign:** quick actions, lifetime stats, insights and visit history, with "New wash" pre-filling the plate.
 
-**Versioning:** from 2.0.0 every app and package shares one `MAJOR.MINOR.PATCH` version (see Naming conventions).
+**Versioning:** release numbering starts at 0.1.0; every app and package shares one `MAJOR.MINOR.PATCH` version (see Naming conventions). The V-numbers above name plan phases, not release versions.
 
 **V3.0 (rest), V4.0:** not started.
 
@@ -432,7 +432,7 @@ Established once here so every Worker, database, secret, table, and function is 
 | Application use-cases | verb-first camelCase function, no `Repo` suffix | `startWash()`, `markPaid()`, `addExpense()` |
 | tRPC/API routes | `{entity}.{action}`, camelCase | `job.create`, `job.markPaid`, `customer.lookup` |
 | Monorepo packages | folder path → npm package name | `apps/mobile` → `@mana/mobile`, `apps/api` → `@mana/api`, `packages/domain` → `@mana/domain`, `packages/db` → `@mana/db` |
-| Version naming | `MAJOR.MINOR.PATCH`, one number shared by every app and package (root, `@mana/api`, `@mana/mobile`, `@mana/db`, `@mana/domain`, Android `versionName`). MAJOR = phase, MINOR = additive feature, PATCH = fix. Change it only with `npm run version:set -- X.Y.Z`; `npm run version:check` fails on drift. Android `versionCode` = MAJOR·10000 + MINOR·100 + PATCH. Git tag `vX.Y.Z` per release | `2.0.0`, `2.1.0`, `2.1.1`, `3.0.0` |
+| Version naming | `MAJOR.MINOR.PATCH`, one number shared by every app and package (root, `@mana/api`, `@mana/mobile`, `@mana/db`, `@mana/domain`, Android `versionName`). Starts at `0.1.0`; while in `0.x`, MINOR = feature release and PATCH = fix; `1.0.0` = first production release, after which MAJOR = breaking change. Change it only with `npm run version:set -- X.Y.Z`; `npm run version:check` fails on drift. Android `versionCode` = MAJOR·10000 + MINOR·100 + PATCH. Git tag `vX.Y.Z` per release | `0.1.0`, `0.2.0`, `0.2.1`, `1.0.0` |
 
 **The one name that changes at V4** is the org slug — chosen once at onboarding (lowercase, kebab-case, e.g. `mana`, `sparkle-wash`), and it's what derives that organization's Worker name and D1 database name. Every other name above (bindings, secrets, claim names, table names, function names) stays identical across every organization, because the code itself is identical across organizations — only the org slug and the org's own data differ.
 

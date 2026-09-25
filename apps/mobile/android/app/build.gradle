@@ -82,8 +82,8 @@ android {
         applicationId "com.manacarwash.washmanager"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 20000
-        versionName "2.0.0"
+        versionCode 100
+        versionName "0.1.0"
     }
     signingConfigs {
         debug {

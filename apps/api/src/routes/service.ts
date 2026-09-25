@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { createDbClient, serviceRepo } from '@mana/db';
+import { parseServiceAppliesTo, parseVehicleCategory, serviceAppliesToCategory } from '@mana/domain';
 import { requireAuth, requireRole } from '../middleware/auth';
 import type { Env } from '../types';
 
@@ -73,17 +74,19 @@ export const serviceRoutes = new Hono<{ Bindings: Env }>()
     const db = createDbClient(c.env.DB);
 
     const [service, vehicleType] = await Promise.all([
-      db.service.findUnique({ where: { id: body.serviceId } }),
-      db.vehicleType.findUnique({ where: { id: body.vehicleTypeId } }),
+      serviceRepo.findById(db, body.serviceId),
+      serviceRepo.getVehicleType(db, body.vehicleTypeId),
     ]);
     if (!service || !vehicleType) {
       return c.json({ error: 'not_found' as const }, 404);
     }
-    if (service.appliesTo !== 'both' && service.appliesTo !== vehicleType.category) {
+    const appliesTo = parseServiceAppliesTo(service.appliesTo);
+    const category = parseVehicleCategory(vehicleType.category);
+    if (!serviceAppliesToCategory(appliesTo, category)) {
       return c.json(
         {
           error: 'category_mismatch' as const,
-          message: `${service.name} is not offered for ${vehicleType.category} vehicles.`,
+          message: `${service.name} is not offered for ${category} vehicles.`,
         },
         400,
       );

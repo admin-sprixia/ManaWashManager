@@ -179,12 +179,15 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
   const safeJobs = Array.isArray(jobs) ? jobs : [];
 
   const stats = useMemo(() => {
+    // Excludes void jobs — matches jobRepo.getStats' `carsWashed`, so this hero number and
+    // the Reports screen's "Cars washed" never disagree for the same day.
+    const realJobs = safeJobs.filter((j) => j.status !== 'void');
     const paidJobs = safeJobs.filter((j) => j.status === 'paid');
     const revenue = paidJobs.reduce((sum, j) => sum + j.total, 0);
     const active = safeJobs.filter(
       (j) => j.status === 'waiting' || j.status === 'washing' || j.status === 'ready',
     ).length;
-    return { cars: safeJobs.length, revenue, active };
+    return { cars: realJobs.length, revenue, active };
   }, [safeJobs]);
 
   const sections = useMemo<JobSection[]>(() => {

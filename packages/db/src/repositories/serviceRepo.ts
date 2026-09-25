@@ -24,6 +24,10 @@ export const serviceRepo = {
     return db.vehicleType.findUnique({ where: { id } });
   },
 
+  async findById(db: DbClient, id: string) {
+    return db.service.findUnique({ where: { id } });
+  },
+
   /** The full price matrix, or just one vehicle type's column when building a New Wash screen. */
   async listPrices(db: DbClient, vehicleTypeId?: string) {
     return db.servicePrice.findMany({

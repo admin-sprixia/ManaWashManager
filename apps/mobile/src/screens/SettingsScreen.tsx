@@ -21,6 +21,7 @@ import { IconPlus } from '../components/Icons';
 import { colors, radius, spacing, typography } from '../theme';
 import { api } from '../api/client';
 import { useAuth } from '../api/auth';
+import { formatRupees } from '../utils/format';
 import {
   parseServiceAppliesTo,
   parseVehicleCategory,
@@ -34,10 +35,6 @@ import type { RootStackParamList } from '../navigation/RootNavigator';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
-}
-
-function formatRupees(paise: number): string {
-  return `₹${(paise / 100).toFixed(0)}`;
 }
 
 function animate() {

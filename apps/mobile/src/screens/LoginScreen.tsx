@@ -15,6 +15,7 @@ import {
   LOGIN_CODE_LENGTH,
   LOGIN_CODE_TTL_MINUTES,
   normalizePhone,
+  SEAT_LOCKED_MESSAGE,
   SHOP_TRIAL_DAYS,
 } from '@mana/domain';
 import { Button } from '../components/Button';
@@ -126,7 +127,9 @@ export function LoginScreen() {
       ? `No team account for ${formatPhone(digits)}. Ask the owner to add you.`
       : err === 'account_disabled'
         ? 'This account has been turned off. Ask the owner to re-enable it.'
-        : null;
+        : err === 'plan_seat_locked'
+          ? SEAT_LOCKED_MESSAGE
+          : null;
 
   const complete = async (token: string, user: SessionUser) => {
     await setLoginHints(digits, 'pin');

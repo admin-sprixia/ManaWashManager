@@ -1,8 +1,9 @@
 import type { DbClient } from '../client';
 
-export type SignupPurpose = 'signup' | 'join';
+/** signup / join: a number without an account. phone: moving an account to this new number. */
+export type SignupPurpose = 'signup' | 'join' | 'phone';
 
-/** Codes for numbers without an account. Always used with the platform client. */
+/** Codes sent to numbers that don't belong to the account (yet). Always used with the platform client. */
 export const signupCodeRepo = {
   async create(
     db: DbClient,

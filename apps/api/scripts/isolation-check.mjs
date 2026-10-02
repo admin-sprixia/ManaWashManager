@@ -66,6 +66,8 @@ const notMine = (r) => r.status === 404 || r.status === 400 || r.status === 403;
 
 sql(
   "INSERT OR IGNORE INTO shops (id, code, name, plan) VALUES ('shop_test_b', '900001', 'Test Wash', 'trial');" +
+    // On a live trial so the Pro-only lists (staff report, reminders…) answer instead of 402.
+    "UPDATE shops SET trial_ends_at = strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now', '+14 days') WHERE id = 'shop_test_b';" +
     "INSERT OR IGNORE INTO users (id, shop_id, name, phone, role) VALUES ('user_b_owner', 'shop_test_b', 'B Owner', '9200000000', 'owner');" +
     "INSERT OR IGNORE INTO users (id, shop_id, name, phone, role) VALUES ('user_b_staff', 'shop_test_b', 'B Staff', '9200000091', 'staff');" +
     "INSERT OR IGNORE INTO vehicle_types (id, shop_id, name, category, sort_order) VALUES ('vt_b_sedan', 'shop_test_b', 'Sedan', 'car', 0);" +

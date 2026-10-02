@@ -56,6 +56,11 @@ jobs:
             echo "WHATSAPP_OTP_BYPASS=true"
             echo "DEV_MODE=true"
             echo "DEV_RECOVERY_CODE=000000"
+            echo "RAZORPAY_WEBHOOK_SECRET=ci-$(openssl rand -hex 16)"
+            # A stand-in Razorpay that test:plans runs on port 8799 (test keys only).
+            echo "RAZORPAY_KEY_ID=rzp_test_standin"
+            echo "RAZORPAY_KEY_SECRET=standin"
+            echo "RAZORPAY_API_BASE=http://127.0.0.1:8799/v1"
           } > .dev.vars
       - name: Fresh local database (migrations + seed)
         run: npm run db:reset:local
@@ -70,6 +75,10 @@ jobs:
           exit 1
       - run: npm run test:isolation
       - run: npm run test:signup
+      - run: npm run test:races
+      - name: Plan limits and billing webhook
+        run: |
+          RAZORPAY_WEBHOOK_SECRET="$(grep '^RAZORPAY_WEBHOOK_SECRET=' .dev.vars | cut -d= -f2-)" npm run test:plans
       - name: API log
         if: failure()
         run: cat wrangler.log

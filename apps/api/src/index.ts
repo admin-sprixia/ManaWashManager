@@ -22,6 +22,7 @@ import { attendanceRoutes } from './routes/attendance';
 import { cashRoutes } from './routes/cash';
 import { photoRoutes } from './routes/photo';
 import { stockRoutes } from './routes/stock';
+import { billingRoutes } from './routes/billing';
 import type { Env } from './types';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -35,6 +36,7 @@ app.use('/auth/pin/login', rateLimit('pin', 40, TEN_MIN));
 app.use('/auth/recover', rateLimit('recover', 10, TEN_MIN));
 app.use('/auth/code/*', rateLimit('code', 20, TEN_MIN));
 app.use('/auth/me/phone', rateLimit('phone', 10, TEN_MIN));
+app.use('/auth/me/phone/code', rateLimit('phone-code', 10, TEN_MIN));
 app.use('/signup/*', rateLimit('signup', 60, TEN_MIN));
 
 // Requests are read into memory, so cap their size before anything parses them. Uploads carry
@@ -95,7 +97,8 @@ const routes = app
   .route('/attendance', attendanceRoutes)
   .route('/cash', cashRoutes)
   .route('/photos', photoRoutes)
-  .route('/stock', stockRoutes);
+  .route('/stock', stockRoutes)
+  .route('/billing', billingRoutes);
 
 // Hono RPC: the mobile app imports this type (via hc<AppType>) to get a fully typed API
 // client with zero codegen — this is what "tRPC or Hono RPC" in the build plan resolved to.

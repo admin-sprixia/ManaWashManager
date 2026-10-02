@@ -28,7 +28,7 @@ Treat this section as the honest source of truth; every feature table below now 
 | V1.2 Owner Accountability | 🟡 Mostly done — expenses, net profit and cash drawer are built; revenue by service, tagged discount reasons and "how did you hear about us" are not |
 | V2.0 Team Ready | ✅ Done |
 | V3.0 Growth Engine | 🟡 Partly done — referrals and manual reminders/comeback coupons are built; automatic WhatsApp follow-ups, packages and segments are not |
-| V4.0 / Multi-shop | 🟡 Foundation done — sign-up, joining a shop, branches and shop isolation are built; billing, trial enforcement and the Sprixia admin site are not |
+| V4.0 / Multi-shop | 🟡 Mostly done — sign-up, joining a shop, branches, shop isolation, Free and Pro plans, trial expiry and Razorpay subscriptions are built; the Sprixia admin site is not |
 
 **Before the first real shop uses it:** deploy the API and run `set-api-url`, finish WhatsApp codes (Meta test number, `login_code` template, permanent token), and replace the debug signing key.
 
@@ -407,7 +407,7 @@ This flow runs in the background — the owner sees the results in Reports, not 
 | Org-scoped auth | Each login's JWT carries which organization (and D1 database) it belongs to; the Worker binds every subsequent query to that database | Must have | ✅ Done — token carries `shopId`; every query goes through the shop-scoped client; proven by the isolation suite |
 | Per-organization branding | Logo, business name, and colors shown on that org's screens and WhatsApp messages | Should have | 🟡 Shop name only — shown in the app and WhatsApp messages; no logo or colors |
 | Database provisioning automation | A script/Worker that creates and migrates a new D1 database per organization at onboarding, so isolation never depends on a hand-written policy | Must have | ✅ Not needed — one shared database with `shop_id`, composite foreign keys and migrations |
-| Platform billing | Subscription or per-wash fee charged to each organization | Should have | ❌ Not built — shops have `plan` and a 14-day `trial_ends_at`, but nothing charges or enforces it |
+| Platform billing | Subscription or per-wash fee charged to each organization | Should have | ✅ Built — Free and Pro plans, 14-day trial, Razorpay subscriptions (UPI AutoPay), founder price; see Pricing and plans |
 | Platform-level dashboard | Cross-organization view for MANA-as-platform-operator only (queries across all D1 databases) | Nice to have | ❌ Not built (planned as the separate Sprixia admin site) |
 
 This version is deliberately last: it's the one whose requirements depend entirely on who the second customer turns out to be, so it stays unscoped in detail until that's a real conversation, not a hypothetical one.
@@ -457,6 +457,137 @@ Every screen a new organization's staff sees is the same app MANA already runs �
 
 Development itself is free — Cloudflare's free tier (Workers, D1, R2) covers the backend at MANA's current scale. Costs to plan for: a one-time \~$25 Google Play Developer fee, and a small Meta fee per WhatsApp sign-in code.
 
+## Pricing and plans
+
+Decided 2026-10-02. **Built (Unreleased, after 0.3.0):** Free and Pro with limits, the 14-day trial, Razorpay subscriptions in Test Mode, the founder price (₹399) and the branch price (₹349). Business, add-ons and message packs are not built (see "Adding features later").
+
+### Principles
+
+- **Price per shop**, never per staff member. Owners hate paying more for every washer.
+- **Keep it simple:** launch with two plans only, Free and Pro.
+- **Sell the outcome, not the software:** "Stop cash leaking and bring customers back."
+
+### What shop owners pay for
+
+| Value | Built feature that delivers it |
+| --- | --- |
+| Stop cash leakage — staff can't wash for cash and skip the record | Cash drawer, audit trail, staff PINs, void tracking |
+| Get customers back | Reminders (Due at 10 days, Win back at 30), comeback coupons, referrals |
+| Know the numbers | Today's takings, net profit after expenses, staff performance |
+| Run the team | Attendance, commission, who washed which car |
+
+If the app catches one hidden ₹300 wash a week, it has paid for itself.
+
+### Plans
+
+| | Starter (Free) | Pro | Business (later) |
+| --- | --- | --- | --- |
+| **Price** | ₹0 forever | ₹499 / month or ₹4,999 / year | ₹999 / month or ₹9,999 / year, per shop |
+| **Shops** | 1 | 1 (extra branch +₹349 / month) | Multiple branches with the shop switcher |
+| **Team** | Owner + 1 staff | Up to 5 staff | Unlimited staff |
+| **Washes** | Up to 300 / month (about 10 a day) | Unlimited | Unlimited |
+| **Job board, new wash, payments** | ✅ | ✅ | ✅ |
+| **Reports** | Today and this week | Full reports, PDF export, expenses and net profit | Same as Pro, plus data export |
+| **Reminders, coupons, referrals** | — | ✅ | ✅ |
+| **Before/after photos** | — | ✅ | ✅ |
+| **Cash drawer, commission, attendance, inventory** | — | ✅ | ✅ |
+| **WhatsApp** | Tap-to-send (`wa.me`) | Tap-to-send (`wa.me`) | Automatic from the shop's own number (Meta charges paid by the shop) |
+| **Branding and support** | — | — | Shop logo on PDFs and messages, priority phone support |
+| **Who it's for** | Very small shops trying it with zero risk | Most shops — the plan to push | Multi-branch or high-volume owners |
+
+**All prices (built, decided 2026-10-02):**
+
+| Who | Monthly | Yearly | Off ₹499 |
+| --- | --- | --- | --- |
+| Regular Pro (shop 51 onwards) | ₹499 | ₹4,999 | — |
+| Founder (first 50 shops to pay, for life) | ₹399 | ₹3,990 | 20% |
+| Extra branch (another of the owner's shops is on paid Pro) | ₹349 | ₹3,490 | 30% |
+
+The branch price sits below the founder price on purpose: a second shop is always the cheapest way to grow, and a founder's own branch gets ₹349 too. A shop always gets the cheapest price it qualifies for.
+
+**Add-ons (later):** WhatsApp message packs if Sprixia resells Meta messages (for example 1,000 messages for ₹199).
+
+### Adding features later: Pro, add-on or a new plan?
+
+Decided 2026-10-02. Every new feature (booking slots, loyalty points and so on) goes through these three questions, in order:
+
+1. **Does it cost almost nothing to run?** Put it **in Pro** at the same price. This is the default. It keeps the choice simple ("Free or Pro"), gives existing Pro shops more for their money so fewer cancel, and the server cost per shop stays around ₹6 a month. If Pro gets much better, raise the price for **new** shops only (for example ₹599) and keep existing subscriptions on their price.
+2. **Does every use cost Sprixia money?** For example WhatsApp or SMS messages to customers (about ₹0.13–0.80 each). Make it **metered**: a monthly allowance inside Pro (for example 200 messages), plus top-up packs or a small add-on (for example ₹149 a month). Never unlimited inside a flat price, or one busy shop can cost more than it pays.
+3. **Is it big, and only wanted by large or multi-branch shops?** It goes in **Business** (about ₹999 / month), but only once there are **at least three** such features. Before that, put it in Pro. A third plan for a single feature just confuses owners.
+
+**Booking slots, worked through:**
+
+| Part | Where it goes | Why |
+| --- | --- | --- |
+| Booking calendar inside the app (the shop adds bookings, sees the day's slots) | Pro | Costs nothing to run |
+| Public booking link customers use themselves | Pro at first; Business once Business exists | Big feature, mostly for busy shops |
+| WhatsApp confirmation and reminder to the customer | Metered: allowance in Pro, then packs | Each message costs money |
+
+**How it's built today, and what changes when add-ons arrive:**
+
+- Today a Pro feature is one entry in `ProFeature` in `packages/domain/src/plans.ts`, checked by `requirePro('feature')` on the server and `usePlan()` (PRO pill, upgrade sheet) in the app. A new Pro feature = one line there + the lock on its screen + a gate check in `npm run test:plans`.
+- **Don't build the add-on system until the first add-on is real.** When it is: an `entitlements` table (shop, add-on, quantity, paid until), filled by its own Razorpay subscription through the same webhook; `requirePro` becomes "the plan includes it **or** the shop bought it"; message allowances are counted per IST month the way Free's wash limit is.
+- **Business, when built:** a third tier in `PlanTier` and `PLAN_LIMITS`, its own prices, and `requirePlan('business', feature)` next to `requirePro`.
+
+### Launch tactics
+
+1. **Founder price:** the first 50 shops get Pro at **₹399 / month (₹3,990 / year), locked for life**.
+2. **14-day free trial of Pro** on sign-up (already built as the shop trial). Afterwards the shop drops to Free unless it pays. Nothing is deleted.
+3. **Yearly plan = 2 months free.** Owners like paying once a year (after Diwali or at the new financial year).
+4. **UPI AutoPay** through Razorpay or Cashfree subscriptions. Cards are rare among small shop owners.
+5. **Show the value in the app**, for example "This month MANA brought back 23 customers worth ₹6,900" on Reports, so renewing feels obvious.
+6. **Start with Free and Pro only.** Add Business when multi-branch customers ask for it.
+
+### Why the prices work
+
+- **For the shop:** 30 washes a day at ₹300 is about ₹2.7 lakh a month. ₹499 is about 0.2% of that — less than one wash a day.
+- **Against alternatives:** general billing apps (Vyapar, myBillBook) cost ₹2,500–4,000 a year and aren't built for car washes.
+- **For Sprixia:** server costs stay around 1% of revenue (estimate below). The real costs are payment fees (about 2% plus GST per payment), GST on the price (18%, either "₹499 + GST" or included) and support time.
+
+### Server cost estimate (Cloudflare, at about ₹88 per US dollar)
+
+The app keeps storage in check: photos are resized to 1280 px at 70% quality (about 200 KB each, at most 1.5 MB accepted), purged after 90 days (`PHOTO_RETENTION_DAYS`), and nightly backups are kept 30 days. Storage levels off instead of growing forever, and R2 has no download fees.
+
+| Shops | Cloudflare cost per month | Revenue per month at ₹499 |
+| --- | --- | --- |
+| 1 busy shop (30 washes a day, photos on every wash) | About ₹2–3 | ₹499 |
+| 10 | ₹0 (free tier) | About ₹5,000 |
+| 100 | About ₹450–600 (mostly the $5 Workers Paid plan) | About ₹50,000 |
+| 1,000 | About ₹5,000–6,000 | About ₹5 lakh |
+
+**To watch:**
+
+- **Database size:** one D1 database holds up to 10 GB. That's years away at 100 shops, and about 1–2 years at 1,000 busy shops. The fix is archiving old years or splitting shops across a few databases.
+- **Free-plan abuse:** photos stay paid-only and Free has a wash limit, so a free shop costs under ₹1 a month.
+- **Safety net:** set a Cloudflare budget alert (**Billing → Add Budget Alert**) at about $6 (₹500) a month.
+
+### How it's built
+
+- **Rules live in one place:** `packages/domain/src/plans.ts` (limits, prices, the Pro feature list and `planStatus`). The shop's tier is worked out from dates on every request, so no job has to flip anything at midnight:
+  - **Pro** while `paid_until` is in the future.
+  - **Grace** for 3 days after a failed renewal (subscription `active` or `past_due`); a cancelled plan gets no grace.
+  - **Trial** while `trial_ends_at` is in the future.
+  - Otherwise **Free**. Nothing is ever deleted.
+- **The server enforces every rule** (HTTP 402 with `plan_required`, `plan_wash_limit` or `plan_staff_limit`); the app only mirrors them so owners see a PRO pill or the upgrade sheet before they tap.
+  - **Staff seats:** owner + 1 on Free, owner + 5 on Pro. Seats go to owners first, then the longest-serving staff. Staff past the limit can't sign in (403 `plan_seat_locked`, which also ends an open session) until the shop upgrades. Making locked staff an owner is blocked.
+  - **Washes:** 300 non-void washes per IST calendar month on Free. A wash entered live past the limit is refused; one recorded offline (more than 2 minutes before it reached the server) still syncs, up to 25 extra. Finishing and taking payment for washes already started always works.
+  - **Reports:** Free sees today and the last 7 days; longer ranges, PDF export, expenses, staff report and the audit trail are Pro.
+  - **Pro-only features:** photos, reminders, coupons, referrals, cash drawer, commission, attendance and inventory. On Free, commission isn't paid on new washes.
+  - **More branches:** opening another shop needs one of the owner's shops on paid Pro (a trial doesn't count). The new branch starts on Free with its own plan and no second trial, so branches can't be used to keep restarting trials. Each branch has its own Pro subscription and bill.
+- **Branch price:** a shop gets ₹349 / month or ₹3,490 / year while the same owner (same phone, owner role) has **another** shop on paid Pro — a trial doesn't count (`priceKindFor` in `plans.ts`, `ownsOtherPaidProShop` in `apps/api/src/lib/plan.ts`). `priceKindFor` picks the cheapest price that applies; a branch never takes a founder slot, so the 50 slots go to new owners. The price is fixed when the branch subscribes and stays for that subscription; subscribing again checks again. Razorpay plans are named "branch price" so the owner's statement is clear.
+- **Payments (Razorpay, REST API, no SDK):** `POST /billing/subscribe` creates a subscription and returns Razorpay's hosted page (UPI AutoPay or card). Upgrading during the trial or a paid period keeps those days; the first charge is on the day they end. `POST /billing/webhook` checks the HMAC signature, ignores repeat deliveries (`billing_events`), re-reads the subscription from Razorpay and applies it; `paid_until` only ever moves forward, so out-of-order webhooks are harmless. The app also calls `POST /billing/sync` when the owner returns from paying, and the nightly job catches up any shop whose renewal webhook went missing. Cancelling stops renewals at once; Pro stays on until `paid_until`.
+- **Founder price:** the first 50 shops to pay get ₹399 / month or ₹3,990 / year **for life** — Razorpay renews at the subscription's own price, so every renewal stays ₹399, and a founder who cancels and comes back gets it again. Shop 51 onwards is offered ₹499 automatically. Counted on the server:
+  - **Taken slots** = shops with `founder_at` (paid the founder price at least once) **plus** shops holding a slot (`founder_hold_until` in the future).
+  - **Hold:** taken at checkout for 48 hours (the checkout link's life). When AutoPay is approved with the first charge later (end of the trial), it's extended to that date + 3 days of retries. It's given back at once if the checkout is cancelled before any payment, and simply lapses if the shop never pays.
+  - **Last-slot race:** each claim is stamped (`founder_hold_at`) and only counts claims ahead of it (`founderSlotsAhead` in `plans.ts`): paid founders plus live holds stamped earlier, same millisecond broken by shop id. So when several owners grab the last slot at once, exactly one gets ₹399 and the rest are charged ₹499 — never two, never none. If the phone showed ₹399 but the spot went meanwhile, the app says so and asks before opening the payment page.
+- **Never charged twice:**
+  - Two upgrade taps (or two phones) at once: the subscription is attached with a compare-and-swap on `shops.subscription_id`; the loser cancels its own Razorpay subscription at once and returns 409 `checkout_in_progress`, so only one payment link is ever open.
+  - Starting again later cancels the old unpaid link first.
+  - If a second subscription still goes live while the shop's own one is running (an old link that couldn't be cancelled), the webhook cancels it, refunds its charge in full, leaves it out of the payment history and alerts Sprixia.
+- **Accepted limits (bounded, self-correcting):** two washes started at the very same moment at #300 can both go through (at most a few over; the offline cushion is 25 anyway); two staff approved at the same moment on Free briefly exceed the seat count, and the seat order then locks the newest one; a refund made by hand in Razorpay doesn't shorten `paid_until` (Pro runs to the end of that period).
+- **Same rules for every shop**, MANA included — no free-forever switch.
+- **Tests:** `packages/domain` unit tests for `planStatus` and prices; `npm run test:plans` (in CI) checks every limit, the trial, grace, cancellation and the webhook signature against the real API.
+
 ## Naming conventions
 
 Established once here so every Worker, database, secret, table, and function is named the same way everywhere it's used — in this document and later in the code.
@@ -487,9 +618,9 @@ The distinction that matters: **design for it now, build it later.**
 | --- | --- |
 | `shop_id` on every row, shop-scoped client, composite foreign keys (built) | ~~Shop sign-up/onboarding UI~~ (built 0.2.0) |
 | Services and prices as owner-editable data | Sprixia admin dashboard |
-| Layered architecture (domain/application/infrastructure) | Billing and plan enforcement |
+| Layered architecture (domain/application/infrastructure) | ~~Billing and plan enforcement~~ (built after 0.3.0) |
 | `role` field on users | Full permission matrix beyond Owner/Staff |
-| Repository pattern for all data access | Platform billing/subscriptions |
+| Repository pattern for all data access | ~~Platform billing/subscriptions~~ (built after 0.3.0) |
 
 Still explicitly out of scope until there's a concrete need, regardless of the schema work above:
 
@@ -500,6 +631,23 @@ Still explicitly out of scope until there's a concrete need, regardless of the s
 
 The schema being white-label-ready is what makes it safe to say no to all of the above for now — nothing here is a wall MANA will hit later, it's a door that's already built and just not opened yet.
 
+## Open product decisions
+
+These came out of the "two things at once" audit (October 2026). None of them loses money or data. Each one is a choice about how the app should behave, so decide it with real use at MANA before building anything.
+
+1. **Which day a wash counts on: reports vs the cash drawer.** Reports file a wash on the day it was started (`createdAt`). The cash drawer files the money on the day it was paid. A wash started at 11:50 PM and paid at 12:10 AM shows on different days in the two screens, so the two totals can differ by that wash.
+   - Options: count reports by paid time (matches the drawer, but unpaid washes need their own line), or keep started time and show "paid after midnight" on the drawer.
+   - Decide with the owner which number they reconcile against at night.
+2. **Old offline edits overwrite newer ones.** A customer's name or vehicle edited offline yesterday and synced today replaces a newer edit someone made in between. Today the last sync wins.
+   - Options: keep last-sync-wins (simple, fine for one shop phone); refuse an edit older than the record's last change and ask the person to redo it; or merge per field.
+   - Build only if two phones editing the same customer actually happens at MANA.
+3. **A commission edit on a just-paid wash.** If someone changes a wash's commission split (who washed or sold it) in the same moment it's paid, the change can land on the paid wash. Totals stay correct, but staff earnings for that wash follow the edit.
+   - Options: lock the split once paid (owner-only edit with a reason, logged), or keep editable and show the edit in the wash history.
+   - Decide together with how staff disputes over commission should be handled.
+4. **PIN lockout doesn't escalate.** Five wrong PINs lock the account for 15 minutes, every time. Someone guessing slowly gets about 480 tries a day per account; the per-network rate limits make it slower in practice.
+   - Options: double the lockout after each repeat (15 min, 30, 60, up to a day), or after three lockouts require a WhatsApp code to sign in.
+   - Do this before going live with many shops; it matters less while it's only MANA.
+
 ## Next steps
 
 Steps 1–4 below are done (kept for history). What's next now:
@@ -508,7 +656,15 @@ Steps 1–4 below are done (kept for history). What's next now:
 2. **Action item — WhatsApp sign-in codes.** Pending: claim Meta's test number, create the `login_code` template, make a permanent system-user token. Until then staging accepts the fixed test code `000000` (`STAGING_TEST_CODES` in `wrangler.toml`). When WhatsApp works: set the WhatsApp secrets on staging, remove `STAGING_TEST_CODES`, retest, then do the same on production.
 3. Go live: production API at `https://api.manawashmanager.com`, `set-api-url`, release signing key (README → Go live).
 4. Run MANA on it for real for a couple of weeks before building more.
-5. Then pick from "Not started" in Implementation status — the cheapest high-value ones are "how did you hear about us", revenue by service, and tagged discount reasons (finishing V1.2).
+5. ~~Build plans and payments~~ — built (see Pricing and plans).
+6. **Action item — Razorpay keys.** Staging has **placeholder** values for `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` and `RAZORPAY_WEBHOOK_SECRET` (set 2 Oct 2026), so the plan screen says "Payments aren't set up on the server yet" and nobody can pay. Limits, the trial and Free/Pro work normally. To finish:
+   - Create the Razorpay account and, in Test Mode, generate an API key.
+   - Add the webhook `https://api-staging.manawashmanager.com/billing/webhook` with a new random secret (`openssl rand -hex 32`) and every `subscription.*` event.
+   - Replace all three placeholders with `npx wrangler secret put … --env staging` (README → Go live → Payments). The placeholder webhook secret is random and unknown, so it must be replaced too.
+   - Pay once with Razorpay's test UPI ID and check Pro switches on.
+   - After Razorpay KYC: live keys and a live webhook on production.
+7. **Rule for every new feature — Pro, add-on or Business.** Before building booking slots or any other new feature, decide where it goes with the three questions in Pricing and plans → "Adding features later". Default is Pro. Build the add-on system (`entitlements` table) only when the first metered feature, such as WhatsApp messages to customers, is actually being built; build Business only once three big-shop features exist.
+8. Then pick from "Not started" in Implementation status — the cheapest high-value ones are "how did you hear about us", revenue by service, and tagged discount reasons (finishing V1.2).
 
 **Original steps (done):**
 

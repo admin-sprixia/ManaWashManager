@@ -48,6 +48,8 @@ export function parseIstDateOnly(isoDate: string): Date | null {
   if (!year || month < 1 || month > 12 || day < 1 || day > 31) return null;
   // Build noon UTC on that civil date, then snap to IST day start — avoids DST-less off-by-one.
   const approx = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  // 2026-02-31 would roll over to 3 March; it isn't a real date, so refuse it.
+  if (approx.getUTCMonth() !== month - 1 || approx.getUTCDate() !== day) return null;
   return startOfIstDay(approx);
 }
 

@@ -1,4 +1,5 @@
 import type { DbClient } from '../client';
+import { retryOnClash } from '../retryOnClash';
 import type { ServiceAppliesTo, VehicleCategory } from '@mana/domain';
 
 export const serviceRepo = {
@@ -16,10 +17,14 @@ export const serviceRepo = {
 
   /** Sets what a combo bundles. An empty list turns it back into a plain service. */
   async setComboItems(db: DbClient, comboId: string, serviceIds: string[]) {
-    await db.serviceComboItem.deleteMany({ where: { comboId } });
-    for (const serviceId of serviceIds) {
-      await db.serviceComboItem.create({ data: { comboId, serviceId } });
-    }
+    // Two saves at once both clear and refill; the loser's clash redoes it, so the list ends up
+    // exactly one save's choice.
+    await retryOnClash(async () => {
+      await db.serviceComboItem.deleteMany({ where: { comboId } });
+      if (serviceIds.length) {
+        await db.serviceComboItem.createMany({ data: serviceIds.map((serviceId) => ({ comboId, serviceId })) });
+      }
+    });
   },
 
   async updateService(db: DbClient, id: string, data: { name?: string; description?: string | null }) {
@@ -53,16 +58,18 @@ export const serviceRepo = {
     db: DbClient,
     data: { serviceId: string; vehicleTypeId: string; price: number },
   ) {
-    return db.servicePrice.upsert({
-      where: {
-        serviceId_vehicleTypeId: {
-          serviceId: data.serviceId,
-          vehicleTypeId: data.vehicleTypeId,
+    return retryOnClash(() =>
+      db.servicePrice.upsert({
+        where: {
+          serviceId_vehicleTypeId: {
+            serviceId: data.serviceId,
+            vehicleTypeId: data.vehicleTypeId,
+          },
         },
-      },
-      update: { price: data.price },
-      create: data,
-    });
+        update: { price: data.price },
+        create: data,
+      }),
+    );
   },
 
   /** Staff commission rates — the full matrix, or one vehicle type's column when pricing a job. */
@@ -82,11 +89,14 @@ export const serviceRepo = {
       await db.commissionRate.deleteMany({ where: key });
       return null;
     }
-    return db.commissionRate.upsert({
-      where: { serviceId_vehicleTypeId: key },
-      update: { amount: data.amount },
-      create: { ...key, amount: data.amount },
-    });
+    const amount = data.amount;
+    return retryOnClash(() =>
+      db.commissionRate.upsert({
+        where: { serviceId_vehicleTypeId: key },
+        update: { amount },
+        create: { ...key, amount },
+      }),
+    );
   },
 
   /** Owner settings screen: add a new service — no code change, no deploy. */

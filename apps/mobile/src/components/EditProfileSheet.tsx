@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import { isValidPhone, normalizePhone } from '@mana/domain';
+import { isValidPhone, LOGIN_CODE_LENGTH, normalizePhone } from '@mana/domain';
 import { BottomSheet } from './BottomSheet';
 import { Button } from './Button';
 import { Avatar } from './Avatar';
@@ -40,7 +40,9 @@ function toSessionUser(u: {
   return { ...u, role: u.role === 'owner' ? 'owner' : 'staff' };
 }
 
-type Step = 'edit' | 'confirm';
+type Step = 'edit' | 'code' | 'confirm';
+
+const CODE_ERRORS = new Set(['invalid_code', 'code_expired']);
 
 export function EditProfileSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const { user, isOwner, updateUser, signIn } = useAuth();
@@ -49,6 +51,8 @@ export function EditProfileSheet({ visible, onClose }: { visible: boolean; onClo
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
+  const [code, setCode] = useState('');
+  const [resendIn, setResendIn] = useState(0);
   const [pinErrorKey, setPinErrorKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,12 +64,20 @@ export function EditProfileSheet({ visible, onClose }: { visible: boolean; onClo
       setName(user.name);
       setPhone(user.phone);
       setPin('');
+      setCode('');
+      setResendIn(0);
       setError(null);
       setBusy(false);
     }
     // Only reset when the sheet opens, not when the profile updates mid-flow.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
+
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const t = setTimeout(() => setResendIn((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendIn]);
 
   if (!user) return null;
 
@@ -94,8 +106,7 @@ export function EditProfileSheet({ visible, onClose }: { visible: boolean; onClo
         await updateUser(toSessionUser(await res.json()));
       }
       if (phoneChanged) {
-        setPin('');
-        setStep('confirm');
+        if (await sendCode()) setStep('code');
         return;
       }
       showToast('Profile updated');
@@ -107,17 +118,55 @@ export function EditProfileSheet({ visible, onClose }: { visible: boolean; onClo
     }
   };
 
-  // The number is the sign-in identity, so moving it is confirmed with the current PIN.
+  // A WhatsApp code to the new number proves it's theirs (a typo would lock them out).
+  const sendCode = async (): Promise<boolean> => {
+    setError(null);
+    try {
+      const res = await api.auth.me.phone.code.$post({ json: { phone: digits } });
+      const body = (await res.json().catch(() => null)) as
+        | { message?: string; error?: string; retryAfter?: number; resendAfter?: number }
+        | null;
+      if (!res.ok) {
+        setError(
+          body?.message ??
+            (body?.error === 'too_soon' ? `Wait ${body.retryAfter ?? 30}s before asking for another code.` : 'Couldn’t send the code.'),
+        );
+        if (body?.retryAfter) setResendIn(body.retryAfter);
+        return false;
+      }
+      setCode('');
+      setResendIn(body?.resendAfter ?? 30);
+      return true;
+    } catch (e) {
+      setError(networkMessage(e, 'Couldn’t send the code.'));
+      return false;
+    }
+  };
+
+  const resend = async () => {
+    if (busy || resendIn > 0) return;
+    setBusy(true);
+    if (await sendCode()) showToast(`New code sent to +91 ${formatPhone(digits)}`);
+    setBusy(false);
+  };
+
+  // The number is the sign-in identity, so moving it also needs the current PIN.
   const confirmPhone = async (value: string) => {
     if (value.length < 4 || busy) return;
     setBusy(true);
     setError(null);
     try {
-      const res = await api.auth.me.phone.$post({ json: { phone: digits, pin: value } });
+      const res = await api.auth.me.phone.$post({ json: { phone: digits, pin: value, code } });
       if (!res.ok) {
-        setError(await apiErrorMessage(res, 'Couldn’t change your number.'));
+        const body = (await res.json().catch(() => null)) as { message?: string; error?: string } | null;
+        setError(body?.message ?? 'Couldn’t change your number.');
         setPin('');
-        setPinErrorKey((k) => k + 1);
+        if (body?.error && CODE_ERRORS.has(body.error)) {
+          setCode('');
+          setStep('code');
+        } else {
+          setPinErrorKey((k) => k + 1);
+        }
         return;
       }
       const body = await res.json();
@@ -137,6 +186,81 @@ export function EditProfileSheet({ visible, onClose }: { visible: boolean; onClo
     if (error) setError(null);
     if (value.length === 6) void confirmPhone(value);
   };
+
+  if (step === 'code') {
+    const codeReady = code.length === LOGIN_CODE_LENGTH;
+    return (
+      <BottomSheet
+        visible={visible}
+        onClose={onClose}
+        dismissable={!busy}
+        title="Check WhatsApp on the new number"
+        subtitle={`We sent a ${LOGIN_CODE_LENGTH}-digit code to +91 ${formatPhone(digits)}.`}
+        footer={
+          <Button
+            label="Continue"
+            size="lg"
+            disabled={!codeReady || busy}
+            onPress={() => {
+              setPin('');
+              setError(null);
+              setStep('confirm');
+            }}
+          />
+        }
+      >
+        <View style={[styles.iconField, styles.fieldFocus]}>
+          <IconLock size={17} color={colors.water} />
+          <TextInput
+            style={[styles.iconInput, styles.codeDigits]}
+            value={code}
+            onChangeText={(t) => {
+              setCode(t.replace(/\D/g, '').slice(0, LOGIN_CODE_LENGTH));
+              if (error) setError(null);
+            }}
+            placeholder={'•'.repeat(LOGIN_CODE_LENGTH)}
+            placeholderTextColor={colors.slate}
+            keyboardType="number-pad"
+            textContentType="oneTimeCode"
+            autoComplete="sms-otp"
+            maxLength={LOGIN_CODE_LENGTH}
+            autoFocus
+            editable={!busy}
+          />
+        </View>
+        {error ? (
+          <View style={styles.errorRow}>
+            <IconAlert size={14} color={colors.danger} />
+            <Text style={styles.error}>{error}</Text>
+          </View>
+        ) : null}
+        <Pressable
+          onPress={() => void resend()}
+          disabled={busy || resendIn > 0}
+          hitSlop={8}
+          style={({ pressed }) => [styles.backLink, pressed && styles.pressed]}
+          accessibilityRole="button"
+        >
+          <Text style={[styles.link, resendIn > 0 && styles.linkMuted]}>
+            {resendIn > 0 ? `Send a new code in ${resendIn}s` : 'Send a new code'}
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={() => {
+            setStep('edit');
+            setError(null);
+          }}
+          disabled={busy}
+          hitSlop={8}
+          style={({ pressed }) => [styles.backLink, pressed && styles.pressed]}
+          accessibilityRole="button"
+        >
+          <IconChevronLeft size={15} color={colors.water} />
+          <Text style={styles.link}>Use a different number</Text>
+        </Pressable>
+      </BottomSheet>
+    );
+  }
 
   if (step === 'confirm') {
     return (
@@ -211,7 +335,7 @@ export function EditProfileSheet({ visible, onClose }: { visible: boolean; onClo
         <Button
           label={
             phoneChanged
-              ? 'Save & confirm with PIN'
+              ? 'Save & verify new number'
               : nameChanged
                 ? 'Save changes'
                 : 'No changes yet'
@@ -297,7 +421,7 @@ export function EditProfileSheet({ visible, onClose }: { visible: boolean; onClo
         <View style={styles.labelRow}>
           <Text style={styles.fieldLabel}>Mobile number</Text>
           {phoneChanged && phoneOk ? (
-            <Text style={[styles.editedTag, styles.editedAmber]}>Needs PIN</Text>
+            <Text style={[styles.editedTag, styles.editedAmber]}>Needs code + PIN</Text>
           ) : null}
         </View>
         <View
@@ -331,7 +455,8 @@ export function EditProfileSheet({ visible, onClose }: { visible: boolean; onClo
           <View style={styles.notice}>
             <IconLock size={14} color={colors.amberDeep} />
             <Text style={styles.noticeText}>
-              You’ll confirm with your PIN, then sign in with{' '}
+              We’ll send a WhatsApp code to the new number, then you confirm with your PIN. You
+              sign in with{' '}
               <Text style={styles.noticeStrong}>+91 {formatPhone(digits)}</Text> from then on.
             </Text>
           </View>
@@ -561,4 +686,6 @@ const styles = StyleSheet.create({
   center: { justifyContent: 'center' },
   backLink: { flexDirection: 'row', alignItems: 'center', alignSelf: 'center', gap: 2 },
   link: { ...typography.label, color: colors.water, fontSize: 14 },
+  linkMuted: { color: colors.slate },
+  codeDigits: { letterSpacing: 6, fontSize: 20 },
 });

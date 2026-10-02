@@ -18,3 +18,10 @@ WHATSAPP_OTP_BYPASS=true
 # OWNER_RECOVERY_CODE (8+ characters, works once).
 DEV_MODE=true
 DEV_RECOVERY_CODE=000000
+
+# Pro subscriptions through Razorpay (see README → Go live → Payments). Leave empty locally:
+# the plan screen shows Pro but the upgrade button says payments aren't set up. Use the Test
+# Mode keys (rzp_test_…) until the account is activated for live payments.
+RAZORPAY_KEY_ID=
+RAZORPAY_KEY_SECRET=
+RAZORPAY_WEBHOOK_SECRET=

@@ -7,7 +7,9 @@
 
 -- ─── Seed: MANA, the first shop on the platform ─────────────────────────────
 
-INSERT INTO shops (id, code, name, city, plan) VALUES ('shop_mana', '482193', 'MANA Car Wash', 'Hyderabad', 'free');
+-- Same 14-day Pro trial a real sign-up gets, counted from the reset.
+INSERT INTO shops (id, code, name, city, plan, trial_ends_at) VALUES
+  ('shop_mana', '482193', 'MANA Car Wash', 'Hyderabad', 'trial', strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now', '+14 days'));
 
 -- ─── Seed: vehicle types ────────────────────────────────────────────────────
 

@@ -316,11 +316,26 @@ export const MAX_OFFLINE_BACKDATE_MS = 7 * 24 * 60 * 60 * 1000;
 /**
  * Resolves the effective timestamp for an action replayed from the offline queue. Future
  * times (clock skew) and anything older than the backlog window fall back to `now`.
+ *
+ * When the phone also says what its clock read as it sent the request (`clientSentAt`), only
+ * the gap between the two is used — both come from the same clock, so a phone set to the wrong
+ * day or hour can't move a wash or a payment onto another day: it happened `sent − occurred`
+ * before the server received it.
  */
-export function resolveOccurredAt(occurredAt: string | undefined, now: Date = new Date()): Date {
+export function resolveOccurredAt(
+  occurredAt: string | undefined,
+  now: Date = new Date(),
+  clientSentAt?: string,
+): Date {
   if (!occurredAt) return now;
   const t = new Date(occurredAt);
   if (Number.isNaN(t.getTime())) return now;
+  const sent = clientSentAt ? new Date(clientSentAt) : null;
+  if (sent && !Number.isNaN(sent.getTime())) {
+    const waited = sent.getTime() - t.getTime();
+    if (waited <= 0 || waited > MAX_OFFLINE_BACKDATE_MS) return now;
+    return new Date(now.getTime() - waited);
+  }
   if (t.getTime() > now.getTime()) return now;
   if (now.getTime() - t.getTime() > MAX_OFFLINE_BACKDATE_MS) return now;
   return t;

@@ -1,5 +1,9 @@
-import React from 'react';
-import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
+import React, { useEffect } from 'react';
+import {
+  createNavigationContainerRef,
+  DefaultTheme,
+  NavigationContainer,
+} from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { JobBoardScreen } from '../screens/JobBoardScreen';
 import { NewWashScreen } from '../screens/NewWashScreen';
@@ -16,6 +20,8 @@ import { CashScreen } from '../screens/CashScreen';
 import { AttendanceScreen } from '../screens/AttendanceScreen';
 import { ErrorLogScreen } from '../screens/ErrorLogScreen';
 import { InventoryScreen } from '../screens/InventoryScreen';
+import { PlanScreen } from '../screens/PlanScreen';
+import { setOpenPlans, UpgradeHost } from '../components/UpgradeSheet';
 import { useAuth } from '../api/auth';
 import { colors } from '../theme';
 
@@ -35,9 +41,11 @@ export type RootStackParamList = {
   Attendance: undefined;
   ErrorLog: undefined;
   Inventory: undefined;
+  Plan: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
 const navTheme = {
   ...DefaultTheme,
@@ -56,8 +64,14 @@ const slide = { animation: 'slide_from_right' as const };
 export function RootNavigator() {
   const { isOwner } = useAuth();
 
+  // The upgrade sheet opens from anywhere; only the owner has a plan screen to send it to.
+  useEffect(() => {
+    setOpenPlans(isOwner ? () => navigationRef.isReady() && navigationRef.navigate('Plan') : null);
+    return () => setOpenPlans(null);
+  }, [isOwner]);
+
   return (
-    <NavigationContainer theme={navTheme}>
+    <NavigationContainer ref={navigationRef} theme={navTheme}>
       {/* headerShown: false — every screen owns its full header treatment (a GradientHero
           for the Job Board, a ScreenHeader elsewhere), so the native stack header would
           just duplicate it. */}
@@ -81,9 +95,11 @@ export function RootNavigator() {
             <Stack.Screen name="StaffReport" component={StaffReportScreen} options={slide} />
             <Stack.Screen name="Attendance" component={AttendanceScreen} options={slide} />
             <Stack.Screen name="ErrorLog" component={ErrorLogScreen} options={slide} />
+            <Stack.Screen name="Plan" component={PlanScreen} options={slide} />
           </>
         ) : null}
       </Stack.Navigator>
+      <UpgradeHost />
     </NavigationContainer>
   );
 }

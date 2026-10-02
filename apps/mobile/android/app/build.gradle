@@ -84,8 +84,8 @@ android {
         applicationId "com.sprixia.manawashmanager"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 300
-        versionName "0.3.0"
+        versionCode 400
+        versionName "0.4.0"
         // React Native's prebuilt libraries ship every ABI; keep only the ones gradle.properties
         // (or run-android's active-arch flag) asks for, so emulator-only x86 code isn't shipped.
         ndk {

@@ -36,6 +36,8 @@ import { buildThankYouMessage } from '../utils/messages';
 import { SHOP } from '../config/shop';
 import { useShop } from '../offline/ShopProvider';
 import type { RootStackParamList } from '../navigation/RootNavigator';
+import { usePlan } from '../offline/PlanProvider';
+import { showUpgrade } from '../components/UpgradeSheet';
 import type { JobStatus } from '@mana/domain';
 
 type CustomerProfileScreenProps = NativeStackScreenProps<RootStackParamList, 'CustomerProfile'>;
@@ -158,6 +160,7 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
   const { customerId } = route.params;
   const insets = useSafeAreaInsets();
   const { googleReviewUrl } = useShop();
+  const { atWashLimit } = usePlan();
   const [data, setData] = useState<LoadState>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -303,7 +306,9 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
   }
 
   const startWash = (registration?: string) =>
-    navigation.navigate('NewWash', registration ? { registration } : undefined);
+    atWashLimit
+      ? showUpgrade({ kind: 'washLimit' })
+      : navigation.navigate('NewWash', registration ? { registration } : undefined);
 
   const thankYouMessage = (job: HistoryJob) =>
     buildThankYouMessage({

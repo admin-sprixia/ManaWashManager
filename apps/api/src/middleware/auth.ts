@@ -1,6 +1,7 @@
 import type { Context, Next } from 'hono';
 import { createPlatformDb, createShopDb, type DbClient } from '@mana/db';
 import { verifySessionToken, type SessionClaims } from '../lib/jwt';
+import { loadPlan, seatLocked, seatLockedBody } from '../lib/plan';
 import type { Env } from '../types';
 
 declare module 'hono' {
@@ -16,6 +17,7 @@ declare module 'hono' {
  * for role, access and shop: a deactivated staff member is locked out on their next request, and
  * a role change applies immediately instead of when the token expires. The token's shop must
  * match the user's, and everything after this runs against a client locked to that shop.
+ * The shop's plan is read on the same trip, so a lapsed subscription applies on the next request.
  */
 export async function requireAuth(
   c: Context<{ Bindings: Env }>,
@@ -34,10 +36,14 @@ export async function requireAuth(
     return c.json({ error: 'unauthorized' }, 401);
   }
 
-  const user = await createPlatformDb(c.env.DB).user.findUnique({
-    where: { id: claims.sub },
-    select: { id: true, shopId: true, role: true, phone: true, active: true, removedAt: true, sessionVersion: true },
-  });
+  const platform = createPlatformDb(c.env.DB);
+  const [user, plan] = await Promise.all([
+    platform.user.findUnique({
+      where: { id: claims.sub },
+      select: { id: true, shopId: true, role: true, phone: true, active: true, removedAt: true, sessionVersion: true },
+    }),
+    loadPlan(platform, claims.shopId),
+  ]);
   if (!user || user.shopId !== claims.shopId || user.removedAt) {
     return c.json({ error: 'unauthorized' }, 401);
   }
@@ -45,14 +51,17 @@ export async function requireAuth(
   // PIN changed or reset since this token was issued: this phone has to sign in again.
   if (claims.sv !== user.sessionVersion) return c.json({ error: 'session_revoked' }, 401);
 
-  c.set('session', {
-    sub: user.id,
-    shopId: user.shopId,
-    role: user.role === 'owner' ? 'owner' : 'staff',
-    phone: user.phone,
-    sv: user.sessionVersion,
-  });
-  c.set('db', createShopDb(c.env.DB, user.shopId));
+  const db = createShopDb(c.env.DB, user.shopId);
+  const role = user.role === 'owner' ? 'owner' : 'staff';
+  // More staff than the plan has seats (e.g. the trial ended): the extra people are signed out
+  // until the shop upgrades. Their data and the team list are untouched.
+  if (role === 'staff' && (await seatLocked(db, user.id, plan))) {
+    return c.json(seatLockedBody, 403);
+  }
+
+  c.set('session', { sub: user.id, shopId: user.shopId, role, phone: user.phone, sv: user.sessionVersion });
+  c.set('db', db);
+  c.set('plan', plan);
   await next();
 }
 

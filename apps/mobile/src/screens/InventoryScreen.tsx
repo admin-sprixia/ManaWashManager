@@ -487,7 +487,7 @@ function MoveSheet({
   const after =
     q == null
       ? null
-      : roundStock(kind === 'use' ? item.balance - q : kind === 'in' ? item.balance + q : q);
+      : roundStock(kind === 'use' ? Math.max(0, item.balance - q) : kind === 'in' ? item.balance + q : q);
   const afterLevel = after == null ? null : stockLevel(after, item.lowAt);
   const valid = q != null && (kind === 'count' ? q >= 0 : q > 0);
   const kinds: MoveKind[] = isOwner ? ['use', 'in', 'count'] : ['use'];
@@ -601,8 +601,8 @@ function MoveSheet({
           {afterLevel !== 'ok' ? (
             <Text style={[styles.previewWarn, { color: LEVEL_TONE[afterLevel].fg }]}>
               {afterLevel === 'out'
-                ? after < 0
-                  ? 'More than the books show — do a count if this is right.'
+                ? kind === 'use' && q != null && q > item.balance
+                  ? 'More than the books show. It’ll show empty — do a count if this is right.'
                   : 'This empties it. Buy more soon.'
                 : `Under the alert level (${formatStock(item.lowAt ?? 0, item.unit)}). Buy more soon.`}
             </Text>

@@ -15,6 +15,7 @@ import {
   type ExpenseUnit,
 } from '@mana/domain';
 import { requireAuth } from '../middleware/auth';
+import { requirePro } from '../lib/plan';
 import { formatIstDateOnly, parseIstDateOnly, startOfIstDay, startOfIstDaysAgo } from '../lib/istDate';
 import { reportQuerySchema, resolveReportWindow, windowMeta } from '../lib/reportWindow';
 import { addPurchaseToStock, reverseExpenseStock, type StockResult } from '../lib/stock';
@@ -88,7 +89,7 @@ const voidExpenseSchema = z.object({
 // Chained in one expression, with every input declared via `zValidator` — see the comment
 // in routes/auth.ts for why both matter for Hono RPC's client typing.
 export const expenseRoutes = new Hono<{ Bindings: Env }>()
-  .use('*', requireAuth)
+  .use('*', requireAuth, requirePro('expenses'))
   // Anyone on shift can log an expense (chemicals bought, electricity bill paid in cash…).
   .post('/', zValidator('form', createFormSchema), async (c) => {
     const form = c.req.valid('form');
@@ -242,7 +243,11 @@ export const expenseRoutes = new Hono<{ Bindings: Env }>()
 
     const expense = await expenseRepo.findById(db, id);
     if (!expense) return c.json({ error: 'not_found' as const }, 404);
-    if (expense.voidedAt) return c.json({ ok: true as const });
+    if (expense.voidedAt) {
+      // A retry after a crash part-way through: finish taking its stock back off (safe to repeat).
+      await reverseExpenseStock(db, id, session.sub);
+      return c.json({ ok: true as const });
+    }
 
     const ownSameDay =
       expense.createdByUserId === session.sub &&

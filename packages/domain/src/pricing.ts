@@ -12,6 +12,9 @@ export interface PriceBreakdown {
   subtotal: number;
 }
 
+/** ₹1,00,000 for one service on one vehicle — anything above is certainly a typo (extra zeros). */
+export const MAX_SERVICE_PRICE_PAISE = 1_00_000 * 100;
+
 export class PriceNotFoundError extends Error {
   constructor(serviceId: string, vehicleTypeId: string) {
     super(`No price configured for service "${serviceId}" and vehicle type "${vehicleTypeId}"`);

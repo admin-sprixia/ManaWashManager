@@ -39,11 +39,12 @@ import {
   IconSettings,
   IconShare,
   IconShield,
+  IconSparkle,
   IconStore,
   IconSync,
   IconUsers,
 } from '../components/Icons';
-import { formatShopCode } from '@mana/domain';
+import { formatShopCode, isPaidPro, type ProFeature } from '@mana/domain';
 import { shareShopInvite } from '../utils/shopInvite';
 import { colors, radius, spacing, typography } from '../theme';
 import { api, apiErrorMessage } from '../api/client';
@@ -51,6 +52,8 @@ import { NetworkError } from '../api/network';
 import { useAuth } from '../api/auth';
 import { useSync } from '../offline/SyncProvider';
 import { useShop } from '../offline/ShopProvider';
+import { usePlan, useProPill } from '../offline/PlanProvider';
+import { showUpgrade } from '../components/UpgradeSheet';
 import { describeOp } from '../offline/types';
 import { APP_VERSION } from '../config/app';
 import { formatDateTime } from '../utils/format';
@@ -95,8 +98,39 @@ export function MoreScreen({ navigation }: Props) {
     myShops,
     canAddShop,
   } = useShop();
+  const { plan, isPro, washesUsed } = usePlan();
+  const proPill = useProPill();
 
   if (!user) return null;
+
+  /** Pro rows open as usual on Pro; on Free they explain the feature and offer the upgrade. */
+  const openPro = (feature: ProFeature, go: () => void) =>
+    isPro ? go() : showUpgrade({ kind: 'feature', feature });
+  // Unknown plan (offline, first load): let the server decide.
+  const canOpenBranch = !plan || isPaidPro(plan);
+
+  const planRow = !plan
+    ? null
+    : plan.state === 'trial' && isPro
+      ? {
+          title: `Pro trial · ${plan.daysLeft} day${plan.daysLeft === 1 ? '' : 's'} left`,
+          subtitle: 'Upgrade anytime — the trial days you have left carry on',
+          pill: <Pill label="TRIAL" tone={(plan.daysLeft ?? 99) <= 3 ? 'amber' : 'water'} />,
+        }
+      : isPro
+        ? {
+            title: plan.state === 'grace' ? 'Pro · payment due' : 'Pro',
+            subtitle:
+              plan.state === 'grace'
+                ? 'The last payment didn’t go through — tap to check'
+                : 'Unlimited washes and every feature',
+            pill: plan.state === 'grace' ? <Pill label="ACTION" tone="amber" /> : <Pill label="PRO" tone="teal" />,
+          }
+        : {
+            title: 'Free plan',
+            subtitle: `${washesUsed} of ${plan.limits.washesPerMonth ?? '∞'} washes this month · see what Pro adds`,
+            pill: <Pill label="UPGRADE" tone="water" />,
+          };
 
   const failed = myItems.filter((i) => i.state === 'failed');
   const othersWaiting = items.filter((i) => i.userId !== user.id).length;
@@ -220,9 +254,27 @@ export function MoreScreen({ navigation }: Props) {
                   icon={<IconPlus size={18} color={colors.waterDeep} />}
                   title="Open another shop"
                   subtitle="Got a second branch? Run both from this login"
-                  onPress={() => setBranches('add')}
+                  right={canOpenBranch ? undefined : <Pill label="PRO" tone="slate" />}
+                  onPress={() =>
+                    canOpenBranch ? setBranches('add') : showUpgrade({ kind: 'feature', feature: 'branches' })
+                  }
                 />
               ) : null}
+            </EdgeGroup>
+          </>
+        ) : null}
+
+        {isOwner && planRow ? (
+          <>
+            <SectionLabel>Your plan</SectionLabel>
+            <EdgeGroup>
+              <EdgeRow
+                icon={<IconSparkle size={19} color={colors.waterDeep} />}
+                title={planRow.title}
+                subtitle={planRow.subtitle}
+                right={planRow.pill}
+                onPress={() => navigation.navigate('Plan')}
+              />
             </EdgeGroup>
           </>
         ) : null}
@@ -288,7 +340,7 @@ export function MoreScreen({ navigation }: Props) {
           </Text>
         ) : null}
 
-        {!isOwner ? (
+        {!isOwner && isPro ? (
           <>
             <SectionLabel>My earnings</SectionLabel>
             <EarningsCard />
@@ -302,13 +354,15 @@ export function MoreScreen({ navigation }: Props) {
             iconBg="#CCFBF1"
             title="Cash drawer"
             subtitle="Count the cash box morning and night"
-            onPress={() => navigation.navigate('Cash')}
+            right={proPill}
+            onPress={() => openPro('cashDrawer', () => navigation.navigate('Cash'))}
           />
           <EdgeRow
             icon={<IconReceipt size={19} color={colors.waterDeep} />}
             title="Expenses"
             subtitle={isOwner ? 'Log and review shop spending' : 'Log what you spent for the shop'}
-            onPress={() => navigation.navigate('Expenses')}
+            right={proPill}
+            onPress={() => openPro('expenses', () => navigation.navigate('Expenses'))}
           />
           <EdgeRow
             icon={<IconBox size={19} color={lowStock > 0 ? colors.amberDeep : colors.waterDeep} />}
@@ -323,8 +377,8 @@ export function MoreScreen({ navigation }: Props) {
                     ? 'Track shampoo, wax, cloths and bill books'
                     : 'Log the stock you use'
             }
-            right={lowStock > 0 ? <Pill label={String(lowStock)} tone="amber" /> : undefined}
-            onPress={() => navigation.navigate('Inventory')}
+            right={isPro && lowStock > 0 ? <Pill label={String(lowStock)} tone="amber" /> : proPill}
+            onPress={() => openPro('inventory', () => navigation.navigate('Inventory'))}
           />
         </EdgeGroup>
 
@@ -343,14 +397,16 @@ export function MoreScreen({ navigation }: Props) {
                 iconBg="#CCFBF1"
                 title="Staff report"
                 subtitle="Sales, commission and days worked per person"
-                onPress={() => navigation.navigate('StaffReport')}
+                right={proPill}
+                onPress={() => openPro('staffReport', () => navigation.navigate('StaffReport'))}
               />
               <EdgeRow
                 icon={<IconCalendarCheck size={19} color={colors.tealDeep} />}
                 iconBg="#CCFBF1"
                 title="Attendance"
                 subtitle="Mark who worked today"
-                onPress={() => navigation.navigate('Attendance')}
+                right={proPill}
+                onPress={() => openPro('attendance', () => navigation.navigate('Attendance'))}
               />
               <EdgeRow
                 icon={<IconUsers size={19} color="#5B21B6" />}

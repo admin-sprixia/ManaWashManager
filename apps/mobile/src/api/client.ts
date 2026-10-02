@@ -15,7 +15,7 @@ const UPLOAD_TIMEOUT_MS = 90_000;
 /**
  * Every request goes through here: a hard timeout, online/offline tracking for the sync
  * banner, and a global sign-out when the server rejects an authenticated session (token
- * expired, or the owner deactivated this account).
+ * expired, the owner deactivated this account, or the shop's plan has no seat for it).
  */
 async function trackedFetch(
   input: RequestInfo | URL,
@@ -24,9 +24,13 @@ async function trackedFetch(
 ): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // The server times queued actions by the gap between this and their occurredAt, both read
+  // from this phone's clock, so a phone set to the wrong day can't move them to another day.
+  const sendHeaders = new Headers(init?.headers);
+  sendHeaders.set('X-Client-Time', new Date().toISOString());
   let res: Response;
   try {
-    res = await fetch(input, { ...init, signal: controller.signal });
+    res = await fetch(input, { ...init, headers: sendHeaders, signal: controller.signal });
   } catch {
     setOnline(false);
     throw new NetworkError();
@@ -46,6 +50,7 @@ async function trackedFetch(
     if (res.status === 401 && body?.error === 'unauthorized') emitSessionInvalid('expired');
     if (res.status === 401 && body?.error === 'session_revoked') emitSessionInvalid('revoked');
     if (res.status === 403 && body?.error === 'account_disabled') emitSessionInvalid('disabled');
+    if (res.status === 403 && body?.error === 'plan_seat_locked') emitSessionInvalid('seat_locked');
   }
   return res;
 }

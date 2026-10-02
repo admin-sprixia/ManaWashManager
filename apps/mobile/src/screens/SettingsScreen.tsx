@@ -39,6 +39,7 @@ import {
   type VehicleType,
 } from '@mana/domain';
 import type { RootStackParamList } from '../navigation/RootNavigator';
+import { usePlan } from '../offline/PlanProvider';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -95,6 +96,7 @@ const CATEGORIES: { id: VehicleCategory; label: string }[] = [
 ];
 
 export function SettingsScreen({ navigation }: SettingsScreenProps) {
+  const { isPro } = usePlan();
   const [services, setServices] = useState<Service[]>([]);
   const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
   const [prices, setPrices] = useState<(ServicePrice & { id?: string })[]>([]);
@@ -610,6 +612,7 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
         title={prompt?.kind === 'editPrice' ? `${prompt.serviceName} · ${prompt.vehicleTypeName}` : ''}
         price={prompt?.kind === 'editPrice' ? prompt.price : null}
         commission={prompt?.kind === 'editPrice' ? commissionFor(prompt.serviceId, prompt.vehicleTypeId) : null}
+        commissionLocked={!isPro}
         onClose={closePrompt}
         onSave={savePrice}
         onRemove={prompt?.kind === 'editPrice' && prompt.price != null ? removePrice : undefined}

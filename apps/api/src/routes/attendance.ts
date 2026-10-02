@@ -5,6 +5,7 @@ import { opsRepo } from '@mana/db';
 import { ATTENDANCE_STATUSES, type AttendanceStatus } from '@mana/domain';
 import { formatIstDateOnly, parseIstDateOnly } from '../lib/istDate';
 import { requireAuth, requireRole } from '../middleware/auth';
+import { requirePro } from '../lib/plan';
 import type { Env } from '../types';
 
 const dateSchema = z
@@ -22,7 +23,7 @@ const markSchema = z.object({
 
 // Owner-only: attendance is marked by the owner. Staff see their own days via /shop/me/earnings.
 export const attendanceRoutes = new Hono<{ Bindings: Env }>()
-  .use('*', requireAuth, requireRole('owner'))
+  .use('*', requireAuth, requireRole('owner'), requirePro('attendance'))
   // One day's sheet: every active member (plus anyone already marked that day) and their status.
   .get('/', zValidator('query', dayQuerySchema), async (c) => {
     const db = c.get('db');

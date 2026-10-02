@@ -13,6 +13,7 @@ import {
 import { endOfIstDay, formatIstDateOnly, parseIstDateOnly, startOfIstDaysAgo } from '../lib/istDate';
 import { reportQuerySchema, resolveReportWindow, windowMeta } from '../lib/reportWindow';
 import { requireAuth, requireRole } from '../middleware/auth';
+import { requirePro } from '../lib/plan';
 import type { Env } from '../types';
 import { windowDates } from './shop';
 
@@ -46,11 +47,12 @@ const reopenSchema = z.object({
 async function daySummary(db: DbClient, date: string) {
   const from = parseIstDateOnly(date)!;
   const to = endOfIstDay(from);
-  const [row, cashIn, cashOut, previous] = await Promise.all([
+  const [row, cashIn, cashOut, previous, earlier] = await Promise.all([
     opsRepo.findCashDay(db, date),
     jobRepo.cashCollected(db, from, to),
     expenseRepo.cashTotal(db, from, to),
     opsRepo.previousClosedDay(db, date),
+    opsRepo.listEarlierCloses(db, date),
   ]);
   const openingFloat = row?.openingFloat ?? 0;
   const expectedNow = expectedCash({ openingFloat, cashIn: cashIn.total, cashExpenses: cashOut.total });
@@ -81,6 +83,18 @@ async function daySummary(db: DbClient, date: string) {
     reopenedBy: row?.reopenedBy?.name ?? null,
     reopenedAt: row?.reopenedAt?.toISOString() ?? null,
     reopenReason: row?.reopenReason ?? null,
+    /** Closes of this day that were reopened, newest first — a reopen never erases a count. */
+    earlierCloses: earlier.map((e) => ({
+      expected: e.expected,
+      counted: e.counted,
+      difference: e.counted != null && e.expected != null ? cashDifference(e.expected, e.counted) : null,
+      note: e.note,
+      closedBy: e.closedBy,
+      closedAt: e.closedAt.toISOString(),
+      reopenedBy: e.reopenedBy,
+      reopenedAt: e.reopenedAt?.toISOString() ?? null,
+      reopenReason: e.reopenReason,
+    })),
   };
 }
 
@@ -96,7 +110,7 @@ function checkDate(date: string, role: 'owner' | 'staff') {
 
 // Online only: the expected figure has to come from the server's records at that moment.
 export const cashRoutes = new Hono<{ Bindings: Env }>()
-  .use('*', requireAuth)
+  .use('*', requireAuth, requirePro('cashDrawer'))
   .get('/day', zValidator('query', dayQuerySchema), async (c) => {
     const db = c.get('db');
     const date = c.req.valid('query').date ?? formatIstDateOnly(new Date());

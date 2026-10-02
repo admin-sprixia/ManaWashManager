@@ -24,7 +24,7 @@ export function subscribeOnline(listener: Listener): () => void {
 }
 
 /** Why the server ended this phone's session. */
-export type SessionEndReason = 'expired' | 'disabled' | 'revoked';
+export type SessionEndReason = 'expired' | 'disabled' | 'revoked' | 'seat_locked';
 type SessionListener = (reason: SessionEndReason) => void;
 const sessionListeners = new Set<SessionListener>();
 

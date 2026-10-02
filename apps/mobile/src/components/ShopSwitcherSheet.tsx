@@ -7,7 +7,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { formatShopCode, MAX_SHOPS_PER_OWNER, SHOP_TRIAL_DAYS } from '@mana/domain';
+import { BRANCH_PRICE_LABEL, formatShopCode, MAX_SHOPS_PER_OWNER } from '@mana/domain';
 import { colors, radius, spacing, typography } from '../theme';
 import { api } from '../api/client';
 import { useAuth } from '../api/auth';
@@ -17,6 +17,7 @@ import { useSync } from '../offline/SyncProvider';
 import { BottomSheet } from './BottomSheet';
 import { Button } from './Button';
 import { showToast } from './Toast';
+import { handlePlanError } from './UpgradeSheet';
 import { showAlert } from './AppAlert';
 import { IconAlert, IconCheck, IconPlus } from './Icons';
 
@@ -118,6 +119,11 @@ export function ShopSwitcherSheet({
       const res = await api.auth.shops.$post({
         json: { shopName: trimmed, city: city.trim() || undefined },
       });
+      if (res.status === 402) {
+        onClose();
+        await handlePlanError(res);
+        return;
+      }
       const body = await res.json().catch(() => null);
       if (!res.ok || !body || !('token' in body)) {
         const message = body && 'message' in body ? body.message : null;
@@ -270,7 +276,7 @@ export function ShopSwitcherSheet({
             {[
               'Its own shop ID — staff there join with that ID',
               'Starts empty: add its services and prices once',
-              `${SHOP_TRIAL_DAYS}-day free trial, billed separately after`,
+              `Starts on Free — Pro for this branch is ${BRANCH_PRICE_LABEL}`,
               'Switch any time from the top of the home screen',
             ].map((fact) => (
               <View key={fact} style={styles.fact}>

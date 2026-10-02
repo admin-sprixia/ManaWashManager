@@ -23,11 +23,12 @@ import {
   MIN_REASON_LENGTH,
   normalizeCouponCode,
   normalizePhone,
+  planRequiredMessage,
   PriceNotFoundError,
   referralProblemMessage,
-  resolveOccurredAt,
   type JobStatus,
   type PaymentMethod,
+  type PlanStatus,
 } from '@mana/domain';
 import {
   cancelReferralForVoidedJob,
@@ -36,10 +37,21 @@ import {
   verifyReferralQuote,
   type ReferralQuote,
 } from '../lib/referral';
+import { occurredAt } from '../lib/clientTime';
 import { requireAuth, requireRole } from '../middleware/auth';
+import { reportWindowProblem, requirePro, washLimitProblem } from '../lib/plan';
 import { startOfIstDay } from '../lib/istDate';
 import { reportQuerySchema, resolveReportWindow, windowMeta } from '../lib/reportWindow';
 import type { Env } from '../types';
+
+const MAX_SERVICE_QUANTITY = 20;
+const MAX_SERVICES_PER_JOB = 30;
+
+/** A voided wash hands back its coupon and cancels its referral. Safe to run more than once. */
+async function undoVoidedJobExtras(db: DbClient, jobId: string) {
+  await couponRepo.restoreForVoidedJob(db, jobId, new Date());
+  await cancelReferralForVoidedJob(db, jobId);
+}
 
 /** Client-generated ids (offline queue) — opaque, URL-safe, bounded. */
 const clientIdSchema = z.string().regex(/^[A-Za-z0-9_-]{8,64}$/, 'Invalid id');
@@ -58,9 +70,18 @@ const sellerIdsSchema = z
 
 const pricingFields = {
   vehicleTypeId: z.string(),
+  // One line per service: a service sent twice is merged (quantities added), since the job can
+  // only store it once and a half-written job must never look complete.
   services: z
-    .array(z.object({ serviceId: z.string(), quantity: z.number().int().positive().default(1) }))
-    .min(1),
+    .array(z.object({ serviceId: z.string().min(1).max(64), quantity: z.number().int().positive().max(MAX_SERVICE_QUANTITY).default(1) }))
+    .min(1)
+    .max(MAX_SERVICES_PER_JOB)
+    .transform((lines) => {
+      const merged = new Map<string, number>();
+      for (const l of lines) merged.set(l.serviceId, (merged.get(l.serviceId) ?? 0) + l.quantity);
+      return [...merged].map(([serviceId, quantity]) => ({ serviceId, quantity }));
+    })
+    .refine((lines) => lines.every((l) => l.quantity <= MAX_SERVICE_QUANTITY), `At most ${MAX_SERVICE_QUANTITY} of one service`),
   discount: z.number().int().min(0).default(0),
   discountReason: z.string().trim().max(200).optional(),
 };
@@ -155,7 +176,11 @@ type PricingInput = z.infer<typeof createJobSchema>;
  * vehicle type; a discount larger than the subtotal) are real operator mistakes, returned as
  * a typed error rather than thrown.
  */
-async function priceJob(db: DbClient, body: Pick<PricingInput, keyof typeof pricingFields>) {
+async function priceJob(
+  db: DbClient,
+  body: Pick<PricingInput, keyof typeof pricingFields>,
+  plan: PlanStatus,
+) {
   const vehicleType = await serviceRepo.getVehicleType(db, body.vehicleTypeId);
   if (!vehicleType)
     return { error: 'vehicle_type_not_found' as const, message: 'Unknown vehicle type.' };
@@ -202,7 +227,8 @@ async function priceJob(db: DbClient, body: Pick<PricingInput, keyof typeof pric
     lineItems: breakdown.lineItems.map((li) => ({
       serviceId: li.serviceId,
       priceAtTime: li.unitPrice,
-      commissionAtTime: commissionFor.get(li.serviceId) ?? 0,
+      // Commission is a Pro feature: washes started on Free don't earn any.
+      commissionAtTime: plan.tier === 'pro' ? (commissionFor.get(li.serviceId) ?? 0) : 0,
       quantity: li.quantity,
     })),
   };
@@ -246,6 +272,38 @@ async function resolveSellers(
   return kept.length > 0 ? kept : [enteredBy];
 }
 
+type BoardRow = NonNullable<Awaited<ReturnType<typeof jobRepo.findBoardRow>>>;
+
+/**
+ * A replayed create found its job already there. Usually it's complete and is returned as is;
+ * if a crash left it without its lines (D1 has no transactions), the missing parts are written
+ * from this request so the wash never shows up half-made.
+ */
+async function finishReplayedJob(
+  db: DbClient,
+  existing: BoardRow,
+  body: Pick<PricingInput, keyof typeof pricingFields> & { sellerIds?: string[] },
+  plan: PlanStatus,
+  userId: string,
+) {
+  if (existing.jobServices.length > 0) return existing;
+  const priced = await priceJob(db, body, plan);
+  if ('error' in priced) return existing;
+  return (
+    (await jobRepo.completeCreate(db, existing.id, {
+      customerId: existing.customerId,
+      vehicleId: existing.vehicleId,
+      createdByUserId: existing.createdByUserId,
+      subtotal: existing.subtotal,
+      discount: existing.discount,
+      discountReason: existing.discountReason ?? undefined,
+      total: existing.total,
+      lineItems: priced.lineItems,
+      sellerIds: await resolveSellers(db, priced.lineItems, body.sellerIds, userId),
+    })) ?? existing
+  );
+}
+
 // Chained in one expression, with every input declared via `zValidator` — see the comment
 // in routes/auth.ts for why both matter for Hono RPC's client typing.
 //
@@ -259,12 +317,17 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     const db = c.get('db');
     const session = c.get('session');
 
+    const plan = c.get('plan');
     if (body.id) {
       const existing = await jobRepo.findBoardRow(db, body.id);
-      if (existing) return c.json(existing, 200);
+      if (existing) return c.json(await finishReplayedJob(db, existing, body, plan, session.sub), 200);
     }
 
-    const priced = await priceJob(db, body);
+    const createdAt = occurredAt(c, body.occurredAt);
+    const overLimit = await washLimitProblem(db, plan, createdAt);
+    if (overLimit) return c.json(overLimit, 402);
+
+    const priced = await priceJob(db, body, plan);
     if ('error' in priced) return c.json({ error: priced.error, message: priced.message }, 400);
 
     const job = await jobRepo.create(db, {
@@ -276,7 +339,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       discount: body.discount,
       discountReason: body.discountReason,
       total: priced.total,
-      createdAt: resolveOccurredAt(body.occurredAt),
+      createdAt,
       lineItems: priced.lineItems,
       sellerIds: await resolveSellers(db, priced.lineItems, undefined, session.sub),
     });
@@ -287,11 +350,20 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     const db = c.get('db');
     const session = c.get('session');
 
+    const plan = c.get('plan');
     const existing = await jobRepo.findBoardRow(db, body.id);
-    if (existing) return c.json(existing, 200);
+    if (existing) return c.json(await finishReplayedJob(db, existing, body, plan, session.sub), 200);
+
+    if (plan.tier !== 'pro' && (body.couponCode || body.referralToken)) {
+      const feature = body.couponCode ? ('coupons' as const) : ('referrals' as const);
+      return c.json({ error: 'plan_required' as const, feature, message: planRequiredMessage(feature) }, 402);
+    }
+    const createdAt = occurredAt(c, body.occurredAt);
+    const overLimit = await washLimitProblem(db, plan, createdAt);
+    if (overLimit) return c.json(overLimit, 402);
 
     // Price first so a bad selection never leaves a half-created customer behind.
-    const priced = await priceJob(db, body);
+    const priced = await priceJob(db, body, plan);
     if ('error' in priced) return c.json({ error: priced.error, message: priced.message }, 400);
 
     // Coupons are checked against the vehicle and owner as they stand *before* this request
@@ -423,7 +495,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
         discount,
         discountReason,
         total,
-        createdAt: resolveOccurredAt(body.occurredAt),
+        createdAt,
         lineItems: priced.lineItems,
         sellerIds: await resolveSellers(db, priced.lineItems, body.sellerIds, session.sub),
       });
@@ -432,7 +504,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       // A replay of this same request may have created the job first; its coupon and referral
       // are this job's, so leave them alone.
       const winner = await jobRepo.findBoardRow(db, body.id);
-      if (winner) return c.json(winner, 200);
+      if (winner) return c.json(await finishReplayedJob(db, winner, body, plan, session.sub), 200);
       if (coupon) await couponRepo.release(db, { couponId: coupon.id, jobId: body.id });
       if (referral) await referralRepo.removeForJob(db, body.id);
       throw e;
@@ -449,6 +521,8 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     const query = c.req.valid('query');
     const window = resolveReportWindow(query);
     if ('error' in window) return c.json({ error: window.error }, 400);
+    const tooFarBack = reportWindowProblem(c.get('plan'), window.from);
+    if (tooFarBack) return c.json(tooFarBack, 402);
 
     const [stats, pendingNow, expenses] = await Promise.all([
       jobRepo.getStats(db, window.from, window.to),
@@ -465,7 +539,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     });
   })
   // Full export payload for PDF — same window as /stats, plus every job line in the period.
-  .get('/stats/export', requireRole('owner'), zValidator('query', reportQuerySchema), async (c) => {
+  .get('/stats/export', requireRole('owner'), requirePro('pdfExport'), zValidator('query', reportQuerySchema), async (c) => {
     const db = c.get('db');
     const query = c.req.valid('query');
     const window = resolveReportWindow(query);
@@ -537,7 +611,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       from,
       to: body.status,
       userId: c.get('session').sub,
-      at: resolveOccurredAt(body.occurredAt),
+      at: occurredAt(c, body.occurredAt),
       washerIds,
     });
     if (updated) return c.json(updated, 200);
@@ -635,6 +709,9 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
 
     const from = job.status as JobStatus;
     if (from === 'paid') {
+      // A retry after a crash between marking paid and settling the referral: settle it now
+      // (safe to repeat — only a pending referral moves on).
+      await settleReferralForPaidJob(db, id, c.get('session').sub);
       if (job.paymentMethod === body.paymentMethod)
         return c.json(await jobRepo.findBoardRow(db, id), 200);
       return c.json(
@@ -661,10 +738,11 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       from,
       paymentMethod: body.paymentMethod,
       userId: c.get('session').sub,
-      at: resolveOccurredAt(body.occurredAt),
+      at: occurredAt(c, body.occurredAt),
     });
     if (!paid) {
       const now = await jobRepo.findBoardRow(db, id);
+      if (now?.status === 'paid') await settleReferralForPaidJob(db, id, c.get('session').sub);
       if (now?.status === 'paid' && now.paymentMethod === body.paymentMethod) return c.json(now, 200);
       return c.json(
         {
@@ -691,7 +769,11 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     if (!job) return c.json({ error: 'job_not_found' as const }, 404);
 
     const from = job.status as JobStatus;
-    if (from === 'void') return c.json(await jobRepo.findBoardRow(db, id), 200);
+    if (from === 'void') {
+      // A retry after a crash between voiding and the undo steps: finish them (safe to repeat).
+      await undoVoidedJobExtras(db, id);
+      return c.json(await jobRepo.findBoardRow(db, id), 200);
+    }
     if (!canVoidJob(from, session.role)) {
       return c.json(
         { error: 'owner_only' as const, message: 'Only the owner can void a paid job.' },
@@ -703,20 +785,22 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       from,
       userId: session.sub,
       reason: body.reason,
-      at: resolveOccurredAt(body.occurredAt),
+      at: occurredAt(c, body.occurredAt),
     });
     if (!voided) {
       // Already voided by someone else (they undo the coupon and referral), or it just got paid
       // and only the owner may void it now.
       const now = await jobRepo.findBoardRow(db, id);
-      if (now?.status === 'void') return c.json(now, 200);
+      if (now?.status === 'void') {
+        await undoVoidedJobExtras(db, id);
+        return c.json(now, 200);
+      }
       return c.json(
         { error: 'job_changed' as const, message: 'This job just changed. Check it and try again.', status: now?.status },
         409,
       );
     }
-    await couponRepo.restoreForVoidedJob(db, id, new Date());
-    await cancelReferralForVoidedJob(db, id);
+    await undoVoidedJobExtras(db, id);
     return c.json(voided, 200);
   })
   // Owner correction: the job was paid by UPI but recorded as cash (or vice versa).

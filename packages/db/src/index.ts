@@ -1,4 +1,5 @@
 export * from './client';
+export { isUniqueClash, retryOnClash } from './retryOnClash';
 export { customerRepo } from './repositories/customerRepo';
 export { vehicleRepo } from './repositories/vehicleRepo';
 export { serviceRepo } from './repositories/serviceRepo';
@@ -18,6 +19,8 @@ export { signupCodeRepo } from './repositories/signupCodeRepo';
 export type { SignupPurpose } from './repositories/signupCodeRepo';
 export { joinRequestRepo } from './repositories/joinRequestRepo';
 export { stockRepo } from './repositories/stockRepo';
+export { billingRepo } from './repositories/billingRepo';
+export type { SubscriptionUpdate } from './repositories/billingRepo';
 export type { JoinRequestStatus } from './repositories/joinRequestRepo';
 export type { CouponCancelReason, CouponKind } from './repositories/couponRepo';
 export type { ReminderAction } from './repositories/reminderRepo';

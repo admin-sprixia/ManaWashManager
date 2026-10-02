@@ -90,6 +90,29 @@ export const userRepo = {
     return db.user.count({ where: { role: 'owner', active: true } });
   },
 
+  /**
+   * Takes owner access away from an active owner (demote and/or switch off) only while another
+   * active owner remains. One statement, so two owners removing each other at the same moment
+   * can't leave the shop with none: the second one finds no other owner and changes nothing.
+   * Returns false when nothing changed.
+   */
+  async dropOwnerAccess(db: DbClient, id: string, change: { demote: boolean; deactivate: boolean }) {
+    const shopId = db.$shopId();
+    const demote = change.demote ? 1 : 0;
+    const deactivate = change.deactivate ? 1 : 0;
+    const changed = await db.$executeRaw`
+      UPDATE users
+         SET role = CASE WHEN ${demote} = 1 THEN 'staff' ELSE role END,
+             active = CASE WHEN ${deactivate} = 1 THEN 0 ELSE active END,
+             session_version = session_version + ${deactivate}
+       WHERE id = ${id} AND shop_id = ${shopId} AND role = 'owner' AND active = 1
+         AND EXISTS (
+           SELECT 1 FROM users o
+            WHERE o.shop_id = ${shopId} AND o.id <> ${id} AND o.role = 'owner' AND o.active = 1
+         )`;
+    return changed === 1;
+  },
+
   /** Off the team for good: signed out, no PIN, and the number can join another shop. */
   async remove(db: DbClient, id: string, now: Date) {
     return db.user.update({

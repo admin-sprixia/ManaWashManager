@@ -1,4 +1,5 @@
 import type { DbClient } from '../client';
+import { retryOnClash } from '../retryOnClash';
 
 const liveJob = { status: { not: 'void' } } as const;
 
@@ -66,27 +67,29 @@ export const reminderRepo = {
       snoozeUntil?: Date;
     },
   ) {
-    const existing = await db.vehicleReminder.findUnique({ where: { vehicleId: data.vehicleId } });
-    const sameVisit = existing?.lastVisitAt.getTime() === data.lastVisitAt.getTime();
-    const base = sameVisit
-      ? {}
-      : {
-          remindedAt: null,
-          remindedByUserId: null,
-          snoozedUntil: null,
-          dismissedAt: null,
-          dismissedByUserId: null,
-        };
     const patch =
       data.action === 'reminded'
         ? { remindedAt: data.now, remindedByUserId: data.userId, snoozedUntil: null }
         : data.action === 'snooze'
           ? { snoozedUntil: data.snoozeUntil ?? data.now }
           : { dismissedAt: data.now, dismissedByUserId: data.userId };
-    return db.vehicleReminder.upsert({
-      where: { vehicleId: data.vehicleId },
-      create: { vehicleId: data.vehicleId, lastVisitAt: data.lastVisitAt, ...patch },
-      update: { lastVisitAt: data.lastVisitAt, ...base, ...patch },
+    return retryOnClash(async () => {
+      const existing = await db.vehicleReminder.findUnique({ where: { vehicleId: data.vehicleId } });
+      const sameVisit = existing?.lastVisitAt.getTime() === data.lastVisitAt.getTime();
+      const base = sameVisit
+        ? {}
+        : {
+            remindedAt: null,
+            remindedByUserId: null,
+            snoozedUntil: null,
+            dismissedAt: null,
+            dismissedByUserId: null,
+          };
+      return db.vehicleReminder.upsert({
+        where: { vehicleId: data.vehicleId },
+        create: { vehicleId: data.vehicleId, lastVisitAt: data.lastVisitAt, ...patch },
+        update: { lastVisitAt: data.lastVisitAt, ...base, ...patch },
+      });
     });
   },
 };

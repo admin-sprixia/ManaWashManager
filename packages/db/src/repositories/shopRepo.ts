@@ -17,9 +17,9 @@ export const shopRepo = {
 
   async create(
     db: DbClient,
-    data: { code: string; name: string; city: string | null; trialEndsAt: Date },
+    data: { code: string; name: string; city: string | null; plan: 'trial' | 'free'; trialEndsAt: Date | null },
   ) {
-    return db.shop.create({ data: { ...data, plan: 'trial' } });
+    return db.shop.create({ data });
   },
 
   async rename(db: DbClient, id: string, data: { name: string; city: string | null }) {

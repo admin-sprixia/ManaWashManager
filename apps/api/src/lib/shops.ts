@@ -17,8 +17,8 @@ async function newShopCode(env: Env): Promise<string> {
 }
 
 /**
- * A new shop on its own free trial with its owner, made together: if the owner can't be created
- * the empty shop is deleted again. Used by sign-up and by an owner opening another branch.
+ * A new shop with its owner, made together: if the owner can't be created the empty shop is
+ * deleted again. Sign-up starts on the free trial; an owner's extra branch starts on Free.
  */
 export async function createShopWithOwner(
   env: Env,
@@ -28,6 +28,7 @@ export async function createShopWithOwner(
     ownerName: string;
     phone: string;
     pinHash: string;
+    trial: boolean;
   },
 ) {
   const platform = createPlatformDb(env.DB);
@@ -35,7 +36,9 @@ export async function createShopWithOwner(
     code: await newShopCode(env),
     name: data.shopName,
     city: data.city,
-    trialEndsAt: new Date(Date.now() + SHOP_TRIAL_DAYS * DAY_MS),
+    ...(data.trial
+      ? { plan: 'trial', trialEndsAt: new Date(Date.now() + SHOP_TRIAL_DAYS * DAY_MS) }
+      : { plan: 'free', trialEndsAt: null }),
   });
   try {
     return await userRepo.createWithPin(createShopDb(env.DB, shop.id), {

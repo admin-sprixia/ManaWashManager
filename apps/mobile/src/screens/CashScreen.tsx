@@ -59,6 +59,20 @@ interface CashDay {
   reopenedBy: string | null;
   reopenedAt: string | null;
   reopenReason: string | null;
+  /** Closes of this day that were reopened, newest first. */
+  earlierCloses?: EarlierClose[];
+}
+
+interface EarlierClose {
+  expected: number | null;
+  counted: number | null;
+  difference: number | null;
+  note: string | null;
+  closedBy: string | null;
+  closedAt: string;
+  reopenedBy: string | null;
+  reopenedAt: string | null;
+  reopenReason: string | null;
 }
 
 interface HistoryDay {
@@ -880,7 +894,7 @@ export function CashScreen({ navigation, route }: Props) {
               </View>
             ) : null}
 
-            {day.reopenedBy ? (
+            {day.reopenedBy && !day.earlierCloses?.length ? (
               <View style={styles.reopened}>
                 <IconSync size={14} color={colors.slateDeep} />
                 <Text style={styles.reopenedText}>
@@ -890,6 +904,21 @@ export function CashScreen({ navigation, route }: Props) {
                 </Text>
               </View>
             ) : null}
+
+            {day.earlierCloses?.map((e) => (
+              <View key={e.closedAt} style={styles.reopened}>
+                <IconSync size={14} color={colors.slateDeep} />
+                <Text style={styles.reopenedText}>
+                  Earlier close{e.closedBy ? ` by ${e.closedBy}` : ''} · {formatDateTime(e.closedAt)}: counted{' '}
+                  {formatRupees(e.counted ?? 0)}
+                  {e.difference ? ` (${differenceText(e.difference)})` : ''}
+                  {e.note ? ` — “${e.note}”` : ''}
+                  {e.reopenedBy ? `. Reopened by ${e.reopenedBy}` : ''}
+                  {e.reopenedAt ? ` · ${formatDateTime(e.reopenedAt)}` : ''}
+                  {e.reopenReason ? ` — “${e.reopenReason}”` : ''}
+                </Text>
+              </View>
+            ))}
           </>
         )}
 
@@ -996,7 +1025,7 @@ export function CashScreen({ navigation, route }: Props) {
       <ReasonSheet
         visible={reopening}
         title="Reopen this day?"
-        subtitle={`${formatDay(date)} · the count will be cleared`}
+        subtitle={`${formatDay(date)} · the count is kept in the day’s history`}
         confirmLabel="Reopen day"
         quickReasons={['Recount needed', 'Payment corrected after close', 'Expense added late']}
         onClose={() => setReopening(false)}

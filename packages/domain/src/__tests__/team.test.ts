@@ -87,4 +87,20 @@ describe('resolveOccurredAt', () => {
     const stale = new Date(now.getTime() - MAX_OFFLINE_BACKDATE_MS - 1000).toISOString();
     expect(resolveOccurredAt(stale, now)).toBe(now);
   });
+
+  it('uses only the wait on the phone’s own clock when it says when it sent', () => {
+    // Phone clock a day and 3 hours ahead; the wash sat in its queue for 40 minutes.
+    const occurred = '2026-09-26T12:20:00.000Z';
+    const sent = '2026-09-26T13:00:00.000Z';
+    expect(resolveOccurredAt(occurred, now, sent).toISOString()).toBe('2026-09-25T09:20:00.000Z');
+    // Phone clock 2 days behind, sent straight away: it's now, not two days ago.
+    expect(resolveOccurredAt('2026-09-23T10:00:00.000Z', now, '2026-09-23T10:00:00.000Z')).toBe(now);
+  });
+
+  it('falls back to now when the phone’s own times make no sense', () => {
+    expect(resolveOccurredAt('2026-09-25T10:00:00.000Z', now, '2026-09-25T09:00:00.000Z')).toBe(now);
+    const longAgo = new Date(new Date('2026-09-25T09:00:00.000Z').getTime() - MAX_OFFLINE_BACKDATE_MS - 1000);
+    expect(resolveOccurredAt(longAgo.toISOString(), now, '2026-09-25T09:00:00.000Z')).toBe(now);
+    expect(resolveOccurredAt('2026-09-25T09:30:00.000Z', now, 'garbage').toISOString()).toBe('2026-09-25T09:30:00.000Z');
+  });
 });

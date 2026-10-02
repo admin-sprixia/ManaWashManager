@@ -9,7 +9,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import type { Service, VehicleCategory, VehicleType } from '@mana/domain';
+import { MAX_SERVICE_PRICE_PAISE, type Service, type VehicleCategory, type VehicleType } from '@mana/domain';
 import { colors, radius, shadow, spacing, typography } from '../theme';
 import { formatRupees, parseRupees } from '../utils/format';
 import { BottomSheet } from './BottomSheet';
@@ -206,6 +206,10 @@ export function NewServiceSheet({
 
   const save = async () => {
     if (!ready) return;
+    if (entries.some((e) => (e.price as number) > MAX_SERVICE_PRICE_PAISE)) {
+      setError(`A price looks too large (over ${formatRupees(MAX_SERVICE_PRICE_PAISE)}). Check for extra zeros.`);
+      return;
+    }
     setBusy(true);
     setError(null);
     const message = await onSave({

@@ -39,6 +39,7 @@ import {
 } from '../components/Icons';
 import { colors, gradients, radius, spacing, typography } from '../theme';
 import { api, apiErrorMessage } from '../api/client';
+import { handlePlanError } from '../components/UpgradeSheet';
 import { NetworkError } from '../api/network';
 import { useAuth } from '../api/auth';
 import { useShop } from '../offline/ShopProvider';
@@ -54,6 +55,8 @@ interface Member {
   role: string;
   active: boolean;
   hasPin: boolean;
+  /** Over the plan's seats: can't sign in until the shop upgrades. */
+  seatLocked?: boolean;
 }
 
 interface JoinRequest {
@@ -174,7 +177,9 @@ export function TeamScreen({ navigation }: Props) {
         action === 'approve'
           ? await api.team.requests[':id'].approve.$post({ param: { id: request.id } })
           : await api.team.requests[':id'].reject.$post({ param: { id: request.id } });
-      if (!res.ok) {
+      if (await handlePlanError(res)) {
+        // The upgrade sheet explains it; the request stays waiting.
+      } else if (!res.ok) {
         showToast(await apiErrorMessage(res, 'Couldn’t update this request.'), 'error');
       } else {
         showToast(
@@ -248,7 +253,12 @@ export function TeamScreen({ navigation }: Props) {
           <Text style={styles.memberPhone}>
             {owner ? 'Owner' : 'Staff'} · +91 {formatPhone(m.phone)}
           </Text>
-          {m.active ? (
+          {m.active && m.seatLocked ? (
+            <View style={styles.statusLine}>
+              <View style={[styles.statusDot, { backgroundColor: colors.amber }]} />
+              <Text style={[styles.statusText, { color: colors.amberDeep }]}>Needs Pro — can’t sign in</Text>
+            </View>
+          ) : m.active ? (
             <View style={styles.statusLine}>
               <View style={[styles.statusDot, { backgroundColor: m.hasPin ? colors.teal : colors.amber }]} />
               <Text style={[styles.statusText, { color: m.hasPin ? colors.tealDeep : colors.amberDeep }]}>
@@ -563,6 +573,11 @@ function AddMemberSheet({
     setError(null);
     try {
       const res = await api.team.$post({ json: { name: name.trim(), phone: digits, role } });
+      if (res.status === 402) {
+        onClose();
+        await handlePlanError(res);
+        return;
+      }
       if (!res.ok) {
         setError(await apiErrorMessage(res, 'Couldn’t add this person.'));
         return;
@@ -797,6 +812,11 @@ function MemberSheet({
     setError(null);
     try {
       const res = await api.team[':id'].$patch({ param: { id: member.id }, json: body });
+      if (res.status === 402) {
+        onClose();
+        await handlePlanError(res);
+        return;
+      }
       if (!res.ok) {
         setError(await apiErrorMessage(res, 'Couldn’t save.'));
         return;

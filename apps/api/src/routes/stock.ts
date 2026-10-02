@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { stockRepo } from '@mana/db';
+import { isUniqueClash, stockRepo } from '@mana/db';
 import {
   EXPENSE_UNITS,
   MAX_STOCK_QUANTITY,
@@ -14,6 +14,7 @@ import {
   type StockUnit,
 } from '@mana/domain';
 import { requireAuth, requireRole } from '../middleware/auth';
+import { requirePro } from '../lib/plan';
 import { startOfIstDaysAgo } from '../lib/istDate';
 import type { Env } from '../types';
 
@@ -51,7 +52,7 @@ function withLevel<T extends { balance: number; lowAt: number | null }>(item: T)
 // Everyone sees stock and logs what they use; setting items up, adding without a bill and
 // correcting a count are the owner's.
 export const stockRoutes = new Hono<{ Bindings: Env }>()
-  .use('*', requireAuth)
+  .use('*', requireAuth, requirePro('inventory'))
   .get('/', async (c) => {
     const db = c.get('db');
     const [items, used] = await Promise.all([
@@ -68,18 +69,21 @@ export const stockRoutes = new Hono<{ Bindings: Env }>()
     const body = c.req.valid('json');
     const db = c.get('db');
     const session = c.get('session');
-    if (await stockRepo.findByName(db, body.name)) {
-      return c.json(
-        { error: 'duplicate' as const, message: `“${body.name}” is already in stock.` },
-        409,
-      );
+    const duplicate = { error: 'duplicate' as const, message: `“${body.name}” is already in stock.` };
+    if (await stockRepo.findByName(db, body.name)) return c.json(duplicate, 409);
+    let item;
+    try {
+      item = await stockRepo.create(db, {
+        name: body.name,
+        unit: body.unit,
+        lowAt: body.lowAt ?? null,
+        createdByUserId: session.sub,
+      });
+    } catch (e) {
+      // Added from another phone at the same moment.
+      if (isUniqueClash(e)) return c.json(duplicate, 409);
+      throw e;
     }
-    let item = await stockRepo.create(db, {
-      name: body.name,
-      unit: body.unit,
-      lowAt: body.lowAt ?? null,
-      createdByUserId: session.sub,
-    });
     if (body.opening && body.opening > 0) {
       const opened = await stockRepo.applyMove(db, {
         itemId: item.id,
@@ -112,7 +116,15 @@ export const stockRoutes = new Hono<{ Bindings: Env }>()
           );
         }
       }
-      return c.json(withLevel(await stockRepo.update(db, id, body)));
+      try {
+        return c.json(withLevel(await stockRepo.update(db, id, body)));
+      } catch (e) {
+        if (!isUniqueClash(e)) throw e;
+        return c.json(
+          { error: 'duplicate' as const, message: `“${body.name}” is already in stock.` },
+          409,
+        );
+      }
     },
   )
   .delete('/:id', requireRole('owner'), zValidator('param', itemParamSchema), async (c) => {
@@ -166,12 +178,28 @@ export const stockRoutes = new Hono<{ Bindings: Env }>()
         return c.json({ error: 'invalid_body' as const, message: 'Enter more than zero.' }, 400);
       }
 
-      const delta =
-        body.kind === 'use'
-          ? -quantity
-          : body.kind === 'in'
-            ? quantity
-            : roundStock(quantity - item.balance);
+      if (body.kind === 'use') {
+        // Never below zero: more than the books hold empties the item and notes the shortfall.
+        let taken: Awaited<ReturnType<typeof stockRepo.takeOut>>;
+        try {
+          taken = await stockRepo.takeOut(db, {
+            id: body.id,
+            itemId: item.id,
+            kind: 'use',
+            quantity,
+            note: body.note || null,
+            createdByUserId: session.sub,
+          });
+        } catch (e) {
+          const winner = await stockRepo.findMove(db, body.id);
+          if (winner) return c.json({ id: winner.id }, 200);
+          throw e;
+        }
+        if (taken) return c.json({ id: taken.move.id, item: withLevel(taken.item) }, 201);
+        break;
+      }
+
+      const delta = body.kind === 'in' ? quantity : roundStock(quantity - item.balance);
       let applied: Awaited<ReturnType<typeof stockRepo.applyMove>>;
       try {
         applied = await stockRepo.applyMove(db, {

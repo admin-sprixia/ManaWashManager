@@ -12,7 +12,7 @@ export interface D1Database {
 }
 
 /** Tables that belong to the platform, not to a shop — never filtered by shop. */
-const PLATFORM_MODELS = new Set(['Shop', 'PlatformSetting', 'SignupCode', 'RateLimit']);
+const PLATFORM_MODELS = new Set(['Shop', 'PlatformSetting', 'SignupCode', 'RateLimit', 'BillingEvent']);
 
 /** Operations whose `where` gets `shopId` added. Prisma 5 accepts extra fields on unique wheres. */
 const WHERE_OPERATIONS = new Set([

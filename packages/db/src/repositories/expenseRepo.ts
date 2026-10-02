@@ -69,11 +69,12 @@ export const expenseRepo = {
     });
   },
 
+  /** Only voids a live expense, so two voids at once keep the first one's reason and name. */
   async voidExpense(db: DbClient, id: string, data: { userId: string; reason: string }) {
-    return db.expense.update({
-      where: { id },
+    const { count } = await db.expense.updateMany({
+      where: { id, voidedAt: null },
       data: { voidedByUserId: data.userId, voidReason: data.reason, voidedAt: new Date() },
-      include: { createdBy: personSelect, voidedBy: personSelect },
     });
+    return count === 1;
   },
 };

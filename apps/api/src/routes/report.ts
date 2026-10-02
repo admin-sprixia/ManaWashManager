@@ -3,6 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { expenseRepo, jobRepo, opsRepo } from '@mana/db';
 import { daysWorked, type AttendanceStatus } from '@mana/domain';
 import { requireAuth, requireRole } from '../middleware/auth';
+import { requirePro } from '../lib/plan';
 import { reportQuerySchema, resolveReportWindow, windowMeta } from '../lib/reportWindow';
 import type { Env } from '../types';
 import { windowDates } from './shop';
@@ -28,7 +29,7 @@ interface AuditItem {
 export const reportRoutes = new Hono<{ Bindings: Env }>()
   .use('*', requireAuth, requireRole('owner'))
   // Per-person washes started, money collected (by method), voids, and payment corrections.
-  .get('/staff', zValidator('query', reportQuerySchema), async (c) => {
+  .get('/staff', requirePro('staffReport'), zValidator('query', reportQuerySchema), async (c) => {
     const db = c.get('db');
     const query = c.req.valid('query');
     const window = resolveReportWindow(query);
@@ -63,7 +64,7 @@ export const reportRoutes = new Hono<{ Bindings: Env }>()
   })
   // One chronological feed of every money correction: voided jobs, payment-method changes,
   // and voided expenses — each with who did it and the reason they gave.
-  .get('/audit', zValidator('query', reportQuerySchema), async (c) => {
+  .get('/audit', requirePro('auditTrail'), zValidator('query', reportQuerySchema), async (c) => {
     const db = c.get('db');
     const query = c.req.valid('query');
     const window = resolveReportWindow(query);

@@ -52,6 +52,19 @@ export interface Env {
    */
   ENVIRONMENT?: string;
   STAGING_TEST_CODES?: string;
+  /**
+   * Razorpay: Pro subscriptions. Key id + secret from Dashboard → API Keys (rzp_test_… in Test
+   * mode); the webhook secret is the one typed when adding the webhook. See lib/razorpay.ts and
+   * the README. Without the keys the app shows plans but can't take payment.
+   */
+  RAZORPAY_KEY_ID?: string;
+  RAZORPAY_KEY_SECRET?: string;
+  RAZORPAY_WEBHOOK_SECRET?: string;
+  /**
+   * Tests only: send Razorpay calls to a stand-in server (`npm run test:plans` runs one). Ignored
+   * unless the key id is a test key, so it can never redirect live payments.
+   */
+  RAZORPAY_API_BASE?: string;
   /** Older names for DEV_MODE / DEV_RECOVERY_CODE, still honoured in local `.dev.vars`. */
   DEV_OTP_BYPASS?: string;
   DEV_OTP_CODE?: string;

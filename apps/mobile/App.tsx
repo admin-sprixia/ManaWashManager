@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from './src/api/auth';
 import { SyncProvider } from './src/offline/SyncProvider';
 import { DirectoryProvider } from './src/offline/DirectoryProvider';
 import { ShopProvider } from './src/offline/ShopProvider';
+import { PlanProvider } from './src/offline/PlanProvider';
 import { ToastHost } from './src/components/Toast';
 import { AlertHost } from './src/components/AppAlert';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
@@ -51,9 +52,11 @@ export default function App() {
           <SyncProvider>
             <DirectoryProvider>
               <ShopProvider>
-                <ErrorBoundary>
-                  <AppBody />
-                </ErrorBoundary>
+                <PlanProvider>
+                  <ErrorBoundary>
+                    <AppBody />
+                  </ErrorBoundary>
+                </PlanProvider>
               </ShopProvider>
             </DirectoryProvider>
           </SyncProvider>

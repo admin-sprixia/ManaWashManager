@@ -4,14 +4,17 @@ import { z } from 'zod';
 import { serviceRepo, type DbClient } from '@mana/db';
 import {
   MAX_COMMISSION_PAISE,
+  MAX_SERVICE_PRICE_PAISE,
   parseServiceAppliesTo,
   parseVehicleCategory,
   serviceAppliesToCategory,
 } from '@mana/domain';
 import { requireAuth, requireRole } from '../middleware/auth';
+import { requirePro } from '../lib/plan';
 import type { Env } from '../types';
 
 const vehicleCategorySchema = z.enum(['car', 'bike']);
+const priceSchema = z.number().int().nonnegative().max(MAX_SERVICE_PRICE_PAISE, 'That price looks too large');
 const descriptionSchema = z.string().trim().max(160, 'Keep the description under 160 characters.');
 /** Services a combo bundles. At least two, or it isn't a combo. */
 const includesSchema = z.array(z.string()).refine((ids) => ids.length !== 1, 'A combo needs at least two services.');
@@ -21,7 +24,7 @@ const createServiceSchema = z.object({
   includes: includesSchema.optional(),
   /** The vehicles this service is for, each with its price. New Wash shows it only for these. */
   vehicles: z
-    .array(z.object({ vehicleTypeId: z.string(), price: z.number().int().nonnegative() }))
+    .array(z.object({ vehicleTypeId: z.string(), price: priceSchema }))
     .min(1, 'Pick at least one vehicle for this service.'),
 });
 const updateServiceSchema = z.object({
@@ -45,7 +48,7 @@ const pricesQuerySchema = z.object({ vehicleTypeId: z.string().optional() });
 const upsertPriceSchema = z.object({
   serviceId: z.string(),
   vehicleTypeId: z.string(),
-  price: z.number().int().nonnegative(),
+  price: priceSchema,
 });
 const setCommissionSchema = z.object({
   serviceId: z.string(),
@@ -205,6 +208,7 @@ export const serviceRoutes = new Hono<{ Bindings: Env }>()
   .put(
     '/commissions',
     requireRole('owner'),
+    requirePro('commission'),
     zValidator('json', setCommissionSchema),
     async (c) => {
       const body = c.req.valid('json');

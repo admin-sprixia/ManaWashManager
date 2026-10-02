@@ -30,6 +30,7 @@ import {
   sendLoginCodeOnWhatsApp,
   whatsappConfigured,
 } from '../lib/loginCode';
+import { phoneBusy, withPhoneLock } from '../lib/phoneLock';
 import { hashPin } from '../lib/pin';
 import { devCode, sameHex } from '../lib/recovery';
 import { issueSession } from '../lib/session';
@@ -245,22 +246,22 @@ export const signupRoutes = new Hono<{ Bindings: Env }>()
       return c.json({ error: 'weak_pin' as const, message: pinProblemMessage(problem) }, 400);
 
     const platform = createPlatformDb(c.env.DB);
-    if (await userRepo.findByPhone(platform, ticket.phone)) return c.json(alreadyRegistered, 409);
-
-    try {
-      const owner = await createShopWithOwner(c.env, {
+    const pinHash = await hashPin(body.pin);
+    // A double tap (or two phones with the same ticket) must make one shop, not two.
+    const owner = await withPhoneLock(c.env, ticket.phone, async () => {
+      if (await userRepo.findByPhone(platform, ticket.phone)) return 'taken' as const;
+      return createShopWithOwner(c.env, {
         shopName: body.shopName,
         city: body.city || null,
         ownerName: body.name,
         phone: ticket.phone,
-        pinHash: await hashPin(body.pin),
+        pinHash,
+        trial: true,
       });
-      return c.json(await issueSession(owner, c.env), 201);
-    } catch (e) {
-      // Two sign-ups for the same number at once: the other one won.
-      if (await userRepo.findByPhone(platform, ticket.phone)) return c.json(alreadyRegistered, 409);
-      throw e;
-    }
+    });
+    if (owner === null) return c.json(phoneBusy, 409);
+    if (owner === 'taken') return c.json(alreadyRegistered, 409);
+    return c.json(await issueSession(owner, c.env), 201);
   })
   // Shows "Join MANA Car Wash, Hyderabad?" before anything is sent, so a mistyped ID is caught.
   .get('/shops/:code', async (c) => {

@@ -16,6 +16,7 @@ import {
 } from '@mana/domain';
 import { drawPercent, randomBytes } from '../lib/random';
 import { requireAuth, requireRole } from '../middleware/auth';
+import { requirePro } from '../lib/plan';
 import type { Env } from '../types';
 
 const actionSchema = z.object({ action: z.enum(['reminded', 'snooze', 'dismiss']) });
@@ -29,7 +30,7 @@ const sameInstant = (a: Date | null | undefined, b: Date) =>
 // Reminders are for everyone on the team (anyone can nudge a customer on WhatsApp); issuing a
 // coupon is owner-only. Nothing here is offline-queued — these actions need a live answer.
 export const reminderRoutes = new Hono<{ Bindings: Env }>()
-  .use('*', requireAuth)
+  .use('*', requireAuth, requirePro('reminders'))
   .get('/', async (c) => {
     const db = c.get('db');
     const now = new Date();

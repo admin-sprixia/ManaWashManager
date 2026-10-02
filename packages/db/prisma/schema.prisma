@@ -31,12 +31,52 @@ model Shop {
   code        String    @unique
   name        String
   city        String?
-  plan        String    @default("trial")
-  trialEndsAt DateTime? @map("trial_ends_at")
-  paidUntil   DateTime? @map("paid_until")
-  createdAt   DateTime  @default(now()) @map("created_at")
+  /// Razorpay subscription status: trial | pending | active | past_due | cancelled | free.
+  /// Free vs Pro comes from the dates (planStatus in @mana/domain), not from this.
+  plan              String    @default("trial")
+  trialEndsAt       DateTime? @map("trial_ends_at")
+  paidUntil         DateTime? @map("paid_until")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  subscriptionId    String?   @map("subscription_id")
+  billingInterval   String?   @map("billing_interval") // "monthly" | "yearly"
+  pricePaise        Int?      @map("price_paise")
+  /// First founder-price payment. Holds one of the 50 founder slots for good.
+  founderAt         DateTime? @map("founder_at")
+  /// Founder slot held while the first founder-price charge is on its way; lapses if never paid.
+  founderHoldUntil  DateTime? @map("founder_hold_until")
+  /// When that hold was taken — for the last slot, the earlier claim wins.
+  founderHoldAt     DateTime? @map("founder_hold_at")
 
+  @@index([subscriptionId])
   @@map("shops")
+}
+
+/// One subscription charge, for the owner's payment history.
+model BillingPayment {
+  id             String   @id // Razorpay payment id
+  shopId         String   @default("") @map("shop_id")
+  subscriptionId String   @map("subscription_id")
+  amountPaise    Int      @map("amount_paise")
+  status         String // "captured" | "failed" | "refunded"
+  method         String?
+  periodEnd      DateTime? @map("period_end")
+  paidAt         DateTime @map("paid_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([shopId, id])
+  @@index([shopId, paidAt])
+  @@map("billing_payments")
+}
+
+/// Razorpay webhook deliveries already handled, so retries are no-ops. Platform-level.
+model BillingEvent {
+  id         String   @id
+  event      String
+  shopId     String?  @map("shop_id")
+  receivedAt DateTime @default(now()) @map("received_at")
+
+  @@index([receivedAt])
+  @@map("billing_events")
 }
 
 /// Settings for the platform itself (Sprixia), not any one shop — e.g. the error-alert timer.
@@ -357,6 +397,25 @@ model CashDay {
 
   @@id([shopId, date])
   @@map("cash_days")
+}
+
+/// A close of a cash day that was later reopened — kept so a reopen never erases the count.
+model CashDayClose {
+  id               String    @id
+  shopId           String    @default("") @map("shop_id")
+  date             String
+  openingFloat     Int       @map("opening_float")
+  expected         Int?
+  counted          Int?
+  note             String?
+  closedByUserId   String?   @map("closed_by_user_id")
+  closedAt         DateTime  @map("closed_at")
+  reopenedByUserId String?   @map("reopened_by_user_id")
+  reopenedAt       DateTime? @map("reopened_at")
+  reopenReason     String?   @map("reopen_reason")
+
+  @@index([shopId, date])
+  @@map("cash_day_closes")
 }
 
 model Referral {

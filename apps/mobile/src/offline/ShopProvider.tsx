@@ -80,7 +80,8 @@ function withPendingMoves(items: StockItemView[], outbox: OutboxItem[]): StockIt
       const q = toStockQuantity(m.quantity, m.unit, item.unit);
       if (q == null) continue;
       if (m.kind === 'use') {
-        balance -= q;
+        // Same as the server: use never takes the books below zero.
+        balance = Math.max(0, balance - q);
         usedWeek += q;
       } else if (m.kind === 'in') balance += q;
       else balance = q;
@@ -140,6 +141,12 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
     if (!userId) return;
     try {
       const res = await api.stock.$get();
+      if (res.status === 402) {
+        // Inventory is Pro: drop stock cached during a trial so no low-stock nags linger.
+        setServerStock([]);
+        void writeCache(CacheKeys.stock, []);
+        return;
+      }
       if (!res.ok) return;
       const body = await res.json();
       const next = body.items.map((i) => ({

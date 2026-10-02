@@ -7,11 +7,13 @@ import {
   MAX_PHOTO_BYTES,
   MAX_PHOTOS_PER_KIND,
   PHOTO_KINDS,
-  resolveOccurredAt,
   type PhotoKind,
 } from '@mana/domain';
+import { occurredAt } from '../lib/clientTime';
+import { withLock } from '../lib/phoneLock';
 import { startOfIstDay } from '../lib/istDate';
 import { requireAuth, requireRole } from '../middleware/auth';
+import { requirePro } from '../lib/plan';
 import type { Env } from '../types';
 
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -37,7 +39,7 @@ function staffCanSee(job: { status: string; createdAt: Date }) {
 // Uploads may be replayed from the phone's offline queue, so they're keyed by a client id.
 export const photoRoutes = new Hono<{ Bindings: Env }>()
   .use('*', requireAuth)
-  .post('/', zValidator('form', uploadSchema), async (c) => {
+  .post('/', requirePro('photos'), zValidator('form', uploadSchema), async (c) => {
     const body = c.req.valid('form');
     const db = c.get('db');
     const session = c.get('session');
@@ -65,14 +67,12 @@ export const photoRoutes = new Hono<{ Bindings: Env }>()
     if (body.file.size === 0 || body.file.size > MAX_PHOTO_BYTES) {
       return c.json({ error: 'too_large' as const, message: 'That photo is too large.' }, 400);
     }
+    const limitReached = {
+      error: 'limit_reached' as const,
+      message: `A job can have at most ${MAX_PHOTOS_PER_KIND} ${body.kind} photos.`,
+    };
     if ((await opsRepo.countPhotos(db, body.jobId, body.kind)) >= MAX_PHOTOS_PER_KIND) {
-      return c.json(
-        {
-          error: 'limit_reached' as const,
-          message: `A job can have at most ${MAX_PHOTOS_PER_KIND} ${body.kind} photos.`,
-        },
-        409,
-      );
+      return c.json(limitReached, 409);
     }
 
     const ext = body.file.type === 'image/png' ? 'png' : body.file.type === 'image/webp' ? 'webp' : 'jpg';
@@ -80,7 +80,12 @@ export const photoRoutes = new Hono<{ Bindings: Env }>()
     await c.env.PHOTOS.put(r2Key, await body.file.arrayBuffer(), {
       httpMetadata: { contentType: body.file.type },
     });
-    try {
+    // Count and save under one lock per job and kind, so two phones uploading the 10th photo
+    // at once can't make 11.
+    const saved = await withLock(c.env, `photos:${session.shopId}:${body.jobId}:${body.kind}`, async () => {
+      const replay = await opsRepo.findPhoto(db, body.id);
+      if (replay) return replay.jobId === body.jobId ? ('replay' as const) : ('clash' as const);
+      if ((await opsRepo.countPhotos(db, body.jobId, body.kind)) >= MAX_PHOTOS_PER_KIND) return 'full' as const;
       await opsRepo.createPhoto(db, {
         id: body.id,
         jobId: body.jobId,
@@ -89,15 +94,19 @@ export const photoRoutes = new Hono<{ Bindings: Env }>()
         contentType: body.file.type,
         sizeBytes: body.file.size,
         takenByUserId: session.sub,
-        createdAt: resolveOccurredAt(body.occurredAt),
+        createdAt: occurredAt(c, body.occurredAt),
       });
-    } catch (e) {
-      // A replay of the same upload may have saved the row first — it owns this same key.
-      const winner = await opsRepo.findPhoto(db, body.id);
-      if (winner?.jobId === body.jobId) return c.json({ id: winner.id, kind: winner.kind as PhotoKind }, 200);
+      return 'saved' as const;
+    }).catch(async (e) => {
       await c.env.PHOTOS.delete(r2Key);
       throw e;
-    }
+    });
+    // A replay of the same upload saved the row first — it owns this same key, so keep the image.
+    if (saved === 'replay') return c.json({ id: body.id, kind: body.kind }, 200);
+    if (saved !== 'saved') await c.env.PHOTOS.delete(r2Key);
+    if (saved === 'full') return c.json(limitReached, 409);
+    if (saved === 'clash') return c.json({ error: 'invalid_id' as const }, 409);
+    if (saved === null) return c.json({ error: 'busy' as const, message: 'Another photo is saving. Try again.' }, 409);
     return c.json({ id: body.id, kind: body.kind }, 201);
   })
   .get('/:id', zValidator('param', photoParamSchema), async (c) => {

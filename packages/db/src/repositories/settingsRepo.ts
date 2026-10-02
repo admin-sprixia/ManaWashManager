@@ -1,4 +1,5 @@
 import type { DbClient } from '../client';
+import { retryOnClash } from '../retryOnClash';
 
 /** Keys the app reads and the owner edits. Internal keys (e.g. recovery bookkeeping) stay server-side. */
 export const PUBLIC_SETTING_KEYS = ['google_review_url'] as const;
@@ -11,11 +12,13 @@ export const settingsRepo = {
   },
 
   async set(db: DbClient, key: string, value: string, userId: string | null) {
-    return db.appSetting.upsert({
-      where: { shopId_key: { shopId: db.$shopId(), key } },
-      create: { key, value, updatedByUserId: userId },
-      update: { value, updatedByUserId: userId, updatedAt: new Date() },
-    });
+    return retryOnClash(() =>
+      db.appSetting.upsert({
+        where: { shopId_key: { shopId: db.$shopId(), key } },
+        create: { key, value, updatedByUserId: userId },
+        update: { value, updatedByUserId: userId, updatedAt: new Date() },
+      }),
+    );
   },
 
   /** Inserts only if the key is new. False when it already exists — a one-shot claim, no race. */
@@ -51,11 +54,13 @@ export const platformSettingsRepo = {
   },
 
   async set(db: DbClient, key: string, value: string) {
-    await db.platformSetting.upsert({
-      where: { key },
-      create: { key, value },
-      update: { value, updatedAt: new Date() },
-    });
+    await retryOnClash(() =>
+      db.platformSetting.upsert({
+        where: { key },
+        create: { key, value },
+        update: { value, updatedAt: new Date() },
+      }),
+    );
   },
 
   /** Inserts only if the key is new. False when it already exists — a one-shot claim, no race. */

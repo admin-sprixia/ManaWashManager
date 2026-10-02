@@ -27,7 +27,8 @@ import { ScreenContainer } from '../components/ScreenContainer';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { StatusBadge } from '../components/StatusBadge';
 import { Button } from '../components/Button';
-import { EdgeGroup, EdgeRow, SectionLabel } from '../components/EdgeList';
+import { EdgeGroup, EdgeRow, Pill, SectionLabel } from '../components/EdgeList';
+import { showUpgrade } from '../components/UpgradeSheet';
 import { PaymentSheet } from '../components/PaymentSheet';
 import { ReasonSheet } from '../components/ReasonSheet';
 import { PeoplePickerSheet } from '../components/PeoplePickerSheet';
@@ -36,6 +37,7 @@ import { JobPhotos, type JobPhoto } from '../components/JobPhotos';
 import { showToast } from '../components/Toast';
 import {
   IconBan,
+  IconCamera,
   IconCheck,
   IconCloudOff,
   IconDroplet,
@@ -52,6 +54,7 @@ import { api, API_BASE_URL, apiErrorMessage } from '../api/client';
 import { NetworkError } from '../api/network';
 import { useAuth } from '../api/auth';
 import { useSync } from '../offline/SyncProvider';
+import { usePlan, useProPill } from '../offline/PlanProvider';
 import { useJobActions } from '../offline/useJobActions';
 import { applyOutbox } from '../offline/optimistic';
 import { CacheKeys, readCache } from '../offline/cache';
@@ -134,6 +137,8 @@ export function JobDetailScreen({ navigation, route }: Props) {
   const { jobId } = route.params;
   const insets = useSafeAreaInsets();
   const { user, isOwner } = useAuth();
+  const { isPro } = usePlan();
+  const proPill = useProPill();
   const { items, version } = useSync();
   const actions = useJobActions();
 
@@ -236,7 +241,7 @@ export function JobDetailScreen({ navigation, route }: Props) {
   // Staff only see photos for jobs still on the board (the API enforces the same).
   const onBoard = isToday(job.createdAt) || job.status === 'waiting' || job.status === 'washing' || job.status === 'ready';
   const canSeePhotos = isOwner || onBoard;
-  const canAddPhotos = !isVoid && (isOwner || Date.now() - new Date(job.createdAt).getTime() < MAX_OFFLINE_BACKDATE_MS);
+  const canAddPhotos = isPro && !isVoid && (isOwner || Date.now() - new Date(job.createdAt).getTime() < MAX_OFFLINE_BACKDATE_MS);
 
   const runPrimary = async () => {
     if (job.status === 'ready') {
@@ -409,7 +414,7 @@ export function JobDetailScreen({ navigation, route }: Props) {
 
         {canSeePhotos && (canAddPhotos || (serverJob?.photos?.length ?? 0) > 0) ? (
           <>
-            <SectionLabel>Photos</SectionLabel>
+            <SectionLabel right={proPill}>Photos</SectionLabel>
             <JobPhotos
               jobId={job.id}
               photos={serverJob?.photos ?? []}
@@ -418,6 +423,19 @@ export function JobDetailScreen({ navigation, route }: Props) {
               baseUrl={API_BASE_URL}
               onChanged={() => void load()}
             />
+          </>
+        ) : canSeePhotos && !isPro && !isVoid ? (
+          <>
+            <SectionLabel>Photos</SectionLabel>
+            <EdgeGroup>
+              <EdgeRow
+                icon={<IconCamera size={18} color={colors.waterDeep} />}
+                title="Before & after photos"
+                subtitle="Settle scratch complaints in seconds"
+                right={<Pill label="PRO" tone="slate" />}
+                onPress={() => showUpgrade({ kind: 'feature', feature: 'photos' })}
+              />
+            </EdgeGroup>
           </>
         ) : null}
 

@@ -14,6 +14,8 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { SyncBanner } from '../components/SyncBanner';
+import { PlanBanner } from '../components/PlanBanner';
+import { showUpgrade } from '../components/UpgradeSheet';
 import { PaymentSheet } from '../components/PaymentSheet';
 import { PeoplePickerSheet } from '../components/PeoplePickerSheet';
 import { ReadyPromptSheet } from '../components/ReadyPromptSheet';
@@ -29,6 +31,7 @@ import { useBoardJobs } from '../offline/useBoardJobs';
 import { useReminderCount } from '../offline/useReminderCount';
 import { useJobActions } from '../offline/useJobActions';
 import { useShop } from '../offline/ShopProvider';
+import { usePlan } from '../offline/PlanProvider';
 import type { BoardJob } from '../offline/types';
 import { buildThankYouMessage } from '../utils/messages';
 import { openWhatsApp } from '../utils/whatsapp';
@@ -60,6 +63,7 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
   const { jobs, loading, error, refresh } = useBoardJobs();
   const actions = useJobActions();
   const reminderCount = useReminderCount();
+  const { isPro, atWashLimit } = usePlan();
   const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [payJob, setPayJob] = useState<BoardJob | null>(null);
@@ -181,7 +185,15 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
 
   const goReports = useCallback(() => navigation.navigate('Reports'), [navigation]);
   const goMore = useCallback(() => navigation.navigate('More'), [navigation]);
-  const goReminders = useCallback(() => navigation.navigate('Reminders'), [navigation]);
+  const goReminders = useCallback(
+    () => (isPro ? navigation.navigate('Reminders') : showUpgrade({ kind: 'feature', feature: 'reminders' })),
+    [navigation, isPro],
+  );
+  const goPlan = useCallback(() => navigation.navigate('Plan'), [navigation]);
+  const newWash = useCallback(
+    () => (atWashLimit ? showUpgrade({ kind: 'washLimit' }) : navigation.navigate('NewWash')),
+    [navigation, atWashLimit],
+  );
   const name = firstName(user?.name);
 
   return (
@@ -221,6 +233,7 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
               />
               <View style={styles.bannerWrap}>
                 <SyncBanner onReview={goMore} />
+                <PlanBanner onOpenPlan={goPlan} />
               </View>
             </>
           }
@@ -281,7 +294,7 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
         <Fab
           label="New Wash"
           icon={<IconPlus size={22} color={colors.white} />}
-          onPress={() => navigation.navigate('NewWash')}
+          onPress={newWash}
           collapsed={fabCollapsed}
           bottom={spacing.lg}
         />

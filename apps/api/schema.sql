@@ -13,7 +13,8 @@
 -- exact shape Prisma writes ("2026-10-02T09:02:18.357+00:00"), defaults included, so text
 -- comparisons and ordering stay correct whichever side wrote the row.
 --
--- Multi-shop: every table except shops, platform_settings and signup_codes has a shop_id. Each parent table
+-- Multi-shop: every table except shops, platform_settings, signup_codes, rate_limits and
+-- billing_events has a shop_id. Each parent table
 -- has UNIQUE (shop_id, id), and every link to it is a composite foreign key on (shop_id, x_id),
 -- so the database itself refuses a row that points at another shop's customer, vehicle,
 -- service or staff member — isolation doesn't depend on every route remembering to check.
@@ -27,10 +28,46 @@ CREATE TABLE shops (
   code TEXT NOT NULL UNIQUE,         -- 6-digit shop ID staff type to ask to join; not a secret
   name TEXT NOT NULL,
   city TEXT,
-  plan TEXT NOT NULL DEFAULT 'trial', -- trial | active | past_due | read_only | cancelled | free
+  -- Subscription status from Razorpay: trial | pending | active | past_due | cancelled | free.
+  -- Free vs Pro is worked out from the dates below (packages/domain/src/plans.ts), not this.
+  plan TEXT NOT NULL DEFAULT 'trial',
   trial_ends_at TEXT,
-  paid_until TEXT,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now'))
+  paid_until TEXT,                   -- end of the last paid period
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  subscription_id TEXT,              -- Razorpay subscription (sub_…) currently attached
+  billing_interval TEXT CHECK (billing_interval IN ('monthly', 'yearly')),
+  price_paise INTEGER CHECK (price_paise >= 0), -- what the attached subscription charges
+  -- Set when the shop's first founder-price payment succeeds. Counts toward the 50 founder slots
+  -- forever, even after cancelling (the founder price itself is only kept while subscribed).
+  founder_at TEXT,
+  -- A founder slot kept for this shop while its founder-price payment is on its way (open
+  -- checkout, or first charge due at the end of the trial). Lapses if the shop never pays.
+  founder_hold_until TEXT,
+  -- When that hold was taken: for the last slot, the earlier claim wins (ties by shop id).
+  founder_hold_at TEXT
+);
+
+-- Every successful (or failed) subscription charge, for the owner's payment history.
+CREATE TABLE billing_payments (
+  id TEXT PRIMARY KEY,               -- Razorpay payment id (pay_…)
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  subscription_id TEXT NOT NULL,
+  amount_paise INTEGER NOT NULL CHECK (amount_paise >= 0),
+  status TEXT NOT NULL CHECK (status IN ('captured', 'failed', 'refunded')),
+  method TEXT,                       -- upi | card | …
+  period_end TEXT,                   -- paid_until this charge bought
+  paid_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  UNIQUE (shop_id, id)
+);
+
+-- Razorpay webhook deliveries already handled (x-razorpay-event-id), so a retried delivery is a
+-- no-op. Not shop data; kept for the record.
+CREATE TABLE billing_events (
+  id TEXT PRIMARY KEY,
+  event TEXT NOT NULL,
+  shop_id TEXT,
+  received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now'))
 );
 
 -- Settings for the platform itself (Sprixia), not any one shop.
@@ -354,6 +391,26 @@ CREATE TABLE cash_days (
   FOREIGN KEY (shop_id, reopened_by_user_id) REFERENCES users(shop_id, id)
 );
 
+-- Every close of a cash day that was later reopened, so a reopen never erases what was counted.
+-- cash_days keeps the current state; a row is copied here (id = shop:date:closed_at) just before
+-- the day reopens, then stamped with who reopened it and why. Append-only.
+CREATE TABLE cash_day_closes (
+  id TEXT PRIMARY KEY,
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  date TEXT NOT NULL,
+  opening_float INTEGER NOT NULL,
+  expected INTEGER,
+  counted INTEGER,
+  note TEXT,
+  closed_by_user_id TEXT,
+  closed_at TEXT NOT NULL,
+  reopened_by_user_id TEXT,
+  reopened_at TEXT,
+  reopen_reason TEXT,
+  FOREIGN KEY (shop_id, closed_by_user_id) REFERENCES users(shop_id, id),
+  FOREIGN KEY (shop_id, reopened_by_user_id) REFERENCES users(shop_id, id)
+);
+
 -- Before/after photos. The image lives in R2 under r2_key (shops/<shop>/photos/...); rows older
 -- than the retention window are purged (object and row) by the daily scheduled job.
 CREATE TABLE job_photos (
@@ -578,10 +635,16 @@ CREATE INDEX idx_referrals_referrer ON referrals(referrer_customer_id);
 CREATE INDEX idx_job_washers_user_id ON job_washers(user_id);
 CREATE INDEX idx_job_sellers_user_id ON job_sellers(user_id);
 CREATE INDEX idx_attendance_shop_date ON attendance(shop_id, date);
+CREATE INDEX idx_cash_day_closes_day ON cash_day_closes(shop_id, date);
 CREATE INDEX idx_job_photos_job_id ON job_photos(job_id);
 CREATE INDEX idx_job_photos_created_at ON job_photos(created_at);
 CREATE INDEX idx_job_photos_deleted_at ON job_photos(deleted_at) WHERE deleted_at IS NOT NULL;
 CREATE INDEX idx_rate_limits_window ON rate_limits(window_start);
+CREATE INDEX idx_shops_subscription ON shops(subscription_id);
+CREATE INDEX idx_shops_founder ON shops(founder_at) WHERE founder_at IS NOT NULL;
+CREATE INDEX idx_shops_founder_hold ON shops(founder_hold_until) WHERE founder_hold_until IS NOT NULL;
+CREATE INDEX idx_billing_payments_shop_paid ON billing_payments(shop_id, paid_at);
+CREATE INDEX idx_billing_events_received ON billing_events(received_at);
 CREATE INDEX idx_app_errors_shop_created_at ON app_errors(shop_id, created_at);
 CREATE INDEX idx_app_errors_created_at ON app_errors(created_at);
 CREATE INDEX idx_login_codes_user_created ON login_codes(user_id, created_at);

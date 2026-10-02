@@ -99,6 +99,54 @@ export const jobRepo = {
     return job;
   },
 
+  /**
+   * D1 has no transactions, so a crash part-way through `create` can leave the job row without
+   * its lines, sellers or 'created' event. A retry of the same request calls this to write
+   * whatever is missing (each part only when it has no rows yet), then returns the board row.
+   */
+  async completeCreate(db: DbClient, id: string, data: CreateJobInput) {
+    const job = await db.job.findUnique({
+      where: { id },
+      select: {
+        createdAt: true,
+        _count: { select: { jobServices: true, sellers: true, events: true } },
+      },
+    });
+    if (!job) return null;
+    const at = job.createdAt;
+    const quietly = (p: Promise<unknown>) => p.catch(() => undefined);
+    if (job._count.jobServices === 0 && data.lineItems.length) {
+      await quietly(db.jobService.createMany({ data: data.lineItems.map((l) => ({ ...l, jobId: id })) }));
+    }
+    if (job._count.sellers === 0 && data.sellerIds?.length) {
+      await quietly(
+        db.jobSeller.createMany({
+          data: data.sellerIds.map((userId) => ({
+            jobId: id,
+            userId,
+            assignedByUserId: data.createdByUserId,
+            assignedAt: at,
+          })),
+        }),
+      );
+    }
+    if (job._count.events === 0) {
+      await quietly(
+        db.jobEvent.create({
+          data: {
+            id: `created-${id}`,
+            jobId: id,
+            ...event(data.createdByUserId, 'created', at, {
+              toValue: 'waiting',
+              reason: data.discount > 0 ? data.discountReason : null,
+            }),
+          },
+        }),
+      );
+    }
+    return db.job.findUnique({ where: { id }, include: boardInclude });
+  },
+
   async findById(db: DbClient, id: string) {
     return db.job.findUnique({ where: { id } });
   },

@@ -159,6 +159,43 @@ Treat the URL like a password — anyone who has it can post into that channel.
 You'll get at most one message per 15 minutes, with a count of errors since the last one —
 covering API errors, app crashes and a failed nightly backup.
 
+**Payments: Free and Pro (Razorpay)** — every shop gets a 14-day Pro trial, then drops to Free
+unless it pays. Free: the owner + 1 staff, 300 washes a month, reports for the last 7 days. Pro
+(₹499 a month or ₹4,999 a year; the first 50 shops to pay get ₹399 / ₹3,990, for life; each extra branch ₹349 / ₹3,490): 5 staff,
+unlimited washes and every feature. The server enforces all of it; the app only mirrors it. Owners
+pay with UPI AutoPay or a card on Razorpay's hosted page — the app never sees card or UPI details.
+One-time setup, in **Test Mode** first (top-right toggle in the
+[Razorpay Dashboard](https://dashboard.razorpay.com/)):
+
+1. **Account & Settings → API Keys → Generate Test Key.** Copy the Key ID (`rzp_test_…`) and
+   the Key Secret (shown once).
+2. **Account & Settings → Webhooks → Add New Webhook.** URL
+   `https://api-staging.manawashmanager.com/billing/webhook` (production:
+   `https://api.manawashmanager.com/billing/webhook`), a long random **Secret**
+   (`openssl rand -hex 32`), and tick every `subscription.*` event.
+3. **Set the three secrets** from `apps/api` (each prompts for the value; drop `--env staging`
+   for production):
+   ```bash
+   npx wrangler secret put RAZORPAY_KEY_ID --env staging
+   npx wrangler secret put RAZORPAY_KEY_SECRET --env staging
+   npx wrangler secret put RAZORPAY_WEBHOOK_SECRET --env staging
+   ```
+4. **Try it** — More → Your plan → Upgrade. Test Mode pays with Razorpay's
+   [test UPI ID or test cards](https://razorpay.com/docs/payments/payments/test-card-upi-details/);
+   no real money moves. Pro switches on when the owner returns to the app (it asks Razorpay
+   directly) or when the webhook lands, whichever is first. A nightly job catches up any shop
+   whose renewal webhook went missing.
+
+**Right now staging has placeholder values** for all three secrets (an action item in the build
+plan's Next steps). The API treats any key ID that doesn't start with `rzp_test_` / `rzp_live_` as
+"not set up", so the app works normally and only the Upgrade button explains that payments
+aren't ready. Replace all three with the commands above when the Razorpay account exists.
+
+Going live later: activate the Razorpay account (KYC), generate **Live** keys and a live webhook
+the same way, and put the live values into the production secrets. Razorpay plans are created by
+the API on first use, per key, so nothing else changes. Without the keys the app still works —
+the plan screen just says payments aren't set up yet.
+
 **Restoring** — D1's built-in Time Travel is the first resort (any minute in the last 30 days):
 `npx wrangler d1 time-travel restore mana_db --timestamp=<ISO time>`. The nightly backups are
 the fallback if the database itself is lost:
@@ -305,7 +342,21 @@ Don't merge a red build.
 ```bash
 cd apps/api && npm run test:isolation   # adds a second shop and proves neither can see or change the other's data
 cd apps/api && npm run test:signup      # new shop sign-up, join requests (approve/reject/cancel), remove from team
+cd apps/api && npm run test:plans       # Free limits (staff seats, 300 washes, 7-day reports, Pro-only features), trial, grace, webhook signature
 ```
+
+`test:plans` checks a correctly signed webhook too when `RAZORPAY_WEBHOOK_SECRET` is set in the
+shell to the same value the local API uses (CI does this). It also runs a stand-in Razorpay on
+port 8799 for the checkout worst cases (last founder spot, double taps, a duplicate paid
+subscription); start the API pointed at it to include them:
+
+```bash
+npx wrangler dev --var RAZORPAY_WEBHOOK_SECRET:local --var RAZORPAY_KEY_ID:rzp_test_standin \
+  --var RAZORPAY_KEY_SECRET:standin --var RAZORPAY_API_BASE:http://127.0.0.1:8799/v1
+RAZORPAY_WEBHOOK_SECRET=local npm run test:plans
+```
+
+`RAZORPAY_API_BASE` is ignored unless the key id starts with `rzp_test_`.
 
 **Sign-up flow** — a number with no account picks "Start a new shop" (WhatsApp code → PIN twice →
 name, shop name, city) or "I work at a shop" (6-digit shop ID → WhatsApp code → name → the owner

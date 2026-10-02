@@ -1,6 +1,8 @@
-import { createPlatformDb, opsRepo } from '@mana/db';
+import { billingRepo, createPlatformDb, opsRepo } from '@mana/db';
 import { addDays, PHOTO_RETENTION_DAYS } from '@mana/domain';
 import { reportError } from './lib/alerts';
+import { syncShopSubscription } from './lib/billing';
+import { billingConfigured } from './lib/razorpay';
 import { formatIstDateOnly } from './lib/istDate';
 import { pruneRateLimits } from './lib/rateLimit';
 import type { Env } from './types';
@@ -121,6 +123,25 @@ async function purgePhotos(env: Env, now: Date) {
   if (deleted.length) await env.PHOTOS.delete(deleted.map((p) => p.r2Key));
 }
 
+const BILLING_SYNC_BATCH = 200;
+
+/**
+ * Catches up subscriptions whose webhook went missing: any shop due to renew within a day is
+ * re-read from Razorpay. Renewals normally arrive by webhook within seconds; this is the net.
+ */
+async function reconcileBilling(env: Env, now: Date) {
+  if (!billingConfigured(env)) return;
+  const db = createPlatformDb(env.DB);
+  const due = await billingRepo.listDueForSync(db, addDays(now, 1), BILLING_SYNC_BATCH);
+  for (const { id } of due) {
+    try {
+      await syncShopSubscription(env, db, id);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+}
+
 /** Runs across every shop, so it uses the platform client. */
 export async function runNightly(env: Env, now = new Date()) {
   const db = createPlatformDb(env.DB);
@@ -129,6 +150,7 @@ export async function runNightly(env: Env, now = new Date()) {
     ['photo purge', purgePhotos(env, now)],
     ['error log prune', opsRepo.pruneErrors(db, addDays(now, -ERROR_KEEP_DAYS))],
     ['rate limit prune', pruneRateLimits(env)],
+    ['billing sync', reconcileBilling(env, now)],
   ];
   const results = await Promise.allSettled(jobs.map(([, p]) => p));
   for (const [i, r] of results.entries()) {

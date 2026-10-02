@@ -921,7 +921,12 @@ await call(tokenOf(kiran), 'POST', '/shop/errors', {
 // ─── Second branch ────────────────────────────────────────────────────────
 
 step('Second branch: MANA Car Wash Kavali');
+// Opening a branch needs paid Pro, and a new branch starts on Free: show both as paying shops.
+const paidPro = (shopId) =>
+  `UPDATE shops SET plan = 'active', paid_until = strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now', '+30 days') WHERE id = '${shopId}';`;
+runSql([paidPro(SHOP)], 'paid-pro-main');
 const kavali = await call(OWN, 'POST', '/auth/shops', { shopName: 'MANA Car Wash Kavali', city: 'Kavali' });
+runSql([paidPro(kavali.user.shopId)], 'paid-pro-kavali');
 const KAV = kavali.token;
 const kvTypes = {};
 for (const [key, name, category] of [

@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { SEAT_LOCKED_MESSAGE } from '@mana/domain';
 import { api } from './client';
 import { subscribeSessionInvalid } from './network';
 import {
@@ -107,7 +108,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             ? 'Your account has been turned off. Ask the owner if this is a mistake.'
             : reason === 'revoked'
               ? 'Your PIN was changed or reset. Sign in with the new PIN.'
-              : 'Your session ended. Please sign in again.',
+              : reason === 'seat_locked'
+                ? SEAT_LOCKED_MESSAGE
+                : 'Your session ended. Please sign in again.',
         );
         void signOut();
       }),

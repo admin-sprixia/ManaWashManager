@@ -81,6 +81,8 @@ import {
   type SearchHit,
 } from '../utils/customerSearch';
 import type { RootStackParamList } from '../navigation/RootNavigator';
+import { usePlan } from '../offline/PlanProvider';
+import { showUpgrade } from '../components/UpgradeSheet';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -157,6 +159,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   const prefilled = useRef(false);
   const insets = useSafeAreaInsets();
   const { submit, online } = useSync();
+  const { isPro, atWashLimit } = usePlan();
   const { user } = useAuth();
   const directory = useDirectory();
   const scrollRef = useRef<ScrollView>(null);
@@ -403,12 +406,13 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     [servicesForVehicle, selectedServiceIds],
   );
 
+  // Commission is a Pro feature: on Free the server records none, so New Wash doesn't ask who sold it.
   const commissionFor = useCallback(
     (serviceId: string): number =>
-      vehicleTypeId
+      vehicleTypeId && isPro
         ? (commissions.find((c) => c.serviceId === serviceId && c.vehicleTypeId === vehicleTypeId)?.amount ?? 0)
         : 0,
-    [commissions, vehicleTypeId],
+    [commissions, vehicleTypeId, isPro],
   );
   const commissionTotal = selectedServices.reduce((sum, s) => sum + commissionFor(s.id), 0);
   const pickedSellers: Person[] = sellers ?? (user ? [{ id: user.id, name: user.name }] : []);
@@ -675,6 +679,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   const couponSaving = offer ? couponDiscount(subtotal, offer.percent) : 0;
   // Referrals are for genuinely new customers only: neither the phone nor the plate is on file.
   const isNewCustomer =
+    isPro &&
     mode === 'form' && !known && regOk && phoneOk && !plateEntry && !phoneEntry && !server.looking;
   const referral = useReferralQuote(referrerPhone, phoneDigits, reg, isNewCustomer && online);
   const referralActive = isNewCustomer && referral.quote != null;
@@ -685,7 +690,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
 
   // A live comeback coupon for the customer at the counter. Asked only for a picked (known)
   // customer and only online — redemption is always re-checked by the server.
-  const offerKey = mode === 'known' && online ? `${reg}|${phoneDigits}` : null;
+  const offerKey = mode === 'known' && online && isPro ? `${reg}|${phoneDigits}` : null;
   useEffect(() => {
     setOffer(null);
     setCouponApplied(false);
@@ -817,6 +822,10 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
 
   const startWash = async () => {
     if (missing || !vehicleTypeId || !breakdown || submitting) return;
+    if (atWashLimit) {
+      showUpgrade({ kind: 'washLimit' });
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -864,7 +873,13 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
         },
         { requireOnline: couponActive || referralActive },
       );
-      if (result.status === 'rejected') throw new Error(result.message);
+      if (result.status === 'rejected') {
+        if (result.planError) {
+          showUpgrade(result.planError);
+          return;
+        }
+        throw new Error(result.message);
+      }
       directory.recordVisit({
         registrationNumber: reg,
         vehicleTypeId,

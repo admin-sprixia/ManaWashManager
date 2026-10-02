@@ -1,6 +1,7 @@
 import type { DbClient } from '../client';
 import type { AttendanceStatus, PhotoKind } from '@mana/domain';
 import { chunk } from '../chunk';
+import { isUniqueClash, retryOnClash } from '../retryOnClash';
 
 const personSelect = { select: { id: true, name: true } } as const;
 
@@ -27,11 +28,14 @@ export const opsRepo = {
       await db.attendance.deleteMany({ where: key });
       return null;
     }
-    return db.attendance.upsert({
-      where: { userId_date: key },
-      create: { ...key, status: data.status, markedByUserId: data.markedByUserId },
-      update: { status: data.status, markedByUserId: data.markedByUserId, markedAt: new Date() },
-    });
+    const status = data.status;
+    return retryOnClash(() =>
+      db.attendance.upsert({
+        where: { userId_date: key },
+        create: { ...key, status, markedByUserId: data.markedByUserId },
+        update: { status, markedByUserId: data.markedByUserId, markedAt: new Date() },
+      }),
+    );
   },
 
   // ─── Cash drawer ──────────────────────────────────────────────────────────
@@ -52,19 +56,24 @@ export const opsRepo = {
     });
   },
 
-  /** Setting the float is allowed any time the day is still open. */
+  /**
+   * Setting the float is allowed any time the day is still open. Two people setting the first
+   * float of a day at once: the second one's insert clashes, and the retry updates the new row.
+   */
   async setFloat(db: DbClient, data: { date: string; amount: number; userId: string }) {
-    const res = await db.cashDay.updateMany({
-      where: { date: data.date, closedAt: null },
-      data: { openingFloat: data.amount, floatSetByUserId: data.userId, floatSetAt: new Date() },
+    return retryOnClash(async () => {
+      const res = await db.cashDay.updateMany({
+        where: { date: data.date, closedAt: null },
+        data: { openingFloat: data.amount, floatSetByUserId: data.userId, floatSetAt: new Date() },
+      });
+      if (res.count === 1) return true;
+      const existing = await db.cashDay.findFirst({ where: { date: data.date } });
+      if (existing) return false; // closed
+      await db.cashDay.create({
+        data: { date: data.date, openingFloat: data.amount, floatSetByUserId: data.userId },
+      });
+      return true;
     });
-    if (res.count === 1) return true;
-    const existing = await db.cashDay.findFirst({ where: { date: data.date } });
-    if (existing) return false; // closed
-    await db.cashDay.create({
-      data: { date: data.date, openingFloat: data.amount, floatSetByUserId: data.userId },
-    });
-    return true;
   },
 
   /** Closes an open day. A conditional update, so two people closing at once can't both win. */
@@ -85,9 +94,35 @@ export const opsRepo = {
     return res.count === 1;
   },
 
+  /**
+   * Reopens a closed day, keeping the close it replaces in cash_day_closes. The copy is written
+   * first, under an id fixed by that close, so a crash part-way or two owners reopening at once
+   * still leave exactly one copy; only the reopen that wins stamps it with its name and reason.
+   */
   async reopenDay(db: DbClient, data: { date: string; reason: string; userId: string }) {
+    const day = await db.cashDay.findFirst({ where: { date: data.date } });
+    if (!day?.closedAt) return false;
+    const closedAt = day.closedAt;
+    const closeId = `${db.$shopId()}:${data.date}:${closedAt.toISOString()}`;
+    await db.cashDayClose
+      .create({
+        data: {
+          id: closeId,
+          date: data.date,
+          openingFloat: day.openingFloat,
+          expected: day.expected,
+          counted: day.counted,
+          note: day.note,
+          closedByUserId: day.closedByUserId,
+          closedAt,
+        },
+      })
+      .catch((e: unknown) => {
+        if (!isUniqueClash(e)) throw e;
+      });
+    const now = new Date();
     const res = await db.cashDay.updateMany({
-      where: { date: data.date, closedAt: { not: null } },
+      where: { date: data.date, closedAt },
       data: {
         expected: null,
         counted: null,
@@ -95,11 +130,36 @@ export const opsRepo = {
         closedByUserId: null,
         closedAt: null,
         reopenedByUserId: data.userId,
-        reopenedAt: new Date(),
+        reopenedAt: now,
         reopenReason: data.reason,
       },
     });
-    return res.count === 1;
+    if (res.count !== 1) return false;
+    await db.cashDayClose.updateMany({
+      where: { id: closeId, reopenedAt: null },
+      data: { reopenedByUserId: data.userId, reopenedAt: now, reopenReason: data.reason },
+    });
+    return true;
+  },
+
+  /** Earlier closes of a day that were reopened, newest first, with who closed and reopened. */
+  async listEarlierCloses(db: DbClient, date: string) {
+    const rows = await db.cashDayClose.findMany({ where: { date }, orderBy: { closedAt: 'desc' } });
+    const ids = [...new Set(rows.flatMap((r) => [r.closedByUserId, r.reopenedByUserId]).filter((x): x is string => !!x))];
+    const people = ids.length
+      ? await db.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })
+      : [];
+    const name = new Map(people.map((p) => [p.id, p.name]));
+    return rows.map((r) => ({
+      expected: r.expected,
+      counted: r.counted,
+      note: r.note,
+      closedBy: r.closedByUserId ? (name.get(r.closedByUserId) ?? null) : null,
+      closedAt: r.closedAt,
+      reopenedBy: r.reopenedByUserId ? (name.get(r.reopenedByUserId) ?? null) : null,
+      reopenedAt: r.reopenedAt,
+      reopenReason: r.reopenReason,
+    }));
   },
 
   async listCashDays(db: DbClient, fromDate: string, toDate: string) {

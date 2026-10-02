@@ -1,4 +1,4 @@
-import { stockRepo, type DbClient } from '@mana/db';
+import { isUniqueClash, stockRepo, type DbClient } from '@mana/db';
 import { stockUnitOf, toStockQuantity, type ExpenseUnit } from '@mana/domain';
 
 export interface StockResult {
@@ -28,13 +28,20 @@ export async function addPurchaseToStock(
   let item = await stockRepo.findByName(db, input.itemName);
   let created = false;
   if (!item) {
-    item = await stockRepo.create(db, {
-      name: input.itemName,
-      unit: stockUnit,
-      lowAt: null,
-      createdByUserId: input.userId,
-    });
-    created = true;
+    try {
+      item = await stockRepo.create(db, {
+        name: input.itemName,
+        unit: stockUnit,
+        lowAt: null,
+        createdByUserId: input.userId,
+      });
+      created = true;
+    } catch (e) {
+      // Two purchases of a new item at once: the other one made it — add to that one.
+      if (!isUniqueClash(e)) throw e;
+      item = await stockRepo.findByName(db, input.itemName);
+      if (!item) throw e;
+    }
   }
   const quantity = toStockQuantity(input.quantity, input.unit, item.unit as typeof stockUnit);
   if (quantity == null) return null;
@@ -58,18 +65,26 @@ export async function reverseExpenseStock(
   expenseId: string,
   userId: string,
 ): Promise<void> {
+  // Each reversal has a fixed id, so a retry (or two voids at once) reverses each line once:
+  // lines already reversed are skipped, and losing the race to save one undoes our own bump.
   const moves = await stockRepo.movesForExpense(db, expenseId);
-  if (moves.some((m) => m.kind === 'void')) return;
+  const reversed = new Set(moves.filter((m) => m.kind === 'void').map((m) => m.id));
   for (const m of moves) {
-    if (m.kind !== 'in') continue;
-    await stockRepo.applyMove(db, {
-      id: `void-${m.id}`,
-      itemId: m.itemId,
-      kind: 'void',
-      delta: -m.quantity,
-      expenseId,
-      note: 'Expense voided',
-      createdByUserId: userId,
-    });
+    if (m.kind !== 'in' || reversed.has(`void-${m.id}`)) continue;
+    try {
+      // Never below zero: if some of the purchase was already used, only what's left comes off.
+      await stockRepo.takeOut(db, {
+        id: `void-${m.id}`,
+        itemId: m.itemId,
+        kind: 'void',
+        quantity: m.quantity,
+        expenseId,
+        note: 'Expense voided',
+        createdByUserId: userId,
+      });
+    } catch (e) {
+      const now = await stockRepo.movesForExpense(db, expenseId);
+      if (!now.some((x) => x.id === `void-${m.id}`)) throw e;
+    }
   }
 }

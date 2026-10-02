@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Typecheck, lint, tests, schema
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run db:generate
+      - name: Version numbers agree (package.json, build.gradle)
+        run: npm run version:check
+      - run: npm run typecheck
+      - run: npm run lint
+      - name: Domain unit tests
+        run: npm test -w @mana/domain
+      - name: schema.sql matches the migrations
+        run: npm run db:check -w @mana/api
+
+  api:
+    name: API end-to-end (isolation + sign-up)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: checks
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+        working-directory: .
+      - run: npm run db:generate
+        working-directory: .
+      - name: Local dev settings
+        run: |
+          {
+            echo "JWT_SECRET=ci-$(openssl rand -hex 24)"
+            echo "WHATSAPP_OTP_BYPASS=true"
+            echo "DEV_MODE=true"
+            echo "DEV_RECOVERY_CODE=000000"
+          } > .dev.vars
+      - name: Fresh local database (migrations + seed)
+        run: npm run db:reset:local
+      - name: Start the API
+        run: |
+          npx wrangler dev --port 8787 > wrangler.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:8787/health && exit 0
+            sleep 2
+          done
+          cat wrangler.log
+          exit 1
+      - run: npm run test:isolation
+      - run: npm run test:signup
+      - name: API log
+        if: failure()
+        run: cat wrangler.log

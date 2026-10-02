@@ -6,15 +6,20 @@ export type ReminderAction = 'reminded' | 'snooze' | 'dismiss';
 
 export const reminderRepo = {
   /**
-   * Vehicles whose most recent real (non-void) wash is at or before `dueBefore` — one row per
-   * vehicle, whoever owns it. Walk-ins are skipped: there's no one to remind.
+   * Vehicles whose most recent real (non-void) wash is at or before `dueBefore` but after
+   * `seenAfter` — one row per vehicle, whoever owns it, at most `limit`. Walk-ins are skipped:
+   * there's no one to remind.
    */
-  async listLapsed(db: DbClient, dueBefore: Date, now: Date) {
+  async listLapsed(db: DbClient, dueBefore: Date, now: Date, seenAfter: Date, limit: number) {
     return db.vehicle.findMany({
       where: {
         NOT: { registrationNumber: { startsWith: 'WALK-IN' } },
-        jobs: { some: liveJob, none: { ...liveJob, createdAt: { gt: dueBefore } } },
+        jobs: {
+          some: { ...liveJob, createdAt: { gt: seenAfter, lte: dueBefore } },
+          none: { ...liveJob, createdAt: { gt: dueBefore } },
+        },
       },
+      take: limit,
       include: {
         customer: { select: { id: true, name: true, phone: true } },
         vehicleType: { select: { name: true } },

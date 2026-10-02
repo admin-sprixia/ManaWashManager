@@ -1,35 +1,27 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { couponRepo, createDbClient, reminderRepo } from '@mana/db';
+import { couponRepo, reminderRepo } from '@mana/db';
 import {
   addDays,
   COMEBACK_DAYS,
   COUPON_VALID_DAYS,
   daysBetween,
   generateCouponCode,
-  pickCouponPercent,
   REMINDER_DUE_DAYS,
+  REMINDER_LIST_MAX,
+  REMINDER_LOOKBACK_DAYS,
   REMINDER_SNOOZE_DAYS,
   reminderBucket,
 } from '@mana/domain';
+import { drawPercent, randomBytes } from '../lib/random';
 import { requireAuth, requireRole } from '../middleware/auth';
 import type { Env } from '../types';
 
 const actionSchema = z.object({ action: z.enum(['reminded', 'snooze', 'dismiss']) });
 const vehicleParamSchema = z.object({ vehicleId: z.string().min(1).max(64) });
+const couponParamSchema = z.object({ couponId: z.string().min(1).max(64) });
 const RECENT_REDEMPTIONS_DAYS = 30;
-
-function randomBytes(n: number): Uint8Array {
-  return crypto.getRandomValues(new Uint8Array(n));
-}
-
-function drawPercent(): number {
-  for (;;) {
-    const percent = pickCouponPercent(randomBytes(8));
-    if (percent != null) return percent;
-  }
-}
 
 const sameInstant = (a: Date | null | undefined, b: Date) =>
   Boolean(a) && a!.getTime() === b.getTime();
@@ -39,10 +31,16 @@ const sameInstant = (a: Date | null | undefined, b: Date) =>
 export const reminderRoutes = new Hono<{ Bindings: Env }>()
   .use('*', requireAuth)
   .get('/', async (c) => {
-    const db = createDbClient(c.env.DB);
+    const db = c.get('db');
     const now = new Date();
     const [vehicles, coupons] = await Promise.all([
-      reminderRepo.listLapsed(db, addDays(now, -REMINDER_DUE_DAYS), now),
+      reminderRepo.listLapsed(
+        db,
+        addDays(now, -REMINDER_DUE_DAYS),
+        now,
+        addDays(now, -REMINDER_LOOKBACK_DAYS),
+        REMINDER_LIST_MAX,
+      ),
       couponRepo.listRecent(db, now, addDays(now, -RECENT_REDEMPTIONS_DAYS)),
     ]);
 
@@ -90,6 +88,9 @@ export const reminderRoutes = new Hono<{ Bindings: Env }>()
     const toCoupon = (cp: (typeof coupons.active)[number]) => ({
       id: cp.id,
       code: cp.code,
+      kind: cp.kind === 'referral' ? ('referral' as const) : ('comeback' as const),
+      notifiedAt: cp.notifiedAt?.toISOString() ?? null,
+      referredName: cp.referrals[0]?.referred.name ?? null,
       percent: cp.percent,
       expiresAt: cp.expiresAt.toISOString(),
       createdAt: cp.createdAt.toISOString(),
@@ -106,8 +107,10 @@ export const reminderRoutes = new Hono<{ Bindings: Env }>()
       due,
       comeback,
       coupons: { active: coupons.active.map(toCoupon), redeemed: coupons.redeemed.map(toCoupon) },
-      /** Badge count: vehicles nobody has acted on yet. */
-      actionable: items.filter((i) => !i.remindedAt && !i.coupon).length,
+      /** Badge count: vehicles nobody has acted on yet, plus referral rewards not yet sent. */
+      actionable:
+        items.filter((i) => !i.remindedAt && !i.coupon).length +
+        coupons.active.filter((cp) => cp.kind === 'referral' && !cp.notifiedAt).length,
       rules: {
         dueDays: REMINDER_DUE_DAYS,
         comebackDays: COMEBACK_DAYS,
@@ -115,12 +118,18 @@ export const reminderRoutes = new Hono<{ Bindings: Env }>()
       },
     });
   })
+  // Someone opened WhatsApp with this coupon — it stops counting as "to send".
+  .post('/coupons/:couponId/sent', zValidator('param', couponParamSchema), async (c) => {
+    const db = c.get('db');
+    await couponRepo.markNotified(db, c.req.valid('param').couponId, new Date());
+    return c.json({ ok: true as const });
+  })
   .post(
     '/:vehicleId',
     zValidator('param', vehicleParamSchema),
     zValidator('json', actionSchema),
     async (c) => {
-      const db = createDbClient(c.env.DB);
+      const db = c.get('db');
       const { vehicleId } = c.req.valid('param');
       const { action } = c.req.valid('json');
       const now = new Date();
@@ -150,7 +159,7 @@ export const reminderRoutes = new Hono<{ Bindings: Env }>()
     requireRole('owner'),
     zValidator('param', vehicleParamSchema),
     async (c) => {
-      const db = createDbClient(c.env.DB);
+      const db = c.get('db');
       const { vehicleId } = c.req.valid('param');
       const session = c.get('session');
       const now = new Date();
@@ -201,6 +210,7 @@ export const reminderRoutes = new Hono<{ Bindings: Env }>()
         userId: session.sub,
         now,
       });
+      await couponRepo.markNotified(db, coupon!.id, now);
       return c.json(
         {
           id: coupon!.id,

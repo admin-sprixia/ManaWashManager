@@ -1,6 +1,7 @@
 import type { DbClient } from '../client';
 
-export type CouponCancelReason = 'replaced' | 'owner_changed';
+export type CouponCancelReason = 'replaced' | 'owner_changed' | 'referral_voided';
+export type CouponKind = 'comeback' | 'referral';
 
 const couponInclude = {
   vehicle: { select: { id: true, registrationNumber: true, customerId: true } },
@@ -17,16 +18,18 @@ function ownerLabel(name: string | null): string {
 
 export const couponRepo = {
   async findByCode(db: DbClient, code: string) {
-    return db.coupon.findUnique({ where: { code }, include: couponInclude });
+    return db.coupon.findFirst({ where: { code }, include: couponInclude });
   },
 
   /**
-   * Issues a fresh coupon for a vehicle, replacing any live one. The partial unique index
-   * (one active coupon per vehicle) makes a concurrent double-issue fail instead of stacking.
+   * Issues a fresh coupon for a vehicle, replacing any live one of the same kind. The partial
+   * unique index (one active coupon per vehicle per kind) makes a concurrent double-issue fail
+   * instead of stacking.
    */
   async issue(
     db: DbClient,
     data: {
+      kind?: CouponKind;
       vehicleId: string;
       customerId: string;
       code: string;
@@ -36,10 +39,12 @@ export const couponRepo = {
       now: Date;
     },
   ) {
-    await this.cancelActiveForVehicle(db, data.vehicleId, 'replaced', data.now);
+    const kind = data.kind ?? 'comeback';
+    await this.cancelActiveForVehicle(db, data.vehicleId, 'replaced', data.now, kind);
     return db.coupon.create({
       data: {
         code: data.code,
+        kind,
         vehicleId: data.vehicleId,
         customerId: data.customerId,
         percent: data.percent,
@@ -51,15 +56,45 @@ export const couponRepo = {
     });
   },
 
+  /** Cancels live coupons on a vehicle — one kind, or every kind when `kind` is omitted. */
   async cancelActiveForVehicle(
     db: DbClient,
     vehicleId: string,
     reason: CouponCancelReason,
     now: Date,
+    kind?: CouponKind,
   ) {
     return db.coupon.updateMany({
-      where: { vehicleId, status: 'active' },
+      where: { vehicleId, status: 'active', ...(kind ? { kind } : {}) },
       data: { status: 'cancelled', cancelReason: reason, cancelledAt: now },
+    });
+  },
+
+  /** A referrer holds at most one unused referral coupon at a time. */
+  async hasLiveReferralCoupon(db: DbClient, customerId: string, now: Date) {
+    const count = await db.coupon.count({
+      where: { customerId, kind: 'referral', status: 'active', expiresAt: { gt: now } },
+    });
+    return count > 0;
+  },
+
+  /** Takes back an unused referral reward when the wash that earned it is voided. */
+  async cancelIfUnused(db: DbClient, couponId: string, reason: CouponCancelReason, now: Date) {
+    const res = await db.coupon.updateMany({
+      where: { id: couponId, status: 'active' },
+      data: { status: 'cancelled', cancelReason: reason, cancelledAt: now },
+    });
+    return res.count === 1;
+  },
+
+  async markNotified(db: DbClient, couponId: string, now: Date) {
+    await db.coupon.updateMany({ where: { id: couponId }, data: { notifiedAt: now } });
+  },
+
+  /** Live referral rewards nobody has sent to the customer yet — they count toward the bell. */
+  async countUnsentReferral(db: DbClient, now: Date) {
+    return db.coupon.count({
+      where: { kind: 'referral', status: 'active', expiresAt: { gt: now }, notifiedAt: null },
     });
   },
 
@@ -68,7 +103,7 @@ export const couponRepo = {
    * the counter: issued to the vehicle's current owner, for a vehicle they still own.
    */
   async findUsable(db: DbClient, data: { registrationNumber: string; phone: string; now: Date }) {
-    const vehicle = await db.vehicle.findUnique({
+    const vehicle = await db.vehicle.findFirst({
       where: { registrationNumber: data.registrationNumber },
       include: { customer: { select: { phone: true } } },
     });
@@ -118,7 +153,7 @@ export const couponRepo = {
     }
 
     const onlyFor = `Only valid for ${coupon.vehicle.registrationNumber} or ${ownerLabel(coupon.customer.name)} other vehicles.`;
-    const target = await db.vehicle.findUnique({
+    const target = await db.vehicle.findFirst({
       where: { registrationNumber: data.registrationNumber },
       select: { id: true, customerId: true },
     });
@@ -172,7 +207,9 @@ export const couponRepo = {
     if (!coupon || coupon.status !== 'redeemed') return null;
     if (coupon.expiresAt.getTime() <= now.getTime()) return null;
     if (coupon.vehicle.customerId !== coupon.customerId) return null;
-    const live = await db.coupon.count({ where: { vehicleId: coupon.vehicleId, status: 'active' } });
+    const live = await db.coupon.count({
+      where: { vehicleId: coupon.vehicleId, kind: coupon.kind, status: 'active' },
+    });
     if (live > 0) return null;
     try {
       await this.release(db, { couponId: coupon.id, jobId });
@@ -188,6 +225,7 @@ export const couponRepo = {
       ...couponInclude,
       issuedBy: { select: { id: true, name: true } },
       redeemedBy: { select: { id: true, name: true } },
+      referrals: { select: { referred: { select: { name: true } } }, take: 1 },
     } as const;
     const [active, redeemed] = await Promise.all([
       db.coupon.findMany({

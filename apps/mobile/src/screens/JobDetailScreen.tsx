@@ -14,6 +14,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   canCorrectPayment,
   canVoidJob,
+  jobCommission,
+  MAX_OFFLINE_BACKDATE_MS,
+  MAX_SELLERS_PER_JOB,
+  MAX_WASHERS_PER_JOB,
   PAYMENT_METHOD_LABEL,
   type JobEventAction,
   type JobStatus,
@@ -26,6 +30,9 @@ import { Button } from '../components/Button';
 import { EdgeGroup, EdgeRow, SectionLabel } from '../components/EdgeList';
 import { PaymentSheet } from '../components/PaymentSheet';
 import { ReasonSheet } from '../components/ReasonSheet';
+import { PeoplePickerSheet } from '../components/PeoplePickerSheet';
+import { ReadyPromptSheet } from '../components/ReadyPromptSheet';
+import { JobPhotos, type JobPhoto } from '../components/JobPhotos';
 import { showToast } from '../components/Toast';
 import {
   IconBan,
@@ -37,10 +44,11 @@ import {
   IconPhone,
   IconPlay,
   IconPlus,
+  IconUsers,
   IconWhatsApp,
 } from '../components/Icons';
 import { colors, radius, spacing, statusColors, typography } from '../theme';
-import { api, apiErrorMessage } from '../api/client';
+import { api, API_BASE_URL, apiErrorMessage } from '../api/client';
 import { NetworkError } from '../api/network';
 import { useAuth } from '../api/auth';
 import { useSync } from '../offline/SyncProvider';
@@ -48,12 +56,14 @@ import { useJobActions } from '../offline/useJobActions';
 import { applyOutbox } from '../offline/optimistic';
 import { CacheKeys, readCache } from '../offline/cache';
 import type { BoardJob } from '../offline/types';
-import { buildWhatsAppLink, formatDateTime, formatRupees } from '../utils/format';
+import { formatDateTime, formatRupees } from '../utils/format';
+import { openWhatsApp } from '../utils/whatsapp';
 import {
   actionLabel,
   customerLine,
   firstName,
   formatTime,
+  isToday,
   NEXT_STATUS,
   VOID_REASONS,
   vehicleHeadline,
@@ -77,6 +87,7 @@ type JobDetail = BoardJob & {
   voidedBy?: { id: string; name: string } | null;
   completedAt?: string | null;
   events?: JobEvent[];
+  photos?: JobPhoto[];
 };
 
 const STEPS: { status: JobStatus; label: string }[] = [
@@ -103,12 +114,18 @@ function describeEvent(e: JobEvent): string {
       return `${who} voided the job`;
     case 'payment_method_changed':
       return `${who} changed payment ${methodLabel(e.fromValue)} → ${methodLabel(e.toValue)}`;
+    case 'washers_changed':
+      return e.toValue ? `${who} changed washers to ${e.toValue}` : `${who} cleared who washed it`;
+    case 'sellers_changed':
+      return `${who} changed who got the service to ${e.toValue ?? '—'}`;
   }
 }
 
 function eventTone(action: JobEventAction): { dot: string; bg: string } {
   if (action === 'voided') return { dot: colors.danger, bg: '#FEE2E2' };
-  if (action === 'payment_method_changed') return { dot: colors.amber, bg: '#FEF3C7' };
+  if (action === 'payment_method_changed' || action === 'washers_changed' || action === 'sellers_changed') {
+    return { dot: colors.amber, bg: '#FEF3C7' };
+  }
   if (action === 'paid') return { dot: colors.teal, bg: '#CCFBF1' };
   return { dot: colors.water, bg: colors.waterPale };
 }
@@ -127,7 +144,8 @@ export function JobDetailScreen({ navigation, route }: Props) {
   const [notFound, setNotFound] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [sheet, setSheet] = useState<'pay' | 'void' | 'correct' | null>(null);
+  const [sheet, setSheet] = useState<'pay' | 'void' | 'correct' | 'start' | 'washers' | 'sellers' | null>(null);
+  const [readyJob, setReadyJob] = useState<BoardJob | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -205,10 +223,28 @@ export function JobDetailScreen({ navigation, route }: Props) {
   const allowCorrect = canCorrectPayment(job.status, role) && !job.syncState;
   const stepIndex = STEPS.findIndex((s) => s.status === job.status);
   const events = serverJob?.events ?? [];
+  const washers = (job.washers ?? []).map((w) => w.user);
+  const showWashers = job.status !== 'waiting' && !(isVoid && washers.length === 0);
+  const allowWasherEdit = !isVoid && job.status !== 'waiting' && job.syncState !== 'failed';
+  const sellers = (job.sellers ?? []).map((s) => s.user);
+  const commission = jobCommission(
+    job.jobServices.map((l) => ({ commissionAtTime: l.commissionAtTime ?? 0, quantity: l.quantity })),
+  );
+  // Anyone can fix who got the service until the job is paid; after that it moves earned money, so owner only.
+  const allowSellerEdit =
+    commission > 0 && !isVoid && (job.status !== 'paid' || isOwner) && job.syncState !== 'failed';
+  // Staff only see photos for jobs still on the board (the API enforces the same).
+  const onBoard = isToday(job.createdAt) || job.status === 'waiting' || job.status === 'washing' || job.status === 'ready';
+  const canSeePhotos = isOwner || onBoard;
+  const canAddPhotos = !isVoid && (isOwner || Date.now() - new Date(job.createdAt).getTime() < MAX_OFFLINE_BACKDATE_MS);
 
   const runPrimary = async () => {
     if (job.status === 'ready') {
       setSheet('pay');
+      return;
+    }
+    if (job.status === 'waiting') {
+      setSheet('start');
       return;
     }
     if (!next) return;
@@ -216,13 +252,11 @@ export function JobDetailScreen({ navigation, route }: Props) {
     const message = await actions.advance(job.id, next);
     setBusy(false);
     if (message) showToast(message, 'error');
+    else if (next === 'ready') setReadyJob(job);
   };
 
-  const call = () => Linking.openURL(`tel:${job.customer.phone}`).catch(() => undefined);
-  const whatsapp = () =>
-    Linking.openURL(buildWhatsAppLink(job.customer.phone, `Hi ${job.customer.name?.trim() ?? ''}, `)).catch(() =>
-      showToast('Couldn’t open WhatsApp — is it installed?', 'error'),
-    );
+  const call = () => void Linking.openURL(`tel:${job.customer.phone}`).catch(() => undefined);
+  const whatsapp = () => void openWhatsApp(job.customer.phone, `Hi ${job.customer.name?.trim() ?? ''}, `);
 
   return (
     <ScreenContainer noPadding>
@@ -335,6 +369,57 @@ export function JobDetailScreen({ navigation, route }: Props) {
             <Text style={styles.billTotal}>{formatRupees(job.total)}</Text>
           </View>
         </View>
+
+        {commission > 0 ? (
+          <>
+            <SectionLabel>Got the service</SectionLabel>
+            <EdgeGroup>
+              <EdgeRow
+                icon={<IconPerson size={19} color={colors.teal} />}
+                iconBg="#CCFBF1"
+                title={sellers.length > 0 ? sellers.map((s) => s.name).join(', ') : 'Not recorded'}
+                subtitle={[
+                  `${formatRupees(commission)} commission${
+                    sellers.length > 1 ? ` · ${formatRupees(Math.floor(commission / sellers.length))} each` : ''
+                  }`,
+                  isVoid ? 'not earned — voided' : job.status === 'paid' ? null : 'earned once paid',
+                  allowSellerEdit && job.status === 'paid' ? 'owner only' : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+                onPress={allowSellerEdit ? () => setSheet('sellers') : undefined}
+              />
+            </EdgeGroup>
+          </>
+        ) : null}
+
+        {showWashers ? (
+          <>
+            <SectionLabel>Washed by</SectionLabel>
+            <EdgeGroup>
+              <EdgeRow
+                icon={<IconUsers size={19} color={colors.waterDeep} />}
+                title={washers.length > 0 ? washers.map((w) => w.name).join(', ') : 'Not recorded'}
+                subtitle={allowWasherEdit ? 'Tap to change' : undefined}
+                onPress={allowWasherEdit ? () => setSheet('washers') : undefined}
+              />
+            </EdgeGroup>
+          </>
+        ) : null}
+
+        {canSeePhotos && (canAddPhotos || (serverJob?.photos?.length ?? 0) > 0) ? (
+          <>
+            <SectionLabel>Photos</SectionLabel>
+            <JobPhotos
+              jobId={job.id}
+              photos={serverJob?.photos ?? []}
+              canAdd={canAddPhotos}
+              canDelete={isOwner}
+              baseUrl={API_BASE_URL}
+              onChanged={() => void load()}
+            />
+          </>
+        ) : null}
 
         {job.status === 'paid' ? (
           <>
@@ -494,6 +579,59 @@ export function JobDetailScreen({ navigation, route }: Props) {
           return message;
         }}
       />
+
+      <PeoplePickerSheet
+        visible={sheet === 'sellers'}
+        title="Who got this service?"
+        subtitle={`${formatRupees(commission)} commission · split equally if more than one`}
+        confirmLabel="Save"
+        max={MAX_SELLERS_PER_JOB}
+        initial={sellers}
+        sharedHint={(count) => `${formatRupees(Math.floor(commission / count))} each — shared equally.`}
+        onClose={() => setSheet(null)}
+        onConfirm={async (picked) => {
+          const message = await actions.setSellers(job.id, picked);
+          if (!message) {
+            showToast('Saved');
+            setSheet(null);
+          }
+          return message;
+        }}
+      />
+
+      <PeoplePickerSheet
+        visible={sheet === 'start' || sheet === 'washers'}
+        title={sheet === 'start' ? 'Who’s washing it?' : 'Who washed it?'}
+        subtitle={`${headline.title} · ${customerLine(job)}`}
+        confirmLabel={sheet === 'start' ? 'Start wash' : 'Save washers'}
+        max={MAX_WASHERS_PER_JOB}
+        initial={sheet === 'washers' ? washers : undefined}
+        onClose={() => setSheet(null)}
+        skipLabel={sheet === 'start' ? 'Skip' : 'Clear'}
+        onSkip={
+          sheet === 'start' || washers.length > 0
+            ? async () => {
+                const message =
+                  sheet === 'start' ? await actions.advance(job.id, 'washing') : await actions.setWashers(job.id, []);
+                if (!message) setSheet(null);
+                return message;
+              }
+            : undefined
+        }
+        onConfirm={async (picked) => {
+          const message =
+            sheet === 'start'
+              ? await actions.advance(job.id, 'washing', picked)
+              : await actions.setWashers(job.id, picked);
+          if (!message) {
+            if (sheet === 'washers') showToast('Washers updated');
+            setSheet(null);
+          }
+          return message;
+        }}
+      />
+
+      <ReadyPromptSheet job={readyJob} onClose={() => setReadyJob(null)} />
     </ScreenContainer>
   );
 }

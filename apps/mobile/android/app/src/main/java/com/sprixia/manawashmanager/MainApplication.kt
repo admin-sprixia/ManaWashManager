@@ -1,4 +1,4 @@
-package com.manacarwash.washmanager
+package com.sprixia.manawashmanager
 
 import android.app.Application
 import com.facebook.react.PackageList

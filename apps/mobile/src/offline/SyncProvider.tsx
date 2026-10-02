@@ -11,13 +11,22 @@ import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../api/auth';
 import { isOnline, subscribeOnline } from '../api/network';
+import { showToast } from '../components/Toast';
+import { queueError } from '../utils/errorReporter';
 import { newId } from '../utils/id';
-import { sendOp } from './dispatch';
+import { opLocalFiles, sendOp } from './dispatch';
+import { deleteLocalCopy } from './photoFiles';
 import { opJobId, type OutboxItem, type OutboxOp } from './types';
 
 const STORAGE_KEY = 'mana.outbox.v1';
 /** While changes are waiting, keep probing for signal at this interval. */
 const RETRY_INTERVAL_MS = 15_000;
+/** Server-side failures (5xx, rate limit) before a change is parked for the user to retry. */
+const MAX_SERVER_ATTEMPTS = 8;
+/** 15 s, 30 s, 1 min … capped at 15 min between tries after a server-side failure. */
+function backoffMs(attempts: number): number {
+  return Math.min(RETRY_INTERVAL_MS * 2 ** Math.max(0, attempts - 1), 15 * 60_000);
+}
 
 export type SubmitResult =
   | { status: 'sent'; data: unknown }
@@ -66,20 +75,50 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
   const flushing = useRef(false);
   const userRef = useRef(user);
   userRef.current = user;
+  const storageWarned = useRef(false);
+  // Changes submitted before the saved outbox is read would be overwritten by it.
+  const loadGate = useRef<{ promise: Promise<void>; open: () => void } | null>(null);
+  if (!loadGate.current) {
+    let open = () => {};
+    const promise = new Promise<void>((resolve) => (open = resolve));
+    loadGate.current = { promise, open };
+  }
 
   const commit = useCallback(async (next: OutboxItem[]) => {
     itemsRef.current = next;
     setItems(next);
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => undefined);
+    try {
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      storageWarned.current = false;
+    } catch (e) {
+      // Still held in memory and will sync while the app stays open; say so once.
+      if (!storageWarned.current) {
+        storageWarned.current = true;
+        showToast('Couldn’t save to this phone’s storage. Free up space so waiting changes aren’t lost.', 'error');
+        void queueError(e, 'outbox save');
+      }
+    }
   }, []);
 
   useEffect(() => {
-    void AsyncStorage.getItem(STORAGE_KEY).then((raw) => {
-      const parsed = raw ? (JSON.parse(raw) as OutboxItem[]) : [];
+    void (async () => {
+      let parsed: OutboxItem[] = [];
+      let raw: string | null = null;
+      try {
+        raw = await AsyncStorage.getItem(STORAGE_KEY);
+        const value: unknown = raw ? JSON.parse(raw) : [];
+        if (!Array.isArray(value)) throw new Error('Outbox is not a list');
+        parsed = value as OutboxItem[];
+      } catch (e) {
+        // Keep the unreadable copy for support instead of silently dropping it.
+        void queueError(e, 'outbox load');
+        if (raw) void AsyncStorage.setItem(`${STORAGE_KEY}.unreadable`, raw).catch(() => undefined);
+      }
       itemsRef.current = parsed;
       setItems(parsed);
       setLoaded(true);
-    });
+      loadGate.current?.open();
+    })();
   }, []);
 
   useEffect(() => subscribeOnline(setOnlineState), []);
@@ -94,6 +133,8 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       for (;;) {
         const next = itemsRef.current.find((i) => i.userId === me.id && i.state === 'pending');
         if (!next) break;
+        // Backing off after a server-side failure; everything behind it waits its turn.
+        if (next.nextAttemptAt && next.nextAttemptAt > Date.now()) break;
 
         const result = await sendOp(next.op);
         if (result.ok || (!result.ok && result.kind === 'superseded')) {
@@ -101,14 +142,23 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
           await commit(itemsRef.current.filter((i) => i.id !== next.id));
           continue;
         }
-        if (result.kind === 'network') break;
+        if (result.kind === 'network' || result.kind === 'auth') break;
+        let failMessage: string;
         if (result.kind === 'retry') {
-          await commit(
-            itemsRef.current.map((i) =>
-              i.id === next.id ? { ...i, attempts: i.attempts + 1, error: result.message } : i,
-            ),
-          );
-          break;
+          const attempts = next.attempts + 1;
+          if (attempts < MAX_SERVER_ATTEMPTS) {
+            await commit(
+              itemsRef.current.map((i) =>
+                i.id === next.id
+                  ? { ...i, attempts, nextAttemptAt: Date.now() + backoffMs(attempts), error: result.message }
+                  : i,
+              ),
+            );
+            break;
+          }
+          failMessage = `${result.message} (tried ${attempts} times)`;
+        } else {
+          failMessage = result.message;
         }
         // Rejected: park it, and park anything queued after it for the same job — those
         // changes only make sense if this one landed.
@@ -116,7 +166,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         const nextIndex = itemsRef.current.findIndex((i) => i.id === next.id);
         await commit(
           itemsRef.current.map((i, idx) => {
-            if (i.id === next.id) return { ...i, state: 'failed' as const, error: result.message };
+            if (i.id === next.id) return { ...i, state: 'failed' as const, error: failMessage };
             if (
               next.op.kind === 'job.start' &&
               jobId &&
@@ -146,6 +196,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
 
   const submit = useCallback(
     async (op: OutboxOp, options?: SubmitOptions): Promise<SubmitResult> => {
+      await loadGate.current?.promise;
       const me = userRef.current;
       if (!me) return { status: 'rejected', message: 'You’re signed out.' };
 
@@ -159,6 +210,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
           return { status: 'sent', data: result.data };
         }
         if (result.kind === 'network') return { status: 'rejected', message: offline };
+        if (result.kind === 'auth') return { status: 'rejected', message: 'Your session ended. Sign in again.' };
         if (result.kind === 'superseded') return { status: 'sent', data: null };
         return { status: 'rejected', message: result.message };
       }
@@ -199,7 +251,9 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     async (itemId: string) => {
       await commit(
         itemsRef.current.map((i) =>
-          i.id === itemId ? { ...i, state: 'pending' as const, error: undefined, attempts: 0 } : i,
+          i.id === itemId
+            ? { ...i, state: 'pending' as const, error: undefined, attempts: 0, nextAttemptAt: undefined }
+            : i,
         ),
       );
       await flush();
@@ -209,6 +263,8 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
 
   const discard = useCallback(
     async (itemId: string) => {
+      const item = itemsRef.current.find((i) => i.id === itemId);
+      if (item) for (const uri of opLocalFiles(item.op)) void deleteLocalCopy(uri);
       await commit(itemsRef.current.filter((i) => i.id !== itemId));
       setVersion((v) => v + 1);
     },

@@ -1,9 +1,10 @@
 # MANA Wash Manager
 
 MANA's own operations app: job tracking, customer history, payments — built per the
-[app build plan](./MANA-Wash-Manager-App-Build-Plan.md). This repo is V0.1 + V1.0's core:
-new job entry, customer/vehicle lookup, service picker with owner-editable pricing, the job
-status board, and mark-paid.
+[app build plan](./MANA-Wash-Manager-App-Build-Plan.md). Release 0.2.0: job board and new
+wash entry (works offline), customer history, PIN sign-in, before/after photos, WhatsApp
+ready/thank-you messages with a Google review link, cash drawer close, staff commission on
+selected services and attendance, reminders with comeback and referral offers, reports and expenses.
 
 ## Run the app
 
@@ -48,10 +49,16 @@ Only needed the first time, or after adding/upgrading a native dependency (e.g. 
 already-installed app automatically — no need to re-run this; just reopen the app from the
 phone if it's not already in the foreground.
 
-**Sign in** — real MSG91 isn't wired up yet, so use the dev OTP bypass:
+**Sign in** — day to day, everyone signs in with phone + PIN. On a fresh local database nobody
+has a PIN yet: the owner enters their phone, the app asks for a WhatsApp code, and then they
+pick a PIN. Locally no message is sent — the code is fixed:
 
 - Phone: `9100000000`
-- Code: `000000`
+- WhatsApp code (and recovery code): `000000` (dev only — `DEV_RECOVERY_CODE` in `.dev.vars`)
+- While Meta reviews WhatsApp: keep `WHATSAPP_OTP_BYPASS=true` in `.dev.vars` so the app uses
+  `000000` and never sends a real message. Set it to `false` when you’re ready to send real codes.
+
+Staff PINs are set by the owner from **More → Team**; staff never get WhatsApp codes.
 
 If the app ever shows "Cannot connect to Metro" or a red error screen, check Terminals 1 and 2
 are both still running and the `adb reverse` step was re-run after the last USB reconnect —
@@ -65,7 +72,7 @@ apps/
   api/        Cloudflare Worker (Hono) — mana-api, backed by D1 (mana_db)
 packages/
   domain/     Pure business rules: pricing calculation, job status transitions (unit tested)
-  db/         Prisma schema (types) + repository functions used by the Worker
+  db/         Prisma schema (types) + repository functions + the shop-scoped database client
 ```
 
 Naming, schema and architecture decisions here follow the build plan's "Naming conventions"
@@ -74,29 +81,111 @@ how something is named or structured.
 
 ## What's actually running right now
 
-As of this setup pass: dependencies are installed, `mana_db` exists for real on Cloudflare
-(database id `9691507c-caf1-4987-9f7c-5093357601e1`), the schema is applied locally,
-`npm run dev` in `apps/api` serves real data (`curl http://localhost:8787/services` returns
-MANA's actual seeded menu), **and the Android app is built, installed, and running on a real
-device** — the Login screen renders correctly in the white/water-blue theme against the local
-API over `adb reverse`. Both the API and the Android app are verified end to end, not just
-written.
+`mana_db` exists on Cloudflare (database id `9691507c-caf1-4987-9f7c-5093357601e1`); locally
+the API, the full demo data (`npm run db:seed:demo`) and the Android app on a real device are
+verified end to end. Going live is a deliberate, one-time sequence — see [Go live](#go-live).
 
-Still needed, and each is a deliberate "go live" action rather than something to do as a side
-effect of a setup pass:
+## Go live
 
-1. **`npm run db:reset:remote`** (in `apps/api`) — applies the same schema/seed to the real
-   remote `mana_db`, not just the local dev copy.
-2. **`npx wrangler secret put JWT_SECRET` / `MSG91_API_KEY`** — the local `.dev.vars` has
-   placeholder values only; production secrets aren't set yet.
-3. **`npm run deploy`** (in `apps/api`) — puts `mana-api` on a public `*.workers.dev` URL.
-4. **Point `API_BASE_URL` at that public URL and build a release APK** — right now the app
-   talks to `localhost:8787` via USB debugging; real staff phones need the deployed API and
-   a signed release build (`cd apps/mobile/android && ./gradlew assembleRelease`), not a debug
-   build tied to this Mac's Metro server.
-4. **The `ios/`/`android/` native project folders.** React Native CLI generates these (Xcode
-   project, Gradle project) from a template — they're not hand-writable, and need Xcode /
-   Android Studio installed (see Setup, step 6).
+Run everything from `apps/api` unless noted. Every step is safe to re-run — nothing here can
+wipe the live database.
+
+1. **Sign in to Cloudflare** — `npx wrangler login` (opens a browser).
+2. **Create the two buckets** — photos, and backups kept apart from them:
+   ```bash
+   npx wrangler r2 bucket create mana-files
+   npx wrangler r2 bucket create mana-backups
+   ```
+3. **Set the production secrets** (each prompts for the value; nothing is committed):
+   ```bash
+   npx wrangler secret put JWT_SECRET            # 32+ random characters: openssl rand -base64 48
+   npx wrangler secret put OWNER_RECOVERY_CODE   # 8+ characters, works once — keep it offline
+   npx wrangler secret put WHATSAPP_API_TOKEN        # see "WhatsApp sign-in codes" below
+   npx wrangler secret put WHATSAPP_PHONE_NUMBER_ID
+   ```
+   Never set `DEV_MODE` / `DEV_RECOVERY_CODE` in production.
+
+   **WhatsApp sign-in codes** — the owner gets a 6-digit code on WhatsApp on a new phone or after
+   forgetting their PIN. One-time setup in [Meta for Developers](https://developers.facebook.com/):
+   create a Business app → add **WhatsApp** → add and verify the shop's business number (it
+   can't also be used in the normal WhatsApp app) → copy its **Phone number ID**. In Business
+   Settings → System users, create a system user with the `whatsapp_business_messaging`
+   permission and generate a **permanent token**. In WhatsApp Manager → Message templates,
+   create an **Authentication** template named `login_code` (language English) with a
+   **Copy code** button, and wait for approval. A different name or language goes in
+   `WHATSAPP_OTP_TEMPLATE` / `WHATSAPP_OTP_LANGUAGE`. Meta charges a small per-message fee for
+   authentication messages. Until this is set up, the owner uses the recovery code.
+4. **Create the tables** — `npm run db:migrate:remote` applies every file in `migrations/`.
+   The live database starts empty: no demo shop, no demo accounts.
+5. **Deploy** — `npm run deploy`. Note the `https://mana-api.<subdomain>.workers.dev` URL it
+   prints.
+6. **Point the app at it** — from `apps/mobile`:
+   `npm run set-api-url -- https://mana-api.<subdomain>.workers.dev`
+   It calls `/health` first and refuses an address that isn't the MANA API, then saves it in
+   `src/config/release.json`. Debug builds keep using `localhost:8787`. A release build stops
+   with an error while this is still the placeholder, so a phone can never ship pointing nowhere.
+7. **Build the release app** — from `apps/mobile`: `npm run build:release`. Install
+   `android/app/build/outputs/apk/release/app-release.apk` on each shop phone (the `.aab` next
+   to it under `bundle/release` is the Play Store upload).
+8. **First sign-in** — the owner opens the app, enters their phone, picks **Start a new shop**
+   (WhatsApp code → PIN → name, shop name, city), then adds services and prices from
+   **More → Services & prices**, staff from **More → Team**, and the Google review link from
+   **More**. Staff join with the 6-digit shop ID shown in **More → shop name**.
+
+**Changing the database later** — never edit a table by hand and never edit an old migration.
+Add the next numbered file (`migrations/0002_what_it_does.sql`), make the same change in
+`schema.sql` and `packages/db/prisma/schema.prisma`, run `npm run db:check` (fails if
+`schema.sql` and the migrations disagree), try it with `npm run db:reset:local`, then
+`npm run db:migrate:remote` before deploying the code that needs it.
+`npm run db:migrations:status` lists what the live database has.
+
+**What runs by itself after that** — a nightly cron at 03:00 IST (`wrangler.toml`
+`[triggers]`) backs up every table to the `mana-backups` bucket
+(`backups/YYYY-MM-DD/<table>/00001.json…`, written page by page so it works at any size, with a
+`manifest.json` written last as proof the copy is complete; kept 30 days), deletes job photos
+older than 90 days, retries any photo files a failed delete left behind, and prunes the error
+log and old rate-limit counters. App crashes and API errors land in **More → Error log**
+(owner only); new ones put a red dot on the Job Board's More button and a count on the Error
+log row until the owner opens it. Every request is also kept in the Cloudflare dashboard
+(Workers → mana-api → Logs).
+
+**Error alerts on your phone (optional, free)** — so you hear about problems even with the app
+closed. In Discord, create a private server (just you) → add a channel like `#mana-alerts` →
+channel **Edit → Integrations → Webhooks → New Webhook** → **Copy Webhook URL**. Then:
+```bash
+npx wrangler secret put DISCORD_WEBHOOK_URL
+```
+Treat the URL like a password — anyone who has it can post into that channel.
+You'll get at most one message per 15 minutes, with a count of errors since the last one —
+covering API errors, app crashes and a failed nightly backup.
+
+**Restoring** — D1's built-in Time Travel is the first resort (any minute in the last 30 days):
+`npx wrangler d1 time-travel restore mana_db --timestamp=<ISO time>`. The nightly backups are
+the fallback if the database itself is lost:
+
+```bash
+npm run backup:restore -- --list                                 # which days exist
+npm run backup:restore -- --date 2026-10-01 --into local         # rehearse on your machine first
+npm run backup:restore -- --date 2026-10-01 --into remote --yes  # the real thing
+```
+
+It only fills an **empty** database that already has every migration (locally:
+`npm run db:reset:local -- --no-seed`; live: create a fresh D1 database, put its id in
+`wrangler.toml`, run `npm run db:migrate:remote`), skips a backup without a `manifest.json`,
+and checks every table's row count at the end. Rehearse a restore into local once a month so
+you know it works before you need it.
+
+**Staging (try a release before the shops get it)** — a second copy of everything, named
+`mana-api-staging`. One time: `npx wrangler d1 create mana_db_staging` (paste its id into the
+`[env.staging]` block of `wrangler.toml`), create the `mana-files-staging` and
+`mana-backups-staging` buckets, and set the same secrets with `--env staging`. Then each
+release: `npm run db:migrate:staging`, `npx wrangler deploy --env staging`, and point a test
+phone's build at the staging URL with `set-api-url`. `--into staging` restores a production
+backup there for realistic testing.
+
+**Lost the owner PIN** — tap **Forgot PIN? → Send code on WhatsApp**. If WhatsApp isn't
+reachable, rotate the recovery code (`npx wrangler secret put OWNER_RECOVERY_CODE`) and sign in
+with the new one; each recovery code works once.
 
 ## Setup
 
@@ -126,26 +215,27 @@ npm run db:generate -w @mana/db
 `npm run dev` and `npm run deploy` in `apps/api` also run this automatically (`predev`/
 `predeploy`), so you only need it by hand after changing `packages/db/prisma/schema.prisma`.
 
-### 4. Apply the schema and seed MANA's menu
+### 4. Build the local database
 
 ```bash
-npm run db:reset:local   # recreates the tables locally, for `wrangler dev`
-npm run db:reset:remote  # same, against the real D1 database, when you're ready to deploy
+npm run db:reset:local   # inside apps/api — wipes the LOCAL database, applies every migration, loads seed.sql
+npm run db:seed:demo     # optional, with the API running: 90 days of realistic shop data
 ```
 
-This runs `apps/api/schema.sql` — the whole schema plus MANA's car and bike menus and prices
-in one file. It **drops every table first**, so it wipes all data; that's fine until
-production has real data, after which schema changes must become incremental migrations.
-**Edit the seed owner phone number** in `schema.sql` (`9100000000`) to the real owner's
-number before applying it for real.
+`seed.sql` adds the MANA shop (ID `482193`), its menu and prices, and the sign-in accounts
+listed under [Run the app](#run-the-app). `db:seed:demo` resets again and fills in customers,
+washes, photos, expenses, stock, cash days, a second branch and three staff (PIN `2580` for
+everyone; it prints the phone numbers). There is no remote reset — the live database is only
+ever changed by migrations. `schema.sql` is the readable picture of the whole database;
+`db:check` keeps it identical to the migrations.
 
 ### 5. Set secrets
 
 ```bash
-cp .dev.vars.example .dev.vars   # inside apps/api — fill in JWT_SECRET and MSG91_API_KEY for local dev
-npx wrangler secret put JWT_SECRET       # for production
-npx wrangler secret put MSG91_API_KEY
+cp .dev.vars.example .dev.vars   # inside apps/api — fill in JWT_SECRET for local dev
 ```
+
+Production secrets are covered in [Go live](#go-live).
 
 Then run the API locally:
 
@@ -174,10 +264,9 @@ regenerated, or if you copy this setup elsewhere:
    `resolver.unstable_enablePackageExports: true` in `metro.config.js`, the bundle fails to
    build (a blank/gray screen on device, a 500 from Metro in the logs).
 
-Point `apps/mobile/src/api/client.ts`'s `API_BASE_URL` at your running Worker
-(`http://localhost:8787` for local dev with `adb reverse tcp:8081 tcp:8081`, or your deployed
-`*.workers.dev` URL), then, with a device connected via USB (`adb devices` should list it) or
-an emulator running:
+Debug builds talk to `http://localhost:8787` (with `adb reverse tcp:8787 tcp:8787`); release
+builds use the address saved by `npm run set-api-url` in `src/config/release.json`. With a device connected
+via USB (`adb devices` should list it) or an emulator running:
 
 ```bash
 cd apps/mobile
@@ -187,7 +276,7 @@ npm run android
 If you ever do need an iOS build, the native `ios/` folder was never generated (CocoaPods
 isn't installed on this machine and MANA doesn't need it) — generate it the same way `android/`
 was: extract the `template/ios` folder from the `react-native` npm package and rename the
-`HelloWorld` placeholders to `ManaWashManager` / `com.manacarwash.washmanager`.
+`HelloWorld` placeholders to `ManaWashManager` / `com.sprixia.manawashmanager`.
 
 ### 7. Deploy the API
 
@@ -199,10 +288,31 @@ npm run deploy
 ## Development
 
 ```bash
-npm run test        # runs packages/domain's Vitest suite (pricing + job-status logic)
-npm run typecheck    # strict TypeScript across every package
+npm run test           # packages/domain's Vitest suite (pricing, job status, cash, stock, commission)
+npm run typecheck      # strict TypeScript across every package
 npm run lint
+npm run version:check  # the app, API and packages all carry the same version
+cd apps/api && npm run db:check   # schema.sql matches the migrations
 ```
+
+**CI** — `.github/workflows/ci.yml` runs all of the above on every push to `main` and every pull request, then
+builds a fresh local database, starts the API and runs the isolation and sign-up tests below.
+Don't merge a red build.
+
+**Shop isolation test** — the platform runs many car washes on one database (see
+`MANA-Multi-Shop-Plan.md`). With the local API running (`cd apps/api && npm run dev`):
+
+```bash
+cd apps/api && npm run test:isolation   # adds a second shop and proves neither can see or change the other's data
+cd apps/api && npm run test:signup      # new shop sign-up, join requests (approve/reject/cancel), remove from team
+```
+
+**Sign-up flow** — a number with no account picks "Start a new shop" (WhatsApp code → PIN twice →
+name, shop name, city) or "I work at a shop" (6-digit shop ID → WhatsApp code → name → the owner
+approves in More → Team → they choose their own PIN). The seeded MANA shop's ID is `482193`.
+
+Run it after any change to a route or repository. Every signed-in route must use
+`c.get('db')` (locked to the signed-in shop), never `createPlatformDb`.
 
 ## Design
 

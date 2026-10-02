@@ -3,8 +3,11 @@ import { api } from './client';
 import { subscribeSessionInvalid } from './network';
 import {
   clearSession,
+  getCacheShop,
   getSessionToken,
   getSessionUser,
+  setCacheShop,
+  setLastShop,
   setSessionToken,
   setSessionUser,
   type SessionUser,
@@ -19,6 +22,8 @@ interface AuthContextValue {
   /** Why the last session ended, when it wasn't the user's choice — shown on the login screen. */
   sessionNotice: string | null;
   signIn: (token: string, user: SessionUser) => Promise<void>;
+  /** Owners with several branches: opens another of their shops without signing in again. */
+  switchShop: (shopId: string) => Promise<void>;
   signOut: () => Promise<void>;
   bootstrap: () => Promise<void>;
   /** Re-reads the profile (role, name, PIN status) from the server. */
@@ -57,11 +62,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [refreshUser]);
 
   const signIn = useCallback(async (token: string, next: SessionUser) => {
+    // A phone can move between shops; never show one shop's saved data to another.
+    if ((await getCacheShop()) !== next.shopId) {
+      await clearCaches();
+      await setCacheShop(next.shopId);
+    }
     await setSessionToken(token);
     await setSessionUser(next);
+    await setLastShop(next.phone, next.shopId);
     setSessionNotice(null);
     setUser(next);
   }, []);
+
+  // Changes waiting to sync stay with the account (one per branch) that made them, so they reach
+  // the right shop the next time that branch is open.
+  const switchShop = useCallback(
+    async (shopId: string) => {
+      const res = await api.auth.switch.$post({ json: { shopId } });
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !body || !('token' in body)) {
+        const message = body && 'message' in body ? body.message : null;
+        throw new Error(message ?? 'Couldn’t open that shop.');
+      }
+      await signIn(body.token, body.user);
+    },
+    [signIn],
+  );
 
   const updateUser = useCallback(async (next: SessionUser) => {
     await setSessionUser(next);
@@ -79,7 +105,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSessionNotice(
           reason === 'disabled'
             ? 'Your account has been turned off. Ask the owner if this is a mistake.'
-            : 'Your session ended. Please sign in again.',
+            : reason === 'revoked'
+              ? 'Your PIN was changed or reset. Sign in with the new PIN.'
+              : 'Your session ended. Please sign in again.',
         );
         void signOut();
       }),
@@ -94,12 +122,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isOwner: user?.role === 'owner',
       sessionNotice,
       signIn,
+      switchShop,
       signOut,
       bootstrap,
       refreshUser,
       updateUser,
     }),
-    [checking, user, sessionNotice, signIn, signOut, bootstrap, refreshUser, updateUser],
+    [
+      checking,
+      user,
+      sessionNotice,
+      signIn,
+      switchShop,
+      signOut,
+      bootstrap,
+      refreshUser,
+      updateUser,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

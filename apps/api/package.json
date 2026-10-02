@@ -1,17 +1,25 @@
 {
   "name": "@mana/api",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "main": "src/index.ts",
   "types": "src/index.ts",
   "scripts": {
     "predev": "npm run db:generate -w @mana/db",
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --test-scheduled",
     "predeploy": "npm run db:generate -w @mana/db",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "db:reset:local": "wrangler d1 execute mana_db --local --file=./schema.sql",
-    "db:reset:remote": "wrangler d1 execute mana_db --remote --file=./schema.sql"
+    "test:isolation": "node scripts/isolation-check.mjs",
+    "test:signup": "node scripts/signup-check.mjs",
+    "db:check": "node --no-warnings scripts/db-check.mjs",
+    "db:migrate:local": "wrangler d1 migrations apply mana_db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply mana_db --remote",
+    "db:migrate:staging": "wrangler d1 migrations apply mana_db_staging --remote --env staging",
+    "db:migrations:status": "wrangler d1 migrations list mana_db --remote",
+    "db:reset:local": "node scripts/db-reset-local.mjs",
+    "db:seed:demo": "node scripts/seed-demo.mjs",
+    "backup:restore": "node scripts/restore-backup.mjs"
   },
   "dependencies": {
     "@hono/zod-validator": "^0.2.2",

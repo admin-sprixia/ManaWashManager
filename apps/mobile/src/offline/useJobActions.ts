@@ -18,9 +18,44 @@ export function useJobActions() {
   };
 
   const advance = useCallback(
-    async (jobId: string, status: 'washing' | 'ready') =>
+    async (jobId: string, status: 'washing' | 'ready', washers?: { id: string; name: string }[]) =>
       settle(
-        await submit({ kind: 'job.status', payload: { jobId, status, occurredAt: new Date().toISOString() } }),
+        await submit({
+          kind: 'job.status',
+          payload: {
+            jobId,
+            status,
+            occurredAt: new Date().toISOString(),
+            ...(washers ? { washerIds: washers.map((w) => w.id) } : {}),
+          },
+          ...(washers ? { meta: { washers } } : {}),
+        }),
+        'Saved offline — will sync automatically',
+      ),
+    [submit],
+  );
+
+  const setWashers = useCallback(
+    async (jobId: string, washers: { id: string; name: string }[]) =>
+      settle(
+        await submit({
+          kind: 'job.washers',
+          payload: { jobId, washerIds: washers.map((w) => w.id), occurredAt: new Date().toISOString() },
+          meta: { washers },
+        }),
+        'Washers saved offline — will sync automatically',
+      ),
+    [submit],
+  );
+
+  const setSellers = useCallback(
+    async (jobId: string, sellers: { id: string; name: string }[]) =>
+      settle(
+        await submit({
+          kind: 'job.sellers',
+          payload: { jobId, sellerIds: sellers.map((s) => s.id), occurredAt: new Date().toISOString() },
+          meta: { sellers },
+        }),
         'Saved offline — will sync automatically',
       ),
     [submit],
@@ -44,5 +79,5 @@ export function useJobActions() {
     [submit],
   );
 
-  return { advance, pay, voidJob };
+  return { advance, setWashers, setSellers, pay, voidJob };
 }

@@ -23,11 +23,13 @@ export function subscribeOnline(listener: Listener): () => void {
   return () => listeners.delete(listener);
 }
 
-type SessionListener = (reason: 'expired' | 'disabled') => void;
+/** Why the server ended this phone's session. */
+export type SessionEndReason = 'expired' | 'disabled' | 'revoked';
+type SessionListener = (reason: SessionEndReason) => void;
 const sessionListeners = new Set<SessionListener>();
 
 /** Fired when an authenticated request is rejected — the auth layer signs the user out. */
-export function emitSessionInvalid(reason: 'expired' | 'disabled'): void {
+export function emitSessionInvalid(reason: SessionEndReason): void {
   sessionListeners.forEach((l) => l(reason));
 }
 

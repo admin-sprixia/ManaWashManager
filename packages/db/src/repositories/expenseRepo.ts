@@ -1,5 +1,5 @@
 import type { DbClient } from '../client';
-import type { ExpenseCategory } from '@mana/domain';
+import type { ExpenseCategory, ExpenseUnit, PaymentMethod } from '@mana/domain';
 
 const personSelect = { select: { id: true, name: true } } as const;
 
@@ -16,6 +16,12 @@ export const expenseRepo = {
       category: ExpenseCategory;
       amount: number;
       description?: string;
+      itemName?: string;
+      quantity?: number;
+      unit?: ExpenseUnit;
+      billPhotoKey?: string;
+      itemPhotoKey?: string;
+      paymentMethod: PaymentMethod;
       date: Date;
       createdByUserId: string;
     },
@@ -42,6 +48,16 @@ export const expenseRepo = {
       _sum: { amount: true },
     });
     return result._sum.amount ?? 0;
+  },
+
+  /** Cash paid out of the drawer: non-voided cash expenses dated in `[from, to)`. */
+  async cashTotal(db: DbClient, from: Date, to: Date): Promise<{ total: number; count: number }> {
+    const result = await db.expense.aggregate({
+      where: { date: { gte: from, lt: to }, voidedAt: null, paymentMethod: 'cash' },
+      _sum: { amount: true },
+      _count: true,
+    });
+    return { total: result._sum.amount ?? 0, count: result._count };
   },
 
   /** Expenses voided in `[from, to)` — feeds the owner's audit log alongside job corrections. */

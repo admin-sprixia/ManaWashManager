@@ -1,21 +1,66 @@
 name = "mana-api"
-main = "src/index.ts"
+main = "src/worker.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
+# Workers Logs: every request, console.error and exception is kept and searchable in the
+# Cloudflare dashboard (Workers → mana-api → Logs).
+[observability]
+enabled = true
+
+# Schema changes are numbered files in ./migrations, applied with
+# `npm run db:migrate:remote` (never by running a .sql file against the live database).
 [[d1_databases]]
 binding = "DB"
 database_name = "mana_db"
 database_id = "9691507c-caf1-4987-9f7c-5093357601e1"
+migrations_dir = "migrations"
+
+# Job and expense photos (shops/<shop>/…).
+# Create once with: npx wrangler r2 bucket create mana-files
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "mana-files"
+
+# Nightly database backups, kept apart from the photos so a photo clean-up (or a leaked photo
+# link) can never touch them. Create once with: npx wrangler r2 bucket create mana-backups
+[[r2_buckets]]
+binding = "BACKUPS"
+bucket_name = "mana-backups"
+
+# Nightly at 03:00 IST (21:30 UTC): database backup, photo retention, error-log pruning.
+[triggers]
+crons = ["30 21 * * *"]
 
 # Non-secret config only goes in [vars]. Secrets are set with `wrangler secret put <NAME>`
 # and never committed here — see the build plan's Naming conventions section:
-#   JWT_SECRET, MSG91_API_KEY, WHATSAPP_API_TOKEN, WHATSAPP_PHONE_NUMBER_ID
+#   JWT_SECRET, OWNER_RECOVERY_CODE, WHATSAPP_API_TOKEN, WHATSAPP_PHONE_NUMBER_ID
+#   Optional: WHATSAPP_OTP_TEMPLATE (default login_code), WHATSAPP_OTP_LANGUAGE (default en)
+#   Optional error alerts: DISCORD_WEBHOOK_URL
 
+# A full copy of production for trying releases first. One-time setup (see README → Staging):
+#   npx wrangler d1 create mana_db_staging   → paste its id below
+#   npx wrangler r2 bucket create mana-files-staging
+#   npx wrangler r2 bucket create mana-backups-staging
 [env.staging]
 name = "mana-api-staging"
+
+[env.staging.observability]
+enabled = true
+
+[env.staging.triggers]
+crons = ["30 21 * * *"]
 
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "mana_db_staging"
 database_id = "REPLACE_WITH_STAGING_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+[[env.staging.r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "mana-files-staging"
+
+[[env.staging.r2_buckets]]
+binding = "BACKUPS"
+bucket_name = "mana-backups-staging"

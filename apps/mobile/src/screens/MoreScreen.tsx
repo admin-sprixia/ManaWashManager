@@ -1,5 +1,12 @@
 import React, { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { ScreenHeader } from '../components/ScreenHeader';
@@ -7,28 +14,45 @@ import { Avatar } from '../components/Avatar';
 import { EdgeGroup, EdgeRow, Pill, SectionLabel } from '../components/EdgeList';
 import { SetPinSheet } from '../components/SetPinSheet';
 import { EditProfileSheet } from '../components/EditProfileSheet';
+import { ReviewLinkSheet } from '../components/ReviewLinkSheet';
+import { ShopDetailsSheet } from '../components/ShopDetailsSheet';
+import { ShopSwitcherSheet } from '../components/ShopSwitcherSheet';
+import { EarningsCard } from '../components/EarningsCard';
 import { showToast } from '../components/Toast';
+import { showAlert } from '../components/AppAlert';
 import {
   IconAlert,
+  IconBox,
+  IconBug,
+  IconCalendarCheck,
   IconChart,
   IconCheck,
   IconCloudOff,
+  IconDrawer,
   IconEdit,
+  IconStar,
   IconLock,
   IconPerson,
+  IconPlus,
   IconLogout,
   IconReceipt,
   IconSettings,
+  IconShare,
   IconShield,
+  IconStore,
   IconSync,
   IconUsers,
 } from '../components/Icons';
+import { formatShopCode } from '@mana/domain';
+import { shareShopInvite } from '../utils/shopInvite';
 import { colors, radius, spacing, typography } from '../theme';
 import { api, apiErrorMessage } from '../api/client';
 import { NetworkError } from '../api/network';
 import { useAuth } from '../api/auth';
 import { useSync } from '../offline/SyncProvider';
+import { useShop } from '../offline/ShopProvider';
 import { describeOp } from '../offline/types';
+import { APP_VERSION } from '../config/app';
 import { formatDateTime } from '../utils/format';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 
@@ -43,11 +67,34 @@ function timeAgo(ts: number | null): string {
 }
 
 export function MoreScreen({ navigation }: Props) {
-  const { user, isOwner, signOut, refreshUser } = useAuth();
-  const { online, syncing, lastSyncedAt, myItems, items, pendingCount, failedCount, syncNow, retry, discard } =
-    useSync();
+  const { user, isOwner, signOut, signIn } = useAuth();
+  const {
+    online,
+    syncing,
+    lastSyncedAt,
+    myItems,
+    items,
+    pendingCount,
+    failedCount,
+    syncNow,
+    retry,
+    discard,
+  } = useSync();
   const [pinOpen, setPinOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [shopOpen, setShopOpen] = useState(false);
+  const [branches, setBranches] = useState<'list' | 'add' | null>(null);
+  const {
+    googleReviewUrl,
+    unseenErrors,
+    joinRequests,
+    info: shop,
+    stock,
+    lowStock,
+    myShops,
+    canAddShop,
+  } = useShop();
 
   if (!user) return null;
 
@@ -56,32 +103,54 @@ export function MoreScreen({ navigation }: Props) {
 
   const confirmSignOut = () => {
     const waiting = myItems.length;
-    Alert.alert(
+    showAlert(
       'Sign out?',
       waiting > 0
         ? `${waiting} change${waiting === 1 ? '' : 's'} haven’t synced yet. They stay safely on this phone and will sync the next time you sign in here.`
-        : 'You can sign back in with an SMS code or your PIN.',
+        : 'You’ll sign back in with your number and PIN.',
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Sign out', style: 'destructive', onPress: () => void signOut() },
       ],
+      { icon: <IconLogout size={26} color={colors.danger} /> },
     );
   };
 
   const confirmDiscard = (id: string, label: string) => {
-    Alert.alert('Discard this change?', `“${label}” will be removed from this phone and never synced.`, [
-      { text: 'Keep', style: 'cancel' },
-      { text: 'Discard', style: 'destructive', onPress: () => void discard(id) },
-    ]);
+    showAlert(
+      'Discard this change?',
+      `“${label}” will be removed from this phone and never synced.`,
+      [
+        { text: 'Keep', style: 'cancel' },
+        { text: 'Discard', style: 'destructive', onPress: () => void discard(id) },
+      ],
+    );
   };
 
   const syncStatus = !online
-    ? { title: 'Offline', subtitle: pendingCount > 0 ? `${pendingCount} waiting to sync` : 'Changes save on this phone', tone: 'amber' as const }
+    ? {
+        title: 'Offline',
+        subtitle:
+          pendingCount > 0 ? `${pendingCount} waiting to sync` : 'Changes save on this phone',
+        tone: 'amber' as const,
+      }
     : pendingCount > 0
-      ? { title: 'Syncing…', subtitle: `${pendingCount} change${pendingCount === 1 ? '' : 's'} left`, tone: 'water' as const }
+      ? {
+          title: 'Syncing…',
+          subtitle: `${pendingCount} change${pendingCount === 1 ? '' : 's'} left`,
+          tone: 'water' as const,
+        }
       : failedCount > 0
-        ? { title: 'Needs attention', subtitle: `${failedCount} couldn’t sync`, tone: 'danger' as const }
-        : { title: 'All synced', subtitle: `Last sync ${timeAgo(lastSyncedAt).toLowerCase()}`, tone: 'teal' as const };
+        ? {
+            title: 'Needs attention',
+            subtitle: `${failedCount} couldn’t sync`,
+            tone: 'danger' as const,
+          }
+        : {
+            title: 'All synced',
+            subtitle: `Last sync ${timeAgo(lastSyncedAt).toLowerCase()}`,
+            tone: 'teal' as const,
+          };
 
   return (
     <ScreenContainer noPadding>
@@ -105,7 +174,10 @@ export function MoreScreen({ navigation }: Props) {
               <Pill label={isOwner ? 'OWNER' : 'STAFF'} tone={isOwner ? 'water' : 'slate'} />
             </View>
             <Text style={styles.profileMeta}>
-              +91 {user.phone.length === 10 ? `${user.phone.slice(0, 5)} ${user.phone.slice(5)}` : user.phone}
+              +91{' '}
+              {user.phone.length === 10
+                ? `${user.phone.slice(0, 5)} ${user.phone.slice(5)}`
+                : user.phone}
             </Text>
           </View>
           <View style={styles.editBtn}>
@@ -113,6 +185,47 @@ export function MoreScreen({ navigation }: Props) {
             <Text style={styles.editText}>Edit</Text>
           </View>
         </Pressable>
+
+        {shop ? (
+          <>
+            <SectionLabel>Shop</SectionLabel>
+            <EdgeGroup>
+              <EdgeRow
+                icon={<IconStore size={19} color={colors.waterDeep} />}
+                title={shop.name}
+                subtitle={
+                  isOwner
+                    ? `Shop ID ${formatShopCode(shop.code)} · tap to rename or invite`
+                    : `Shop ID ${formatShopCode(shop.code)} · new teammates use it to ask to join`
+                }
+                right={
+                  isOwner ? (
+                    <Pill label="Edit" tone="water" />
+                  ) : (
+                    <IconShare size={18} color={colors.water} />
+                  )
+                }
+                chevron={false}
+                onPress={() => (isOwner ? setShopOpen(true) : shareShopInvite(shop))}
+              />
+              {isOwner && myShops.length > 1 ? (
+                <EdgeRow
+                  icon={<IconSync size={18} color={colors.waterDeep} />}
+                  title="Switch shop"
+                  subtitle={`You run ${myShops.length} shops · also at the top of the home screen`}
+                  onPress={() => setBranches('list')}
+                />
+              ) : isOwner && canAddShop ? (
+                <EdgeRow
+                  icon={<IconPlus size={18} color={colors.waterDeep} />}
+                  title="Open another shop"
+                  subtitle="Got a second branch? Run both from this login"
+                  onPress={() => setBranches('add')}
+                />
+              ) : null}
+            </EdgeGroup>
+          </>
+        ) : null}
 
         <SectionLabel>Sync</SectionLabel>
         <EdgeGroup>
@@ -169,18 +282,49 @@ export function MoreScreen({ navigation }: Props) {
         </EdgeGroup>
         {othersWaiting > 0 ? (
           <Text style={styles.footnote}>
-            {othersWaiting} change{othersWaiting === 1 ? '' : 's'} from another teammate {othersWaiting === 1 ? 'is' : 'are'} waiting on this
-            phone — {othersWaiting === 1 ? 'it syncs' : 'they sync'} when they sign in here.
+            {othersWaiting} change{othersWaiting === 1 ? '' : 's'} from another teammate{' '}
+            {othersWaiting === 1 ? 'is' : 'are'} waiting on this phone —{' '}
+            {othersWaiting === 1 ? 'it syncs' : 'they sync'} when they sign in here.
           </Text>
+        ) : null}
+
+        {!isOwner ? (
+          <>
+            <SectionLabel>My earnings</SectionLabel>
+            <EarningsCard />
+          </>
         ) : null}
 
         <SectionLabel>Shift</SectionLabel>
         <EdgeGroup>
           <EdgeRow
+            icon={<IconDrawer size={19} color={colors.tealDeep} />}
+            iconBg="#CCFBF1"
+            title="Cash drawer"
+            subtitle="Count the cash box morning and night"
+            onPress={() => navigation.navigate('Cash')}
+          />
+          <EdgeRow
             icon={<IconReceipt size={19} color={colors.waterDeep} />}
             title="Expenses"
             subtitle={isOwner ? 'Log and review shop spending' : 'Log what you spent for the shop'}
             onPress={() => navigation.navigate('Expenses')}
+          />
+          <EdgeRow
+            icon={<IconBox size={19} color={lowStock > 0 ? colors.amberDeep : colors.waterDeep} />}
+            iconBg={lowStock > 0 ? '#FEF3C7' : undefined}
+            title="Inventory"
+            subtitle={
+              lowStock > 0
+                ? `${lowStock} item${lowStock === 1 ? '' : 's'} running low — buy soon`
+                : stock.length > 0
+                  ? `${stock.length} item${stock.length === 1 ? '' : 's'} in stock · log what you use`
+                  : isOwner
+                    ? 'Track shampoo, wax, cloths and bill books'
+                    : 'Log the stock you use'
+            }
+            right={lowStock > 0 ? <Pill label={String(lowStock)} tone="amber" /> : undefined}
+            onPress={() => navigation.navigate('Inventory')}
           />
         </EdgeGroup>
 
@@ -198,22 +342,64 @@ export function MoreScreen({ navigation }: Props) {
                 icon={<IconShield size={19} color={colors.tealDeep} />}
                 iconBg="#CCFBF1"
                 title="Staff report"
-                subtitle="Sales per person, voids and corrections"
+                subtitle="Sales, commission and days worked per person"
                 onPress={() => navigation.navigate('StaffReport')}
+              />
+              <EdgeRow
+                icon={<IconCalendarCheck size={19} color={colors.tealDeep} />}
+                iconBg="#CCFBF1"
+                title="Attendance"
+                subtitle="Mark who worked today"
+                onPress={() => navigation.navigate('Attendance')}
               />
               <EdgeRow
                 icon={<IconUsers size={19} color="#5B21B6" />}
                 iconBg="#EDE9FE"
                 title="Team"
-                subtitle="Add staff, roles, access and PINs"
+                subtitle={
+                  joinRequests > 0
+                    ? `${joinRequests} waiting to join`
+                    : 'Add staff, roles, access and PINs'
+                }
+                right={
+                  joinRequests > 0 ? <Pill label={String(joinRequests)} tone="danger" /> : undefined
+                }
                 onPress={() => navigation.navigate('Team')}
               />
               <EdgeRow
                 icon={<IconSettings size={19} color={colors.amberDeep} />}
                 iconBg="#FEF3C7"
                 title="Services & prices"
-                subtitle="Cars, bikes, sizes and price list"
+                subtitle="Price list and staff commission"
                 onPress={() => navigation.navigate('Settings')}
+              />
+              <EdgeRow
+                icon={<IconStar size={19} color={colors.amberDeep} />}
+                iconBg="#FEF3C7"
+                title="Google review link"
+                subtitle={
+                  googleReviewUrl
+                    ? 'Added to thank-you messages'
+                    : 'Not set — thank-you messages skip the review ask'
+                }
+                right={!googleReviewUrl ? <Pill label="Set up" tone="amber" /> : undefined}
+                onPress={() => setReviewOpen(true)}
+              />
+              <EdgeRow
+                icon={<IconBug size={19} color={colors.slateDeep} />}
+                iconBg="#F1F5F9"
+                title="Error log"
+                subtitle={
+                  unseenErrors > 0
+                    ? `${unseenErrors} new since you last looked`
+                    : 'App crashes and server errors'
+                }
+                right={
+                  unseenErrors > 0 ? (
+                    <Pill label={unseenErrors > 99 ? '99+' : String(unseenErrors)} tone="danger" />
+                  ) : undefined
+                }
+                onPress={() => navigation.navigate('ErrorLog')}
               />
             </EdgeGroup>
           </>
@@ -229,10 +415,9 @@ export function MoreScreen({ navigation }: Props) {
           />
           <EdgeRow
             icon={<IconLock size={19} color={colors.waterDeep} />}
-            title={user.hasPin ? 'Change PIN' : 'Set a PIN'}
-            subtitle={user.hasPin ? 'Quick sign-in on this or any shop phone' : 'Sign in without waiting for an SMS'}
+            title="Change PIN"
+            subtitle="Your sign-in code on this or any shop phone"
             onPress={() => setPinOpen(true)}
-            right={!user.hasPin ? <Pill label="Recommended" tone="amber" /> : undefined}
           />
           <EdgeRow
             icon={<IconLogout size={19} color={colors.danger} />}
@@ -244,26 +429,42 @@ export function MoreScreen({ navigation }: Props) {
           />
         </EdgeGroup>
 
-        <Text style={styles.version}>MANA Wash Manager · v2.0</Text>
+        <Text style={styles.version}>MANA Wash Manager · v{APP_VERSION}</Text>
       </ScrollView>
 
       <EditProfileSheet visible={profileOpen} onClose={() => setProfileOpen(false)} />
+      <ReviewLinkSheet visible={reviewOpen} onClose={() => setReviewOpen(false)} />
+      <ShopDetailsSheet visible={shopOpen} onClose={() => setShopOpen(false)} />
+      <ShopSwitcherSheet
+        visible={branches != null}
+        startWith={branches ?? 'list'}
+        onClose={() => setBranches(null)}
+      />
 
       <SetPinSheet
         visible={pinOpen}
-        title={user.hasPin ? 'Change your PIN' : 'Set your PIN'}
+        title="Change your PIN"
         subtitle={`For +91 ${user.phone}`}
+        askCurrent={user.hasPin}
         onClose={() => setPinOpen(false)}
-        onSubmit={async (pin) => {
+        onSubmit={async (pin, currentPin) => {
           try {
-            const res = await api.auth.pin.$put({ json: { pin } });
-            if (!res.ok) return apiErrorMessage(res, 'Couldn’t save your PIN.');
-            await refreshUser();
+            const res = await api.auth.pin.$put({ json: { pin, currentPin } });
+            if (!res.ok) {
+              const message = await apiErrorMessage(res, 'Couldn’t save your PIN.');
+              return res.status === 401 || res.status === 423 ? { currentPinError: message } : message;
+            }
+            const session = await res.json();
+            if ('token' in session) {
+              await signIn(session.token, { ...session.user, role: session.user.role === 'owner' ? 'owner' : 'staff' });
+            }
             setPinOpen(false);
-            showToast('PIN saved — use it next time you sign in');
+            showToast('PIN saved. Other phones signed in as you will need the new PIN.');
             return null;
           } catch (e) {
-            return e instanceof NetworkError ? 'Setting a PIN needs a connection.' : 'Couldn’t save your PIN.';
+            return e instanceof NetworkError
+              ? 'Setting a PIN needs a connection.'
+              : 'Couldn’t save your PIN.';
           }
         }}
       />

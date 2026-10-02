@@ -2,7 +2,7 @@ import type { DbClient } from '../client';
 
 export const vehicleRepo = {
   async findByRegistration(db: DbClient, registrationNumber: string) {
-    return db.vehicle.findUnique({
+    return db.vehicle.findFirst({
       where: { registrationNumber },
       include: { vehicleType: true, customer: true },
     });

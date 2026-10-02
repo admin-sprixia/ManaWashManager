@@ -1,8 +1,8 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,10 +12,25 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import LinearGradient from 'react-native-linear-gradient';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenContainer } from '../components/ScreenContainer';
-import { IconChevronDown, IconChevronLeft, IconDownload } from '../components/Icons';
-import { colors, gradients, radius, shadow, spacing, typography } from '../theme';
+import { ScreenHeader } from '../components/ScreenHeader';
+import { BottomSheet } from '../components/BottomSheet';
+import {
+  IconAlert,
+  IconBan,
+  IconCalendar,
+  IconCar,
+  IconCheck,
+  IconChevronDown,
+  IconChevronRight,
+  IconClock,
+  IconDownload,
+  IconReceipt,
+  IconTag,
+  IconUserPlus,
+  IconUsers,
+} from '../components/Icons';
+import { colors, gradients, radius, spacing, typography } from '../theme';
 import { api } from '../api/client';
 import { formatRupees } from '../utils/format';
 import { shareReportPdf } from '../utils/shareReportPdf';
@@ -52,6 +67,10 @@ const PERIODS: { key: Range; label: string; hint: string }[] = [
   { key: 'custom', label: 'Custom dates', hint: 'Pick any From → To range' },
 ];
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const PAY_COLORS = { cash: colors.teal, upi: colors.water, other: colors.slate } as const;
+
 function todayIso(): string {
   const d = new Date();
   const y = d.getFullYear();
@@ -64,12 +83,17 @@ function isIsoDate(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value.trim());
 }
 
+/** "2026-10-02" → "2 Oct 2026". */
+function prettyDate(iso: string): string {
+  if (!isIsoDate(iso)) return iso;
+  return `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1] ?? ''} ${iso.slice(0, 4)}`;
+}
+
 function pct(part: number, total: number): number {
   return total > 0 ? Math.round((part / total) * 100) : 0;
 }
 
 export function ReportsScreen({ navigation }: ReportsScreenProps) {
-  const insets = useSafeAreaInsets();
   const [range, setRange] = useState<Range>('today');
   const [periodOpen, setPeriodOpen] = useState(false);
   const [customFrom, setCustomFrom] = useState(todayIso());
@@ -77,6 +101,7 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
   const [appliedCustom, setAppliedCustom] = useState<{ from: string; to: string } | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
@@ -136,6 +161,13 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
     }, [range, appliedCustom, load]),
   );
 
+  const refresh = async () => {
+    if (range === 'custom' && !appliedCustom) return;
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  };
+
   const applyCustom = () => {
     if (!isIsoDate(customFrom) || !isIsoDate(customTo)) {
       setError('Enter dates as YYYY-MM-DD.');
@@ -179,77 +211,80 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
   };
 
   const avgTicket =
-    stats && stats.carsWashed > 0 ? Math.round(stats.revenue / stats.carsWashed) : 0;
+    stats && stats.carsWashed > 0 ? Math.round(stats.revenue / stats.carsWashed / 100) * 100 : 0;
 
   const periodSubtitle =
     range === 'custom' && appliedCustom
-      ? `${appliedCustom.from} → ${appliedCustom.to}`
-      : selectedPeriod.hint;
+      ? `${prettyDate(appliedCustom.from)} → ${prettyDate(appliedCustom.to)}`
+      : stats?.from && stats.to && stats.from !== stats.to
+        ? `${prettyDate(stats.from)} → ${prettyDate(stats.to)}`
+        : stats?.from
+          ? prettyDate(stats.from)
+          : selectedPeriod.hint;
+
+  const exportDisabled = exporting || forbidden || !stats;
+  const totalCustomers = stats ? stats.newCustomers + stats.repeatCustomers : 0;
 
   return (
-    <ScreenContainer noPadding edges={['bottom']}>
-      <LinearGradient
-        colors={gradients.hero as unknown as string[]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={[styles.hero, { paddingTop: insets.top + spacing.sm }]}
-      >
-        <View style={styles.heroTop}>
-          <Pressable
-            onPress={() => navigation.goBack()}
-            style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
-            accessibilityRole="button"
-            accessibilityLabel="Go back"
-          >
-            <IconChevronLeft size={22} color={colors.white} />
-          </Pressable>
-          <View style={styles.heroCopy}>
-            <Text style={styles.heroEyebrow}>OWNER</Text>
-            <Text style={styles.heroTitle}>Reports</Text>
-          </View>
-          <Pressable
-            onPress={() => void onExport()}
-            disabled={exporting || forbidden || !stats}
-            style={({ pressed }) => [
-              styles.exportBtn,
-              (exporting || forbidden || !stats) && styles.exportBtnDisabled,
-              pressed && styles.pressed,
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Export PDF"
-          >
-            {exporting ? (
-              <ActivityIndicator color={colors.white} size="small" />
-            ) : (
-              <>
-                <IconDownload size={16} color={colors.white} />
-                <Text style={styles.exportLabel}>PDF</Text>
-              </>
-            )}
-          </Pressable>
-        </View>
+    <ScreenContainer noPadding>
+      <View style={styles.headerPad}>
+        <ScreenHeader
+          title="Reports"
+          onBack={() => navigation.goBack()}
+          right={
+            <Pressable
+              onPress={() => void onExport()}
+              disabled={exportDisabled}
+              style={({ pressed }) => [styles.exportPill, exportDisabled && styles.disabled, pressed && styles.pressed]}
+              accessibilityRole="button"
+              accessibilityLabel="Export PDF"
+            >
+              {exporting ? (
+                <ActivityIndicator color={colors.waterDeep} size="small" />
+              ) : (
+                <>
+                  <IconDownload size={15} color={colors.waterDeep} />
+                  <Text style={styles.exportPillText}>PDF</Text>
+                </>
+              )}
+            </Pressable>
+          }
+        />
+      </View>
 
-        {/* Period dropdown — scalable: add ranges in PERIODS only */}
-        <View style={styles.controlPad}>
-          <Text style={styles.controlLabel}>Period</Text>
-          <Pressable
-            onPress={() => setPeriodOpen(true)}
-            style={({ pressed }) => [styles.dropdown, pressed && styles.pressed]}
-            accessibilityRole="button"
-            accessibilityLabel={`Period: ${selectedPeriod.label}`}
-          >
-            <View style={styles.dropdownCopy}>
-              <Text style={styles.dropdownValue}>{selectedPeriod.label}</Text>
-              <Text style={styles.dropdownHint} numberOfLines={1}>
-                {periodSubtitle}
-              </Text>
-            </View>
-            <IconChevronDown size={18} color={colors.white} />
-          </Pressable>
-        </View>
+      <ScrollView
+        style={styles.flex}
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={colors.water} colors={[colors.water]} />
+        }
+      >
+        {/* Period dropdown */}
+        <Pressable
+          onPress={() => setPeriodOpen(true)}
+          style={({ pressed }) => [styles.period, pressed && styles.pressed]}
+          accessibilityRole="button"
+          accessibilityLabel={`Period: ${selectedPeriod.label}`}
+        >
+          <View style={styles.periodIcon}>
+            <IconCalendar size={18} color={colors.waterDeep} />
+          </View>
+          <View style={styles.flex}>
+            <Text style={styles.periodLabel}>{selectedPeriod.label}</Text>
+            <Text style={styles.periodHint} numberOfLines={1}>
+              {periodSubtitle}
+            </Text>
+          </View>
+          <View style={styles.periodChevron}>
+            <IconChevronDown size={16} color={colors.waterDeep} />
+          </View>
+        </Pressable>
 
         {range === 'custom' ? (
-          <View style={styles.customBox}>
+          <View style={[styles.card]}>
+            <Text style={styles.overline}>CUSTOM DATES</Text>
             <View style={styles.customFields}>
               <View style={styles.customField}>
                 <Text style={styles.customLabel}>From</Text>
@@ -258,11 +293,13 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
                   value={customFrom}
                   onChangeText={setCustomFrom}
                   placeholder="YYYY-MM-DD"
-                  placeholderTextColor="rgba(255,255,255,0.45)"
+                  placeholderTextColor={colors.slate}
                   autoCapitalize="none"
                   autoCorrect={false}
+                  maxLength={10}
                 />
               </View>
+              <Text style={styles.customArrow}>→</Text>
               <View style={styles.customField}>
                 <Text style={styles.customLabel}>To</Text>
                 <TextInput
@@ -270,598 +307,632 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
                   value={customTo}
                   onChangeText={setCustomTo}
                   placeholder="YYYY-MM-DD"
-                  placeholderTextColor="rgba(255,255,255,0.45)"
+                  placeholderTextColor={colors.slate}
                   autoCapitalize="none"
                   autoCorrect={false}
+                  maxLength={10}
                 />
               </View>
-              <Pressable onPress={applyCustom} style={styles.applyBtn} accessibilityRole="button">
-                <Text style={styles.applyBtnText}>Apply</Text>
-              </Pressable>
             </View>
+            <Pressable
+              onPress={applyCustom}
+              style={({ pressed }) => [styles.applyBtn, pressed && styles.pressed]}
+              accessibilityRole="button"
+            >
+              <Text style={styles.applyBtnText}>Show report</Text>
+            </Pressable>
           </View>
         ) : null}
 
-        <View style={styles.heroStats}>
-          {loading && !stats ? (
-            <ActivityIndicator color={colors.white} style={{ marginVertical: 12 }} />
-          ) : stats ? (
-            <>
-              <Text style={styles.revenueEyebrow}>Revenue</Text>
-              <Text style={styles.revenueValue}>{formatRupees(stats.revenue)}</Text>
-              <Text style={styles.revenueMeta}>
-                {stats.carsWashed} car{stats.carsWashed === 1 ? '' : 's'} washed
-                {stats.from && stats.to ? `  ·  ${stats.from} → ${stats.to}` : ''}
-              </Text>
-            </>
-          ) : (
-            <Text style={styles.revenueMeta}>
-              {range === 'custom' && !appliedCustom
-                ? 'Set From / To, then tap Apply'
-                : forbidden
-                  ? 'Owner access only'
-                  : '—'}
-            </Text>
-          )}
-        </View>
-      </LinearGradient>
-
-      {/* Period picker sheet */}
-      <Modal visible={periodOpen} transparent animationType="fade" onRequestClose={() => setPeriodOpen(false)}>
-        <Pressable style={styles.sheetBackdrop} onPress={() => setPeriodOpen(false)}>
-          <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.sheetTitle}>Choose period</Text>
-            {PERIODS.map((p) => {
-              const on = range === p.key;
-              return (
-                <Pressable
-                  key={p.key}
-                  onPress={() => selectPeriod(p.key)}
-                  style={[styles.sheetRow, on && styles.sheetRowOn]}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: on }}
-                >
-                  <View style={styles.sheetRowCopy}>
-                    <Text style={[styles.sheetRowLabel, on && styles.sheetRowLabelOn]}>{p.label}</Text>
-                    <Text style={styles.sheetRowHint}>{p.hint}</Text>
-                  </View>
-                  {on ? <Text style={styles.sheetCheck}>✓</Text> : null}
-                </Pressable>
-              );
-            })}
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {error ? (
-        <View style={styles.errorBanner}>
-          <Text style={styles.errorBannerText}>{error}</Text>
-          <Pressable onPress={() => void load()} hitSlop={8}>
-            <Text style={styles.errorRetry}>Retry</Text>
-          </Pressable>
-        </View>
-      ) : null}
-
-      {forbidden ? (
-        <View style={styles.centerFill}>
-          <Text style={styles.errorTitle}>Owner only</Text>
-          <Text style={styles.errorBody}>Reports are only visible to the account owner.</Text>
-        </View>
-      ) : stats ? (
-        <ScrollView
-          style={styles.flex}
-          contentContainerStyle={styles.body}
-          showsVerticalScrollIndicator={false}
-        >
-          <Text style={styles.sectionLabel}>Profit</Text>
-          <View style={styles.list}>
-            <StatRow label="Revenue" hint="Money collected from paid washes" value={formatRupees(stats.revenue)} />
-            <Pressable
-              onPress={() => navigation.navigate('Expenses')}
-              android_ripple={{ color: colors.waterPale }}
-              accessibilityRole="button"
-              accessibilityLabel="Open expenses"
-            >
-              <StatRow label="Expenses" hint="Tap to see every entry" value={`- ${formatRupees(stats.expenses)}`} />
+        {error ? (
+          <View style={styles.errorBanner}>
+            <IconAlert size={18} color={colors.danger} />
+            <Text style={styles.errorBannerText}>{error}</Text>
+            <Pressable onPress={() => void load()} hitSlop={8} style={styles.retryPill}>
+              <Text style={styles.retryText}>Retry</Text>
             </Pressable>
-            <View style={[styles.statRow, styles.netRow]}>
-              <View style={styles.statCopy}>
-                <Text style={styles.netLabel}>Net</Text>
-                <Text style={styles.statHint}>Revenue minus expenses</Text>
+          </View>
+        ) : null}
+
+        {forbidden ? (
+          <View style={[styles.card, styles.emptyCard]}>
+            <View style={[styles.emptyIcon, { backgroundColor: colors.waterPale }]}>
+              <IconBan size={22} color={colors.waterDeep} />
+            </View>
+            <Text style={styles.emptyTitle}>Owner only</Text>
+            <Text style={styles.emptyText}>Reports are only visible to the shop owner.</Text>
+          </View>
+        ) : stats ? (
+          <>
+            {/* Revenue hero */}
+            <LinearGradient
+              colors={gradients.hero as unknown as string[]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0.9, y: 1 }}
+              style={[styles.hero]}
+            >
+              <View pointerEvents="none" style={styles.orbLarge} />
+              <View pointerEvents="none" style={styles.orbSmall} />
+              <View style={styles.heroTop}>
+                <Text style={styles.heroEyebrow}>Revenue</Text>
+                {loading ? <ActivityIndicator color={colors.white} size="small" /> : null}
               </View>
-              <Text style={[styles.netValue, stats.net < 0 && styles.netNegative]}>{formatRupees(stats.net)}</Text>
+              <Text style={styles.heroValue}>{formatRupees(stats.revenue)}</Text>
+              <Text style={styles.heroMeta}>
+                {stats.carsWashed} wash{stats.carsWashed === 1 ? '' : 'es'}
+                {stats.carsWashed > 0 ? `  ·  ${formatRupees(avgTicket)} per vehicle` : ''}
+              </Text>
+              <View style={styles.heroSplit}>
+                <Pressable
+                  onPress={() => navigation.navigate('Expenses')}
+                  style={({ pressed }) => [styles.heroTile, pressed && styles.pressed]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open expenses"
+                >
+                  <Text style={styles.heroTileLabel}>Expenses ›</Text>
+                  <Text style={styles.heroTileValue}>{formatRupees(stats.expenses)}</Text>
+                </Pressable>
+                <View style={[styles.heroTile, styles.heroTileStrong]}>
+                  <Text style={[styles.heroTileLabel, styles.heroTileLabelStrong]}>Net profit</Text>
+                  <Text style={[styles.heroTileValue, styles.heroTileValueStrong, stats.net < 0 && styles.negative]}>
+                    {formatRupees(stats.net)}
+                  </Text>
+                </View>
+              </View>
+            </LinearGradient>
+
+            {/* Quick numbers */}
+            <View style={styles.grid}>
+              <StatTile
+                index={0}
+                icon={<IconCar size={18} color={colors.waterDeep} />}
+                tint={colors.waterPale}
+                value={String(stats.carsWashed)}
+                label="Vehicles washed"
+              />
+              <StatTile
+                index={1}
+                icon={<IconClock size={18} color={colors.amberDeep} />}
+                tint="#FEF3C7"
+                value={String(stats.pendingNow)}
+                label="At the bay now"
+                hint="Not paid yet"
+              />
+              <StatTile
+                index={2}
+                icon={<IconUserPlus size={18} color={colors.tealDeep} />}
+                tint="#CCFBF1"
+                value={String(stats.newCustomers)}
+                label="New customers"
+                hint="First visit"
+              />
+              <StatTile
+                index={3}
+                icon={<IconUsers size={18} color="#6D28D9" />}
+                tint="#EDE9FE"
+                value={String(stats.repeatCustomers)}
+                label="Repeat customers"
+                hint={totalCustomers > 0 ? `${pct(stats.repeatCustomers, totalCustomers)}% came back` : 'Came back'}
+              />
             </View>
-          </View>
-          {stats.discounts > 0 ? (
-            <Text style={styles.discountNote}>Includes {formatRupees(stats.discounts)} given as discounts.</Text>
-          ) : null}
 
-          {/* Snapshot — clear labels, no jargon */}
-          <Text style={styles.sectionLabel}>Snapshot</Text>
-          <View style={styles.list}>
-            <StatRow
-              label="Cars at the bay now"
-              hint="Waiting, washing, or ready — not paid yet"
-              value={String(stats.pendingNow)}
-            />
-            <StatRow label="Cars washed" hint="In this period" value={String(stats.carsWashed)} />
-            <StatRow label="New customers" hint="First visit in this period" value={String(stats.newCustomers)} />
-            <StatRow
-              label="Repeat customers"
-              hint="Had washed with you before"
-              value={String(stats.repeatCustomers)}
-              last
-            />
-          </View>
-
-          <View style={styles.list}>
-            <StatRow
-              label="Average per car"
-              value={stats.carsWashed > 0 ? formatRupees(avgTicket) : '—'}
-              last={stats.voided === 0}
-            />
-            {stats.voided > 0 ? (
-              <StatRow label="Voided jobs" value={String(stats.voided)} last />
-            ) : null}
-          </View>
-
-          <Text style={styles.sectionLabel}>How money came in</Text>
-          {stats.revenue === 0 ? (
-            <Text style={styles.emptyInline}>No payments collected in this period.</Text>
-          ) : (
-            <View style={styles.payBlock}>
-              <PayLine label="Cash" amount={stats.cash} total={stats.revenue} color={colors.teal} />
-              <PayLine label="UPI" amount={stats.upi} total={stats.revenue} color={colors.water} />
-              {stats.other > 0 ? (
-                <PayLine label="Other" amount={stats.other} total={stats.revenue} color={colors.slate} />
-              ) : null}
+            {/* How money came in */}
+            <View style={[styles.card]}>
+              <View style={styles.cardHeadRow}>
+                <Text style={styles.cardTitle}>How money came in</Text>
+                <Text style={styles.cardMeta}>{formatRupees(stats.revenue)}</Text>
+              </View>
+              {stats.revenue === 0 ? (
+                <Text style={styles.emptyInline}>No payments collected in this period.</Text>
+              ) : (
+                <>
+                  <View style={styles.stackBar}>
+                    {(['cash', 'upi', 'other'] as const).map((k) =>
+                      stats[k] > 0 ? (
+                        <View key={k} style={{ flex: stats[k], backgroundColor: PAY_COLORS[k] }} />
+                      ) : null,
+                    )}
+                  </View>
+                  <PayRow label="Cash" amount={stats.cash} total={stats.revenue} color={PAY_COLORS.cash} />
+                  <PayRow label="UPI" amount={stats.upi} total={stats.revenue} color={PAY_COLORS.upi} />
+                  {stats.other > 0 ? (
+                    <PayRow label="Other" amount={stats.other} total={stats.revenue} color={PAY_COLORS.other} />
+                  ) : null}
+                </>
+              )}
             </View>
-          )}
 
-          <Pressable
-            onPress={() => void onExport()}
-            disabled={exporting}
-            style={({ pressed }) => [styles.exportFull, pressed && styles.pressed]}
-          >
-            {exporting ? (
-              <ActivityIndicator color={colors.white} />
-            ) : (
-              <>
-                <IconDownload size={18} color={colors.white} />
-                <Text style={styles.exportFullLabel}>Export PDF</Text>
-              </>
-            )}
-          </Pressable>
-          <Text style={styles.exportHint}>
-            Summary, payment split, and every job in the selected period.
-          </Text>
-        </ScrollView>
-      ) : loading ? (
-        <View style={styles.centerFill}>
-          <ActivityIndicator color={colors.water} size="large" />
+            {/* Profit breakdown */}
+            <View style={[styles.card]}>
+              <Text style={styles.cardTitle}>Profit</Text>
+              <View>
+                <LineRow label="Revenue" hint="Collected from paid washes" value={formatRupees(stats.revenue)} />
+                <LineRow
+                  label="Expenses"
+                  hint="Tap to see every entry"
+                  value={`− ${formatRupees(stats.expenses)}`}
+                  valueStyle={styles.minus}
+                  onPress={() => navigation.navigate('Expenses')}
+                  last
+                />
+              </View>
+              <View style={[styles.netRow, stats.net < 0 && styles.netRowNegative]}>
+                <View style={styles.flex}>
+                  <Text style={styles.netLabel}>Net</Text>
+                  <Text style={styles.netHint}>Revenue minus expenses</Text>
+                </View>
+                <Text style={[styles.netValue, stats.net < 0 && styles.minus]}>{formatRupees(stats.net)}</Text>
+              </View>
+            </View>
+
+            {/* Other details */}
+            <View style={[styles.card]}>
+              <Text style={styles.cardTitle}>More details</Text>
+              <View>
+                <DetailRow
+                  icon={<IconReceipt size={16} color={colors.waterDeep} />}
+                  tint={colors.waterPale}
+                  label="Average per vehicle"
+                  value={stats.carsWashed > 0 ? formatRupees(avgTicket) : '—'}
+                />
+                <DetailRow
+                  icon={<IconTag size={16} color={colors.amberDeep} />}
+                  tint="#FEF3C7"
+                  label="Discounts given"
+                  value={stats.discounts > 0 ? formatRupees(stats.discounts) : '—'}
+                />
+                <DetailRow
+                  icon={<IconBan size={16} color={colors.slateDeep} />}
+                  tint="#F1F5F9"
+                  label="Cancelled jobs"
+                  value={String(stats.voided)}
+                  last
+                />
+              </View>
+            </View>
+
+            {/* Export */}
+            <View style={[styles.card]}>
+              <View style={styles.exportHead}>
+                <View style={[styles.emptyIcon, styles.exportIcon]}>
+                  <IconDownload size={20} color={colors.white} />
+                </View>
+                <View style={styles.flex}>
+                  <Text style={styles.cardTitle}>Share a PDF report</Text>
+                  <Text style={styles.exportHint}>Summary, payment split and every job in this period.</Text>
+                </View>
+              </View>
+              <Pressable
+                onPress={() => void onExport()}
+                disabled={exporting}
+                style={({ pressed }) => [styles.exportFull, pressed && styles.pressed]}
+              >
+                {exporting ? (
+                  <ActivityIndicator color={colors.white} />
+                ) : (
+                  <Text style={styles.exportFullLabel}>Export PDF</Text>
+                )}
+              </Pressable>
+            </View>
+          </>
+        ) : loading ? (
+          <ActivityIndicator color={colors.water} size="large" style={styles.loader} />
+        ) : (
+          <View style={[styles.card, styles.emptyCard]}>
+            <View style={[styles.emptyIcon, { backgroundColor: colors.waterPale }]}>
+              <IconCalendar size={22} color={colors.waterDeep} />
+            </View>
+            <Text style={styles.emptyTitle}>{range === 'custom' ? 'Pick your dates' : 'No data yet'}</Text>
+            <Text style={styles.emptyText}>
+              {range === 'custom'
+                ? 'Enter From and To above, then tap Show report.'
+                : 'Numbers appear here once washes are paid.'}
+            </Text>
+          </View>
+        )}
+      </ScrollView>
+
+      <BottomSheet visible={periodOpen} onClose={() => setPeriodOpen(false)} title="Choose period">
+        <View style={styles.sheetList}>
+          {PERIODS.map((p, i) => {
+            const on = range === p.key;
+            return (
+              <Pressable
+                key={p.key}
+                onPress={() => selectPeriod(p.key)}
+                style={({ pressed }) => [
+                  styles.sheetRow,
+                  i > 0 && styles.sheetDivider,
+                  on && styles.sheetRowOn,
+                  pressed && styles.pressed,
+                ]}
+                accessibilityRole="button"
+                accessibilityState={{ selected: on }}
+              >
+                <View style={styles.flex}>
+                  <Text style={[styles.sheetRowLabel, on && styles.sheetRowLabelOn]}>{p.label}</Text>
+                  <Text style={styles.sheetRowHint}>{p.hint}</Text>
+                </View>
+                <View style={[styles.radio, on && styles.radioOn]}>
+                  {on ? <IconCheck size={12} color={colors.white} /> : null}
+                </View>
+              </Pressable>
+            );
+          })}
         </View>
-      ) : (
-        <View style={styles.centerFill}>
-          <Text style={styles.errorBody}>
-            {range === 'custom' ? 'Apply a date range to see numbers.' : 'No data yet.'}
-          </Text>
-        </View>
-      )}
+      </BottomSheet>
     </ScreenContainer>
   );
 }
 
-function StatRow({
+function StatTile({
+  icon,
+  tint,
+  value,
+  label,
+  hint,
+  index,
+}: {
+  icon: React.ReactNode;
+  tint: string;
+  value: string;
+  label: string;
+  hint?: string;
+  /** Position in the 2-column grid, for the hairline dividers. */
+  index: number;
+}) {
+  return (
+    <View style={[styles.tile, index % 2 === 1 && styles.tileRight, index >= 2 && styles.tileBottom]}>
+      <View style={[styles.tileIcon, { backgroundColor: tint }]}>{icon}</View>
+      <Text style={styles.tileValue}>{value}</Text>
+      <Text style={styles.tileLabel}>{label}</Text>
+      {hint ? <Text style={styles.tileHint}>{hint}</Text> : null}
+    </View>
+  );
+}
+
+function PayRow({ label, amount, total, color }: { label: string; amount: number; total: number; color: string }) {
+  return (
+    <View style={styles.payRow}>
+      <View style={[styles.payDot, { backgroundColor: color }]} />
+      <Text style={styles.payLabel}>{label}</Text>
+      <Text style={styles.payPct}>{pct(amount, total)}%</Text>
+      <Text style={styles.payAmount}>{formatRupees(amount)}</Text>
+    </View>
+  );
+}
+
+function LineRow({
   label,
   hint,
   value,
+  valueStyle,
+  onPress,
   last,
 }: {
   label: string;
   hint?: string;
   value: string;
+  valueStyle?: object;
+  onPress?: () => void;
   last?: boolean;
 }) {
-  return (
-    <View style={[styles.statRow, !last && styles.rowDivider]}>
-      <View style={styles.statCopy}>
-        <Text style={styles.statLabel}>{label}</Text>
-        {hint ? <Text style={styles.statHint}>{hint}</Text> : null}
+  const body = (
+    <>
+      <View style={styles.flex}>
+        <Text style={styles.lineLabel}>{label}</Text>
+        {hint ? <Text style={styles.lineHint}>{hint}</Text> : null}
       </View>
-      <Text style={styles.statValue}>{value}</Text>
-    </View>
+      <Text style={[styles.lineValue, valueStyle]}>{value}</Text>
+      {onPress ? <IconChevronRight size={16} color={colors.slate} /> : null}
+    </>
+  );
+  return onPress ? (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.lineRow, !last && styles.lineDivider, pressed && styles.pressed]}
+      accessibilityRole="button"
+    >
+      {body}
+    </Pressable>
+  ) : (
+    <View style={[styles.lineRow, !last && styles.lineDivider]}>{body}</View>
   );
 }
 
-function PayLine({
+function DetailRow({
+  icon,
+  tint,
   label,
-  amount,
-  total,
-  color,
+  value,
+  last,
 }: {
+  icon: React.ReactNode;
+  tint: string;
   label: string;
-  amount: number;
-  total: number;
-  color: string;
+  value: string;
+  last?: boolean;
 }) {
-  const widthPct = total > 0 ? Math.max(3, (amount / total) * 100) : 0;
   return (
-    <View style={styles.payLine}>
-      <View style={styles.payHeader}>
-        <Text style={styles.payLabel}>{label}</Text>
-        <Text style={styles.payMeta}>
-          {formatRupees(amount)} · {pct(amount, total)}%
-        </Text>
-      </View>
-      <View style={styles.payTrack}>
-        <View style={[styles.payFill, { width: `${widthPct}%`, backgroundColor: color }]} />
-      </View>
+    <View style={[styles.lineRow, !last && styles.lineDivider]}>
+      <View style={[styles.detailIcon, { backgroundColor: tint }]}>{icon}</View>
+      <Text style={[styles.lineLabel, styles.flex]}>{label}</Text>
+      <Text style={styles.lineValue}>{value}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  netRow: { backgroundColor: colors.surface },
-  netLabel: { ...typography.bodyStrong, color: colors.waterInk, fontSize: 17 },
-  netValue: { ...typography.heading, color: colors.teal, fontSize: 22 },
-  netNegative: { color: colors.danger },
-  discountNote: {
-    ...typography.caption,
-    color: colors.slate,
+  pressed: { opacity: 0.75 },
+  disabled: { opacity: 0.45 },
+  headerPad: { paddingHorizontal: spacing.md },
+  scroll: { paddingTop: spacing.xs, paddingBottom: spacing.xxl, gap: spacing.md },
+  loader: { marginTop: spacing.xxl },
+  exportPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    height: 34,
+    minWidth: 64,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderRadius: radius.pill,
+    backgroundColor: colors.waterPale,
+  },
+  exportPillText: { ...typography.label, fontSize: 13, color: colors.waterDeep, fontWeight: '700' },
+  period: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm + 4,
     paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
-    letterSpacing: 0,
+    paddingVertical: spacing.sm + 4,
+    backgroundColor: colors.white,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
   },
-  hero: {
-    paddingBottom: spacing.md,
+  periodIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    backgroundColor: colors.waterPale,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  heroTop: {
+  periodLabel: { ...typography.bodyStrong, fontSize: 16, color: colors.waterInk, fontWeight: '700' },
+  periodHint: { ...typography.caption, fontSize: 12.5, color: colors.slateDeep, letterSpacing: 0, marginTop: 1 },
+  periodChevron: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  card: {
+    backgroundColor: colors.white,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    gap: spacing.md,
+  },
+  overline: { ...typography.caption, fontSize: 11, color: colors.slate, fontWeight: '800', letterSpacing: 1 },
+  cardHeadRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
+  cardTitle: { ...typography.heading, fontSize: 18, color: colors.waterInk, letterSpacing: -0.2 },
+  cardMeta: { ...typography.label, fontSize: 14, color: colors.slateDeep },
+  customFields: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm },
+  customField: { flex: 1, gap: 6 },
+  customLabel: { ...typography.caption, fontSize: 12, color: colors.slateDeep, fontWeight: '700', letterSpacing: 0 },
+  customInput: {
+    height: 46,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.sm + 4,
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.waterInk,
+  },
+  customArrow: { ...typography.bodyStrong, color: colors.slate, paddingBottom: 12 },
+  applyBtn: {
+    height: 46,
+    borderRadius: radius.pill,
+    backgroundColor: colors.waterInk,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  applyBtnText: { ...typography.bodyStrong, fontSize: 15, color: colors.white, fontWeight: '700' },
+  errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
     paddingHorizontal: spacing.md,
-    marginBottom: spacing.md,
+    paddingVertical: spacing.sm + 4,
+    backgroundColor: '#FEF2F2',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: '#FECACA',
   },
-  iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
-    alignItems: 'center',
+  errorBannerText: { ...typography.label, fontSize: 13, color: colors.danger, flex: 1 },
+  retryPill: {
+    paddingHorizontal: 12,
+    height: 30,
+    borderRadius: radius.pill,
+    backgroundColor: colors.danger,
     justifyContent: 'center',
   },
-  heroCopy: { flex: 1, gap: 1 },
-  heroEyebrow: {
-    ...typography.caption,
-    color: 'rgba(255,255,255,0.7)',
-    letterSpacing: 1.6,
-    fontSize: 10,
-  },
-  heroTitle: {
-    ...typography.heading,
-    color: colors.white,
-    fontSize: 22,
-  },
-  exportBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    height: 36,
-    borderRadius: radius.pill,
-    backgroundColor: 'rgba(8,47,73,0.35)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
-  },
-  exportBtnDisabled: { opacity: 0.45 },
-  exportLabel: {
-    ...typography.label,
-    color: colors.white,
-    fontSize: 12,
-  },
-  controlPad: {
+  retryText: { ...typography.caption, fontSize: 12.5, color: colors.white, fontWeight: '700', letterSpacing: 0 },
+  hero: {
     paddingHorizontal: spacing.md,
-    marginBottom: spacing.md,
-    gap: 6,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.md + 4,
+    overflow: 'hidden',
   },
-  controlLabel: {
+  orbLarge: {
+    position: 'absolute',
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    top: -80,
+    right: -60,
+  },
+  orbSmall: {
+    position: 'absolute',
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(94,234,212,0.18)',
+    bottom: -40,
+    left: -30,
+  },
+  heroTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  heroEyebrow: { ...typography.label, fontSize: 14, color: 'rgba(255,255,255,0.88)' },
+  heroValue: { ...typography.display, fontSize: 44, color: colors.white, letterSpacing: -1, marginTop: 2 },
+  heroMeta: { ...typography.label, fontSize: 13.5, color: 'rgba(255,255,255,0.9)' },
+  heroSplit: {
+    flexDirection: 'row',
+    marginTop: spacing.md + 4,
+    paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.45)',
+  },
+  heroTile: { flex: 1, gap: 2 },
+  heroTileStrong: {
+    paddingLeft: spacing.md,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: 'rgba(255,255,255,0.45)',
+  },
+  heroTileLabel: { ...typography.caption, fontSize: 12, color: 'rgba(255,255,255,0.85)', fontWeight: '700', letterSpacing: 0 },
+  heroTileLabelStrong: {},
+  heroTileValue: { ...typography.heading, fontSize: 21, color: colors.white },
+  heroTileValueStrong: { fontSize: 21 },
+  negative: { color: '#FECACA' },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    backgroundColor: colors.white,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  tile: {
+    width: '50%',
+    padding: spacing.md,
+    gap: 2,
+    borderColor: colors.border,
+  },
+  tileRight: { borderLeftWidth: StyleSheet.hairlineWidth },
+  tileBottom: { borderTopWidth: StyleSheet.hairlineWidth },
+  tileIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.sm,
+  },
+  tileValue: { ...typography.title, fontSize: 28, color: colors.waterInk, letterSpacing: -0.5 },
+  tileLabel: { ...typography.bodyStrong, fontSize: 14, color: colors.waterInk },
+  tileHint: { ...typography.caption, fontSize: 12, color: colors.slate, letterSpacing: 0 },
+  stackBar: {
+    flexDirection: 'row',
+    height: 12,
+    borderRadius: radius.pill,
+    overflow: 'hidden',
+    backgroundColor: colors.surface,
+    gap: 2,
+  },
+  payRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm + 2 },
+  payDot: { width: 10, height: 10, borderRadius: 5 },
+  payLabel: { ...typography.bodyStrong, fontSize: 15, color: colors.waterInk, flex: 1 },
+  payPct: {
     ...typography.caption,
-    color: 'rgba(255,255,255,0.75)',
-    letterSpacing: 0.4,
-    fontSize: 11,
+    fontSize: 12,
+    color: colors.slateDeep,
+    fontWeight: '700',
+    letterSpacing: 0,
+    backgroundColor: colors.surface,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
+    overflow: 'hidden',
   },
-  dropdown: {
+  payAmount: { ...typography.bodyStrong, fontSize: 15, color: colors.waterInk, fontWeight: '700', minWidth: 72, textAlign: 'right' },
+  emptyInline: { ...typography.body, fontSize: 14, color: colors.slateDeep },
+  lineRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm + 2, paddingVertical: spacing.sm + 4 },
+  lineDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  lineLabel: { ...typography.bodyStrong, fontSize: 15, color: colors.waterInk },
+  lineHint: { ...typography.caption, fontSize: 12, color: colors.slate, letterSpacing: 0, marginTop: 1 },
+  lineValue: { ...typography.bodyStrong, fontSize: 16, color: colors.waterInk, fontWeight: '700' },
+  minus: { color: colors.danger },
+  netRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    backgroundColor: 'rgba(255,255,255,0.16)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.32)',
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 12,
+    marginTop: -spacing.md,
+    paddingTop: spacing.sm + 4,
+    borderTopWidth: 1.5,
+    borderTopColor: colors.waterInk,
   },
-  dropdownCopy: {
-    flex: 1,
-    gap: 2,
-  },
-  dropdownValue: {
-    ...typography.bodyStrong,
-    color: colors.white,
-    fontSize: 16,
-  },
-  dropdownHint: {
-    ...typography.caption,
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 11,
-  },
-  customBox: {
-    paddingHorizontal: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  customFields: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 8,
-  },
-  customField: {
-    flex: 1,
-    gap: 4,
-  },
-  customLabel: {
-    ...typography.caption,
-    color: 'rgba(255,255,255,0.75)',
-    fontSize: 10,
-  },
-  customInput: {
-    backgroundColor: 'rgba(255,255,255,0.16)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
-    borderRadius: radius.sm,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    color: colors.white,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  applyBtn: {
-    backgroundColor: colors.white,
-    borderRadius: radius.sm,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  applyBtnText: {
-    ...typography.label,
-    color: colors.waterInk,
-    fontSize: 13,
-  },
-  heroStats: {
-    paddingHorizontal: spacing.md,
-    minHeight: 72,
+  netRowNegative: { borderTopColor: colors.danger },
+  netLabel: { ...typography.bodyStrong, fontSize: 16, color: colors.waterInk, fontWeight: '700' },
+  netHint: { ...typography.caption, fontSize: 12, color: colors.slateDeep, letterSpacing: 0 },
+  netValue: { ...typography.heading, fontSize: 22, color: colors.teal },
+  detailIcon: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  exportHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm + 4 },
+  exportIcon: { backgroundColor: colors.waterDeep, marginBottom: 0 },
+  exportHint: { ...typography.caption, fontSize: 13, lineHeight: 18, color: colors.slateDeep, letterSpacing: 0, marginTop: 2 },
+  exportFull: {
+    height: 50,
+    borderRadius: radius.pill,
+    backgroundColor: colors.waterDeep,
+    alignItems: 'center',
     justifyContent: 'center',
   },
-  revenueEyebrow: {
-    ...typography.caption,
-    color: 'rgba(255,255,255,0.75)',
-    marginBottom: 2,
+  exportFullLabel: { ...typography.bodyStrong, fontSize: 15, color: colors.white, fontWeight: '700' },
+  emptyCard: { alignItems: 'center', paddingVertical: spacing.xl, gap: spacing.sm },
+  emptyIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.xs,
   },
-  revenueValue: {
-    ...typography.display,
-    color: colors.white,
-    fontSize: 34,
-    letterSpacing: -0.8,
-  },
-  revenueMeta: {
-    ...typography.caption,
-    color: 'rgba(255,255,255,0.85)',
-    marginTop: 4,
-    fontSize: 12,
-  },
-  sheetBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(8,47,73,0.45)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: colors.white,
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.xl,
-    paddingHorizontal: spacing.md,
-    ...shadow('lg'),
-  },
-  sheetTitle: {
-    ...typography.heading,
-    color: colors.waterInk,
-    marginBottom: spacing.sm,
-    fontSize: 18,
+  emptyTitle: { ...typography.heading, fontSize: 18, color: colors.waterInk },
+  emptyText: { ...typography.body, fontSize: 14, color: colors.slateDeep, textAlign: 'center' },
+  sheetList: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
   },
   sheetRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
     gap: spacing.md,
-  },
-  sheetRowOn: {
-    backgroundColor: colors.waterPale,
-    marginHorizontal: -spacing.md,
-    paddingHorizontal: spacing.md,
-  },
-  sheetRowCopy: {
-    flex: 1,
-    gap: 2,
-  },
-  sheetRowLabel: {
-    ...typography.bodyStrong,
-    color: colors.waterInk,
-    fontSize: 16,
-  },
-  sheetRowLabelOn: {
-    color: colors.waterDeep,
-  },
-  sheetRowHint: {
-    ...typography.caption,
-    color: colors.slateDeep,
-  },
-  sheetCheck: {
-    ...typography.heading,
-    color: colors.water,
-    fontSize: 18,
-  },
-  errorBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#FEF2F2',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#FECACA',
-    gap: spacing.sm,
-  },
-  errorBannerText: {
-    ...typography.caption,
-    color: colors.danger,
-    flex: 1,
-  },
-  errorRetry: {
-    ...typography.label,
-    color: colors.danger,
-  },
-  body: {
-    paddingBottom: spacing.xl,
-  },
-  sectionLabel: {
-    ...typography.label,
-    color: colors.slateDeep,
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    paddingHorizontal: spacing.md,
-    marginTop: spacing.md,
-    marginBottom: spacing.sm,
-    fontSize: 11,
-  },
-  list: {
-    backgroundColor: colors.white,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    marginBottom: spacing.sm,
-  },
-  statRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.md,
-    paddingVertical: 14,
-    gap: spacing.md,
-  },
-  rowDivider: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  statCopy: {
-    flex: 1,
-    gap: 2,
-  },
-  statLabel: {
-    ...typography.bodyStrong,
-    color: colors.waterInk,
-    fontSize: 15,
-  },
-  statHint: {
-    ...typography.caption,
-    color: colors.slate,
-    fontSize: 11,
-  },
-  statValue: {
-    ...typography.heading,
-    color: colors.waterDeep,
-    fontSize: 20,
-  },
-  emptyInline: {
-    ...typography.body,
-    color: colors.slateDeep,
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.md,
-  },
-  payBlock: {
-    backgroundColor: colors.white,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
-    gap: spacing.md,
+    backgroundColor: colors.white,
   },
-  payLine: { gap: 6 },
-  payHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  payLabel: {
-    ...typography.bodyStrong,
-    color: colors.waterInk,
-    fontSize: 14,
-  },
-  payMeta: {
-    ...typography.caption,
-    color: colors.slateDeep,
-  },
-  payTrack: {
-    height: 5,
-    borderRadius: radius.pill,
-    backgroundColor: colors.surface,
-    overflow: 'hidden',
-  },
-  payFill: {
-    height: '100%',
-    borderRadius: radius.pill,
-  },
-  exportFull: {
-    marginTop: spacing.lg,
-    marginHorizontal: spacing.md,
-    height: 50,
-    borderRadius: radius.md,
-    backgroundColor: colors.waterDeep,
-    flexDirection: 'row',
+  sheetDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  sheetRowOn: { backgroundColor: colors.waterPale },
+  sheetRowLabel: { ...typography.bodyStrong, fontSize: 16, color: colors.waterInk },
+  sheetRowLabelOn: { color: colors.waterDeep, fontWeight: '700' },
+  sheetRowHint: { ...typography.caption, fontSize: 12.5, color: colors.slateDeep, letterSpacing: 0, marginTop: 1 },
+  radio: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
   },
-  exportFullLabel: {
-    ...typography.bodyStrong,
-    color: colors.white,
-    fontSize: 15,
-  },
-  exportHint: {
-    ...typography.caption,
-    color: colors.slate,
-    textAlign: 'center',
-    marginTop: spacing.sm,
-    paddingHorizontal: spacing.lg,
-  },
-  centerFill: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    padding: spacing.lg,
-  },
-  errorTitle: {
-    ...typography.heading,
-    color: colors.waterInk,
-  },
-  errorBody: {
-    ...typography.body,
-    color: colors.slateDeep,
-    textAlign: 'center',
-  },
-  pressed: { opacity: 0.85 },
+  radioOn: { backgroundColor: colors.water, borderColor: colors.water },
 });

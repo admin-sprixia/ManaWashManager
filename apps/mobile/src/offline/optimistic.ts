@@ -29,16 +29,23 @@ export function applyOutbox(jobs: BoardJob[], items: OutboxItem[]): BoardJob[] {
           registrationNumber: op.payload.registrationNumber,
           vehicleType: { name: op.meta.vehicleTypeName, category: op.meta.vehicleCategory },
         },
-        jobServices: op.meta.services.map((s) => ({ quantity: 1, priceAtTime: s.price, service: { name: s.name } })),
+        jobServices: op.meta.services.map((s) => ({
+          quantity: 1,
+          priceAtTime: s.price,
+          commissionAtTime: s.commission ?? 0,
+          service: { name: s.name },
+        })),
         createdBy: { id: item.userId, name: item.userName },
         paidBy: null,
+        sellers: op.meta.sellers?.map((user) => ({ user })),
         syncState: flag,
       });
       order.unshift(op.payload.id);
       continue;
     }
 
-    if (op.kind === 'expense.create') continue;
+    // Photos don't change the row; Job Detail shows their own upload state.
+    if (op.kind === 'expense.create' || op.kind === 'photo.upload' || op.kind === 'stock.move') continue;
     const job = byId.get(op.payload.jobId);
     if (!job) continue;
     if (item.state === 'failed') {
@@ -46,7 +53,12 @@ export function applyOutbox(jobs: BoardJob[], items: OutboxItem[]): BoardJob[] {
       continue;
     }
 
-    if (op.kind === 'job.status') job.status = op.payload.status;
+    if (op.kind === 'job.status') {
+      job.status = op.payload.status;
+      if (op.meta) job.washers = op.meta.washers.map((user) => ({ user }));
+    }
+    if (op.kind === 'job.washers') job.washers = op.meta.washers.map((user) => ({ user }));
+    if (op.kind === 'job.sellers') job.sellers = op.meta.sellers.map((user) => ({ user }));
     if (op.kind === 'job.pay') {
       job.status = 'paid';
       job.paymentMethod = op.payload.paymentMethod;

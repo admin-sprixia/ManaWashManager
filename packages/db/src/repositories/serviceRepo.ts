@@ -2,18 +2,33 @@ import type { DbClient } from '../client';
 import type { ServiceAppliesTo, VehicleCategory } from '@mana/domain';
 
 export const serviceRepo = {
+  /** Active services; `includes` lists the services a combo bundles (empty for a plain service). */
   async listActive(db: DbClient, category?: VehicleCategory) {
-    const services = await db.service.findMany({
+    const rows = await db.service.findMany({
       where: { active: true },
       orderBy: { sortOrder: 'asc' },
+      include: { comboItems: { select: { serviceId: true } } },
     });
+    const services = rows.map(({ comboItems, ...s }) => ({ ...s, includes: comboItems.map((i) => i.serviceId) }));
     if (!category) return services;
     return services.filter((s) => s.appliesTo === 'both' || s.appliesTo === category);
   },
 
+  /** Sets what a combo bundles. An empty list turns it back into a plain service. */
+  async setComboItems(db: DbClient, comboId: string, serviceIds: string[]) {
+    await db.serviceComboItem.deleteMany({ where: { comboId } });
+    for (const serviceId of serviceIds) {
+      await db.serviceComboItem.create({ data: { comboId, serviceId } });
+    }
+  },
+
+  async updateService(db: DbClient, id: string, data: { name?: string; description?: string | null }) {
+    await db.service.updateMany({ where: { id }, data });
+  },
+
   async listVehicleTypes(db: DbClient, category?: VehicleCategory) {
     return db.vehicleType.findMany({
-      where: category ? { category } : undefined,
+      where: category ? { category, active: true } : { active: true },
       orderBy: { sortOrder: 'asc' },
     });
   },
@@ -50,6 +65,30 @@ export const serviceRepo = {
     });
   },
 
+  /** Staff commission rates — the full matrix, or one vehicle type's column when pricing a job. */
+  async listCommissionRates(db: DbClient, vehicleTypeId?: string) {
+    return db.commissionRate.findMany({
+      where: vehicleTypeId ? { vehicleTypeId } : undefined,
+    });
+  },
+
+  /** Owner settings: set a rate, or clear it with `null` (no commission for that combination). */
+  async setCommissionRate(
+    db: DbClient,
+    data: { serviceId: string; vehicleTypeId: string; amount: number | null },
+  ) {
+    const key = { serviceId: data.serviceId, vehicleTypeId: data.vehicleTypeId };
+    if (data.amount == null) {
+      await db.commissionRate.deleteMany({ where: key });
+      return null;
+    }
+    return db.commissionRate.upsert({
+      where: { serviceId_vehicleTypeId: key },
+      update: { amount: data.amount },
+      create: { ...key, amount: data.amount },
+    });
+  },
+
   /** Owner settings screen: add a new service — no code change, no deploy. */
   async createService(
     db: DbClient,
@@ -66,15 +105,52 @@ export const serviceRepo = {
     });
   },
 
+  /** A service is offered for a vehicle only where it has a price; this withdraws one vehicle. */
+  async removePrice(db: DbClient, key: { serviceId: string; vehicleTypeId: string }) {
+    await db.servicePrice.deleteMany({ where: key });
+    await db.commissionRate.deleteMany({ where: key });
+  },
+
+  async setServiceAppliesTo(db: DbClient, id: string, appliesTo: ServiceAppliesTo) {
+    await db.service.updateMany({ where: { id }, data: { appliesTo } });
+  },
+
+  /** Owner settings: take a service off the menu. Hidden, not deleted, so past jobs keep their lines. */
+  async deactivateService(db: DbClient, id: string): Promise<boolean> {
+    const { count } = await db.service.updateMany({ where: { id, active: true }, data: { active: false } });
+    return count > 0;
+  },
+
   /** Owner settings screen: add a new vehicle size within a category (e.g. Bike → Scooter). */
+  /** Selecting a size the owner deselected earlier brings it back with its old prices. */
   async createVehicleType(db: DbClient, data: { name: string; category?: VehicleCategory }) {
+    const category = data.category ?? 'car';
+    const hidden = await db.vehicleType.findFirst({ where: { name: data.name, category, active: false } });
+    if (hidden) return db.vehicleType.update({ where: { id: hidden.id }, data: { active: true } });
     const count = await db.vehicleType.count();
     return db.vehicleType.create({
       data: {
         name: data.name,
-        category: data.category ?? 'car',
+        category,
         sortOrder: count,
       },
     });
+  },
+
+  /**
+   * Owner settings: deselect a vehicle size. Hidden when customers' vehicles use it, so their
+   * history and saved size stay intact; deleted outright (with prices) when nothing does.
+   */
+  async removeVehicleType(db: DbClient, id: string): Promise<'deleted' | 'hidden' | 'not_found'> {
+    const vehicleType = await db.vehicleType.findUnique({ where: { id } });
+    if (!vehicleType || !vehicleType.active) return 'not_found';
+    if ((await db.vehicle.count({ where: { vehicleTypeId: id } })) > 0) {
+      await db.vehicleType.update({ where: { id }, data: { active: false } });
+      return 'hidden';
+    }
+    await db.servicePrice.deleteMany({ where: { vehicleTypeId: id } });
+    await db.commissionRate.deleteMany({ where: { vehicleTypeId: id } });
+    await db.vehicleType.delete({ where: { id } });
+    return 'deleted';
   },
 };

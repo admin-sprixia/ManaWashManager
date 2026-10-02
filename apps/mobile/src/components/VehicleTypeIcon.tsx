@@ -10,33 +10,12 @@ import {
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { colors, radius, spacing, typography } from '../theme';
+import { catalogVehicleFor, VEHICLE_CATALOG } from '../config/vehicleCatalog';
 
-type Kind = 'bike' | 'scooter' | 'hatch' | 'sedan' | 'suvMini' | 'suvLarge' | 'generic';
-
-const IMAGES: Record<Kind, ImageSourcePropType> = {
-  hatch: require('../assets/vehicles/vehicle-hatchback.png'),
-  sedan: require('../assets/vehicles/vehicle-sedan.png'),
-  suvMini: require('../assets/vehicles/vehicle-suv-mini.png'),
-  suvLarge: require('../assets/vehicles/vehicle-suv-large.png'),
-  bike: require('../assets/vehicles/vehicle-bike.png'),
-  scooter: require('../assets/vehicles/vehicle-scooter.png'),
-  generic: require('../assets/vehicles/vehicle-sedan.png'),
-};
-
-export function resolveVehicleKind(name: string): Kind {
-  const n = name.toLowerCase();
-  if (/scoot|activa|moped|step[- ]?through/.test(n)) return 'scooter';
-  if (n.includes('bike') || n.includes('two')) return 'bike';
-  if (n.includes('large') && (n.includes('suv') || n.includes('xuv'))) return 'suvLarge';
-  if (n.includes('mini') && n.includes('suv')) return 'suvMini';
-  if (n.includes('suv') || n.includes('xuv') || n.includes('muv')) return 'suvLarge';
-  if (n.includes('sedan')) return 'sedan';
-  if (n.includes('hatch')) return 'hatch';
-  return 'generic';
-}
+const FALLBACK_IMAGE = VEHICLE_CATALOG.find((v) => v.key === 'sedan')!.image;
 
 export function vehicleImageFor(name: string): ImageSourcePropType {
-  return IMAGES[resolveVehicleKind(name)];
+  return catalogVehicleFor(name)?.image ?? FALLBACK_IMAGE;
 }
 
 /** @deprecated Prefer VehicleTypeCard */

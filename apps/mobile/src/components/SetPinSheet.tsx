@@ -12,13 +12,25 @@ interface SetPinSheetProps {
   /** Whose PIN this is — shown under the title. */
   subtitle: string;
   onClose: () => void;
-  /** Resolve with an error message to stay open, or null on success. */
-  onSubmit: (pin: string) => Promise<string | null>;
+  /** Ask for the current PIN first (changing your own PIN). */
+  askCurrent?: boolean;
+  /**
+   * Resolve with an error message to stay open, or null on success. Return
+   * `{ currentPinError }` when the server rejected the current PIN, to go back to that step.
+   */
+  onSubmit: (pin: string, currentPin?: string) => Promise<string | null | { currentPinError: string }>;
 }
 
-/** Choose → confirm a 4–6 digit PIN. Weak PINs (1234, 0000) are caught before any request. */
-export function SetPinSheet({ visible, title, subtitle, onClose, onSubmit }: SetPinSheetProps) {
-  const [step, setStep] = useState<'choose' | 'confirm'>('choose');
+type Step = 'current' | 'choose' | 'confirm';
+
+/**
+ * (Current →) choose → confirm a 4–6 digit PIN. Weak PINs (1234, 0000) are caught before any
+ * request.
+ */
+export function SetPinSheet({ visible, title, subtitle, onClose, askCurrent, onSubmit }: SetPinSheetProps) {
+  const firstStep: Step = askCurrent ? 'current' : 'choose';
+  const [step, setStep] = useState<Step>(firstStep);
+  const [current, setCurrent] = useState('');
   const [first, setFirst] = useState('');
   const [value, setValue] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -27,12 +39,13 @@ export function SetPinSheet({ visible, title, subtitle, onClose, onSubmit }: Set
 
   useEffect(() => {
     if (!visible) return;
-    setStep('choose');
+    setStep(firstStep);
+    setCurrent('');
     setFirst('');
     setValue('');
     setError(null);
     setBusy(false);
-  }, [visible]);
+  }, [visible, firstStep]);
 
   const fail = (message: string) => {
     setError(message);
@@ -40,6 +53,13 @@ export function SetPinSheet({ visible, title, subtitle, onClose, onSubmit }: Set
   };
 
   const next = async () => {
+    if (step === 'current') {
+      setCurrent(value);
+      setValue('');
+      setError(null);
+      setStep('choose');
+      return;
+    }
     if (step === 'choose') {
       const problem = checkPin(value);
       if (problem) return fail(pinProblemMessage(problem));
@@ -56,10 +76,25 @@ export function SetPinSheet({ visible, title, subtitle, onClose, onSubmit }: Set
       return fail('PINs didn’t match. Start again.');
     }
     setBusy(true);
-    const message = await onSubmit(value);
+    const result = await onSubmit(value, askCurrent ? current : undefined);
     setBusy(false);
-    if (message) fail(message);
+    if (result && typeof result === 'object') {
+      setValue('');
+      setFirst('');
+      setCurrent('');
+      setStep('current');
+      fail(result.currentPinError);
+    } else if (result) {
+      fail(result);
+    }
   };
+
+  const heading =
+    step === 'current'
+      ? 'Enter your current PIN'
+      : step === 'choose'
+        ? `Choose a ${askCurrent ? 'new ' : ''}4–6 digit PIN`
+        : 'Enter the same PIN again';
 
   return (
     <BottomSheet
@@ -70,7 +105,7 @@ export function SetPinSheet({ visible, title, subtitle, onClose, onSubmit }: Set
       subtitle={subtitle}
       footer={
         <Button
-          label={step === 'choose' ? 'Next' : 'Save PIN'}
+          label={step === 'confirm' ? 'Save PIN' : 'Next'}
           size="lg"
           loading={busy}
           disabled={value.length < 4}
@@ -78,12 +113,13 @@ export function SetPinSheet({ visible, title, subtitle, onClose, onSubmit }: Set
         />
       }
     >
-      <Text style={styles.step}>
-        {step === 'choose' ? 'Choose a 4–6 digit PIN' : 'Enter the same PIN again'}
-      </Text>
+      <Text style={styles.step}>{heading}</Text>
       <PinPad value={value} onChange={setValue} errorKey={errorKey} disabled={busy} />
       <Text style={[styles.hint, error ? styles.error : null]}>
-        {error ?? 'Avoid easy ones like 1234 or 0000.'}
+        {error ??
+          (step === 'current'
+            ? 'The PIN you sign in with today.'
+            : 'Avoid easy ones like 1234 or 0000.')}
       </Text>
     </BottomSheet>
   );

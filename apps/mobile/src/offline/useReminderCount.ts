@@ -4,7 +4,8 @@ import { api } from '../api/client';
 import { useSync } from './SyncProvider';
 
 /**
- * Badge count for the Job Board's bell: vehicles due a follow-up that nobody has acted on.
+ * Badge count for the Job Board's bell: vehicles due a follow-up that nobody has acted on,
+ * plus referral rewards not yet sent to the customer.
  * Re-read whenever the board regains focus or something reaches the server. Offline, the
  * last known count stays.
  */

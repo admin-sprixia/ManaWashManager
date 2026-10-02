@@ -1,12 +1,18 @@
 // This schema is the source of truth for TypeScript types (via `prisma generate`).
-// The actual database schema that provisions D1 lives in
-// apps/api/schema.sql — written by hand because D1 is applied through
-// `wrangler d1 execute`, not through `prisma migrate`. Keep the two in sync.
+// The database itself is built by the numbered SQL files in apps/api/migrations (applied with
+// `wrangler d1 migrations apply`, not `prisma migrate`); apps/api/schema.sql is the readable
+// snapshot of the result. Keep this file in sync with schema.sql — models, columns, relations
+// and indexes. CHECK constraints, triggers and partial indexes live only in the SQL.
 //
 // Naming convention (see the app build plan's "Naming conventions" section):
 //   - Prisma models: PascalCase singular, mapped to a snake_case plural table via @@map.
 //   - Columns: snake_case via @map, with `_id` for foreign keys and `_at` for timestamps.
 //   - Money: stored as an Int in paise (1 rupee = 100 paise) to avoid float rounding.
+//
+// Multi-shop: every model except Shop, PlatformSetting, SignupCode and RateLimit has `shopId`. Queries never set it by
+// hand — the shop-scoped client (src/client.ts) adds it to every read and write. Its
+// `@default("")` only exists so create inputs don't demand it; the database has no default, so
+// a row that somehow skipped the scoped client fails to insert instead of landing shopless.
 
 generator client {
   provider        = "prisma-client-js"
@@ -18,44 +24,103 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// One car wash on the platform. Plan: trial | active | past_due | read_only | cancelled | free.
+model Shop {
+  id          String    @id @default(uuid())
+  /// 6-digit shop ID staff type to ask to join. Not a secret — the owner still approves.
+  code        String    @unique
+  name        String
+  city        String?
+  plan        String    @default("trial")
+  trialEndsAt DateTime? @map("trial_ends_at")
+  paidUntil   DateTime? @map("paid_until")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@map("shops")
+}
+
+/// Settings for the platform itself (Sprixia), not any one shop — e.g. the error-alert timer.
+model PlatformSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @default(now()) @map("updated_at")
+
+  @@map("platform_settings")
+}
+
 model User {
   id                String    @id @default(uuid())
+  shopId            String    @default("") @map("shop_id")
   name              String
-  phone             String    @unique
+  /// Unique per shop among users who aren't removed — a partial index in schema.sql, which Prisma
+  /// can't express. An owner running several branches has one row per shop, all sharing one PIN.
+  phone             String
   role              String    @default("staff") // "owner" | "staff"
   active            Boolean   @default(true)
   pinHash           String?   @map("pin_hash")
   pinFailedAttempts Int       @default(0) @map("pin_failed_attempts")
   pinLockedUntil    DateTime? @map("pin_locked_until")
+  /// In every session token; bumping it signs out all phones holding an older token.
+  sessionVersion    Int       @default(0) @map("session_version")
+  /// Removed from the team: the row stays for history, the phone number is free for another shop.
+  removedAt         DateTime? @map("removed_at")
   createdAt         DateTime  @default(now()) @map("created_at")
 
-  jobsCreated    Job[]      @relation("JobCreatedBy")
-  jobsPaid       Job[]      @relation("JobPaidBy")
-  jobsVoided     Job[]      @relation("JobVoidedBy")
-  jobEvents      JobEvent[]
-  expenses       Expense[]  @relation("ExpenseCreatedBy")
-  expensesVoided Expense[]  @relation("ExpenseVoidedBy")
-  couponsIssued  Coupon[]   @relation("CouponIssuedBy")
-  couponsRedeemed Coupon[]  @relation("CouponRedeemedBy")
+  jobsCreated        Job[]             @relation("JobCreatedBy")
+  jobsPaid           Job[]             @relation("JobPaidBy")
+  jobsVoided         Job[]             @relation("JobVoidedBy")
+  jobEvents          JobEvent[]
+  expenses           Expense[]         @relation("ExpenseCreatedBy")
+  expensesVoided     Expense[]         @relation("ExpenseVoidedBy")
+  couponsIssued      Coupon[]          @relation("CouponIssuedBy")
+  couponsRedeemed    Coupon[]          @relation("CouponRedeemedBy")
+  washes             JobWasher[]       @relation("JobWasher")
+  washersAssigned    JobWasher[]       @relation("JobWasherAssignedBy")
+  sales              JobSeller[]       @relation("JobSeller")
+  sellersAssigned    JobSeller[]       @relation("JobSellerAssignedBy")
+  attendance         Attendance[]      @relation("AttendanceUser")
+  attendanceMarked   Attendance[]      @relation("AttendanceMarkedBy")
+  photosTaken        JobPhoto[]        @relation("JobPhotoTakenBy")
+  photosDeleted      JobPhoto[]        @relation("JobPhotoDeletedBy")
+  referralsLogged    Referral[]
+  cashFloatsSet      CashDay[]         @relation("CashDayFloatSetBy")
+  cashDaysClosed     CashDay[]         @relation("CashDayClosedBy")
+  cashDaysReopened   CashDay[]         @relation("CashDayReopenedBy")
+  loginCodes         LoginCode[]
+  stockItems         StockItem[]       @relation("StockItemCreatedBy")
+  stockMoves         StockMove[]       @relation("StockMoveCreatedBy")
+  settingsUpdated    AppSetting[]      @relation("AppSettingUpdatedBy")
+  joinRequests       JoinRequest[]     @relation("JoinRequestUser")
+  joinDecisions      JoinRequest[]     @relation("JoinRequestDecidedBy")
+  remindersSent      VehicleReminder[] @relation("VehicleReminderRemindedBy")
+  remindersDismissed VehicleReminder[] @relation("VehicleReminderDismissedBy")
 
+  @@index([shopId])
+  @@index([phone])
   @@map("users")
 }
 
 model VehicleType {
-  id        String @id @default(uuid())
+  id        String  @id @default(uuid())
+  shopId    String  @default("") @map("shop_id")
   name      String
   /// "car" | "bike" — drives which services appear on New Wash / Settings.
-  category  String @default("car")
-  sortOrder Int    @default(0) @map("sort_order")
+  category  String  @default("car")
+  sortOrder Int     @default(0) @map("sort_order")
+  /// false = the owner deselected it. Kept (with its prices) because customers' vehicles use it.
+  active    Boolean @default(true)
 
-  servicePrices ServicePrice[]
-  vehicles      Vehicle[]
+  servicePrices   ServicePrice[]
+  commissionRates CommissionRate[]
+  vehicles        Vehicle[]
 
+  @@index([shopId])
   @@map("vehicle_types")
 }
 
 model Service {
   id          String  @id @default(uuid())
+  shopId      String  @default("") @map("shop_id")
   name        String
   description String?
   active      Boolean @default(true)
@@ -63,14 +128,47 @@ model Service {
   appliesTo   String  @default("car") @map("applies_to")
   sortOrder   Int     @default(0) @map("sort_order")
 
-  prices      ServicePrice[]
-  jobServices JobService[]
+  prices          ServicePrice[]
+  commissionRates CommissionRate[]
+  jobServices     JobService[]
+  comboItems      ServiceComboItem[] @relation("ComboItems")
+  inCombos        ServiceComboItem[] @relation("InCombos")
 
+  @@index([shopId])
   @@map("services")
+}
+
+/// A combo is a service with its own price per vehicle; these rows say which services it bundles.
+model ServiceComboItem {
+  shopId    String @default("") @map("shop_id")
+  comboId   String @map("combo_id")
+  serviceId String @map("service_id")
+
+  combo   Service @relation("ComboItems", fields: [comboId], references: [id])
+  service Service @relation("InCombos", fields: [serviceId], references: [id])
+
+  @@id([comboId, serviceId])
+  @@map("service_combo_items")
+}
+
+/// Staff commission (paise) for getting a customer to take a service, per vehicle size — only
+/// on the services the owner picks. Copied onto job lines at creation.
+model CommissionRate {
+  shopId        String @default("") @map("shop_id")
+  serviceId     String @map("service_id")
+  vehicleTypeId String @map("vehicle_type_id")
+  amount        Int
+
+  service     Service     @relation(fields: [serviceId], references: [id])
+  vehicleType VehicleType @relation(fields: [vehicleTypeId], references: [id])
+
+  @@id([serviceId, vehicleTypeId])
+  @@map("commission_rates")
 }
 
 model ServicePrice {
   id            String @id @default(uuid())
+  shopId        String @default("") @map("shop_id")
   serviceId     String @map("service_id")
   vehicleTypeId String @map("vehicle_type_id")
   price         Int // paise
@@ -79,46 +177,55 @@ model ServicePrice {
   vehicleType VehicleType @relation(fields: [vehicleTypeId], references: [id])
 
   @@unique([serviceId, vehicleTypeId])
+  @@index([serviceId])
   @@map("service_prices")
 }
 
 model Customer {
   id               String   @id @default(uuid())
+  shopId           String   @default("") @map("shop_id")
   name             String?
-  phone            String   @unique
+  phone            String
   source           String? // google | friend | board | instagram | other
   marketingConsent Boolean  @default(false) @map("marketing_consent")
   createdAt        DateTime @default(now()) @map("created_at")
 
-  vehicles Vehicle[]
-  jobs     Job[]
-  coupons  Coupon[]
+  vehicles   Vehicle[]
+  jobs       Job[]
+  coupons    Coupon[]
+  referredBy Referral?  @relation("ReferralReferred")
+  referrals  Referral[] @relation("ReferralReferrer")
 
+  @@unique([shopId, phone])
   @@map("customers")
 }
 
 model Vehicle {
-  id                 String  @id @default(uuid())
-  customerId         String  @map("customer_id")
-  registrationNumber String  @unique @map("registration_number")
+  id                 String   @id @default(uuid())
+  shopId             String   @default("") @map("shop_id")
+  customerId         String   @map("customer_id")
+  registrationNumber String   @map("registration_number")
   make               String?
   model              String?
-  vehicleTypeId      String  @map("vehicle_type_id")
+  vehicleTypeId      String   @map("vehicle_type_id")
   /// Sync cursor for the phones' offline customer directory — see apps/api/schema.sql.
   updatedAt          DateTime @default(now()) @updatedAt @map("updated_at")
 
-  customer    Customer    @relation(fields: [customerId], references: [id])
-  vehicleType VehicleType @relation(fields: [vehicleTypeId], references: [id])
+  customer    Customer         @relation(fields: [customerId], references: [id])
+  vehicleType VehicleType      @relation(fields: [vehicleTypeId], references: [id])
   jobs        Job[]
   coupons     Coupon[]
   reminder    VehicleReminder?
 
-  @@index([updatedAt, id])
+  @@unique([shopId, registrationNumber])
+  @@index([shopId, updatedAt, id])
+  @@index([customerId])
   @@map("vehicles")
 }
 
 model Job {
   id              String    @id @default(uuid())
+  shopId          String    @default("") @map("shop_id")
   customerId      String    @map("customer_id")
   vehicleId       String    @map("vehicle_id")
   createdByUserId String    @map("created_by_user_id")
@@ -142,13 +249,225 @@ model Job {
   voidedBy    User?        @relation("JobVoidedBy", fields: [voidedByUserId], references: [id])
   jobServices JobService[]
   events      JobEvent[]
+  washers     JobWasher[]
+  sellers     JobSeller[]
+  photos      JobPhoto[]
 
+  @@index([shopId, status])
+  @@index([shopId, createdAt])
+  @@index([shopId, completedAt])
+  @@index([customerId, createdAt])
+  @@index([vehicleId, createdAt])
   @@map("jobs")
+}
+
+model JobWasher {
+  shopId           String   @default("") @map("shop_id")
+  jobId            String   @map("job_id")
+  userId           String   @map("user_id")
+  assignedByUserId String   @map("assigned_by_user_id")
+  assignedAt       DateTime @default(now()) @map("assigned_at")
+
+  job        Job  @relation(fields: [jobId], references: [id])
+  user       User @relation("JobWasher", fields: [userId], references: [id])
+  assignedBy User @relation("JobWasherAssignedBy", fields: [assignedByUserId], references: [id])
+
+  @@id([jobId, userId])
+  @@index([userId])
+  @@map("job_washers")
+}
+
+/// Who got the customer to take a job's commission services; the commission is split between them.
+model JobSeller {
+  shopId           String   @default("") @map("shop_id")
+  jobId            String   @map("job_id")
+  userId           String   @map("user_id")
+  assignedByUserId String   @map("assigned_by_user_id")
+  assignedAt       DateTime @default(now()) @map("assigned_at")
+
+  job        Job  @relation(fields: [jobId], references: [id])
+  user       User @relation("JobSeller", fields: [userId], references: [id])
+  assignedBy User @relation("JobSellerAssignedBy", fields: [assignedByUserId], references: [id])
+
+  @@id([jobId, userId])
+  @@index([userId])
+  @@map("job_sellers")
+}
+
+/// Before/after photo; the image itself is in R2 under `r2Key`.
+model JobPhoto {
+  id              String    @id
+  shopId          String    @default("") @map("shop_id")
+  jobId           String    @map("job_id")
+  kind            String // before | after
+  r2Key           String    @map("r2_key")
+  contentType     String    @map("content_type")
+  sizeBytes       Int       @map("size_bytes")
+  takenByUserId   String    @map("taken_by_user_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  deletedAt       DateTime? @map("deleted_at")
+  deletedByUserId String?   @map("deleted_by_user_id")
+
+  job       Job   @relation(fields: [jobId], references: [id])
+  takenBy   User  @relation("JobPhotoTakenBy", fields: [takenByUserId], references: [id])
+  deletedBy User? @relation("JobPhotoDeletedBy", fields: [deletedByUserId], references: [id])
+
+  @@index([jobId])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@map("job_photos")
+}
+
+/// One row per person per IST day; `date` is `YYYY-MM-DD`.
+model Attendance {
+  shopId         String   @default("") @map("shop_id")
+  userId         String   @map("user_id")
+  date           String
+  status         String // present | half | absent
+  markedByUserId String   @map("marked_by_user_id")
+  markedAt       DateTime @default(now()) @map("marked_at")
+
+  user     User @relation("AttendanceUser", fields: [userId], references: [id])
+  markedBy User @relation("AttendanceMarkedBy", fields: [markedByUserId], references: [id])
+
+  @@id([userId, date])
+  @@index([shopId, date])
+  @@map("attendance")
+}
+
+/// The cash drawer for one IST day; `date` is `YYYY-MM-DD`. See apps/api/schema.sql.
+model CashDay {
+  shopId           String    @default("") @map("shop_id")
+  date             String
+  openingFloat     Int       @map("opening_float")
+  floatSetByUserId String    @map("float_set_by_user_id")
+  floatSetAt       DateTime  @default(now()) @map("float_set_at")
+  expected         Int?
+  counted          Int?
+  note             String?
+  closedByUserId   String?   @map("closed_by_user_id")
+  closedAt         DateTime? @map("closed_at")
+  reopenedByUserId String?   @map("reopened_by_user_id")
+  reopenedAt       DateTime? @map("reopened_at")
+  reopenReason     String?   @map("reopen_reason")
+
+  floatSetBy User  @relation("CashDayFloatSetBy", fields: [floatSetByUserId], references: [id])
+  closedBy   User? @relation("CashDayClosedBy", fields: [closedByUserId], references: [id])
+  reopenedBy User? @relation("CashDayReopenedBy", fields: [reopenedByUserId], references: [id])
+
+  @@id([shopId, date])
+  @@map("cash_days")
+}
+
+model Referral {
+  id                 String    @id @default(uuid())
+  shopId             String    @default("") @map("shop_id")
+  referredCustomerId String    @unique @map("referred_customer_id")
+  referrerCustomerId String    @map("referrer_customer_id")
+  jobId              String    @unique @map("job_id")
+  percent            Int
+  status             String    @default("pending") // pending | rewarded | counted | cancelled
+  rewardCouponId     String?   @map("reward_coupon_id")
+  createdByUserId    String    @map("created_by_user_id")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  settledAt          DateTime? @map("settled_at")
+
+  referred     Customer @relation("ReferralReferred", fields: [referredCustomerId], references: [id])
+  referrer     Customer @relation("ReferralReferrer", fields: [referrerCustomerId], references: [id])
+  rewardCoupon Coupon?  @relation(fields: [rewardCouponId], references: [id])
+  createdBy    User     @relation(fields: [createdByUserId], references: [id])
+
+  @@index([referrerCustomerId])
+  @@index([shopId, status])
+  @@map("referrals")
+}
+
+model AppSetting {
+  shopId          String   @default("") @map("shop_id")
+  key             String
+  value           String
+  updatedByUserId String?  @map("updated_by_user_id")
+  updatedAt       DateTime @default(now()) @map("updated_at")
+
+  updatedBy User? @relation("AppSettingUpdatedBy", fields: [updatedByUserId], references: [id])
+
+  @@id([shopId, key])
+  @@map("app_settings")
+}
+
+model LoginCode {
+  id        String    @id @default(uuid())
+  shopId    String    @default("") @map("shop_id")
+  userId    String    @map("user_id")
+  codeHash  String    @map("code_hash")
+  attempts  Int       @default(0)
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@map("login_codes")
+}
+
+/// WhatsApp codes for people without an account yet (new shop, or asking to join one). Platform-level.
+model SignupCode {
+  id        String    @id @default(uuid())
+  phone     String
+  purpose   String // signup | join
+  codeHash  String    @map("code_hash")
+  attempts  Int       @default(0)
+  ip        String?
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([phone, createdAt])
+  @@index([ip, createdAt])
+  @@map("signup_codes")
+}
+
+/// Asking to join a shop with its shop ID. Approval creates the user; one pending request per phone.
+model JoinRequest {
+  id              String    @id @default(uuid())
+  shopId          String    @default("") @map("shop_id")
+  phone           String
+  name            String
+  status          String    @default("pending") // pending | approved | rejected | cancelled
+  userId          String?   @map("user_id")
+  decidedByUserId String?   @map("decided_by_user_id")
+  decidedAt       DateTime? @map("decided_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  user      User? @relation("JoinRequestUser", fields: [userId], references: [id])
+  decidedBy User? @relation("JoinRequestDecidedBy", fields: [decidedByUserId], references: [id])
+
+  @@index([shopId, status])
+  @@map("join_requests")
+}
+
+/// `shopId` is null for platform errors (e.g. a failed nightly job, a request before sign-in).
+model AppError {
+  id         String   @id @default(uuid())
+  shopId     String?  @map("shop_id")
+  source     String // app | api
+  userId     String?  @map("user_id")
+  message    String
+  stack      String?
+  context    String?
+  appVersion String?  @map("app_version")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([shopId, createdAt])
+  @@index([createdAt])
+  @@map("app_errors")
 }
 
 /// Append-only audit trail — rows are only ever inserted, never updated or deleted.
 model JobEvent {
   id        String   @id @default(uuid())
+  shopId    String   @default("") @map("shop_id")
   jobId     String   @map("job_id")
   userId    String   @map("user_id")
   action    String // created | status_changed | paid | voided | payment_method_changed
@@ -160,14 +479,18 @@ model JobEvent {
   job  Job  @relation(fields: [jobId], references: [id])
   user User @relation(fields: [userId], references: [id])
 
+  @@index([jobId])
+  @@index([shopId, createdAt])
   @@map("job_events")
 }
 
 model JobService {
-  jobId       String @map("job_id")
-  serviceId   String @map("service_id")
-  priceAtTime Int    @map("price_at_time") // copied at creation time — never re-joins to the live price
-  quantity    Int    @default(1)
+  shopId           String @default("") @map("shop_id")
+  jobId            String @map("job_id")
+  serviceId        String @map("service_id")
+  priceAtTime      Int    @map("price_at_time") // copied at creation time — never re-joins to the live price
+  commissionAtTime Int    @default(0) @map("commission_at_time") // per unit, copied the same way
+  quantity         Int    @default(1)
 
   job     Job     @relation(fields: [jobId], references: [id])
   service Service @relation(fields: [serviceId], references: [id])
@@ -180,7 +503,9 @@ model JobService {
 /// one-active-per-vehicle partial unique index (not expressible in Prisma).
 model Coupon {
   id               String    @id @default(uuid())
-  code             String    @unique
+  shopId           String    @default("") @map("shop_id")
+  code             String
+  kind             String    @default("comeback") // comeback | referral
   vehicleId        String    @map("vehicle_id")
   customerId       String    @map("customer_id")
   percent          Int
@@ -191,20 +516,26 @@ model Coupon {
   redeemedByUserId String?   @map("redeemed_by_user_id")
   redeemedAt       DateTime? @map("redeemed_at")
   cancelledAt      DateTime? @map("cancelled_at")
-  cancelReason     String?   @map("cancel_reason") // replaced | owner_changed
+  cancelReason     String?   @map("cancel_reason") // replaced | owner_changed | referral_voided
+  notifiedAt       DateTime? @map("notified_at")
   createdAt        DateTime  @default(now()) @map("created_at")
 
-  vehicle    Vehicle  @relation(fields: [vehicleId], references: [id])
-  customer   Customer @relation(fields: [customerId], references: [id])
-  issuedBy   User     @relation("CouponIssuedBy", fields: [issuedByUserId], references: [id])
-  redeemedBy User?    @relation("CouponRedeemedBy", fields: [redeemedByUserId], references: [id])
+  vehicle    Vehicle    @relation(fields: [vehicleId], references: [id])
+  customer   Customer   @relation(fields: [customerId], references: [id])
+  issuedBy   User       @relation("CouponIssuedBy", fields: [issuedByUserId], references: [id])
+  redeemedBy User?      @relation("CouponRedeemedBy", fields: [redeemedByUserId], references: [id])
+  referrals  Referral[]
 
+  @@unique([shopId, code])
   @@index([customerId])
+  @@index([shopId, status, expiresAt])
+  @@index([shopId, redeemedAt])
   @@map("coupons")
 }
 
 model VehicleReminder {
   vehicleId         String    @id @map("vehicle_id")
+  shopId            String    @default("") @map("shop_id")
   lastVisitAt       DateTime  @map("last_visit_at")
   remindedAt        DateTime? @map("reminded_at")
   remindedByUserId  String?   @map("reminded_by_user_id")
@@ -212,16 +543,26 @@ model VehicleReminder {
   dismissedAt       DateTime? @map("dismissed_at")
   dismissedByUserId String?   @map("dismissed_by_user_id")
 
-  vehicle Vehicle @relation(fields: [vehicleId], references: [id])
+  vehicle     Vehicle @relation(fields: [vehicleId], references: [id])
+  remindedBy  User?   @relation("VehicleReminderRemindedBy", fields: [remindedByUserId], references: [id])
+  dismissedBy User?   @relation("VehicleReminderDismissedBy", fields: [dismissedByUserId], references: [id])
 
+  @@index([shopId])
   @@map("vehicle_reminders")
 }
 
 model Expense {
-  id              String   @id @default(uuid())
+  id              String    @id @default(uuid())
+  shopId          String    @default("") @map("shop_id")
   category        String
   amount          Int // paise
-  description     String?
+  description     String? // "used for" / free note
+  itemName        String?   @map("item_name")
+  quantity        Float?
+  unit            String? // ml | l | g | kg | pcs | kwh | days | hours | tankers
+  billPhotoKey    String?   @map("bill_photo_key")
+  itemPhotoKey    String?   @map("item_photo_key")
+  paymentMethod   String    @default("cash") @map("payment_method") // cash | upi | other
   date            DateTime
   createdByUserId String    @map("created_by_user_id")
   voidedByUserId  String?   @map("voided_by_user_id")
@@ -229,8 +570,65 @@ model Expense {
   voidedAt        DateTime? @map("voided_at")
   createdAt       DateTime  @default(now()) @map("created_at")
 
-  createdBy User  @relation("ExpenseCreatedBy", fields: [createdByUserId], references: [id])
-  voidedBy  User? @relation("ExpenseVoidedBy", fields: [voidedByUserId], references: [id])
+  createdBy  User        @relation("ExpenseCreatedBy", fields: [createdByUserId], references: [id])
+  voidedBy   User?       @relation("ExpenseVoidedBy", fields: [voidedByUserId], references: [id])
+  stockMoves StockMove[]
 
+  @@index([shopId, date])
   @@map("expenses")
+}
+
+/// A consumable the shop keeps. `balance` (base unit) always equals the sum of its moves; one live
+/// item per name — a partial unique index in schema.sql, which Prisma can't express.
+model StockItem {
+  id              String   @id @default(uuid())
+  shopId          String   @default("") @map("shop_id")
+  name            String
+  nameKey         String   @map("name_key")
+  unit            String // l | kg | pcs
+  balance         Float    @default(0)
+  lowAt           Float?   @map("low_at")
+  active          Boolean  @default(true)
+  createdByUserId String   @map("created_by_user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at")
+
+  createdBy User        @relation("StockItemCreatedBy", fields: [createdByUserId], references: [id])
+  moves     StockMove[]
+
+  @@map("stock_items")
+}
+
+/// Append-only: every change to a stock balance. `quantity` is signed, in the item's unit.
+model StockMove {
+  id              String   @id @default(uuid())
+  shopId          String   @default("") @map("shop_id")
+  itemId          String   @map("item_id")
+  kind            String // in | use | count | void
+  quantity        Float
+  balanceAfter    Float    @map("balance_after")
+  note            String?
+  expenseId       String?  @map("expense_id")
+  createdByUserId String   @map("created_by_user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  item      StockItem @relation(fields: [itemId], references: [id])
+  createdBy User      @relation("StockMoveCreatedBy", fields: [createdByUserId], references: [id])
+  expense   Expense?  @relation(fields: [expenseId], references: [id])
+
+  @@index([itemId, createdAt])
+  @@index([shopId, kind, createdAt])
+  @@index([expenseId])
+  @@map("stock_moves")
+}
+
+/// Fixed-window counters for brute-force protection, keyed like "pin:ip:1.2.3.4". Platform-level.
+/// Written with one atomic upsert straight through D1 (apps/api/src/lib/rateLimit.ts).
+model RateLimit {
+  key         String @id
+  windowStart Int    @map("window_start")
+  count       Int
+
+  @@index([windowStart])
+  @@map("rate_limits")
 }

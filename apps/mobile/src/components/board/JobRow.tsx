@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
-import type { JobStatus } from '@mana/domain';
+import { PAYMENT_METHOD_LABEL, type JobStatus, type PaymentMethod } from '@mana/domain';
 import {
   IconBan,
   IconCash,
@@ -10,12 +10,21 @@ import {
   IconDroplet,
   IconPlay,
   IconSparkle,
+  IconUpi,
   IconWhatsApp,
 } from '../Icons';
 import { colors, radius, shadow, spacing, statusColors, typography } from '../../theme';
 import type { BoardJob } from '../../offline/types';
 import { formatRupees } from '../../utils/format';
-import { customerLine, firstName, formatTime, isToday, STATUS_LABEL, vehicleHeadline } from '../../utils/jobs';
+import {
+  customerLine,
+  firstName,
+  formatTime,
+  isToday,
+  STATUS_LABEL,
+  vehicleHeadline,
+  washerNames,
+} from '../../utils/jobs';
 
 function StatusIcon({ status }: { status: JobStatus }) {
   const fg = statusColors[status].fg;
@@ -31,6 +40,23 @@ function StatusIcon({ status }: { status: JobStatus }) {
     default:
       return <IconBan size={18} color={fg} />;
   }
+}
+
+/** How a paid wash was paid — cash ones are what the cash drawer counts. */
+function PaidVia({ method }: { method: PaymentMethod }) {
+  const cash = method === 'cash';
+  return (
+    <View style={[styles.via, cash ? styles.viaCash : method === 'upi' ? styles.viaUpi : styles.viaOther]}>
+      {cash ? (
+        <IconCash size={12} color={colors.tealDeep} />
+      ) : method === 'upi' ? (
+        <IconUpi size={12} color={colors.waterDeep} />
+      ) : null}
+      <Text style={[styles.viaText, cash ? styles.viaTextCash : method === 'upi' ? styles.viaTextUpi : styles.viaTextOther]}>
+        {PAYMENT_METHOD_LABEL[method]}
+      </Text>
+    </View>
+  );
 }
 
 interface PrimaryAction {
@@ -72,12 +98,15 @@ export const JobRow = memo(function JobRow({ job, busy, first, onOpen, onAction,
   const isVoid = job.status === 'void';
   const action = primaryAction(job);
   const when = isToday(job.createdAt) ? formatTime(job.createdAt) : 'Earlier';
+  const washers = washerNames(job);
   const by =
     job.status === 'paid' && job.paidBy
       ? firstName(job.paidBy.name)
-      : job.createdBy
-        ? firstName(job.createdBy.name)
-        : null;
+      : (job.status === 'washing' || job.status === 'ready') && washers
+        ? washers
+        : job.createdBy
+          ? firstName(job.createdBy.name)
+          : null;
 
   return (
     <Pressable
@@ -96,6 +125,7 @@ export const JobRow = memo(function JobRow({ job, busy, first, onOpen, onAction,
           <Text style={[styles.title, isVoid && styles.voided]} numberOfLines={1}>
             {headline.title}
           </Text>
+          {job.status === 'paid' && job.paymentMethod ? <PaidVia method={job.paymentMethod} /> : null}
           <Text style={[styles.price, isVoid && styles.voided]}>{formatRupees(job.total)}</Text>
         </View>
 
@@ -182,6 +212,22 @@ const styles = StyleSheet.create({
   title: { ...typography.heading, color: colors.waterInk, fontSize: 17, letterSpacing: -0.2, flex: 1 },
   price: { ...typography.heading, color: colors.waterInk, fontSize: 17, letterSpacing: -0.2 },
   voided: { color: colors.slate, textDecorationLine: 'line-through' },
+  via: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    gap: 4,
+    borderRadius: radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  viaCash: { backgroundColor: '#CCFBF1' },
+  viaUpi: { backgroundColor: colors.waterPale },
+  viaOther: { backgroundColor: '#F1F5F9' },
+  viaText: { ...typography.caption, fontSize: 11, fontWeight: '700', letterSpacing: 0.3 },
+  viaTextCash: { color: colors.tealDeep },
+  viaTextUpi: { color: colors.waterDeep },
+  viaTextOther: { color: colors.slateDeep },
   meta: { ...typography.body, color: colors.slateDeep, fontSize: 14 },
   dot: { color: colors.slate },
   bottomLine: {

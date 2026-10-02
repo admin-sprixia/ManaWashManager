@@ -30,6 +30,8 @@ export interface Service {
   active: boolean;
   appliesTo: ServiceAppliesTo;
   sortOrder: number;
+  /** For a combo, the services it bundles; empty or missing for a plain service. */
+  includes?: string[];
 }
 
 /** True when a service should appear for the given vehicle category. */

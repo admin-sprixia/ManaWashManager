@@ -52,6 +52,9 @@ import { CheckoutBar } from '../components/newWash/CheckoutBar';
 import { CustomerSearch } from '../components/newWash/CustomerSearch';
 import { WelcomeCard, type RepeatOffer } from '../components/newWash/WelcomeCard';
 import { CouponOffer, type UsableCoupon } from '../components/newWash/CouponOffer';
+import { ReferralField, useReferralQuote } from '../components/newWash/ReferralField';
+import { SellerField } from '../components/newWash/SellerField';
+import type { Person } from '../components/PeoplePickerSheet';
 import {
   KnownNotice,
   OwnershipQuestion,
@@ -62,6 +65,7 @@ import { colors, gradients, radius, spacing, typography } from '../theme';
 import { api } from '../api/client';
 import { NetworkError } from '../api/network';
 import { useSync } from '../offline/SyncProvider';
+import { useAuth } from '../api/auth';
 import { useDirectory } from '../offline/DirectoryProvider';
 import type { DirectoryEntry } from '../offline/directory';
 import { CacheKeys, readCache, writeCache } from '../offline/cache';
@@ -104,6 +108,14 @@ interface CachedCatalog {
   }>;
   vehicleTypes: Array<{ id: string; name: string; sortOrder: number; category: string }>;
   prices: ServicePrice[];
+  /** Staff commission per service per size; missing from catalogs saved by older versions. */
+  commissions?: CommissionRate[];
+}
+
+interface CommissionRate {
+  serviceId: string;
+  vehicleTypeId: string;
+  amount: number;
 }
 
 function normalizeServices(rows: CachedCatalog['services']): Service[] {
@@ -145,6 +157,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   const prefilled = useRef(false);
   const insets = useSafeAreaInsets();
   const { submit, online } = useSync();
+  const { user } = useAuth();
   const directory = useDirectory();
   const scrollRef = useRef<ScrollView>(null);
   const searchRef = useRef<TextInput>(null);
@@ -156,6 +169,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   const [services, setServices] = useState<Service[]>([]);
   const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
   const [prices, setPrices] = useState<ServicePrice[]>([]);
+  const [commissions, setCommissions] = useState<CommissionRate[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState<string | null>(null);
 
@@ -179,6 +193,9 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   const [error, setError] = useState<string | null>(null);
   const [offer, setOffer] = useState<UsableCoupon | null>(null);
   const [couponApplied, setCouponApplied] = useState(false);
+  const [referrerPhone, setReferrerPhone] = useState('');
+  /** Who got a commission service; `null` means whoever is entering the wash. */
+  const [sellers, setSellers] = useState<Person[] | null>(null);
 
   const loadCatalog = useCallback(async () => {
     setCatalogLoading(true);
@@ -189,31 +206,38 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
       setServices(normalizeServices(cached.services));
       setVehicleTypes(normalizeVehicleTypes(cached.vehicleTypes));
       setPrices(cached.prices);
+      setCommissions(cached.commissions ?? []);
       setCatalogLoading(false);
     }
     try {
-      const [servicesRes, vehicleTypesRes, pricesRes] = await Promise.all([
+      const [servicesRes, vehicleTypesRes, pricesRes, commissionsRes] = await Promise.all([
         api.services.$get({ query: {} }),
         api.services['vehicle-types'].$get({ query: {} }),
         api.services.prices.$get({ query: {} }),
+        api.services.commissions.$get(),
       ]);
-      if (!servicesRes.ok || !vehicleTypesRes.ok || !pricesRes.ok) {
+      if (!servicesRes.ok || !vehicleTypesRes.ok || !pricesRes.ok || !commissionsRes.ok) {
         throw new Error('Could not load services or vehicle types.');
       }
-      const [servicesJson, vehicleTypesJson, pricesJson] = await Promise.all([
+      const [servicesJson, vehicleTypesJson, pricesJson, commissionsJson] = await Promise.all([
         servicesRes.json(),
         vehicleTypesRes.json(),
         pricesRes.json(),
+        commissionsRes.json(),
       ]);
       if (!Array.isArray(vehicleTypesJson)) throw new Error('Vehicle types response was invalid.');
       const fresh: CachedCatalog = {
         services: Array.isArray(servicesJson) ? servicesJson : [],
         vehicleTypes: vehicleTypesJson,
         prices: Array.isArray(pricesJson) ? pricesJson : [],
+        commissions: Array.isArray(commissionsJson)
+          ? commissionsJson.map(({ serviceId, vehicleTypeId, amount }) => ({ serviceId, vehicleTypeId, amount }))
+          : [],
       };
       setServices(normalizeServices(fresh.services));
       setVehicleTypes(normalizeVehicleTypes(fresh.vehicleTypes));
       setPrices(fresh.prices);
+      setCommissions(fresh.commissions ?? []);
       await writeCache(CacheKeys.catalog, fresh);
     } catch (e) {
       if (!cached) {
@@ -265,10 +289,14 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     [vehicleTypes, vehicleTypeId],
   );
 
+  // A service is offered for exactly the vehicles the owner priced it for.
   const servicesForVehicle = useMemo(() => {
     if (!selectedVehicle) return [];
-    return services.filter((s) => serviceAppliesToCategory(s.appliesTo, selectedVehicle.category));
-  }, [services, selectedVehicle]);
+    const priced = new Set(prices.filter((p) => p.vehicleTypeId === selectedVehicle.id).map((p) => p.serviceId));
+    return services.filter(
+      (s) => serviceAppliesToCategory(s.appliesTo, selectedVehicle.category) && priced.has(s.id),
+    );
+  }, [services, prices, selectedVehicle]);
 
   const scrollToServices = useCallback(() => {
     setTimeout(() => {
@@ -307,14 +335,31 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     setServiceQuery('');
   };
 
-  const toggleService = useCallback((serviceId: string) => {
-    setSelectedServiceIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(serviceId)) next.delete(serviceId);
-      else next.add(serviceId);
-      return next;
-    });
-  }, []);
+  // Picking a combo drops the services it already covers, so nothing is charged twice.
+  const toggleService = useCallback(
+    (serviceId: string) => {
+      setSelectedServiceIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(serviceId)) next.delete(serviceId);
+        else {
+          next.add(serviceId);
+          for (const id of services.find((s) => s.id === serviceId)?.includes ?? []) next.delete(id);
+        }
+        return next;
+      });
+    },
+    [services],
+  );
+
+  /** Service id → name of the picked combo that already covers it. */
+  const coveredBy = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of services) {
+      if (!selectedServiceIds.has(s.id)) continue;
+      for (const id of s.includes ?? []) map.set(id, s.name);
+    }
+    return map;
+  }, [services, selectedServiceIds]);
 
   const priceFor = useCallback(
     (serviceId: string): number | null => {
@@ -327,6 +372,21 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     [prices, vehicleTypeId],
   );
 
+  /** "Foam Wash + Interior · Save ₹250" — what a combo bundles and what it saves on this vehicle. */
+  const comboMeta = (combo: Service, price: number | null): string | null => {
+    const included = (combo.includes ?? [])
+      .map((id) => services.find((s) => s.id === id))
+      .filter((s): s is Service => s != null);
+    if (included.length === 0) return combo.description?.trim() || null;
+    const parts = [included.map((s) => s.name).join(' + ')];
+    const separate = included.map((s) => priceFor(s.id));
+    if (price != null && separate.every((p) => p != null)) {
+      const saving = separate.reduce((a, b) => a + b, 0) - price;
+      if (saving > 0) parts.push(`Save ${formatRupees(saving)}`);
+    }
+    return parts.join(' · ');
+  };
+
   const serviceGroups = useMemo(() => {
     const q = serviceQuery.trim().toLowerCase();
     const matches = q
@@ -334,7 +394,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
       : servicesForVehicle;
     return SERVICE_GROUP_ORDER.map((group) => ({
       group,
-      items: matches.filter((s) => groupForService(s.name) === group),
+      items: matches.filter((s) => groupForService(s) === group),
     })).filter((g) => g.items.length > 0);
   }, [servicesForVehicle, serviceQuery]);
 
@@ -342,6 +402,16 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     () => servicesForVehicle.filter((s) => selectedServiceIds.has(s.id)),
     [servicesForVehicle, selectedServiceIds],
   );
+
+  const commissionFor = useCallback(
+    (serviceId: string): number =>
+      vehicleTypeId
+        ? (commissions.find((c) => c.serviceId === serviceId && c.vehicleTypeId === vehicleTypeId)?.amount ?? 0)
+        : 0,
+    [commissions, vehicleTypeId],
+  );
+  const commissionTotal = selectedServices.reduce((sum, s) => sum + commissionFor(s.id), 0);
+  const pickedSellers: Person[] = sellers ?? (user ? [{ id: user.id, name: user.name }] : []);
 
   // ---------- Customer: search, recognise, or add ----------
 
@@ -477,6 +547,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
 
   const clearOrder = () => {
     setSelectedServiceIds(new Set());
+    setSellers(null);
     setServiceQuery('');
     setDiscountOpen(false);
     setDiscountRupees('');
@@ -602,8 +673,14 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   const discountNeedsReason = discountPaise > 0 && discountReason.trim().length === 0;
   const couponActive = couponApplied && offer != null;
   const couponSaving = offer ? couponDiscount(subtotal, offer.percent) : 0;
-  const manualDiscount = couponActive || discountTooBig ? 0 : discountPaise;
-  const appliedDiscount = couponActive ? couponSaving : manualDiscount;
+  // Referrals are for genuinely new customers only: neither the phone nor the plate is on file.
+  const isNewCustomer =
+    mode === 'form' && !known && regOk && phoneOk && !plateEntry && !phoneEntry && !server.looking;
+  const referral = useReferralQuote(referrerPhone, phoneDigits, reg, isNewCustomer && online);
+  const referralActive = isNewCustomer && referral.quote != null;
+  const referralSaving = referral.quote ? couponDiscount(subtotal, referral.quote.percent) : 0;
+  const manualDiscount = couponActive || referralActive || discountTooBig ? 0 : discountPaise;
+  const appliedDiscount = couponActive ? couponSaving : referralActive ? referralSaving : manualDiscount;
   const finalTotal = Math.max(0, subtotal - appliedDiscount);
 
   // A live comeback coupon for the customer at the counter. Asked only for a picked (known)
@@ -706,11 +783,17 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
                     ? 'A selected service has no price for this vehicle'
                     : couponActive && !online
                       ? 'Coupon needs internet — remove it to save offline'
-                      : !couponActive && discountTooBig
-                        ? 'Discount is more than the bill'
-                        : !couponActive && discountNeedsReason
-                          ? 'Add a reason for the discount'
-                          : null;
+                      : isNewCustomer && referral.entered && !referralActive
+                        ? referral.checking
+                          ? 'Checking the referral…'
+                          : 'Fix or remove the referral'
+                        : referralActive && !online
+                          ? 'Referral needs internet — remove it to save offline'
+                          : !couponActive && !referralActive && discountTooBig
+                            ? 'Discount is more than the bill'
+                            : !couponActive && !referralActive && discountNeedsReason
+                              ? 'Add a reason for the discount'
+                              : null;
 
   const closeDiscount = () => {
     animate();
@@ -728,6 +811,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     setPhone('');
     setCustomerName('');
     setVehicleTypeId(null);
+    setReferrerPhone('');
     clearOrder();
   };
 
@@ -742,6 +826,10 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
         quantity: 1,
       }));
       const name = customerName.trim();
+      const referralQuote = referralActive ? await referral.ensureFresh() : null;
+      if (referralActive && !referralQuote) {
+        throw new Error('Couldn’t confirm the referral — check the connection, or remove it.');
+      }
       // One offline-safe call: the client id means a retried or queued submission can never
       // create the same wash twice.
       const result = await submit(
@@ -758,16 +846,23 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
             discount: manualDiscount,
             discountReason: manualDiscount > 0 ? discountReason.trim() : undefined,
             couponCode: couponActive ? offer.code : undefined,
+            referralToken: referralQuote?.token,
+            sellerIds: commissionTotal > 0 ? pickedSellers.map((s) => s.id) : undefined,
           },
           meta: {
             vehicleTypeName: selectedVehicle?.name ?? 'Vehicle',
             vehicleCategory: selectedVehicle?.category ?? 'car',
-            services: selectedServices.map((s) => ({ name: s.name, price: priceFor(s.id) ?? 0 })),
+            services: selectedServices.map((s) => ({
+              name: s.name,
+              price: priceFor(s.id) ?? 0,
+              commission: commissionFor(s.id),
+            })),
             subtotal,
             total: finalTotal,
+            sellers: commissionTotal > 0 ? pickedSellers : undefined,
           },
         },
-        { requireOnline: couponActive },
+        { requireOnline: couponActive || referralActive },
       );
       if (result.status === 'rejected') throw new Error(result.message);
       directory.recordVisit({
@@ -957,6 +1052,16 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
                   valid={nameOk}
                   last
                 />
+                {isNewCustomer ? (
+                  <ReferralField
+                    value={referrerPhone}
+                    onChange={setReferrerPhone}
+                    state={referral}
+                    online={online}
+                    saving={referralSaving}
+                    formatMoney={formatRupees}
+                  />
+                ) : null}
                 {conflict && baseline ? (
                   <OwnershipQuestion
                     plate={baseline.registrationNumber}
@@ -1124,7 +1229,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
           ) : servicesForVehicle.length === 0 ? (
             <View style={styles.notice}>
               <Text style={styles.noticeText}>
-                No {selectedVehicle.category} services yet. The owner can add them in Services &
+                No services for {selectedVehicle.name} yet. The owner can add them in Services &
                 prices.
               </Text>
             </View>
@@ -1172,16 +1277,18 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
                     <View style={styles.group}>
                       {items.map((s, i) => {
                         const price = priceFor(s.id);
+                        const covered = coveredBy.get(s.id);
                         return (
                           <ServicePickRow
                             key={s.id}
                             name={s.name}
                             group={group}
-                            meta={s.description?.trim() || null}
+                            meta={group === 'Combos' ? comboMeta(s, price) : s.description?.trim() || null}
                             priceLabel={price != null ? formatRupees(price) : 'No price'}
                             selected={selectedServiceIds.has(s.id)}
                             onPress={() => toggleService(s.id)}
                             showDivider={i < items.length - 1}
+                            disabledNote={covered ? 'In combo' : undefined}
                           />
                         );
                       })}
@@ -1189,6 +1296,18 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
                   </View>
                 ))
               )}
+
+              {commissionTotal > 0 && pickedSellers.length > 0 ? (
+                <SellerField
+                  commission={commissionTotal}
+                  sellers={pickedSellers}
+                  onChange={(next) => {
+                    animate();
+                    setSellers(next);
+                  }}
+                  formatMoney={formatRupees}
+                />
+              ) : null}
 
               {offer ? (
                 <CouponOffer
@@ -1203,7 +1322,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
               ) : null}
 
               {/* Optional discount */}
-              {breakdown && !couponActive ? (
+              {breakdown && !couponActive && !referralActive ? (
                 <View style={[styles.group, styles.discountGroup]}>
                   {!discountOpen ? (
                     <Pressable
@@ -1279,7 +1398,13 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
             serviceCount={selectedServiceIds.size}
             subtotal={subtotal}
             discount={appliedDiscount}
-            discountLabel={couponActive ? `${offer.percent}% coupon` : undefined}
+            discountLabel={
+              couponActive
+                ? `${offer.percent}% coupon`
+                : referralActive && referral.quote
+                  ? `${referral.quote.percent}% referral`
+                  : undefined
+            }
             total={finalTotal}
             missing={missing}
             submitting={submitting}

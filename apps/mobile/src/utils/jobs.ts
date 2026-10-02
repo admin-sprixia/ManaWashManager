@@ -37,6 +37,14 @@ export function firstName(name: string | null | undefined): string {
   return name?.trim().split(/\s+/)[0] ?? '';
 }
 
+/** "Ravi", "Ravi + Anil", "Ravi + 2" — who's washing, short enough for a board row. */
+export function washerNames(job: Pick<BoardJob, 'washers'>): string | null {
+  const names = (job.washers ?? []).map((w) => firstName(w.user.name));
+  if (names.length === 0) return null;
+  if (names.length <= 2) return names.join(' + ');
+  return `${names[0]} + ${names.length - 1}`;
+}
+
 export function formatTime(input: string | Date): string {
   const date = typeof input === 'string' ? new Date(input) : input;
   return date.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });

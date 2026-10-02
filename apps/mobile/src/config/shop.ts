@@ -1,8 +1,18 @@
 /**
- * Customer-facing shop details used in WhatsApp messages.
- * Replace `reviewUrl` with the real link from Google Business Profile → "Ask for reviews".
+ * Customer-facing shop details used in WhatsApp messages, PDFs and greetings. The name follows
+ * the signed-in shop (ShopProvider keeps it current and cached offline); the Google review link
+ * is set by the owner in Settings and synced to every phone.
  */
+const FALLBACK_NAME = 'Car Wash';
+
+let currentName = FALLBACK_NAME;
+
 export const SHOP = {
-  name: 'MANA Car Wash',
-  reviewUrl: 'https://g.page/r/mana-car-wash/review',
-} as const;
+  get name(): string {
+    return currentName;
+  },
+};
+
+export function setShopName(name: string | null | undefined): void {
+  currentName = name?.trim() || FALLBACK_NAME;
+}

@@ -1,10 +1,20 @@
 # Copy this file to `.dev.vars` (gitignored) for local `wrangler dev`.
 # In production these are set with: wrangler secret put <NAME>
 JWT_SECRET=change-me-to-a-long-random-string
-MSG91_API_KEY=your-msg91-authkey
+# Optional: error alerts to a private Discord channel (see README → Go live). Leave empty to turn off.
+DISCORD_WEBHOOK_URL=
+# Owner sign-in codes on WhatsApp (see README → Go live). Leave empty locally: in dev mode the
+# code is DEV_RECOVERY_CODE and nothing is sent.
 WHATSAPP_API_TOKEN=
 WHATSAPP_PHONE_NUMBER_ID=
+WHATSAPP_OTP_TEMPLATE=login_code
+WHATSAPP_OTP_LANGUAGE=en
+# true = don't send WhatsApp; use DEV_RECOVERY_CODE (000000). Keep on until Meta approves the
+# template, then set to false (or remove) to send real codes.
+WHATSAPP_OTP_BYPASS=true
 
-# Dev-only: skips real MSG91 SMS, accepts DEV_OTP_CODE for any phone. Never set in production.
-DEV_OTP_BYPASS=true
-DEV_OTP_CODE=000000
+# Dev-only, and only for requests to localhost: the owner recovery code and WhatsApp code are
+# both DEV_RECOVERY_CODE and can be reused. Never set in production — there, set
+# OWNER_RECOVERY_CODE (8+ characters, works once).
+DEV_MODE=true
+DEV_RECOVERY_CODE=000000

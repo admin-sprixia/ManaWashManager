@@ -13,6 +13,13 @@ export const COUPON_VALID_DAYS = 14;
 export const COUPON_MIN_PERCENT = 5;
 export const COUPON_MAX_PERCENT = 10;
 export const REMINDER_SNOOZE_DAYS = 3;
+/**
+ * Vehicles not seen for longer than this drop off the reminder list — the customer has moved on,
+ * and it keeps the list (and its query) from growing with every vehicle ever washed.
+ */
+export const REMINDER_LOOKBACK_DAYS = 180;
+/** Hard cap on one reminder list, oldest-visit-last; a shop never works through more in a day. */
+export const REMINDER_LIST_MAX = 400;
 
 /** No 0/O or 1/I, so a code read out over the phone can't be misheard. 32 symbols. */
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';

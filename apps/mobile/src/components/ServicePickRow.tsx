@@ -4,12 +4,13 @@ import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { colors, spacing, typography } from '../theme';
 import { IconCheck } from './Icons';
 
-export type ServiceGroup = 'Wash' | 'Interior' | 'Protect' | 'Add-ons' | 'Other';
+export type ServiceGroup = 'Combos' | 'Wash' | 'Interior' | 'Protect' | 'Add-ons' | 'Other';
 
 export const GROUP_TONE: Record<
   ServiceGroup,
   { bg: string; fg: string; accent: string }
 > = {
+  Combos: { bg: '#EDE9FE', fg: '#5B21B6', accent: '#7C3AED' },
   Wash: { bg: '#E0F2FE', fg: '#0369A1', accent: '#0EA5E9' },
   Interior: { bg: '#CCFBF1', fg: '#115E59', accent: '#0D9488' },
   Protect: { bg: '#EDE9FE', fg: '#5B21B6', accent: '#8B5CF6' },
@@ -19,6 +20,15 @@ export const GROUP_TONE: Record<
 
 function GroupIcon({ group, color }: { group: ServiceGroup; color: string }) {
   const stroke = color;
+  if (group === 'Combos') {
+    return (
+      <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+        <Rect x="4" y="9" width="16" height="11" rx="2" stroke={stroke} strokeWidth={2} fill={stroke} fillOpacity={0.18} />
+        <Path d="M4 13 H20 M12 9 V20" stroke={stroke} strokeWidth={2} />
+        <Path d="M12 9 C10 5 6.5 6 8 9 M12 9 C14 5 17.5 6 16 9" stroke={stroke} strokeWidth={2} strokeLinecap="round" />
+      </Svg>
+    );
+  }
   if (group === 'Wash') {
     return (
       <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
@@ -79,6 +89,8 @@ interface ServicePickRowProps {
   showDivider?: boolean;
   /** Secondary line. Defaults to the group name; pass null to hide it (e.g. under a group heading). */
   meta?: string | null;
+  /** Greys the row out with this note in place of the price (e.g. "In combo"). */
+  disabledNote?: string;
 }
 
 /** Edge-to-edge service row — no card chrome, just a clean selectable list line. */
@@ -90,19 +102,23 @@ export function ServicePickRow({
   onPress,
   showDivider = true,
   meta,
+  disabledNote,
 }: ServicePickRowProps) {
   const tone = GROUP_TONE[group];
   const metaText = meta === undefined ? group : meta;
+  const disabled = disabledNote != null;
 
   return (
     <Pressable
       onPress={onPress}
+      disabled={disabled}
       accessibilityRole="checkbox"
-      accessibilityState={{ checked: selected }}
+      accessibilityState={{ checked: selected, disabled }}
       style={({ pressed }) => [
         styles.row,
         selected && styles.rowSelected,
         showDivider && styles.rowDivider,
+        disabled && styles.rowDisabled,
         pressed && styles.pressed,
       ]}
     >
@@ -114,17 +130,23 @@ export function ServicePickRow({
           {name}
         </Text>
         {metaText ? (
-          <Text style={[styles.meta, selected ? styles.metaOn : { color: tone.fg }]} numberOfLines={1}>
+          <Text style={[styles.meta, selected ? styles.metaOn : { color: tone.fg }]} numberOfLines={2}>
             {metaText}
           </Text>
         ) : null}
       </View>
-      <View style={styles.right}>
-        <Text style={[styles.price, selected && styles.priceOn]}>{priceLabel}</Text>
-        <View style={[styles.check, selected && styles.checkOn, !selected && { borderColor: tone.accent }]}>
-          {selected ? <IconCheck size={13} color={colors.white} /> : null}
+      {disabled ? (
+        <View style={styles.note}>
+          <Text style={styles.noteText}>{disabledNote}</Text>
         </View>
-      </View>
+      ) : (
+        <View style={styles.right}>
+          <Text style={[styles.price, selected && styles.priceOn]}>{priceLabel}</Text>
+          <View style={[styles.check, selected && styles.checkOn, !selected && { borderColor: tone.accent }]}>
+            {selected ? <IconCheck size={13} color={colors.white} /> : null}
+          </View>
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -149,6 +171,14 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.88,
   },
+  rowDisabled: { opacity: 0.5 },
+  note: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: '#EDE9FE',
+  },
+  noteText: { ...typography.caption, fontWeight: '700', color: '#5B21B6', letterSpacing: 0 },
   icon: {
     width: 40,
     height: 40,

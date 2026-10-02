@@ -33,6 +33,8 @@ import { colors, gradients, radius, shadow, spacing, typography } from '../theme
 import { api } from '../api/client';
 import { buildWhatsAppLink, formatRelativeDate, formatRupees } from '../utils/format';
 import { buildThankYouMessage } from '../utils/messages';
+import { SHOP } from '../config/shop';
+import { useShop } from '../offline/ShopProvider';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import type { JobStatus } from '@mana/domain';
 
@@ -68,9 +70,12 @@ interface ProfileData {
     createdAt: string;
   };
   vehicles: VehicleItem[];
+  /** The newest page of jobs; older pages are appended by "Load older visits". */
   history: HistoryJob[];
+  hasMoreHistory: boolean;
   visitCount: number;
   lifetimeSpend: number;
+  paidCount: number;
   lastVisit: string | null;
 }
 
@@ -152,6 +157,7 @@ function favouriteService(history: HistoryJob[]): string | null {
 export function CustomerProfileScreen({ route, navigation }: CustomerProfileScreenProps) {
   const { customerId } = route.params;
   const insets = useSafeAreaInsets();
+  const { googleReviewUrl } = useShop();
   const [data, setData] = useState<LoadState>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -160,7 +166,7 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
   const load = useCallback(async () => {
     setError(null);
     try {
-      const res = await api.customers[':id'].$get({ param: { id: customerId } });
+      const res = await api.customers[':id'].$get({ param: { id: customerId }, query: {} });
       if (!res.ok) throw new Error(`Could not load this customer (${res.status}).`);
       setData((await res.json()) as ProfileData | null);
     } catch (e) {
@@ -173,6 +179,29 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
     }
   }, [customerId]);
 
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadOlder = async () => {
+    const oldest = data?.history[data.history.length - 1];
+    if (!data || !oldest || loadingMore) return;
+    setLoadingMore(true);
+    setActionError(null);
+    try {
+      const res = await api.customers[':id'].$get({
+        param: { id: customerId },
+        query: { before: oldest.createdAt },
+      });
+      const page = res.ok ? ((await res.json()) as ProfileData | null) : null;
+      if (!page) throw new Error();
+      setData((prev) =>
+        prev ? { ...prev, history: [...prev.history, ...page.history], hasMoreHistory: page.hasMoreHistory } : prev,
+      );
+    } catch {
+      setActionError('Couldn’t load older visits. Check the connection and try again.');
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
   useFocusEffect(
     useCallback(() => {
       void load();
@@ -182,7 +211,6 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
   const insights = useMemo(() => {
     if (!data) return null;
     const { history } = data;
-    const paid = history.filter((j) => j.status === 'paid');
     const open = history.filter((j) => OPEN_STATUSES.includes(j.status));
     const perVehicle = new Map<string, { visits: number; last: string }>();
     for (const job of history) {
@@ -192,7 +220,7 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
       perVehicle.set(reg, { visits: (prev?.visits ?? 0) + 1, last: prev?.last ?? job.createdAt });
     }
     return {
-      avgTicket: paid.length > 0 ? Math.round(data.lifetimeSpend / paid.length / 100) * 100 : null,
+      avgTicket: data.paidCount > 0 ? Math.round(data.lifetimeSpend / data.paidCount / 100) * 100 : null,
       openCount: open.length,
       openTotal: open.reduce((sum, j) => sum + j.total, 0),
       favourite: favouriteService(history),
@@ -288,9 +316,10 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
       discount: job.discount,
       paymentMethod: job.paymentMethod,
       visitedAt: job.createdAt,
+      reviewUrl: googleReviewUrl,
     });
 
-  const greetingMessage = `Hi${firstName ? ` ${firstName}` : ''}, this is MANA Car Wash. How can we help you today?`;
+  const greetingMessage = `Hi${firstName ? ` ${firstName}` : ''}, this is ${SHOP.name}. How can we help you today?`;
 
   const toggleHistory = () => {
     LayoutAnimation.configureNext({
@@ -466,7 +495,7 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
           </View>
         )}
 
-        <SectionHeader title="History" count={history.length} />
+        <SectionHeader title="History" count={data.visitCount} />
         {history.length === 0 ? (
           <EmptyState
             title="No visits yet"
@@ -558,11 +587,25 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
                 accessibilityRole="button"
               >
                 <Text style={styles.showAllText}>
-                  {showAllHistory ? 'Show less' : `Show all ${history.length} visits`}
+                  {showAllHistory ? 'Show less' : `Show all ${data.visitCount} visits`}
                 </Text>
                 <View style={showAllHistory ? styles.chevronUp : undefined}>
                   <IconChevronDown size={16} color={colors.water} />
                 </View>
+              </Pressable>
+            ) : null}
+            {showAllHistory && data.hasMoreHistory ? (
+              <Pressable
+                onPress={() => void loadOlder()}
+                disabled={loadingMore}
+                style={({ pressed }) => [styles.showAll, pressed && styles.pressed]}
+                accessibilityRole="button"
+              >
+                {loadingMore ? (
+                  <ActivityIndicator color={colors.water} />
+                ) : (
+                  <Text style={styles.showAllText}>Load older visits</Text>
+                )}
               </Pressable>
             ) : null}
           </View>

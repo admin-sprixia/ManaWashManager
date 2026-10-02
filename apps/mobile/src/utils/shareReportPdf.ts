@@ -1,5 +1,6 @@
 import ReactNativeBlobUtil from 'react-native-blob-util';
 import Share from 'react-native-share';
+import { SHOP } from '../config/shop';
 import { buildReportPdf, reportFilename, type ReportExportPayload } from './reportPdf';
 
 /** Encode PDF bytes to base64 without relying on Hermes `btoa` (not always present). */
@@ -29,7 +30,7 @@ export async function shareReportPdf(data: ReportExportPayload): Promise<void> {
     url: `file://${path}`,
     type: 'application/pdf',
     filename,
-    title: 'Export MANA report',
+    title: `Export ${SHOP.name} report`,
     failOnCancel: false,
   });
 }

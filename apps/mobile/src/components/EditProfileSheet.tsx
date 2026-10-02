@@ -1,59 +1,71 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import LinearGradient from 'react-native-linear-gradient';
 import { isValidPhone, normalizePhone } from '@mana/domain';
 import { BottomSheet } from './BottomSheet';
 import { Button } from './Button';
 import { Avatar } from './Avatar';
-import { IconLock } from './Icons';
+import {
+  IconAlert,
+  IconCheck,
+  IconChevronLeft,
+  IconChevronRight,
+  IconLock,
+  IconPerson,
+  IconPhone,
+  IconShield,
+  IconStore,
+} from './Icons';
+import { PinPad } from './PinPad';
 import { showToast } from './Toast';
-import { colors, radius, spacing, typography } from '../theme';
+import { colors, gradients, radius, spacing, typography } from '../theme';
 import { api, apiErrorMessage } from '../api/client';
 import { NetworkError } from '../api/network';
 import { useAuth } from '../api/auth';
-import { getLoginHints, setLoginHints, type SessionUser } from '../api/session';
-
-const RESEND_SECONDS = 30;
+import { setLoginHints, type SessionUser } from '../api/session';
+import { useShop } from '../offline/ShopProvider';
 
 function formatPhone(digits: string): string {
   return digits.length > 5 ? `${digits.slice(0, 5)} ${digits.slice(5)}` : digits;
 }
 
-function toSessionUser(u: { id: string; name: string; phone: string; role: string; hasPin: boolean }): SessionUser {
+function toSessionUser(u: {
+  id: string;
+  name: string;
+  phone: string;
+  role: string;
+  hasPin: boolean;
+  shopId: string;
+}): SessionUser {
   return { ...u, role: u.role === 'owner' ? 'owner' : 'staff' };
 }
 
-type Step = 'edit' | 'verify';
+type Step = 'edit' | 'confirm';
 
 export function EditProfileSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const { user, isOwner, updateUser, signIn } = useAuth();
+  const { info: shop } = useShop();
   const [step, setStep] = useState<Step>('edit');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const [code, setCode] = useState('');
+  const [pin, setPin] = useState('');
+  const [pinErrorKey, setPinErrorKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [resendIn, setResendIn] = useState(0);
-  const codeInput = useRef<TextInput>(null);
+  const [focus, setFocus] = useState<'name' | 'phone' | null>(null);
 
   useEffect(() => {
     if (visible && user) {
       setStep('edit');
       setName(user.name);
       setPhone(user.phone);
-      setCode('');
+      setPin('');
       setError(null);
       setBusy(false);
-      setResendIn(0);
     }
     // Only reset when the sheet opens, not when the profile updates mid-flow.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
-
-  useEffect(() => {
-    if (resendIn <= 0) return;
-    const t = setTimeout(() => setResendIn((s) => s - 1), 1000);
-    return () => clearTimeout(t);
-  }, [resendIn]);
 
   if (!user) return null;
 
@@ -67,16 +79,6 @@ export function EditProfileSheet({ visible, onClose }: { visible: boolean; onClo
 
   const networkMessage = (e: unknown, fallback: string) =>
     e instanceof NetworkError ? 'You’re offline. Profile changes need a connection.' : fallback;
-
-  const sendCode = async (): Promise<boolean> => {
-    const res = await api.auth.me.phone.send.$post({ json: { phone: digits } });
-    if (!res.ok) {
-      setError(await apiErrorMessage(res, 'Couldn’t send a code to that number.'));
-      return false;
-    }
-    setResendIn(RESEND_SECONDS);
-    return true;
-  };
 
   const save = async () => {
     if (!canSave) return;
@@ -92,10 +94,8 @@ export function EditProfileSheet({ visible, onClose }: { visible: boolean; onClo
         await updateUser(toSessionUser(await res.json()));
       }
       if (phoneChanged) {
-        if (await sendCode()) {
-          setCode('');
-          setStep('verify');
-        }
+        setPin('');
+        setStep('confirm');
         return;
       }
       showToast('Profile updated');
@@ -107,113 +107,95 @@ export function EditProfileSheet({ visible, onClose }: { visible: boolean; onClo
     }
   };
 
-  const verify = async (value: string) => {
-    if (value.length !== 6 || busy) return;
+  // The number is the sign-in identity, so moving it is confirmed with the current PIN.
+  const confirmPhone = async (value: string) => {
+    if (value.length < 4 || busy) return;
     setBusy(true);
     setError(null);
     try {
-      const res = await api.auth.me.phone.verify.$post({ json: { phone: digits, code: value } });
+      const res = await api.auth.me.phone.$post({ json: { phone: digits, pin: value } });
       if (!res.ok) {
-        setError(await apiErrorMessage(res, 'Couldn’t verify that code.'));
-        setCode('');
+        setError(await apiErrorMessage(res, 'Couldn’t change your number.'));
+        setPin('');
+        setPinErrorKey((k) => k + 1);
         return;
       }
       const body = await res.json();
-      const hints = await getLoginHints();
       await signIn(body.token, toSessionUser(body.user));
-      await setLoginHints(body.user.phone, hints.method);
+      await setLoginHints(body.user.phone, 'pin');
       showToast(`Number updated — sign in with +91 ${formatPhone(body.user.phone)} from now on`);
       onClose();
     } catch (e) {
-      setError(networkMessage(e, 'Couldn’t verify that code.'));
+      setError(networkMessage(e, 'Couldn’t change your number.'));
     } finally {
       setBusy(false);
     }
   };
 
-  const onCodeChange = (text: string) => {
-    const next = text.replace(/\D/g, '').slice(0, 6);
-    setCode(next);
+  const onPinChange = (value: string) => {
+    setPin(value);
     if (error) setError(null);
-    if (next.length === 6) void verify(next);
+    if (value.length === 6) void confirmPhone(value);
   };
 
-  const resend = async () => {
-    if (resendIn > 0 || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      if (await sendCode()) showToast('New code sent');
-    } catch (e) {
-      setError(networkMessage(e, 'Couldn’t send a new code.'));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (step === 'verify') {
+  if (step === 'confirm') {
     return (
       <BottomSheet
         visible={visible}
         onClose={onClose}
         dismissable={!busy}
-        title="Confirm your new number"
-        subtitle={`Enter the 6-digit code sent by SMS to +91 ${formatPhone(digits)}.`}
+        title="Confirm with your PIN"
+        subtitle="Your number is how you sign in, so we check it’s really you."
         footer={
           <Button
-            label="Verify & update number"
+            label="Update number"
             size="lg"
             loading={busy}
-            disabled={code.length !== 6}
-            onPress={() => void verify(code)}
+            disabled={pin.length < 4}
+            onPress={() => void confirmPhone(pin)}
           />
         }
       >
-        <Pressable style={styles.codeRow} onPress={() => codeInput.current?.focus()}>
-          {Array.from({ length: 6 }).map((_, i) => (
-            <View
-              key={i}
-              style={[
-                styles.codeBox,
-                i === code.length && !busy ? styles.codeBoxActive : null,
-                error ? styles.inputError : null,
-              ]}
-            >
-              <Text style={styles.codeDigit}>{code[i] ?? ''}</Text>
-            </View>
-          ))}
-          <TextInput
-            ref={codeInput}
-            value={code}
-            onChangeText={onCodeChange}
-            keyboardType="number-pad"
-            maxLength={6}
-            autoFocus
-            textContentType="oneTimeCode"
-            autoComplete="sms-otp"
-            style={styles.hiddenInput}
-            caretHidden
-            accessibilityLabel="Verification code"
-          />
-        </Pressable>
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-        <View style={styles.linkRow}>
-          <Pressable
-            onPress={() => {
-              setStep('edit');
-              setError(null);
-            }}
-            disabled={busy}
-            hitSlop={8}
-          >
-            <Text style={styles.link}>Change number</Text>
-          </Pressable>
-          <Pressable onPress={() => void resend()} disabled={resendIn > 0 || busy} hitSlop={8}>
-            <Text style={[styles.link, resendIn > 0 && styles.linkDisabled]}>
-              {resendIn > 0 ? `Resend in ${resendIn}s` : 'Resend code'}
-            </Text>
-          </Pressable>
+        <View style={styles.moveBand}>
+          <View style={styles.moveSide}>
+            <Text style={styles.moveLabel}>From</Text>
+            <Text style={[styles.moveNumber, styles.moveOld]}>+91 {formatPhone(user.phone)}</Text>
+          </View>
+          <View style={styles.moveArrow}>
+            <IconChevronRight size={16} color={colors.white} />
+          </View>
+          <View style={[styles.moveSide, styles.moveSideRight]}>
+            <Text style={styles.moveLabel}>To</Text>
+            <Text style={[styles.moveNumber, styles.moveNew]}>+91 {formatPhone(digits)}</Text>
+          </View>
         </View>
+
+        <View style={styles.pinHead}>
+          <View style={styles.pinIcon}>
+            <IconLock size={16} color={colors.waterDeep} />
+          </View>
+          <Text style={styles.pinHeadText}>Enter your current PIN</Text>
+        </View>
+        <PinPad value={pin} onChange={onPinChange} errorKey={pinErrorKey} disabled={busy} />
+        {error ? (
+          <View style={[styles.errorRow, styles.center]}>
+            <IconAlert size={14} color={colors.danger} />
+            <Text style={styles.error}>{error}</Text>
+          </View>
+        ) : null}
+        <Pressable
+          onPress={() => {
+            setStep('edit');
+            setError(null);
+          }}
+          disabled={busy}
+          hitSlop={8}
+          style={({ pressed }) => [styles.backLink, pressed && styles.pressed]}
+          accessibilityRole="button"
+        >
+          <IconChevronLeft size={15} color={colors.water} />
+          <Text style={styles.link}>Use a different number</Text>
+        </Pressable>
       </BottomSheet>
     );
   }
@@ -227,7 +209,13 @@ export function EditProfileSheet({ visible, onClose }: { visible: boolean; onClo
       subtitle="Your name shows on every job and report you’re part of."
       footer={
         <Button
-          label={phoneChanged ? 'Save & verify number' : 'Save changes'}
+          label={
+            phoneChanged
+              ? 'Save & confirm with PIN'
+              : nameChanged
+                ? 'Save changes'
+                : 'No changes yet'
+          }
           size="lg"
           loading={busy}
           disabled={!canSave}
@@ -235,162 +223,342 @@ export function EditProfileSheet({ visible, onClose }: { visible: boolean; onClo
         />
       }
     >
-      <View style={styles.preview}>
-        <Avatar name={trimmedName || user.name} id={user.id} size={64} />
-        <View style={styles.previewCopy}>
-          <Text style={styles.previewName} numberOfLines={1}>
+      <LinearGradient
+        colors={gradients.hero as unknown as string[]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.card}
+      >
+        <View pointerEvents="none" style={styles.orb} />
+        <View style={styles.cardAvatar}>
+          <Avatar name={trimmedName || user.name} id={user.id} size={60} />
+        </View>
+        <View style={styles.cardCopy}>
+          <Text style={styles.cardName} numberOfLines={1}>
             {trimmedName || 'Your name'}
           </Text>
-          <Text style={styles.previewMeta}>{isOwner ? 'Owner' : 'Staff'}</Text>
+          <Text style={styles.cardPhone}>+91 {formatPhone(digits) || '····· ·····'}</Text>
+          <View style={styles.cardTags}>
+            <View style={styles.cardTag}>
+              {isOwner ? (
+                <IconShield size={11} color={colors.white} />
+              ) : (
+                <IconPerson size={11} color={colors.white} />
+              )}
+              <Text style={styles.cardTagText}>{isOwner ? 'Owner' : 'Staff'}</Text>
+            </View>
+            {shop ? (
+              <View style={styles.cardTag}>
+                <IconStore size={11} color={colors.white} />
+                <Text style={styles.cardTagText} numberOfLines={1}>
+                  {shop.name}
+                </Text>
+              </View>
+            ) : null}
+          </View>
         </View>
-      </View>
+      </LinearGradient>
 
       <View style={styles.field}>
-        <Text style={styles.fieldLabel}>Name</Text>
-        <TextInput
-          style={[styles.input, !nameOk ? styles.inputError : null]}
-          value={name}
-          onChangeText={(t) => {
-            setName(t);
-            if (error) setError(null);
-          }}
-          placeholder="e.g. Ravi Kumar"
-          placeholderTextColor={colors.slate}
-          autoCapitalize="words"
-          maxLength={60}
-          editable={!busy}
-          returnKeyType="done"
-        />
+        <View style={styles.labelRow}>
+          <Text style={styles.fieldLabel}>Full name</Text>
+          {nameChanged && nameOk ? <Text style={styles.editedTag}>Edited</Text> : null}
+        </View>
+        <View
+          style={[
+            styles.iconField,
+            focus === 'name' && styles.fieldFocus,
+            !nameOk && styles.inputError,
+          ]}
+        >
+          <IconPerson size={18} color={focus === 'name' ? colors.water : colors.slate} />
+          <TextInput
+            style={styles.iconInput}
+            value={name}
+            onChangeText={(t) => {
+              setName(t);
+              if (error) setError(null);
+            }}
+            onFocus={() => setFocus('name')}
+            onBlur={() => setFocus(null)}
+            placeholder="e.g. Ravi Kumar"
+            placeholderTextColor={colors.slate}
+            autoCapitalize="words"
+            maxLength={60}
+            editable={!busy}
+            returnKeyType="done"
+          />
+          {nameOk ? <IconCheck size={16} color={colors.teal} /> : null}
+        </View>
         {!nameOk ? <Text style={styles.error}>Name can’t be empty.</Text> : null}
       </View>
 
       <View style={styles.field}>
-        <Text style={styles.fieldLabel}>Mobile number</Text>
-        <View style={[styles.phoneField, phone.length > 0 && !phoneOk ? styles.inputError : null]}>
+        <View style={styles.labelRow}>
+          <Text style={styles.fieldLabel}>Mobile number</Text>
+          {phoneChanged && phoneOk ? (
+            <Text style={[styles.editedTag, styles.editedAmber]}>Needs PIN</Text>
+          ) : null}
+        </View>
+        <View
+          style={[
+            styles.iconField,
+            focus === 'phone' && styles.fieldFocus,
+            phone.length > 0 && !phoneOk && styles.inputError,
+          ]}
+        >
+          <IconPhone size={17} color={focus === 'phone' ? colors.water : colors.slate} />
           <Text style={styles.cc}>+91</Text>
           <View style={styles.phoneDivider} />
           <TextInput
-            style={styles.phoneInput}
+            style={[styles.iconInput, styles.phoneDigits]}
             value={formatPhone(digits)}
             onChangeText={(t) => {
               setPhone(normalizePhone(t).slice(0, 10));
               if (error) setError(null);
             }}
+            onFocus={() => setFocus('phone')}
+            onBlur={() => setFocus(null)}
             placeholder="98765 43210"
             placeholderTextColor={colors.slate}
             keyboardType="phone-pad"
             maxLength={11}
             editable={!busy}
           />
+          {phoneOk ? <IconCheck size={16} color={colors.teal} /> : null}
         </View>
-        <Text style={styles.helper}>
-          {phoneChanged
-            ? 'We’ll text a code to the new number. You’ll sign in with it from then on.'
-            : 'Used to sign in with an SMS code or your PIN.'}
-        </Text>
+        {phoneChanged && phoneOk ? (
+          <View style={styles.notice}>
+            <IconLock size={14} color={colors.amberDeep} />
+            <Text style={styles.noticeText}>
+              You’ll confirm with your PIN, then sign in with{' '}
+              <Text style={styles.noticeStrong}>+91 {formatPhone(digits)}</Text> from then on.
+            </Text>
+          </View>
+        ) : (
+          <Text style={styles.helper}>
+            {phone.length > 0 && !phoneOk
+              ? `${Math.max(0, 10 - digits.length)} more digit${10 - digits.length === 1 ? '' : 's'}`
+              : 'Used with your PIN to sign in.'}
+          </Text>
+        )}
       </View>
 
       <View style={styles.roleRow}>
         <View style={styles.roleIcon}>
-          <IconLock size={15} color={colors.slateDeep} />
+          {isOwner ? (
+            <IconShield size={16} color={colors.waterDeep} />
+          ) : (
+            <IconLock size={15} color={colors.slateDeep} />
+          )}
         </View>
-        <Text style={styles.roleText}>
-          Role: <Text style={styles.roleStrong}>{isOwner ? 'Owner' : 'Staff'}</Text>
-          {isOwner ? ' · Change roles from Team.' : ' · Only the owner can change roles.'}
-        </Text>
+        <View style={styles.roleCopy}>
+          <Text style={styles.roleTitle}>{isOwner ? 'Owner' : 'Staff'}</Text>
+          <Text style={styles.roleText}>
+            {isOwner
+              ? 'Change roles from More → Team. Rename the shop from More → Shop.'
+              : 'Only the owner can change roles or the shop name.'}
+          </Text>
+        </View>
       </View>
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? (
+        <View style={styles.errorRow}>
+          <IconAlert size={14} color={colors.danger} />
+          <Text style={styles.error}>{error}</Text>
+        </View>
+      ) : null}
     </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  preview: {
+  pressed: { opacity: 0.7 },
+  card: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    paddingVertical: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
   },
-  previewCopy: { flex: 1, gap: 2 },
-  previewName: { ...typography.heading, color: colors.waterInk },
-  previewMeta: {
-    ...typography.caption,
-    color: colors.slateDeep,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
+  orb: {
+    position: 'absolute',
+    width: 170,
+    height: 170,
+    borderRadius: 85,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    top: -70,
+    right: -40,
   },
-  field: { gap: 6 },
-  fieldLabel: { ...typography.caption, color: colors.slateDeep },
-  input: {
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 4,
-    fontSize: 17,
-    fontWeight: '600',
-    color: colors.waterInk,
-    backgroundColor: colors.surface,
+  cardAvatar: { borderRadius: 33, borderWidth: 3, borderColor: 'rgba(255,255,255,0.9)' },
+  cardCopy: { flex: 1, gap: 2 },
+  cardName: { ...typography.heading, fontSize: 20, color: colors.white },
+  cardPhone: {
+    ...typography.bodyStrong,
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.9)',
+    letterSpacing: 0.5,
   },
-  inputError: { borderColor: '#FCA5A5' },
-  phoneField: {
+  cardTags: { flexDirection: 'row', gap: 6, marginTop: 4, flexWrap: 'wrap' },
+  cardTag: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 9,
+    height: 22,
+    maxWidth: 150,
+    borderRadius: 11,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+  },
+  cardTagText: {
+    ...typography.caption,
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: colors.white,
+    letterSpacing: 0.2,
+    flexShrink: 1,
+  },
+
+  field: { gap: 6 },
+  labelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  fieldLabel: { ...typography.caption, color: colors.slateDeep },
+  editedTag: {
+    ...typography.caption,
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.waterDeep,
+    backgroundColor: colors.waterPale,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 9,
+    overflow: 'hidden',
+    letterSpacing: 0.2,
+  },
+  editedAmber: { color: colors.amberDeep, backgroundColor: '#FEF3C7' },
+  iconField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    height: 54,
     borderWidth: 1.5,
     borderColor: colors.border,
     borderRadius: radius.md,
     backgroundColor: colors.surface,
     paddingHorizontal: spacing.md,
   },
-  cc: { ...typography.bodyStrong, color: colors.slateDeep },
-  phoneDivider: { width: 1, height: 22, backgroundColor: colors.border, marginHorizontal: spacing.sm + 2 },
-  phoneInput: {
+  fieldFocus: { borderColor: colors.water, backgroundColor: colors.white },
+  inputError: { borderColor: '#FCA5A5' },
+  iconInput: {
     flex: 1,
     fontSize: 17,
     fontWeight: '600',
     color: colors.waterInk,
-    paddingVertical: spacing.sm + 4,
-    letterSpacing: 0.5,
+    paddingVertical: 0,
   },
-  helper: { ...typography.caption, color: colors.slate, letterSpacing: 0, lineHeight: 17 },
+  phoneDigits: { letterSpacing: 0.8 },
+  cc: { ...typography.bodyStrong, color: colors.slateDeep },
+  phoneDivider: { width: 1, height: 22, backgroundColor: colors.border },
+  helper: {
+    ...typography.caption,
+    fontSize: 12,
+    color: colors.slate,
+    letterSpacing: 0,
+    lineHeight: 17,
+  },
+  notice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    backgroundColor: '#FFFBEB',
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: spacing.sm,
+  },
+  noticeText: {
+    ...typography.caption,
+    fontSize: 12.5,
+    color: colors.amberDeep,
+    letterSpacing: 0,
+    lineHeight: 17,
+    flex: 1,
+  },
+  noticeStrong: { fontWeight: '800' },
+
   roleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: 1,
+    gap: spacing.sm + 4,
+    paddingVertical: spacing.sm + 4,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
-    paddingHorizontal: spacing.sm + 4,
-    paddingVertical: spacing.sm + 2,
   },
   roleIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: colors.waterPale,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  roleCopy: { flex: 1, gap: 1 },
+  roleTitle: { ...typography.bodyStrong, fontSize: 15, color: colors.waterInk },
+  roleText: { ...typography.caption, fontSize: 12.5, color: colors.slate, letterSpacing: 0 },
+
+  moveBand: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm + 4,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  moveSide: { flex: 1, gap: 2 },
+  moveSideRight: { alignItems: 'flex-end' },
+  moveLabel: {
+    ...typography.caption,
+    fontSize: 11,
+    color: colors.slate,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  moveNumber: { ...typography.bodyStrong, fontSize: 15, letterSpacing: 0.3 },
+  moveOld: { color: colors.slate, textDecorationLine: 'line-through' },
+  moveNew: { color: colors.tealDeep, fontWeight: '800' },
+  moveArrow: {
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: colors.white,
+    backgroundColor: colors.teal,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  roleText: { ...typography.body, color: colors.slateDeep, fontSize: 13, flex: 1 },
-  roleStrong: { fontWeight: '700', color: colors.waterInk },
-  error: { ...typography.label, color: colors.danger, textTransform: 'none', lineHeight: 19 },
-  codeRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.sm },
-  codeBox: {
-    width: 46,
-    height: 56,
-    borderRadius: radius.md,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+  pinHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  pinIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.waterPale,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  codeBoxActive: { borderColor: colors.water, backgroundColor: colors.white },
-  codeDigit: { ...typography.title, color: colors.waterInk },
-  hiddenInput: { position: 'absolute', opacity: 0, width: '100%', height: '100%' },
-  linkRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  pinHeadText: { ...typography.bodyStrong, fontSize: 15, color: colors.waterInk },
+  errorRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  error: {
+    ...typography.label,
+    color: colors.danger,
+    textTransform: 'none',
+    lineHeight: 19,
+    flexShrink: 1,
+  },
+  center: { justifyContent: 'center' },
+  backLink: { flexDirection: 'row', alignItems: 'center', alignSelf: 'center', gap: 2 },
   link: { ...typography.label, color: colors.water, fontSize: 14 },
-  linkDisabled: { color: colors.slate },
 });

@@ -2,7 +2,6 @@ import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   LayoutAnimation,
-  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -28,8 +27,13 @@ import {
 import { colors, gradients, radius, shadow, spacing, typography } from '../theme';
 import { api, apiErrorMessage } from '../api/client';
 import { useAuth } from '../api/auth';
-import { buildWhatsAppLink, formatRelativeDate } from '../utils/format';
-import { buildComebackMessage, buildReminderMessage } from '../utils/messages';
+import { formatRelativeDate } from '../utils/format';
+import {
+  buildComebackMessage,
+  buildReferralRewardMessage,
+  buildReminderMessage,
+} from '../utils/messages';
+import { openWhatsApp } from '../utils/whatsapp';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 
 type RemindersScreenProps = NativeStackScreenProps<RootStackParamList, 'Reminders'>;
@@ -55,6 +59,9 @@ interface ReminderItem {
 }
 
 interface CouponRow extends CouponSummary {
+  kind: 'comeback' | 'referral';
+  notifiedAt: string | null;
+  referredName: string | null;
   createdAt: string;
   redeemedAt: string | null;
   registrationNumber: string;
@@ -86,15 +93,6 @@ function shortDate(input: string): string {
 
 function daysLeft(expiresAt: string): number {
   return Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 86_400_000));
-}
-
-function openWhatsApp(phone: string, message: string): Promise<boolean> {
-  return Linking.openURL(buildWhatsAppLink(phone, message))
-    .then(() => true)
-    .catch(() => {
-      showToast('Couldn’t open WhatsApp — is it installed?', 'error');
-      return false;
-    });
 }
 
 export function RemindersScreen({ navigation }: RemindersScreenProps) {
@@ -226,6 +224,42 @@ export function RemindersScreen({ navigation }: RemindersScreenProps) {
     }
   };
 
+  const sendReward = async (coupon: CouponRow) => {
+    const opened = await openWhatsApp(
+      coupon.customer.phone,
+      buildReferralRewardMessage({
+        customerName: coupon.customer.name,
+        referredName: coupon.referredName,
+        code: coupon.code,
+        percent: coupon.percent,
+        expiresAt: coupon.expiresAt,
+      }),
+    );
+    if (!opened || coupon.notifiedAt) return;
+    const notifiedAt = new Date().toISOString();
+    animate();
+    setData((d) =>
+      d
+        ? {
+            ...d,
+            actionable: Math.max(0, d.actionable - 1),
+            coupons: {
+              ...d.coupons,
+              active: d.coupons.active.map((c) => (c.id === coupon.id ? { ...c, notifiedAt } : c)),
+            },
+          }
+        : d,
+    );
+    api.reminders.coupons[':couponId'].sent
+      .$post({ param: { couponId: coupon.id } })
+      .then((res) => {
+        if (!res.ok) throw new Error();
+      })
+      .catch(() =>
+        showToast('Message sent, but it couldn’t be marked as sent. Check your connection.', 'error'),
+      );
+  };
+
   const onRefresh = async () => {
     setRefreshing(true);
     await load();
@@ -234,8 +268,15 @@ export function RemindersScreen({ navigation }: RemindersScreenProps) {
 
   const redeemed = data?.coupons.redeemed ?? [];
   const visibleRedeemed = showAllRedeemed ? redeemed : redeemed.slice(0, REDEEMED_PREVIEW);
+  const active = data?.coupons.active ?? [];
+  // Unsent rewards first — those are the ones still owed a message.
+  const rewards = active
+    .filter((c) => c.kind === 'referral')
+    .sort((a, b) => Number(Boolean(a.notifiedAt)) - Number(Boolean(b.notifiedAt)));
+  const offers = active.filter((c) => c.kind !== 'referral');
+  const unsentRewards = rewards.filter((c) => !c.notifiedAt).length;
   const nothing =
-    data && data.due.length === 0 && data.comeback.length === 0 && data.coupons.active.length === 0;
+    data && data.due.length === 0 && data.comeback.length === 0 && active.length === 0;
 
   return (
     <ScreenContainer noPadding>
@@ -287,6 +328,33 @@ export function RemindersScreen({ navigation }: RemindersScreenProps) {
                 Vehicles show up here {data.rules.dueDays} days after their last wash.
               </Text>
             </View>
+          ) : null}
+
+          {rewards.length > 0 ? (
+            <>
+              <SectionHeader
+                title="Referral rewards"
+                caption={
+                  unsentRewards > 0
+                    ? `${unsentRewards} to send · thank them for the new customer`
+                    : 'All sent · valid once, for any of their vehicles'
+                }
+                count={rewards.length}
+              />
+              <View style={styles.edgeList}>
+                {rewards.map((c, i) => (
+                  <RewardRow
+                    key={c.id}
+                    coupon={c}
+                    last={i === rewards.length - 1}
+                    onOpen={() =>
+                      navigation.navigate('CustomerProfile', { customerId: c.customer.id })
+                    }
+                    onSend={() => void sendReward(c)}
+                  />
+                ))}
+              </View>
+            </>
           ) : null}
 
           {data.due.length > 0 ? (
@@ -344,16 +412,16 @@ export function RemindersScreen({ navigation }: RemindersScreenProps) {
             </>
           ) : null}
 
-          {data.coupons.active.length > 0 ? (
+          {offers.length > 0 ? (
             <>
               <SectionHeader
                 title="Live offers"
                 caption="Valid once · this vehicle or the owner’s others"
-                count={data.coupons.active.length}
+                count={offers.length}
               />
               <View style={styles.edgeList}>
-                {data.coupons.active.map((c, i) => (
-                  <CouponLine key={c.id} coupon={c} last={i === data.coupons.active.length - 1} />
+                {offers.map((c, i) => (
+                  <CouponLine key={c.id} coupon={c} last={i === offers.length - 1} />
                 ))}
               </View>
             </>
@@ -583,6 +651,67 @@ function ReminderRow({
   );
 }
 
+function RewardRow({
+  coupon,
+  last,
+  onOpen,
+  onSend,
+}: {
+  coupon: CouponRow;
+  last: boolean;
+  onOpen: () => void;
+  onSend: () => void;
+}) {
+  const name = coupon.customer.name?.trim() || coupon.customer.phone;
+  const friend = coupon.referredName?.trim().split(/\s+/)[0];
+  const sent = Boolean(coupon.notifiedAt);
+  const left = daysLeft(coupon.expiresAt);
+  return (
+    <View style={[styles.row, !last && styles.rowBorder]}>
+      <Pressable
+        onPress={onOpen}
+        style={({ pressed }) => [styles.rowTop, pressed && styles.pressed]}
+      >
+        <Avatar name={name} id={coupon.customer.id} size={42} />
+        <View style={styles.rowCopy}>
+          <Text style={styles.rowName} numberOfLines={1}>
+            {name}
+          </Text>
+          <Text style={styles.rowMetaText} numberOfLines={1}>
+            Referred {friend ?? 'a new customer'} · {coupon.code}
+          </Text>
+        </View>
+        <View style={styles.couponRight}>
+          <Text style={styles.couponPercent}>{coupon.percent}% off</Text>
+          <Text style={[styles.couponWhen, left <= 3 && styles.couponWhenSoon]}>
+            {left <= 1 ? 'Expires today' : `${left} days left`}
+          </Text>
+        </View>
+      </Pressable>
+      <View style={styles.actions}>
+        <Pressable
+          onPress={onSend}
+          style={({ pressed }) => [sent ? styles.ghostBtn : styles.whatsBtn, pressed && styles.pressed]}
+          hitSlop={4}
+        >
+          <IconWhatsApp size={15} variant="mono" color={sent ? colors.teal : colors.white} />
+          <Text style={sent ? styles.ghostTextTeal : styles.whatsText}>
+            {sent ? 'Resend' : 'Send reward'}
+          </Text>
+        </Pressable>
+        {sent ? (
+          <View style={styles.remindedLine}>
+            <IconCheck size={13} color={colors.teal} />
+            <Text style={styles.remindedText}>
+              Sent {formatRelativeDate(coupon.notifiedAt!).toLowerCase()}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
 function CouponLine({ coupon, last, used }: { coupon: CouponRow; last: boolean; used?: boolean }) {
   const name = coupon.customer.name?.trim() || coupon.customer.phone;
   const left = daysLeft(coupon.expiresAt);
@@ -598,6 +727,7 @@ function CouponLine({ coupon, last, used }: { coupon: CouponRow; last: boolean; 
       <View style={styles.rowCopy}>
         <Text style={styles.couponRowCode}>{coupon.code}</Text>
         <Text style={styles.rowMetaText} numberOfLines={1}>
+          {coupon.kind === 'referral' ? 'Referral · ' : ''}
           {name} · {coupon.registrationNumber}
         </Text>
       </View>

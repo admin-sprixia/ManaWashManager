@@ -1,304 +1,593 @@
--- The complete mana_db schema + launch seed in one file. Applied with:
---   npm run db:reset:local    (or db:reset:remote)
--- which runs `wrangler d1 execute mana_db --file=./schema.sql`.
+-- The current mana_db schema, in one readable file. This is NOT run against any database:
+-- databases are built and changed only by the numbered files in ./migrations, applied with
+-- `wrangler d1 migrations apply` (npm run db:migrate:local / db:migrate:remote).
 --
--- DESTRUCTIVE: drops and recreates every table, so all data is wiped. Safe only while there is
--- no production data. Once real data exists, switch back to incremental migrations.
+-- Changing the schema: add a new migrations/NNNN_what.sql AND update this file to match.
+-- `npm run db:check` builds a database from each and fails if they differ in any table,
+-- column, index or trigger, so the two can't drift.
 --
--- Must stay in sync with packages/db/prisma/schema.prisma (Prisma generates types from that
--- file; this SQL is what actually creates the tables, since D1 isn't managed by `prisma migrate`).
+-- Must also stay in sync with packages/db/prisma/schema.prisma (Prisma generates types from
+-- that file; D1 isn't managed by `prisma migrate`).
 --
--- Seed IDs are short and readable rather than random UUIDs, since this is fixed seed data,
--- not runtime-created rows (those get real UUIDs via Prisma's @default(uuid())).
--- Money is stored in paise (1 rupee = 100 paise).
-
-DROP TABLE IF EXISTS vehicle_reminders;
-DROP TABLE IF EXISTS coupons;
-DROP TABLE IF EXISTS job_events;
-DROP TABLE IF EXISTS job_services;
-DROP TABLE IF EXISTS jobs;
-DROP TABLE IF EXISTS vehicles;
-DROP TABLE IF EXISTS customers;
-DROP TABLE IF EXISTS service_prices;
-DROP TABLE IF EXISTS services;
-DROP TABLE IF EXISTS vehicle_types;
-DROP TABLE IF EXISTS expenses;
-DROP TABLE IF EXISTS users;
-DROP TABLE IF EXISTS d1_migrations;
+-- Money is stored in paise (1 rupee = 100 paise). Timestamps are ISO-8601 UTC text in the
+-- exact shape Prisma writes ("2026-10-02T09:02:18.357+00:00"), defaults included, so text
+-- comparisons and ordering stay correct whichever side wrote the row.
+--
+-- Multi-shop: every table except shops, platform_settings and signup_codes has a shop_id. Each parent table
+-- has UNIQUE (shop_id, id), and every link to it is a composite foreign key on (shop_id, x_id),
+-- so the database itself refuses a row that points at another shop's customer, vehicle,
+-- service or staff member — isolation doesn't depend on every route remembering to check.
+-- (D1 enforces foreign keys.) shop_id has no default on purpose: see schema.prisma.
 
 -- ─── Schema ─────────────────────────────────────────────────────────────────
 
+-- One car wash on the platform.
+CREATE TABLE shops (
+  id TEXT PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,         -- 6-digit shop ID staff type to ask to join; not a secret
+  name TEXT NOT NULL,
+  city TEXT,
+  plan TEXT NOT NULL DEFAULT 'trial', -- trial | active | past_due | read_only | cancelled | free
+  trial_ends_at TEXT,
+  paid_until TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now'))
+);
+
+-- Settings for the platform itself (Sprixia), not any one shop.
+CREATE TABLE platform_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now'))
+);
+
 CREATE TABLE users (
   id TEXT PRIMARY KEY,
+  shop_id TEXT NOT NULL REFERENCES shops(id),
   name TEXT NOT NULL,
-  phone TEXT NOT NULL UNIQUE,
-  role TEXT NOT NULL DEFAULT 'staff', -- owner | staff
+  phone TEXT NOT NULL,                -- staff: one shop; an owner may run several branches, one row each (same PIN)
+  role TEXT NOT NULL DEFAULT 'staff' CHECK (role IN ('owner', 'staff')),
   active INTEGER NOT NULL DEFAULT 1,  -- deactivated users can't sign in or call the API
   pin_hash TEXT,                      -- PBKDF2 "iterations$salt$hash"; NULL = PIN sign-in not set up
   pin_failed_attempts INTEGER NOT NULL DEFAULT 0,
   pin_locked_until TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  -- Copied into every session token. Bumping it (PIN changed or reset, removed, turned off)
+  -- signs out every phone holding an older token on its next request.
+  session_version INTEGER NOT NULL DEFAULT 0,
+  removed_at TEXT,                    -- removed from the team: kept for history, number is free again
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  UNIQUE (shop_id, id)
 );
 
 CREATE TABLE vehicle_types (
   id TEXT PRIMARY KEY,
+  shop_id TEXT NOT NULL REFERENCES shops(id),
   name TEXT NOT NULL,
   category TEXT NOT NULL DEFAULT 'car', -- car | bike
-  sort_order INTEGER NOT NULL DEFAULT 0
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1,  -- 0 = owner deselected it; kept because customers' vehicles use it
+  UNIQUE (shop_id, id)
 );
 
 CREATE TABLE services (
   id TEXT PRIMARY KEY,
+  shop_id TEXT NOT NULL REFERENCES shops(id),
   name TEXT NOT NULL,
   description TEXT,
   active INTEGER NOT NULL DEFAULT 1,
   applies_to TEXT NOT NULL DEFAULT 'car', -- car | bike | both
-  sort_order INTEGER NOT NULL DEFAULT 0
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (shop_id, id)
+);
+
+-- A combo is a service of its own (own price per vehicle) that bundles other services.
+-- These rows list what it includes, so New Wash can show "Includes …" and stop double-picking.
+CREATE TABLE service_combo_items (
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  combo_id TEXT NOT NULL,
+  service_id TEXT NOT NULL,
+  PRIMARY KEY (combo_id, service_id),
+  FOREIGN KEY (shop_id, combo_id) REFERENCES services(shop_id, id),
+  FOREIGN KEY (shop_id, service_id) REFERENCES services(shop_id, id)
 );
 
 CREATE TABLE service_prices (
   id TEXT PRIMARY KEY,
-  service_id TEXT NOT NULL REFERENCES services(id),
-  vehicle_type_id TEXT NOT NULL REFERENCES vehicle_types(id),
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  service_id TEXT NOT NULL,
+  vehicle_type_id TEXT NOT NULL,
   price INTEGER NOT NULL, -- paise
-  UNIQUE (service_id, vehicle_type_id)
+  UNIQUE (service_id, vehicle_type_id),
+  FOREIGN KEY (shop_id, service_id) REFERENCES services(shop_id, id),
+  FOREIGN KEY (shop_id, vehicle_type_id) REFERENCES vehicle_types(shop_id, id)
 );
 
 CREATE TABLE customers (
   id TEXT PRIMARY KEY,
+  shop_id TEXT NOT NULL REFERENCES shops(id),
   name TEXT,
-  phone TEXT NOT NULL UNIQUE,
+  phone TEXT NOT NULL,
   source TEXT,
   marketing_consent INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  UNIQUE (shop_id, phone),
+  UNIQUE (shop_id, id)
 );
 
 CREATE TABLE vehicles (
   id TEXT PRIMARY KEY,
-  customer_id TEXT NOT NULL REFERENCES customers(id),
-  registration_number TEXT NOT NULL UNIQUE,
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  customer_id TEXT NOT NULL,
+  registration_number TEXT NOT NULL,
   make TEXT,
   model TEXT,
-  vehicle_type_id TEXT NOT NULL REFERENCES vehicle_types(id),
+  vehicle_type_id TEXT NOT NULL,
   -- Bumped whenever anything New Wash's customer suggestions show for this vehicle changes
   -- (the vehicle, its owner's name/phone, or a job for that owner). Phones sync their offline
   -- customer directory by pulling rows changed since their last cursor.
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  UNIQUE (shop_id, registration_number),
+  UNIQUE (shop_id, id),
+  FOREIGN KEY (shop_id, customer_id) REFERENCES customers(shop_id, id),
+  FOREIGN KEY (shop_id, vehicle_type_id) REFERENCES vehicle_types(shop_id, id)
 );
 
 CREATE TABLE jobs (
   id TEXT PRIMARY KEY,
-  customer_id TEXT NOT NULL REFERENCES customers(id),
-  vehicle_id TEXT NOT NULL REFERENCES vehicles(id),
-  created_by_user_id TEXT NOT NULL REFERENCES users(id),
-  status TEXT NOT NULL DEFAULT 'waiting', -- waiting | washing | ready | paid | void
-  subtotal INTEGER NOT NULL,
-  discount INTEGER NOT NULL DEFAULT 0,
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  customer_id TEXT NOT NULL,
+  vehicle_id TEXT NOT NULL,
+  created_by_user_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'waiting'
+    CHECK (status IN ('waiting', 'washing', 'ready', 'paid', 'void')),
+  subtotal INTEGER NOT NULL CHECK (subtotal >= 0),
+  discount INTEGER NOT NULL DEFAULT 0 CHECK (discount >= 0),
   discount_reason TEXT,
-  total INTEGER NOT NULL,
-  payment_method TEXT, -- cash | upi | other
-  payment_status TEXT NOT NULL DEFAULT 'pending',
-  paid_by_user_id TEXT REFERENCES users(id),   -- who collected the money
-  voided_by_user_id TEXT REFERENCES users(id),
+  total INTEGER NOT NULL CHECK (total >= 0 AND total = subtotal - discount),
+  payment_method TEXT CHECK (payment_method IN ('cash', 'upi', 'other')),
+  payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid')),
+  paid_by_user_id TEXT,   -- who collected the money
+  voided_by_user_id TEXT,
   void_reason TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  completed_at TEXT
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  completed_at TEXT,
+  UNIQUE (shop_id, id),
+  FOREIGN KEY (shop_id, customer_id) REFERENCES customers(shop_id, id),
+  FOREIGN KEY (shop_id, vehicle_id) REFERENCES vehicles(shop_id, id),
+  FOREIGN KEY (shop_id, created_by_user_id) REFERENCES users(shop_id, id),
+  FOREIGN KEY (shop_id, paid_by_user_id) REFERENCES users(shop_id, id),
+  FOREIGN KEY (shop_id, voided_by_user_id) REFERENCES users(shop_id, id)
 );
 
 -- Append-only audit trail: every create, status change, payment, void, and correction.
 -- Never updated or deleted, so any number on a report can be traced back to who did what.
 CREATE TABLE job_events (
   id TEXT PRIMARY KEY,
-  job_id TEXT NOT NULL REFERENCES jobs(id),
-  user_id TEXT NOT NULL REFERENCES users(id),
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  job_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
   action TEXT NOT NULL, -- created | status_changed | paid | voided | payment_method_changed
   from_value TEXT,
   to_value TEXT,
   reason TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  FOREIGN KEY (shop_id, job_id) REFERENCES jobs(shop_id, id),
+  FOREIGN KEY (shop_id, user_id) REFERENCES users(shop_id, id)
 );
 
 CREATE TABLE job_services (
-  job_id TEXT NOT NULL REFERENCES jobs(id),
-  service_id TEXT NOT NULL REFERENCES services(id),
-  price_at_time INTEGER NOT NULL, -- copied at creation time; never re-joins to the live price
-  quantity INTEGER NOT NULL DEFAULT 1,
-  PRIMARY KEY (job_id, service_id)
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  job_id TEXT NOT NULL,
+  service_id TEXT NOT NULL,
+  -- copied at creation time; never re-joins to the live price
+  price_at_time INTEGER NOT NULL CHECK (price_at_time >= 0),
+  -- washer commission per unit, copied the same way
+  commission_at_time INTEGER NOT NULL DEFAULT 0 CHECK (commission_at_time >= 0),
+  quantity INTEGER NOT NULL DEFAULT 1 CHECK (quantity >= 1),
+  PRIMARY KEY (job_id, service_id),
+  FOREIGN KEY (shop_id, job_id) REFERENCES jobs(shop_id, id),
+  FOREIGN KEY (shop_id, service_id) REFERENCES services(shop_id, id)
 );
 
 CREATE TABLE expenses (
   id TEXT PRIMARY KEY,
+  shop_id TEXT NOT NULL REFERENCES shops(id),
   category TEXT NOT NULL,
-  amount INTEGER NOT NULL, -- paise
-  description TEXT,
+  amount INTEGER NOT NULL CHECK (amount >= 0), -- paise
+  description TEXT,        -- "used for" / free note
+  item_name TEXT,          -- what was bought, e.g. "Foam shampoo"
+  quantity REAL,           -- how much, in `unit`; set together with unit
+  unit TEXT,               -- ml | l | g | kg | pcs | kwh | days | hours | tankers
+  bill_photo_key TEXT,     -- R2 key; required for new entries, kept as long as the expense
+  item_photo_key TEXT,     -- R2 key of the product / meter / part photo
+  -- only cash leaves the drawer
+  payment_method TEXT NOT NULL DEFAULT 'cash' CHECK (payment_method IN ('cash', 'upi', 'other')),
   date TEXT NOT NULL,
-  created_by_user_id TEXT NOT NULL REFERENCES users(id),
-  voided_by_user_id TEXT REFERENCES users(id),
+  created_by_user_id TEXT NOT NULL,
+  voided_by_user_id TEXT,
   void_reason TEXT,
   voided_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  UNIQUE (shop_id, id),
+  FOREIGN KEY (shop_id, created_by_user_id) REFERENCES users(shop_id, id),
+  FOREIGN KEY (shop_id, voided_by_user_id) REFERENCES users(shop_id, id)
 );
 
--- Comeback coupons. Bound to the vehicle it was issued for and to that vehicle's owner at
--- issue time: redeemable on that vehicle or the same owner's other vehicles, once, before
--- expires_at. "Expired" is derived (status stays 'active'); a vehicle changing hands cancels it.
+-- Comeback and referral coupons. Bound to the vehicle it was issued for and to that vehicle's
+-- owner at issue time: redeemable on that vehicle or the same owner's other vehicles, once,
+-- before expires_at. "Expired" is derived (status stays 'active'); a vehicle changing hands
+-- cancels it.
 CREATE TABLE coupons (
   id TEXT PRIMARY KEY,
-  code TEXT NOT NULL UNIQUE,
-  vehicle_id TEXT NOT NULL REFERENCES vehicles(id),
-  customer_id TEXT NOT NULL REFERENCES customers(id),
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  code TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'comeback' CHECK (kind IN ('comeback', 'referral')),
+  vehicle_id TEXT NOT NULL,
+  customer_id TEXT NOT NULL,
   percent INTEGER NOT NULL CHECK (percent BETWEEN 5 AND 10),
-  status TEXT NOT NULL DEFAULT 'active', -- active | redeemed | cancelled
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'redeemed', 'cancelled')),
   expires_at TEXT NOT NULL,
-  issued_by_user_id TEXT NOT NULL REFERENCES users(id),
+  issued_by_user_id TEXT NOT NULL,
   -- Claimed before the job row is written (same request), so this is deliberately not a FK.
   redeemed_job_id TEXT UNIQUE,
-  redeemed_by_user_id TEXT REFERENCES users(id),
+  redeemed_by_user_id TEXT,
   redeemed_at TEXT,
   cancelled_at TEXT,
-  cancel_reason TEXT, -- replaced | owner_changed
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  cancel_reason TEXT, -- replaced | owner_changed | referral_voided
+  notified_at TEXT,   -- when someone sent it to the customer on WhatsApp
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  UNIQUE (shop_id, code),
+  UNIQUE (shop_id, id),
+  FOREIGN KEY (shop_id, vehicle_id) REFERENCES vehicles(shop_id, id),
+  FOREIGN KEY (shop_id, customer_id) REFERENCES customers(shop_id, id),
+  FOREIGN KEY (shop_id, issued_by_user_id) REFERENCES users(shop_id, id),
+  FOREIGN KEY (shop_id, redeemed_by_user_id) REFERENCES users(shop_id, id)
+);
+
+-- A new customer's first wash, credited to the existing customer who sent them. The new
+-- customer's discount is applied on that wash; the referrer's reward coupon is issued once the
+-- wash is paid (status 'rewarded'), or only counted when they already hold a live referral
+-- coupon ('counted'). Voiding the wash cancels the referral and any unused reward.
+CREATE TABLE referrals (
+  id TEXT PRIMARY KEY,
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  referred_customer_id TEXT NOT NULL UNIQUE,
+  referrer_customer_id TEXT NOT NULL,
+  -- Written before the job row (same request), so like coupons.redeemed_job_id not a FK.
+  job_id TEXT NOT NULL UNIQUE,
+  percent INTEGER NOT NULL CHECK (percent BETWEEN 5 AND 10),
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'rewarded', 'counted', 'cancelled')),
+  reward_coupon_id TEXT,
+  created_by_user_id TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  settled_at TEXT,
+  FOREIGN KEY (shop_id, referred_customer_id) REFERENCES customers(shop_id, id),
+  FOREIGN KEY (shop_id, referrer_customer_id) REFERENCES customers(shop_id, id),
+  FOREIGN KEY (shop_id, reward_coupon_id) REFERENCES coupons(shop_id, id),
+  FOREIGN KEY (shop_id, created_by_user_id) REFERENCES users(shop_id, id)
+);
+
+-- Shop-wide settings the owner edits in the app (e.g. the Google review link).
+CREATE TABLE app_settings (
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  updated_by_user_id TEXT,
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  PRIMARY KEY (shop_id, key),
+  FOREIGN KEY (shop_id, updated_by_user_id) REFERENCES users(shop_id, id)
+);
+
+-- Staff commission (paise) for getting a customer to take a service, per service per vehicle
+-- size. Only the services the owner picks carry one (e.g. rust coating); everything else has
+-- no row. Copied onto each job line when the job is created, so changing a rate never
+-- rewrites past earnings.
+CREATE TABLE commission_rates (
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  service_id TEXT NOT NULL,
+  vehicle_type_id TEXT NOT NULL,
+  amount INTEGER NOT NULL CHECK (amount >= 0),
+  PRIMARY KEY (service_id, vehicle_type_id),
+  FOREIGN KEY (shop_id, service_id) REFERENCES services(shop_id, id),
+  FOREIGN KEY (shop_id, vehicle_type_id) REFERENCES vehicle_types(shop_id, id)
+);
+
+-- Who washed the car — an optional record, no money attached.
+CREATE TABLE job_washers (
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  job_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  assigned_by_user_id TEXT NOT NULL,
+  assigned_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  PRIMARY KEY (job_id, user_id),
+  FOREIGN KEY (shop_id, job_id) REFERENCES jobs(shop_id, id),
+  FOREIGN KEY (shop_id, user_id) REFERENCES users(shop_id, id),
+  FOREIGN KEY (shop_id, assigned_by_user_id) REFERENCES users(shop_id, id)
+);
+
+-- Who got the customer to take the job's commission services. The job's commission is split
+-- equally between them. Only jobs with a commission service have rows.
+CREATE TABLE job_sellers (
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  job_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  assigned_by_user_id TEXT NOT NULL,
+  assigned_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  PRIMARY KEY (job_id, user_id),
+  FOREIGN KEY (shop_id, job_id) REFERENCES jobs(shop_id, id),
+  FOREIGN KEY (shop_id, user_id) REFERENCES users(shop_id, id),
+  FOREIGN KEY (shop_id, assigned_by_user_id) REFERENCES users(shop_id, id)
+);
+
+-- Owner-marked attendance, one row per person per IST calendar day (YYYY-MM-DD).
+CREATE TABLE attendance (
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  user_id TEXT NOT NULL,
+  date TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('present', 'half', 'absent')),
+  marked_by_user_id TEXT NOT NULL,
+  marked_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  PRIMARY KEY (user_id, date),
+  FOREIGN KEY (shop_id, user_id) REFERENCES users(shop_id, id),
+  FOREIGN KEY (shop_id, marked_by_user_id) REFERENCES users(shop_id, id)
+);
+
+-- The cash drawer, one row per shop per IST calendar day (YYYY-MM-DD). `expected` is frozen at
+-- close so a later correction shows up as a difference against what the closer actually saw.
+CREATE TABLE cash_days (
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  date TEXT NOT NULL,
+  opening_float INTEGER NOT NULL CHECK (opening_float >= 0),
+  float_set_by_user_id TEXT NOT NULL,
+  float_set_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  expected INTEGER,
+  counted INTEGER CHECK (counted >= 0),
+  note TEXT,
+  closed_by_user_id TEXT,
+  closed_at TEXT,
+  reopened_by_user_id TEXT,
+  reopened_at TEXT,
+  reopen_reason TEXT,
+  PRIMARY KEY (shop_id, date),
+  FOREIGN KEY (shop_id, float_set_by_user_id) REFERENCES users(shop_id, id),
+  FOREIGN KEY (shop_id, closed_by_user_id) REFERENCES users(shop_id, id),
+  FOREIGN KEY (shop_id, reopened_by_user_id) REFERENCES users(shop_id, id)
+);
+
+-- Before/after photos. The image lives in R2 under r2_key (shops/<shop>/photos/...); rows older
+-- than the retention window are purged (object and row) by the daily scheduled job.
+CREATE TABLE job_photos (
+  id TEXT PRIMARY KEY, -- client-generated, so a replayed upload is idempotent
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  job_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('before', 'after')),
+  r2_key TEXT NOT NULL,
+  content_type TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  taken_by_user_id TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  deleted_at TEXT,
+  deleted_by_user_id TEXT,
+  FOREIGN KEY (shop_id, job_id) REFERENCES jobs(shop_id, id),
+  FOREIGN KEY (shop_id, taken_by_user_id) REFERENCES users(shop_id, id),
+  FOREIGN KEY (shop_id, deleted_by_user_id) REFERENCES users(shop_id, id)
+);
+
+-- One-time sign-in codes sent to the owner on WhatsApp (first sign-in, forgotten PIN). Only a
+-- keyed hash is stored; a code dies after it's used, after too many wrong tries, or at expiry.
+CREATE TABLE login_codes (
+  id TEXT PRIMARY KEY,
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  user_id TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  expires_at TEXT NOT NULL,
+  used_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  FOREIGN KEY (shop_id, user_id) REFERENCES users(shop_id, id)
+);
+
+-- WhatsApp codes for people who don't have an account yet: starting a new shop, or asking to
+-- join one. Not tied to a shop. `ip` lets one device be capped however many numbers it tries.
+CREATE TABLE signup_codes (
+  id TEXT PRIMARY KEY,
+  phone TEXT NOT NULL,
+  purpose TEXT NOT NULL, -- signup | join
+  code_hash TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  ip TEXT,
+  expires_at TEXT NOT NULL,
+  used_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now'))
+);
+
+-- Someone asking to join a shop with its shop ID. Nothing is created in the team until the owner
+-- approves; approval creates the user, who then picks their own PIN. Pending requests older than
+-- JOIN_REQUEST_TTL_DAYS count as expired.
+CREATE TABLE join_requests (
+  id TEXT PRIMARY KEY,
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  phone TEXT NOT NULL,
+  name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled')),
+  user_id TEXT,                           -- set on approval
+  decided_by_user_id TEXT,
+  decided_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  FOREIGN KEY (shop_id, user_id) REFERENCES users(shop_id, id),
+  FOREIGN KEY (shop_id, decided_by_user_id) REFERENCES users(shop_id, id)
+);
+
+-- Crashes from the app and unhandled API errors. Each owner sees their own shop's; shop_id is
+-- NULL for platform errors (nightly job, requests before sign-in), which only Sprixia sees.
+CREATE TABLE app_errors (
+  id TEXT PRIMARY KEY,
+  shop_id TEXT REFERENCES shops(id),
+  source TEXT NOT NULL, -- app | api
+  user_id TEXT,
+  message TEXT NOT NULL,
+  stack TEXT,
+  context TEXT,
+  app_version TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now'))
 );
 
 -- What the team did about a vehicle's reminder. Tied to the visit it was about
 -- (last_visit_at): once the vehicle comes back, the old state no longer applies.
 CREATE TABLE vehicle_reminders (
-  vehicle_id TEXT PRIMARY KEY REFERENCES vehicles(id),
+  vehicle_id TEXT PRIMARY KEY,
+  shop_id TEXT NOT NULL REFERENCES shops(id),
   last_visit_at TEXT NOT NULL,
   reminded_at TEXT,
-  reminded_by_user_id TEXT REFERENCES users(id),
+  reminded_by_user_id TEXT,
   snoozed_until TEXT,
   dismissed_at TEXT,
-  dismissed_by_user_id TEXT REFERENCES users(id)
+  dismissed_by_user_id TEXT,
+  FOREIGN KEY (shop_id, vehicle_id) REFERENCES vehicles(shop_id, id),
+  FOREIGN KEY (shop_id, reminded_by_user_id) REFERENCES users(shop_id, id),
+  FOREIGN KEY (shop_id, dismissed_by_user_id) REFERENCES users(shop_id, id)
 );
 
--- Indexes for the app's actual hot paths: today's job board, the dashboard, and lookups.
-CREATE INDEX idx_jobs_status ON jobs(status);
-CREATE INDEX idx_jobs_created_at ON jobs(created_at);
+-- Inventory: consumables the shop keeps (shampoo, wax, cloths, bill books). `balance` is in the
+-- base unit and always equals the sum of the item's stock_moves; low_at is the owner's alert level.
+CREATE TABLE stock_items (
+  id TEXT PRIMARY KEY,
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  name TEXT NOT NULL,
+  name_key TEXT NOT NULL,            -- lower-cased, single-spaced name; one live item per name
+  -- ml and g entries are converted
+  unit TEXT NOT NULL CHECK (unit IN ('l', 'kg', 'pcs')),
+  balance REAL NOT NULL DEFAULT 0,
+  low_at REAL,                       -- warn at or below this; NULL = no warning
+  active INTEGER NOT NULL DEFAULT 1, -- 0 = removed from the list; moves are kept for history
+  created_by_user_id TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  UNIQUE (shop_id, id),
+  FOREIGN KEY (shop_id, created_by_user_id) REFERENCES users(shop_id, id)
+);
+
+-- Every change to a balance, append-only: bought (from an expense or by hand), used, counted, or
+-- reversed when its expense was voided. `quantity` is signed, in the item's unit.
+CREATE TABLE stock_moves (
+  id TEXT PRIMARY KEY,               -- client-generated, so a replayed offline entry is idempotent
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  item_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('in', 'use', 'count', 'void')),
+  quantity REAL NOT NULL,
+  balance_after REAL NOT NULL,
+  note TEXT,
+  expense_id TEXT,                   -- the purchase this came from, if any
+  created_by_user_id TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  FOREIGN KEY (shop_id, item_id) REFERENCES stock_items(shop_id, id),
+  FOREIGN KEY (shop_id, expense_id) REFERENCES expenses(shop_id, id),
+  FOREIGN KEY (shop_id, created_by_user_id) REFERENCES users(shop_id, id)
+);
+
+-- Fixed-window request counters for brute-force protection (PIN and code guesses, sign-up),
+-- keyed by what is being limited, e.g. "pin:ip:1.2.3.4". Not shop data; old windows are
+-- deleted by the nightly job.
+CREATE TABLE rate_limits (
+  key TEXT PRIMARY KEY,
+  window_start INTEGER NOT NULL, -- unix seconds, start of the current window
+  count INTEGER NOT NULL
+);
+
+-- Indexes for the app's actual hot paths: today's job board, the dashboard, and lookups. Every
+-- list the app shows is one shop's, so those indexes lead with shop_id.
+CREATE INDEX idx_users_shop ON users(shop_id);
+-- Removed team members keep their row for history but give up the number. A number can be live in
+-- several shops only as the owner of each (enforced by the API: routes/auth.ts `/shops`).
+CREATE UNIQUE INDEX idx_users_shop_phone_live ON users(shop_id, phone) WHERE removed_at IS NULL;
+CREATE INDEX idx_users_phone ON users(phone);
+
+-- Same rule in the database: a number live in more than one shop must be the owner in all of them.
+CREATE TRIGGER trg_users_phone_insert BEFORE INSERT ON users
+WHEN NEW.removed_at IS NULL AND EXISTS (
+  SELECT 1 FROM users u
+  WHERE u.phone = NEW.phone AND u.removed_at IS NULL AND u.shop_id != NEW.shop_id
+    AND (u.role != 'owner' OR NEW.role != 'owner')
+)
+BEGIN
+  SELECT RAISE(ABORT, 'phone_in_use');
+END;
+
+CREATE TRIGGER trg_users_phone_update BEFORE UPDATE OF phone, role, removed_at ON users
+WHEN NEW.removed_at IS NULL AND EXISTS (
+  SELECT 1 FROM users u
+  WHERE u.phone = NEW.phone AND u.removed_at IS NULL AND u.id != NEW.id AND u.shop_id != NEW.shop_id
+    AND (u.role != 'owner' OR NEW.role != 'owner')
+)
+BEGIN
+  SELECT RAISE(ABORT, 'phone_in_use');
+END;
+-- The audit trails are append-only in the database too, not just by convention: a bug or a
+-- hand-run query can't rewrite who did what. (Back-dating a stock move's created_at in demo
+-- data is still allowed; its amounts and links are not.)
+CREATE TRIGGER trg_job_events_no_update BEFORE UPDATE ON job_events
+BEGIN
+  SELECT RAISE(ABORT, 'job_events_append_only');
+END;
+
+CREATE TRIGGER trg_job_events_no_delete BEFORE DELETE ON job_events
+BEGIN
+  SELECT RAISE(ABORT, 'job_events_append_only');
+END;
+
+CREATE TRIGGER trg_stock_moves_no_update
+BEFORE UPDATE OF id, shop_id, item_id, kind, quantity, balance_after, expense_id, created_by_user_id
+ON stock_moves
+BEGIN
+  SELECT RAISE(ABORT, 'stock_moves_append_only');
+END;
+
+CREATE TRIGGER trg_stock_moves_no_delete BEFORE DELETE ON stock_moves
+BEGIN
+  SELECT RAISE(ABORT, 'stock_moves_append_only');
+END;
+
+CREATE INDEX idx_vehicle_types_shop ON vehicle_types(shop_id);
+CREATE INDEX idx_services_shop ON services(shop_id);
+CREATE INDEX idx_jobs_shop_status ON jobs(shop_id, status);
+CREATE INDEX idx_jobs_shop_created_at ON jobs(shop_id, created_at);
+CREATE INDEX idx_jobs_shop_completed_at ON jobs(shop_id, completed_at);
+CREATE INDEX idx_jobs_customer_id ON jobs(customer_id, created_at);
+-- "Latest visit per vehicle" for reminders reads the newest job of each vehicle.
+CREATE INDEX idx_jobs_vehicle_created ON jobs(vehicle_id, created_at);
 CREATE INDEX idx_job_events_job_id ON job_events(job_id);
-CREATE INDEX idx_job_events_created_at ON job_events(created_at);
-CREATE INDEX idx_expenses_date ON expenses(date);
+CREATE INDEX idx_job_events_shop_created_at ON job_events(shop_id, created_at);
+CREATE INDEX idx_expenses_shop_date ON expenses(shop_id, date);
+CREATE UNIQUE INDEX idx_stock_items_name_live ON stock_items(shop_id, name_key) WHERE active = 1;
+CREATE INDEX idx_stock_moves_item_created ON stock_moves(item_id, created_at);
+CREATE INDEX idx_stock_moves_shop_kind_created ON stock_moves(shop_id, kind, created_at);
+CREATE INDEX idx_stock_moves_expense ON stock_moves(expense_id);
 CREATE INDEX idx_vehicles_customer_id ON vehicles(customer_id);
-CREATE INDEX idx_vehicles_updated_at ON vehicles(updated_at, id);
-CREATE INDEX idx_jobs_customer_id ON jobs(customer_id);
-CREATE INDEX idx_jobs_vehicle_id ON jobs(vehicle_id);
+CREATE INDEX idx_vehicles_shop_updated_at ON vehicles(shop_id, updated_at, id);
 CREATE INDEX idx_service_prices_service_id ON service_prices(service_id);
 CREATE INDEX idx_coupons_customer_id ON coupons(customer_id);
--- At most one live coupon per vehicle, enforced by the database even under concurrent issues.
-CREATE UNIQUE INDEX idx_coupons_one_active_per_vehicle ON coupons(vehicle_id) WHERE status = 'active';
+CREATE INDEX idx_coupons_shop_status_expires ON coupons(shop_id, status, expires_at);
+CREATE INDEX idx_coupons_shop_redeemed_at ON coupons(shop_id, redeemed_at);
+CREATE INDEX idx_vehicle_reminders_shop ON vehicle_reminders(shop_id);
+CREATE INDEX idx_referrals_shop_status ON referrals(shop_id, status);
+-- At most one live coupon of each kind per vehicle, enforced by the database even under
+-- concurrent issues.
+CREATE UNIQUE INDEX idx_coupons_one_active_per_vehicle ON coupons(vehicle_id, kind) WHERE status = 'active';
+CREATE INDEX idx_referrals_referrer ON referrals(referrer_customer_id);
+CREATE INDEX idx_job_washers_user_id ON job_washers(user_id);
+CREATE INDEX idx_job_sellers_user_id ON job_sellers(user_id);
+CREATE INDEX idx_attendance_shop_date ON attendance(shop_id, date);
+CREATE INDEX idx_job_photos_job_id ON job_photos(job_id);
+CREATE INDEX idx_job_photos_created_at ON job_photos(created_at);
+CREATE INDEX idx_job_photos_deleted_at ON job_photos(deleted_at) WHERE deleted_at IS NOT NULL;
+CREATE INDEX idx_rate_limits_window ON rate_limits(window_start);
+CREATE INDEX idx_app_errors_shop_created_at ON app_errors(shop_id, created_at);
+CREATE INDEX idx_app_errors_created_at ON app_errors(created_at);
+CREATE INDEX idx_login_codes_user_created ON login_codes(user_id, created_at);
+CREATE INDEX idx_signup_codes_phone_created ON signup_codes(phone, created_at);
+CREATE INDEX idx_signup_codes_ip_created ON signup_codes(ip, created_at);
+CREATE INDEX idx_join_requests_shop_status ON join_requests(shop_id, status);
+-- One open request per number, even across shops.
+CREATE UNIQUE INDEX idx_join_requests_one_pending ON join_requests(phone) WHERE status = 'pending';
 
--- ─── Seed: vehicle types ────────────────────────────────────────────────────
-
-INSERT INTO vehicle_types (id, name, category, sort_order) VALUES
-  ('vt_hatchback',  'Hatchback',        'car',  0),
-  ('vt_sedan',      'Sedan',            'car',  1),
-  ('vt_mini_suv',   'Mini SUV',         'car',  2),
-  ('vt_large_suv',  'Large SUV / XUV',  'car',  3),
-  ('vt_bike',       'Bike',             'bike', 10),
-  ('vt_scooter',    'Scooter',          'bike', 11);
-
--- ─── Seed: services ─────────────────────────────────────────────────────────
-
-INSERT INTO services (id, name, description, active, applies_to, sort_order) VALUES
-  -- Car menu
-  ('svc_complete_wash',      'Complete Car Wash',    'Exterior foam wash + interior vacuum + tyres + glass', 1, 'car', 0),
-  ('svc_exterior_wash',      'Exterior Wash',        'Exterior foam wash + wheels + tyres + glass',          1, 'car', 1),
-  ('svc_interior_cleaning',  'Interior Cleaning',    'Vacuum + mats + dashboard wipe + interior glass',      1, 'car', 2),
-  ('svc_mana_combo',         'MANA Combo',           'Complete Car Wash + tyre and dashboard dressing',      1, 'car', 3),
-  ('svc_ac_hygiene',         'AC & Cabin Hygiene',   'AC vent and cabin refresh treatment',                  1, 'car', 4),
-  ('svc_underbody',          'Underbody Cleaning',   'Underbody wash and mud removal',                       1, 'car', 5),
-  ('svc_tyre_dressing',      'Tyre Dressing',        'Add-on',                                               1, 'car', 6),
-  ('svc_dashboard_dressing', 'Dashboard Dressing',   'Add-on',                                               1, 'car', 7),
-  ('svc_fragrance',          'Car Fragrance',        'Add-on',                                               1, 'car', 8),
-  -- Bike menu
-  ('svc_bike_complete',      'Complete Bike Wash',   'Foam wash + chain area wipe + dry',                    1, 'bike', 100),
-  ('svc_bike_exterior',      'Bike Foam Wash',       'Exterior foam wash + wheels + dry',                    1, 'bike', 101),
-  ('svc_bike_chain',         'Chain Clean & Lube',   'Chain degrease, clean, and lube',                      1, 'bike', 102),
-  ('svc_bike_engine',        'Engine Degrease',      'Engine bay degrease and wipe',                         1, 'bike', 103),
-  ('svc_bike_polish',        'Bike Polish',          'Body polish and shine',                                1, 'bike', 104),
-  ('svc_bike_tyre',          'Bike Tyre Dressing',   'Add-on',                                               1, 'bike', 105),
-  ('svc_bike_seat',          'Seat Clean & Protect', 'Seat wipe and protectant',                             1, 'bike', 106);
-
--- ─── Seed: prices (paise) ───────────────────────────────────────────────────
-
-INSERT INTO service_prices (id, service_id, vehicle_type_id, price) VALUES
-  -- Complete Car Wash: 400 / 500 / 600 / 700
-  ('sp_complete_wash_hatchback', 'svc_complete_wash', 'vt_hatchback', 40000),
-  ('sp_complete_wash_sedan',     'svc_complete_wash', 'vt_sedan',     50000),
-  ('sp_complete_wash_mini_suv',  'svc_complete_wash', 'vt_mini_suv',  60000),
-  ('sp_complete_wash_large_suv', 'svc_complete_wash', 'vt_large_suv', 70000),
-
-  -- Exterior Wash: 250 / 300 / 350 / 400
-  ('sp_exterior_wash_hatchback', 'svc_exterior_wash', 'vt_hatchback', 25000),
-  ('sp_exterior_wash_sedan',     'svc_exterior_wash', 'vt_sedan',     30000),
-  ('sp_exterior_wash_mini_suv',  'svc_exterior_wash', 'vt_mini_suv',  35000),
-  ('sp_exterior_wash_large_suv', 'svc_exterior_wash', 'vt_large_suv', 40000),
-
-  -- Interior Cleaning: 250 / 300 / 350 / 400
-  ('sp_interior_cleaning_hatchback', 'svc_interior_cleaning', 'vt_hatchback', 25000),
-  ('sp_interior_cleaning_sedan',     'svc_interior_cleaning', 'vt_sedan',     30000),
-  ('sp_interior_cleaning_mini_suv',  'svc_interior_cleaning', 'vt_mini_suv',  35000),
-  ('sp_interior_cleaning_large_suv', 'svc_interior_cleaning', 'vt_large_suv', 40000),
-
-  -- MANA Combo: 500 / 600 / 700 / 800
-  ('sp_mana_combo_hatchback', 'svc_mana_combo', 'vt_hatchback', 50000),
-  ('sp_mana_combo_sedan',     'svc_mana_combo', 'vt_sedan',     60000),
-  ('sp_mana_combo_mini_suv',  'svc_mana_combo', 'vt_mini_suv',  70000),
-  ('sp_mana_combo_large_suv', 'svc_mana_combo', 'vt_large_suv', 80000),
-
-  -- AC & Cabin Hygiene: flat 2,500
-  ('sp_ac_hygiene_hatchback', 'svc_ac_hygiene', 'vt_hatchback', 250000),
-  ('sp_ac_hygiene_sedan',     'svc_ac_hygiene', 'vt_sedan',     250000),
-  ('sp_ac_hygiene_mini_suv',  'svc_ac_hygiene', 'vt_mini_suv',  250000),
-  ('sp_ac_hygiene_large_suv', 'svc_ac_hygiene', 'vt_large_suv', 250000),
-
-  -- Underbody Cleaning: flat 500 starting price
-  ('sp_underbody_hatchback', 'svc_underbody', 'vt_hatchback', 50000),
-  ('sp_underbody_sedan',     'svc_underbody', 'vt_sedan',     50000),
-  ('sp_underbody_mini_suv',  'svc_underbody', 'vt_mini_suv',  50000),
-  ('sp_underbody_large_suv', 'svc_underbody', 'vt_large_suv', 50000),
-
-  -- Car add-ons: Tyre Dressing 50, Dashboard Dressing 100, Fragrance 50
-  ('sp_tyre_dressing_hatchback', 'svc_tyre_dressing', 'vt_hatchback', 5000),
-  ('sp_tyre_dressing_sedan',     'svc_tyre_dressing', 'vt_sedan',     5000),
-  ('sp_tyre_dressing_mini_suv',  'svc_tyre_dressing', 'vt_mini_suv',  5000),
-  ('sp_tyre_dressing_large_suv', 'svc_tyre_dressing', 'vt_large_suv', 5000),
-
-  ('sp_dashboard_dressing_hatchback', 'svc_dashboard_dressing', 'vt_hatchback', 10000),
-  ('sp_dashboard_dressing_sedan',     'svc_dashboard_dressing', 'vt_sedan',     10000),
-  ('sp_dashboard_dressing_mini_suv',  'svc_dashboard_dressing', 'vt_mini_suv',  10000),
-  ('sp_dashboard_dressing_large_suv', 'svc_dashboard_dressing', 'vt_large_suv', 10000),
-
-  ('sp_fragrance_hatchback', 'svc_fragrance', 'vt_hatchback', 5000),
-  ('sp_fragrance_sedan',     'svc_fragrance', 'vt_sedan',     5000),
-  ('sp_fragrance_mini_suv',  'svc_fragrance', 'vt_mini_suv',  5000),
-  ('sp_fragrance_large_suv', 'svc_fragrance', 'vt_large_suv', 5000),
-
-  -- Bike menu: Bike / Scooter
-  ('sp_bike_complete_bike',    'svc_bike_complete', 'vt_bike',    25000),
-  ('sp_bike_complete_scooter', 'svc_bike_complete', 'vt_scooter', 20000),
-  ('sp_bike_exterior_bike',    'svc_bike_exterior', 'vt_bike',    15000),
-  ('sp_bike_exterior_scooter', 'svc_bike_exterior', 'vt_scooter', 12000),
-  ('sp_bike_chain_bike',       'svc_bike_chain',    'vt_bike',    10000),
-  ('sp_bike_chain_scooter',    'svc_bike_chain',    'vt_scooter', 10000),
-  ('sp_bike_engine_bike',      'svc_bike_engine',   'vt_bike',    15000),
-  ('sp_bike_engine_scooter',   'svc_bike_engine',   'vt_scooter', 15000),
-  ('sp_bike_polish_bike',      'svc_bike_polish',   'vt_bike',    25000),
-  ('sp_bike_polish_scooter',   'svc_bike_polish',   'vt_scooter', 20000),
-  ('sp_bike_tyre_bike',        'svc_bike_tyre',     'vt_bike',    5000),
-  ('sp_bike_tyre_scooter',     'svc_bike_tyre',     'vt_scooter', 5000),
-  ('sp_bike_seat_bike',        'svc_bike_seat',     'vt_bike',    8000),
-  ('sp_bike_seat_scooter',     'svc_bike_seat',     'vt_scooter', 8000);
-
--- ─── Seed: owner account ────────────────────────────────────────────────────
-
--- Placeholder owner account — replace the phone number with the real one, then sign in via OTP.
--- Stored as a plain 10-digit local number (no +91): that's what the login screen's phone-pad
--- keyboard actually produces.
-INSERT INTO users (id, name, phone, role) VALUES
-  ('user_owner_seed', 'Owner', '9100000000', 'owner');
-
--- Demo staff account for trying the Staff role end to end. Remove (or deactivate from the
--- Team screen) before go-live; real staff are added by the owner from the app.
-INSERT INTO users (id, name, phone, role) VALUES
-  ('user_staff_seed', 'Staff Demo', '9100000001', 'staff');

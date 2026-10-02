@@ -3,10 +3,10 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import {
   couponRepo,
-  createDbClient,
   customerRepo,
   expenseRepo,
   jobRepo,
+  referralRepo,
   serviceRepo,
   type DbClient,
 } from '@mana/db';
@@ -18,14 +18,24 @@ import {
   canVoidJob,
   COUPON_CODE_PATTERN,
   couponDiscount,
+  MAX_SELLERS_PER_JOB,
+  MAX_WASHERS_PER_JOB,
   MIN_REASON_LENGTH,
   normalizeCouponCode,
   normalizePhone,
   PriceNotFoundError,
+  referralProblemMessage,
   resolveOccurredAt,
   type JobStatus,
   type PaymentMethod,
 } from '@mana/domain';
+import {
+  cancelReferralForVoidedJob,
+  evaluateReferral,
+  settleReferralForPaidJob,
+  verifyReferralQuote,
+  type ReferralQuote,
+} from '../lib/referral';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { startOfIstDay } from '../lib/istDate';
 import { reportQuerySchema, resolveReportWindow, windowMeta } from '../lib/reportWindow';
@@ -40,6 +50,11 @@ const reasonSchema = z
   .min(MIN_REASON_LENGTH, `Reason must be at least ${MIN_REASON_LENGTH} characters`)
   .max(200);
 const paymentMethodSchema = z.enum(['cash', 'upi', 'other']);
+/** Who got the customer to take the commission services — they share the commission. */
+const sellerIdsSchema = z
+  .array(z.string().min(1).max(64))
+  .max(MAX_SELLERS_PER_JOB, `At most ${MAX_SELLERS_PER_JOB} people can share a commission`)
+  .transform((ids) => [...new Set(ids)]);
 
 const pricingFields = {
   vehicleTypeId: z.string(),
@@ -92,17 +107,35 @@ const startJobSchema = z
       .transform(normalizeCouponCode)
       .refine((code) => COUPON_CODE_PATTERN.test(code), 'That doesn’t look like a MANA coupon code')
       .optional(),
+    /** Signed quote from POST /referrals/quote; the server works out the discount. */
+    referralToken: z.string().min(1).max(2000).optional(),
     ...pricingFields,
+    sellerIds: sellerIdsSchema.optional(),
   })
   .refine(discountNeedsReason, discountReasonIssue)
   .refine((d) => !d.couponCode || d.discount === 0, {
     message: 'A coupon can’t be combined with a manual discount',
     path: ['couponCode'],
+  })
+  .refine((d) => !d.referralToken || (d.discount === 0 && !d.couponCode), {
+    message: 'A referral offer can’t be combined with another discount',
+    path: ['referralToken'],
   });
+
+const washerIdsSchema = z
+  .array(z.string().min(1).max(64))
+  .max(MAX_WASHERS_PER_JOB, `At most ${MAX_WASHERS_PER_JOB} washers per car`)
+  .transform((ids) => [...new Set(ids)]);
 
 const updateStatusSchema = z.object({
   status: z.enum(['washing', 'ready']),
   occurredAt: occurredAtSchema,
+  /** Optional record of who is washing the car; no money depends on it. */
+  washerIds: washerIdsSchema.optional(),
+});
+const setWashersSchema = z.object({ washerIds: washerIdsSchema });
+const setSellersSchema = z.object({
+  sellerIds: sellerIdsSchema.refine((ids) => ids.length > 0, 'Pick who got this service'),
 });
 const markPaidSchema = z.object({
   paymentMethod: paymentMethodSchema,
@@ -139,7 +172,11 @@ async function priceJob(db: DbClient, body: Pick<PricingInput, keyof typeof pric
     };
   }
 
-  const prices = await serviceRepo.listPrices(db, body.vehicleTypeId);
+  const [prices, commissionRates] = await Promise.all([
+    serviceRepo.listPrices(db, body.vehicleTypeId),
+    serviceRepo.listCommissionRates(db, body.vehicleTypeId),
+  ]);
+  const commissionFor = new Map(commissionRates.map((r) => [r.serviceId, r.amount]));
   let breakdown: ReturnType<typeof calculatePrice>;
   try {
     breakdown = calculatePrice(body.services, body.vehicleTypeId, prices);
@@ -165,9 +202,48 @@ async function priceJob(db: DbClient, body: Pick<PricingInput, keyof typeof pric
     lineItems: breakdown.lineItems.map((li) => ({
       serviceId: li.serviceId,
       priceAtTime: li.unitPrice,
+      commissionAtTime: commissionFor.get(li.serviceId) ?? 0,
       quantity: li.quantity,
     })),
   };
+}
+
+/** Picked people must be current, active team members. Returns their names in the given order. */
+async function checkWashers(db: DbClient, ids: string[]) {
+  const users = await db.user.findMany({
+    where: { id: { in: ids }, active: true },
+    select: { id: true, name: true },
+  });
+  if (users.length !== ids.length) return null;
+  const byId = new Map(users.map((u) => [u.id, u.name]));
+  return ids.map((id) => byId.get(id)!);
+}
+
+const invalidWashers = {
+  error: 'invalid_washers' as const,
+  message: 'One of the washers picked isn’t an active team member.',
+};
+
+/**
+ * Who earns a new job's commission. None when no line carries one. Otherwise the people
+ * picked — dropping anyone no longer active, since an offline wash may sync after someone
+ * leaves — falling back to whoever entered the wash, so commission is never left unowned.
+ */
+async function resolveSellers(
+  db: DbClient,
+  lineItems: { commissionAtTime: number }[],
+  requested: string[] | undefined,
+  enteredBy: string,
+): Promise<string[]> {
+  if (!lineItems.some((li) => li.commissionAtTime > 0)) return [];
+  if (!requested?.length) return [enteredBy];
+  const active = await db.user.findMany({
+    where: { id: { in: requested }, active: true },
+    select: { id: true },
+  });
+  const activeIds = new Set(active.map((u) => u.id));
+  const kept = requested.filter((id) => activeIds.has(id));
+  return kept.length > 0 ? kept : [enteredBy];
 }
 
 // Chained in one expression, with every input declared via `zValidator` — see the comment
@@ -180,7 +256,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
   .use('*', requireAuth)
   .post('/', zValidator('json', createJobSchema), async (c) => {
     const body = c.req.valid('json');
-    const db = createDbClient(c.env.DB);
+    const db = c.get('db');
     const session = c.get('session');
 
     if (body.id) {
@@ -202,12 +278,13 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       total: priced.total,
       createdAt: resolveOccurredAt(body.occurredAt),
       lineItems: priced.lineItems,
+      sellerIds: await resolveSellers(db, priced.lineItems, undefined, session.sub),
     });
     return c.json(job, 201);
   })
   .post('/start', zValidator('json', startJobSchema), async (c) => {
     const body = c.req.valid('json');
-    const db = createDbClient(c.env.DB);
+    const db = c.get('db');
     const session = c.get('session');
 
     const existing = await jobRepo.findBoardRow(db, body.id);
@@ -241,11 +318,37 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       if ('error' in check) return c.json({ error: check.error, message: check.message }, 409);
       coupon = check.coupon;
     }
-    const discount = coupon ? couponDiscount(priced.subtotal, coupon.percent) : body.discount;
+
+    // Referrals: only the signed quote's percentage counts, and every rule is re-checked now —
+    // the customer and vehicle must still be brand new, and the referrer still a paying customer.
+    let referral: ReferralQuote | null = null;
+    if (body.referralToken) {
+      const referralInvalid = (message: string) =>
+        c.json({ error: 'referral_invalid' as const, message }, 409);
+      if (body.ownership) return referralInvalid('Referral offers are only for new customers.');
+      const quote = await verifyReferralQuote(body.referralToken, c.env.JWT_SECRET);
+      if (!quote || quote.shopId !== session.shopId) {
+        return referralInvalid('This referral offer expired. Remove it and check the referral again.');
+      }
+      if (
+        quote.phone !== body.customer.phone ||
+        quote.registrationNumber !== body.registrationNumber
+      ) {
+        return referralInvalid('The phone or vehicle changed after the referral was checked. Check it again.');
+      }
+      const recheck = await evaluateReferral(db, quote);
+      if (recheck.problem) return referralInvalid(referralProblemMessage(recheck.problem));
+      referral = { ...quote, referrerCustomerId: recheck.referrer.id };
+    }
+
+    const percentOff = coupon?.percent ?? referral?.percent ?? null;
+    const discount = percentOff != null ? couponDiscount(priced.subtotal, percentOff) : body.discount;
     const discountReason = coupon
       ? `Coupon ${coupon.code} · ${coupon.percent}% off`
-      : body.discountReason;
-    const total = coupon ? priced.subtotal - discount : priced.total;
+      : referral
+        ? `Referred by ${referral.referrerName?.trim() || referral.referrerPhone} · ${referral.percent}% off`
+        : body.discountReason;
+    const total = percentOff != null ? priced.subtotal - discount : priced.total;
 
     const ensured = await customerRepo.ensureWithVehicle(db, {
       phone: body.customer.phone,
@@ -282,6 +385,33 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
         );
       }
     }
+    if (referral) {
+      try {
+        await referralRepo.create(db, {
+          referredCustomerId: customer.id,
+          referrerCustomerId: referral.referrerCustomerId,
+          jobId: body.id,
+          percent: referral.percent,
+          createdByUserId: session.sub,
+          now,
+        });
+      } catch {
+        // Already written by a replay of this same request: carry on to the (idempotent) job.
+        const mine = await referralRepo.findByJob(db, body.id);
+        if (!mine) {
+          const winner = await jobRepo.findBoardRow(db, body.id);
+          if (winner) return c.json(winner, 200);
+          if (coupon) await couponRepo.release(db, { couponId: coupon.id, jobId: body.id });
+          return c.json(
+            {
+              error: 'referral_invalid' as const,
+              message: 'This customer was already referred on another wash.',
+            },
+            409,
+          );
+        }
+      }
+    }
 
     try {
       const job = await jobRepo.create(db, {
@@ -295,21 +425,27 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
         total,
         createdAt: resolveOccurredAt(body.occurredAt),
         lineItems: priced.lineItems,
+        sellerIds: await resolveSellers(db, priced.lineItems, body.sellerIds, session.sub),
       });
       return c.json(job, 201);
     } catch (e) {
+      // A replay of this same request may have created the job first; its coupon and referral
+      // are this job's, so leave them alone.
+      const winner = await jobRepo.findBoardRow(db, body.id);
+      if (winner) return c.json(winner, 200);
       if (coupon) await couponRepo.release(db, { couponId: coupon.id, jobId: body.id });
+      if (referral) await referralRepo.removeForJob(db, body.id);
       throw e;
     }
   })
   .get('/today', async (c) => {
-    const db = createDbClient(c.env.DB);
+    const db = c.get('db');
     return c.json(await jobRepo.listToday(db, startOfIstDay()));
   })
   // Owner reports: today / rolling 7 days / calendar month / calendar year / custom IST dates.
   // Window is always half-open [from, to) so day boundaries never double-count.
   .get('/stats', requireRole('owner'), zValidator('query', reportQuerySchema), async (c) => {
-    const db = createDbClient(c.env.DB);
+    const db = c.get('db');
     const query = c.req.valid('query');
     const window = resolveReportWindow(query);
     if ('error' in window) return c.json({ error: window.error }, 400);
@@ -330,7 +466,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
   })
   // Full export payload for PDF — same window as /stats, plus every job line in the period.
   .get('/stats/export', requireRole('owner'), zValidator('query', reportQuerySchema), async (c) => {
-    const db = createDbClient(c.env.DB);
+    const db = c.get('db');
     const query = c.req.valid('query');
     const window = resolveReportWindow(query);
     if ('error' in window) return c.json({ error: window.error }, 400);
@@ -366,7 +502,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
   })
   // Job Detail: the job plus its full audit trail (who did what, when, and why).
   .get('/:id', async (c) => {
-    const db = createDbClient(c.env.DB);
+    const db = c.get('db');
     const job = await jobRepo.findDetail(db, c.req.param('id'));
     if (!job) return c.json({ error: 'job_not_found' as const }, 404);
     return c.json(job);
@@ -377,7 +513,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
   .patch('/:id/status', zValidator('json', updateStatusSchema), async (c) => {
     const id = c.req.param('id');
     const body = c.req.valid('json');
-    const db = createDbClient(c.env.DB);
+    const db = c.get('db');
 
     const job = await jobRepo.findById(db, id);
     if (!job) return c.json({ error: 'job_not_found' as const }, 404);
@@ -394,20 +530,105 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
         409,
       );
     }
+    const washerIds = body.status === 'washing' ? body.washerIds : undefined;
+    if (washerIds && !(await checkWashers(db, washerIds))) return c.json(invalidWashers, 400);
+
+    const updated = await jobRepo.updateStatus(db, id, {
+      from,
+      to: body.status,
+      userId: c.get('session').sub,
+      at: resolveOccurredAt(body.occurredAt),
+      washerIds,
+    });
+    if (updated) return c.json(updated, 200);
+    // Someone else moved it between our read and write.
+    const now = await jobRepo.findBoardRow(db, id);
+    if (now?.status === body.status) return c.json(now, 200);
+    return c.json(
+      { error: 'invalid_transition' as const, message: `This job is already ${now?.status ?? 'gone'}.`, status: now?.status },
+      409,
+    );
+  })
+  // Correct who washed a car (or clear it). Only a record, so anyone on the team can fix it.
+  .put('/:id/washers', zValidator('json', setWashersSchema), async (c) => {
+    const id = c.req.param('id');
+    const { washerIds } = c.req.valid('json');
+    const db = c.get('db');
+    const session = c.get('session');
+
+    const job = await jobRepo.findBoardRow(db, id);
+    if (!job) return c.json({ error: 'job_not_found' as const }, 404);
+    if (job.status === 'void') {
+      return c.json({ error: 'job_void' as const, message: 'This job was voided.' }, 409);
+    }
+    const names = await checkWashers(db, washerIds);
+    if (!names) return c.json(invalidWashers, 400);
+
+    const current = job.washers.map((w) => w.user.id);
+    const unchanged =
+      current.length === washerIds.length && washerIds.every((w) => current.includes(w));
+    if (unchanged) return c.json(job, 200);
 
     return c.json(
-      await jobRepo.updateStatus(db, id, {
-        from,
-        to: body.status,
-        userId: c.get('session').sub,
-        at: resolveOccurredAt(body.occurredAt),
+      await jobRepo.setWashers(db, id, {
+        washerIds,
+        userId: session.sub,
+        fromNames: job.washers.map((w) => w.user.name).join(', '),
+        toNames: names.join(', '),
+      }),
+    );
+  })
+  // Correct who got the commission services. Anyone on shift while it's unpaid; once paid it
+  // moves someone's earnings, so it's the owner's call.
+  .put('/:id/sellers', zValidator('json', setSellersSchema), async (c) => {
+    const id = c.req.param('id');
+    const { sellerIds } = c.req.valid('json');
+    const db = c.get('db');
+    const session = c.get('session');
+
+    const job = await jobRepo.findBoardRow(db, id);
+    if (!job) return c.json({ error: 'job_not_found' as const }, 404);
+    if (job.status === 'void') {
+      return c.json({ error: 'job_void' as const, message: 'This job was voided.' }, 409);
+    }
+    if (!job.jobServices.some((js) => js.commissionAtTime > 0)) {
+      return c.json(
+        { error: 'no_commission' as const, message: 'None of this job’s services carry a commission.' },
+        409,
+      );
+    }
+    if (job.status === 'paid' && session.role !== 'owner') {
+      return c.json(
+        { error: 'owner_only' as const, message: 'Only the owner can change this on a paid job.' },
+        403,
+      );
+    }
+    const names = await checkWashers(db, sellerIds);
+    if (!names) {
+      return c.json(
+        { error: 'invalid_sellers' as const, message: 'One of the people picked isn’t an active team member.' },
+        400,
+      );
+    }
+
+    const current = job.sellers.map((s) => s.user.id);
+    const unchanged =
+      current.length === sellerIds.length && sellerIds.every((s) => current.includes(s));
+    if (unchanged) return c.json(job, 200);
+
+    return c.json(
+      await jobRepo.setSellers(db, id, {
+        sellerIds,
+        userId: session.sub,
+        fromNames: job.sellers.map((s) => s.user.name).join(', '),
+        toNames: names.join(', '),
       }),
     );
   })
   .post('/:id/pay', zValidator('json', markPaidSchema), async (c) => {
     const id = c.req.param('id');
     const body = c.req.valid('json');
-    const db = createDbClient(c.env.DB);
+    const db = c.get('db');
 
     const job = await jobRepo.findById(db, id);
     if (!job) return c.json({ error: 'job_not_found' as const }, 404);
@@ -436,21 +657,34 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       );
     }
 
-    return c.json(
-      await jobRepo.markPaid(db, id, {
-        from,
-        paymentMethod: body.paymentMethod,
-        userId: c.get('session').sub,
-        at: resolveOccurredAt(body.occurredAt),
-      }),
-    );
+    const paid = await jobRepo.markPaid(db, id, {
+      from,
+      paymentMethod: body.paymentMethod,
+      userId: c.get('session').sub,
+      at: resolveOccurredAt(body.occurredAt),
+    });
+    if (!paid) {
+      const now = await jobRepo.findBoardRow(db, id);
+      if (now?.status === 'paid' && now.paymentMethod === body.paymentMethod) return c.json(now, 200);
+      return c.json(
+        {
+          error: now?.status === 'paid' ? ('already_paid' as const) : ('invalid_transition' as const),
+          message: now?.status === 'paid' ? 'This job was already marked paid.' : `This job is ${now?.status ?? 'gone'} and can’t be paid.`,
+          status: now?.status,
+        },
+        409,
+      );
+    }
+    // A referred customer's first wash is now paid: the referrer earns their reward.
+    await settleReferralForPaidJob(db, id, c.get('session').sub);
+    return c.json(paid, 200);
   })
   // Void with a reason. Anyone can void an unpaid job; voiding a paid one reverses collected
   // money and is owner-only. The job is kept (status 'void') so the audit trail survives.
   .post('/:id/void', zValidator('json', voidSchema), async (c) => {
     const id = c.req.param('id');
     const body = c.req.valid('json');
-    const db = createDbClient(c.env.DB);
+    const db = c.get('db');
     const session = c.get('session');
 
     const job = await jobRepo.findById(db, id);
@@ -471,8 +705,19 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       reason: body.reason,
       at: resolveOccurredAt(body.occurredAt),
     });
+    if (!voided) {
+      // Already voided by someone else (they undo the coupon and referral), or it just got paid
+      // and only the owner may void it now.
+      const now = await jobRepo.findBoardRow(db, id);
+      if (now?.status === 'void') return c.json(now, 200);
+      return c.json(
+        { error: 'job_changed' as const, message: 'This job just changed. Check it and try again.', status: now?.status },
+        409,
+      );
+    }
     await couponRepo.restoreForVoidedJob(db, id, new Date());
-    return c.json(voided);
+    await cancelReferralForVoidedJob(db, id);
+    return c.json(voided, 200);
   })
   // Owner correction: the job was paid by UPI but recorded as cash (or vice versa).
   .patch(
@@ -482,7 +727,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     async (c) => {
       const id = c.req.param('id');
       const body = c.req.valid('json');
-      const db = createDbClient(c.env.DB);
+      const db = c.get('db');
       const session = c.get('session');
 
       const job = await jobRepo.findById(db, id);
@@ -496,13 +741,18 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       if (job.paymentMethod === body.paymentMethod)
         return c.json(await jobRepo.findBoardRow(db, id), 200);
 
+      const changed = await jobRepo.changePaymentMethod(db, id, {
+        from: job.paymentMethod as PaymentMethod | null,
+        to: body.paymentMethod,
+        userId: session.sub,
+        reason: body.reason,
+      });
+      if (changed) return c.json(changed, 200);
+      const now = await jobRepo.findBoardRow(db, id);
+      if (now?.status === 'paid' && now.paymentMethod === body.paymentMethod) return c.json(now, 200);
       return c.json(
-        await jobRepo.changePaymentMethod(db, id, {
-          from: job.paymentMethod as PaymentMethod | null,
-          to: body.paymentMethod,
-          userId: session.sub,
-          reason: body.reason,
-        }),
+        { error: 'job_changed' as const, message: 'This job just changed. Check it and try again.' },
+        409,
       );
     },
   );

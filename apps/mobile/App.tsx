@@ -2,15 +2,22 @@ import React, { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { LoginScreen } from './src/screens/LoginScreen';
+import { CreatePinScreen } from './src/screens/CreatePinScreen';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { AuthProvider, useAuth } from './src/api/auth';
 import { SyncProvider } from './src/offline/SyncProvider';
 import { DirectoryProvider } from './src/offline/DirectoryProvider';
+import { ShopProvider } from './src/offline/ShopProvider';
 import { ToastHost } from './src/components/Toast';
+import { AlertHost } from './src/components/AppAlert';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
+import { installGlobalErrorHandler } from './src/utils/errorReporter';
 import { colors } from './src/theme';
 
+installGlobalErrorHandler();
+
 function AppBody() {
-  const { checking, loggedIn, bootstrap } = useAuth();
+  const { checking, loggedIn, user, bootstrap } = useAuth();
 
   useEffect(() => {
     void bootstrap();
@@ -24,19 +31,35 @@ function AppBody() {
     );
   }
 
-  return loggedIn ? <RootNavigator /> : <LoginScreen />;
+  if (!loggedIn) return <LoginScreen />;
+  // A PIN is the only way back in, so it's set before anything else opens.
+  if (!user?.hasPin) return <CreatePinScreen />;
+  return <RootNavigator />;
+}
+
+/** Everything inside holds one shop's data, so opening another branch (a new account) starts it fresh. */
+function ShopScope({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  return <React.Fragment key={user?.id ?? 'signed-out'}>{children}</React.Fragment>;
 }
 
 export default function App() {
   return (
     <SafeAreaProvider>
       <AuthProvider>
-        <SyncProvider>
-          <DirectoryProvider>
-            <AppBody />
-            <ToastHost />
-          </DirectoryProvider>
-        </SyncProvider>
+        <ShopScope>
+          <SyncProvider>
+            <DirectoryProvider>
+              <ShopProvider>
+                <ErrorBoundary>
+                  <AppBody />
+                </ErrorBoundary>
+              </ShopProvider>
+            </DirectoryProvider>
+          </SyncProvider>
+        </ShopScope>
+        <ToastHost />
+        <AlertHost />
       </AuthProvider>
     </SafeAreaProvider>
   );

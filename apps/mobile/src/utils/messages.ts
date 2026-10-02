@@ -13,6 +13,8 @@ export interface ThankYouInput {
   discount?: number | null;
   paymentMethod?: string | null;
   visitedAt: string | Date;
+  /** The owner's Google review link; the review ask is left out until one is set. */
+  reviewUrl?: string | null;
 }
 
 const SIGN_OFFS = [
@@ -69,6 +71,62 @@ export function buildReminderMessage(input: ReminderInput): string {
     'Dust and grime build up fast — drop by whenever it suits you and we’ll have it shining again ✨',
     '',
     'See you soon!',
+    `*Team ${SHOP.name}*`,
+  ].join('\n');
+}
+
+export interface ReadyInput {
+  customerName: string | null | undefined;
+  registrationNumber: string;
+  vehicleType?: string;
+  total: number;
+}
+
+/** Sent the moment a job moves to Ready, so the customer comes back instead of calling. */
+export function buildReadyMessage(input: ReadyInput): string {
+  const firstName = input.customerName?.trim().split(/\s+/)[0];
+  return [
+    `Hi ${firstName || 'there'}! 👋`,
+    '',
+    `Good news — ${yourVehicle(input.registrationNumber, input.vehicleType).replace(/^Your/, 'your')} is washed and ready for pickup at *${SHOP.name}* ✨`,
+    '',
+    `💰 Amount due: *${formatRupees(input.total)}*`,
+    '',
+    'Come by whenever it suits you. See you soon!',
+    `*Team ${SHOP.name}* 🚿`,
+  ].join('\n');
+}
+
+export interface ReferralRewardInput {
+  customerName: string | null | undefined;
+  referredName: string | null | undefined;
+  code: string;
+  percent: number;
+  expiresAt: string | Date;
+}
+
+/** Thanks a customer whose referral just paid for their first wash, with their reward code. */
+export function buildReferralRewardMessage(input: ReferralRewardInput): string {
+  const firstName = input.customerName?.trim().split(/\s+/)[0];
+  const friend = input.referredName?.trim().split(/\s+/)[0];
+  const expires = new Date(input.expiresAt).toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+  return [
+    `Hi ${firstName || 'there'}! 👋`,
+    '',
+    `Thank you for sending ${friend ? `*${friend}*` : 'a friend'} to *${SHOP.name}* 🙌`,
+    '',
+    `As a thank-you, here’s *${input.percent}% off* your next wash 🎁`,
+    '',
+    `🎟️ Code: *${input.code}*`,
+    `📅 Valid till *${expires}*`,
+    '',
+    '_Valid once, for any vehicle registered with us. Not combinable with other offers._',
+    '',
+    'Just show this message at the counter. See you soon!',
     `*Team ${SHOP.name}*`,
   ].join('\n');
 }
@@ -134,10 +192,14 @@ export function buildThankYouMessage(input: ThankYouInput): string {
     '',
     'We hope it looks great — our team gave it some serious elbow grease 💪',
     '',
-    '⭐ *Got 30 seconds?*',
-    'If you loved the shine, a quick Google review would truly make our day. It helps a small local shop like ours more than you know 🙏',
-    `👉 ${SHOP.reviewUrl}`,
-    '',
+    ...(input.reviewUrl
+      ? [
+          '⭐ *Got 30 seconds?*',
+          'If you loved the shine, a quick Google review would truly make our day. It helps a small local shop like ours more than you know 🙏',
+          `👉 ${input.reviewUrl}`,
+          '',
+        ]
+      : []),
     'See you next time!',
     `_${pickSignOff(input.jobId)}_`,
     '',

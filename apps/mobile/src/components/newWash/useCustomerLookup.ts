@@ -78,7 +78,7 @@ export function useCustomerLookup(registration: string, phone: string, enabled =
       setLooking(false);
       return;
     }
-    const t = setTimeout(async () => {
+    const lookup = async () => {
       setLooking(true);
       try {
         const res = await api.customers.lookup.$get({ query: { registrationNumber: reg } });
@@ -94,7 +94,8 @@ export function useCustomerLookup(registration: string, phone: string, enabled =
       } finally {
         if (seq === plateSeq.current) setLooking(false);
       }
-    }, DEBOUNCE_MS);
+    };
+    const t = setTimeout(() => void lookup(), DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [reg, lookPlate]);
 
@@ -102,7 +103,7 @@ export function useCustomerLookup(registration: string, phone: string, enabled =
     const seq = ++phoneSeq.current;
     setPhoneEntries([]);
     if (!lookPhone) return;
-    const t = setTimeout(async () => {
+    const lookup = async () => {
       try {
         const res = await api.customers.lookup.$get({ query: { phone: digits } });
         if (seq !== phoneSeq.current || !res.ok) return;
@@ -116,7 +117,8 @@ export function useCustomerLookup(registration: string, phone: string, enabled =
       } catch {
         // Same as above — silent.
       }
-    }, DEBOUNCE_MS);
+    };
+    const t = setTimeout(() => void lookup(), DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [digits, lookPhone]);
 

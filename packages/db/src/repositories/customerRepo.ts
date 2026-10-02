@@ -11,7 +11,7 @@ export type VehicleOwnership = 'new_owner' | 'same_person';
 
 export const customerRepo = {
   async findByPhone(db: DbClient, phone: string) {
-    return db.customer.findUnique({ where: { phone } });
+    return db.customer.findFirst({ where: { phone } });
   },
 
   async findById(db: DbClient, id: string) {
@@ -47,21 +47,21 @@ export const customerRepo = {
       ownership?: VehicleOwnership;
     },
   ) {
-    const existing = await db.vehicle.findUnique({
+    const existing = await db.vehicle.findFirst({
       where: { registrationNumber: data.registrationNumber },
     });
 
     if (existing && data.ownership === 'same_person') {
       const owner = await db.customer.findUnique({ where: { id: existing.customerId } });
       if (owner && owner.phone !== data.phone) {
-        const holder = await db.customer.findUnique({ where: { phone: data.phone } });
+        const holder = await db.customer.findFirst({ where: { phone: data.phone } });
         if (holder) return { error: 'phone_taken' as const, holderName: holder.name };
         await db.customer.update({ where: { id: owner.id }, data: { phone: data.phone } });
         await directoryRepo.touchCustomer(db, owner.id);
       }
     }
 
-    let customer = await db.customer.findUnique({ where: { phone: data.phone } });
+    let customer = await db.customer.findFirst({ where: { phone: data.phone } });
     if (!customer) {
       customer = await db.customer.create({
         data: { phone: data.phone, name: data.name, source: data.source },
@@ -101,15 +101,33 @@ export const customerRepo = {
     return { customer, vehicle };
   },
 
-  /** Full job history for a customer's profile screen, newest first. */
-  async getHistory(db: DbClient, customerId: string) {
+  /** One page of a customer's jobs for their profile, newest first, before `before` if given. */
+  async getHistory(db: DbClient, customerId: string, opts: { before?: Date; limit: number }) {
     return db.job.findMany({
-      where: { customerId },
-      orderBy: { createdAt: 'desc' },
+      where: { customerId, ...(opts.before ? { createdAt: { lt: opts.before } } : {}) },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: opts.limit,
       include: {
         jobServices: { include: { service: true } },
         vehicle: { include: { vehicleType: true } },
       },
     });
+  },
+
+  /**
+   * Visit count and last visit (every job, like New Wash shows) plus lifetime spend (paid jobs
+   * only), worked out in the database rather than by loading the whole history.
+   */
+  async visitSummary(db: DbClient, customerId: string) {
+    const [all, paid] = await Promise.all([
+      db.job.aggregate({ where: { customerId }, _count: true, _max: { createdAt: true } }),
+      db.job.aggregate({ where: { customerId, status: 'paid' }, _sum: { total: true }, _count: true }),
+    ]);
+    return {
+      visitCount: all._count,
+      lastVisit: all._max.createdAt ?? null,
+      lifetimeSpend: paid._sum.total ?? 0,
+      paidCount: paid._count,
+    };
   },
 };

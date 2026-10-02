@@ -2,11 +2,9 @@ module.exports = {
   root: true,
   parser: '@typescript-eslint/parser',
   parserOptions: {
-    project: [
-      './tsconfig.base.json',
-      './apps/*/tsconfig.json',
-      './packages/*/tsconfig.json',
-    ],
+    // Not tsconfig.base.json: it has no "include", so it would claim every file and lint the
+    // Worker without @cloudflare/workers-types.
+    project: ['./apps/*/tsconfig.json', './packages/*/tsconfig.json'],
     sourceType: 'module',
   },
   plugins: ['@typescript-eslint'],
@@ -21,10 +19,21 @@ module.exports = {
     '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     '@typescript-eslint/explicit-function-return-type': 'off',
   },
+  overrides: [
+    {
+      files: ['apps/mobile/**/*.{ts,tsx}'],
+      plugins: ['react-hooks'],
+      rules: {
+        'react-hooks/rules-of-hooks': 'error',
+        'react-hooks/exhaustive-deps': 'warn',
+      },
+    },
+  ],
   ignorePatterns: [
     'dist',
     'node_modules',
     '*.config.js',
+    '*.config.ts',
     'ios',
     'android',
     '.wrangler',

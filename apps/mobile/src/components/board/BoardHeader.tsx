@@ -3,7 +3,7 @@ import { Animated, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } f
 import LinearGradient from 'react-native-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GradientHero } from '../GradientHero';
-import { IconBell, IconChart, IconGrid } from '../Icons';
+import { IconBell, IconChart, IconChevronDown, IconGrid, IconStore } from '../Icons';
 import { colors, gradients, radius, spacing, typography } from '../../theme';
 import { formatRupees } from '../../utils/format';
 
@@ -20,6 +20,8 @@ interface HeaderActionsProps {
   onReminders: () => void;
   /** Vehicles nobody has followed up on yet — shown as a badge on the bell. */
   reminderCount: number;
+  /** Something in More needs a look (new errors, for the owner) — a dot on its button. */
+  moreAlert?: boolean;
   compact?: boolean;
 }
 
@@ -40,6 +42,7 @@ function HeaderActions({
   onMore,
   onReminders,
   reminderCount,
+  moreAlert,
   compact,
 }: HeaderActionsProps) {
   const size = compact ? 38 : 42;
@@ -78,9 +81,10 @@ function HeaderActions({
         style={({ pressed }) => [btn, pressed && styles.iconBtnPressed]}
         hitSlop={8}
         accessibilityRole="button"
-        accessibilityLabel="More"
+        accessibilityLabel={moreAlert ? 'More, new errors to review' : 'More'}
       >
         <IconGrid size={18} color={colors.white} />
+        {moreAlert ? <View style={styles.dot} /> : null}
       </Pressable>
     </View>
   );
@@ -90,10 +94,14 @@ interface BoardHeroProps extends HeaderActionsProps {
   name: string;
   stats: BoardStats;
   onLayout?: (e: LayoutChangeEvent) => void;
+  /** Owners with several branches: which shop the board shows, tap to switch. */
+  shopSwitch?: { name: string; onPress: () => void };
+  /** Shown in the same spot, not tappable, when there's only one shop. */
+  shopName?: string;
 }
 
 /** Large greeting + today's numbers. Scrolls away with the list; `BoardCompactBar` takes over. */
-export function BoardHero({ name, stats, onLayout, ...actions }: BoardHeroProps) {
+export function BoardHero({ name, stats, onLayout, shopSwitch, shopName, ...actions }: BoardHeroProps) {
   const { isOwner } = actions;
   const figures = isOwner
     ? [
@@ -110,46 +118,59 @@ export function BoardHero({ name, stats, onLayout, ...actions }: BoardHeroProps)
     <View onLayout={onLayout}>
       <GradientHero>
         <View style={styles.heroContent}>
-          <View style={styles.heroTop}>
-            <View style={styles.heroCopy}>
-              <Text style={styles.lead}>
-                {name ? `${greeting()},` : greeting()}
-                {!isOwner ? <Text style={styles.leadRole}> · STAFF</Text> : null}
-              </Text>
-              {name ? (
-                <Text
-                  style={styles.name}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.7}
-                >
-                  {name}
+          <View style={styles.topRow}>
+            {shopSwitch ? (
+              <Pressable
+                onPress={shopSwitch.onPress}
+                style={({ pressed }) => [styles.shopPill, pressed && styles.shopPillPressed]}
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel={`Shop: ${shopSwitch.name}. Tap to switch shop`}
+              >
+                <IconStore size={14} color={colors.white} />
+                <Text style={styles.shopText} numberOfLines={1}>
+                  {shopSwitch.name}
                 </Text>
-              ) : null}
-            </View>
+                <IconChevronDown size={14} color={colors.white} />
+              </Pressable>
+            ) : shopName ? (
+              <View style={styles.shopPlain} accessible accessibilityLabel={`Shop: ${shopName}`}>
+                <IconStore size={14} color={colors.white} />
+                <Text style={styles.shopText} numberOfLines={1}>
+                  {shopName}
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.flex} />
+            )}
             <HeaderActions {...actions} />
           </View>
 
-          <View style={styles.panel} accessibilityRole="summary">
+          <View>
+            <Text style={styles.lead}>
+              {name ? `${greeting()},` : greeting()}
+              {!isOwner ? <Text style={styles.leadRole}> · STAFF</Text> : null}
+            </Text>
+            {name ? (
+              <Text style={styles.name} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                {name}
+              </Text>
+            ) : null}
+          </View>
+
+          <View style={styles.split} accessibilityRole="summary">
             {figures.map((f, i) => (
-              <React.Fragment key={f.label}>
-                {i > 0 ? <View style={styles.panelDivider} /> : null}
-                <View
-                  style={styles.figure}
-                  accessible
-                  accessibilityLabel={`${f.label}: ${f.value}`}
-                >
-                  <Text
-                    style={styles.figureValue}
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.75}
-                  >
-                    {f.value}
-                  </Text>
-                  <Text style={styles.figureLabel}>{f.label}</Text>
-                </View>
-              </React.Fragment>
+              <View
+                key={f.label}
+                style={[styles.figure, i > 0 && styles.figureDivided]}
+                accessible
+                accessibilityLabel={`${f.label}: ${f.value}`}
+              >
+                <Text style={styles.figureLabel}>{f.label}</Text>
+                <Text style={styles.figureValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
+                  {f.value}
+                </Text>
+              </View>
             ))}
           </View>
         </View>
@@ -213,12 +234,33 @@ const textShadow = {
 const styles = StyleSheet.create({
   heroContent: {
     paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.lg,
-    gap: spacing.md + 2,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md + 4,
+    gap: spacing.md + 4,
   },
-  heroTop: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
-  heroCopy: { flex: 1 },
+  flex: { flex: 1 },
+  topRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  shopPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 1,
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: radius.pill,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  shopPillPressed: { backgroundColor: 'rgba(255,255,255,0.3)' },
+  shopPlain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  shopText: {
+    ...typography.label,
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.92)',
+    flexShrink: 1,
+    ...textShadow,
+  },
   lead: {
     ...typography.body,
     color: 'rgba(255,255,255,0.92)',
@@ -235,7 +277,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.6,
     ...textShadow,
   },
-  actions: { flexDirection: 'row', gap: 10 },
+  actions: { flexDirection: 'row', gap: 10, marginLeft: 'auto' },
   iconBtn: {
     backgroundColor: 'rgba(255,255,255,0.16)',
     borderWidth: 1,
@@ -259,30 +301,41 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   badgeText: { color: colors.white, fontSize: 10, fontWeight: '800' },
-  panel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.14)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.22)',
-    borderRadius: radius.lg,
-    paddingVertical: spacing.sm + 6,
+  dot: {
+    position: 'absolute',
+    top: 1,
+    right: 1,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: colors.danger,
+    borderWidth: 2,
+    borderColor: colors.water,
   },
-  panelDivider: { width: 1, alignSelf: 'stretch', backgroundColor: 'rgba(255,255,255,0.22)' },
-  figure: { flex: 1, paddingHorizontal: spacing.md, gap: 2 },
-  figureValue: {
-    ...typography.heading,
-    color: colors.white,
-    fontSize: 22,
-    letterSpacing: -0.3,
-    ...textShadow,
+  split: {
+    flexDirection: 'row',
+    paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.45)',
+  },
+  figure: { flex: 1, gap: 2 },
+  figureDivided: {
+    paddingLeft: spacing.md,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: 'rgba(255,255,255,0.45)',
   },
   figureLabel: {
     ...typography.caption,
-    color: 'rgba(255,255,255,0.78)',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    fontSize: 11,
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0,
+    color: 'rgba(255,255,255,0.85)',
+  },
+  figureValue: {
+    ...typography.heading,
+    fontSize: 21,
+    color: colors.white,
+    ...textShadow,
   },
   compactWrap: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 },
   compact: {

@@ -1,7 +1,10 @@
-import React, { type PropsWithChildren } from 'react';
+import React, { useEffect, useMemo, useRef, useState, type PropsWithChildren } from 'react';
 import {
+  Animated,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -24,6 +27,8 @@ interface BottomSheetProps extends PropsWithChildren {
   dismissable?: boolean;
 }
 
+const DISMISS_DISTANCE = 110;
+
 /** The app's one sheet surface: payment, reasons, PIN, team edits, expense entry. */
 export function BottomSheet({
   visible,
@@ -39,29 +44,95 @@ export function BottomSheet({
     if (dismissable) onClose();
   };
 
+  const dragY = useRef(new Animated.Value(0)).current;
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  const dismissableRef = useRef(dismissable);
+  dismissableRef.current = dismissable;
+
+  useEffect(() => {
+    if (visible) dragY.setValue(0);
+  }, [visible, dragY]);
+
+  // Android doesn't resize a translucent modal for the keyboard, and KeyboardAvoidingView
+  // miscounts it by the status bar — so lift the sheet by the keyboard's own height.
+  const [keyboard, setKeyboard] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !visible) return;
+    const show = Keyboard.addListener('keyboardDidShow', (e) =>
+      setKeyboard(e.endCoordinates.height),
+    );
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboard(0));
+    return () => {
+      show.remove();
+      hide.remove();
+      setKeyboard(0);
+    };
+  }, [visible]);
+
+  // Drag the handle / title down to dismiss; a short pull springs back.
+  const pan = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, g) =>
+          dismissableRef.current && g.dy > 6 && Math.abs(g.dy) > Math.abs(g.dx),
+        onPanResponderMove: (_, g) => dragY.setValue(Math.max(0, g.dy)),
+        onPanResponderRelease: (_, g) => {
+          if (g.dy > DISMISS_DISTANCE || g.vy > 1.2) {
+            Animated.timing(dragY, { toValue: 800, duration: 180, useNativeDriver: true }).start(
+              () => closeRef.current(),
+            );
+          } else {
+            Animated.spring(dragY, { toValue: 0, useNativeDriver: true, bounciness: 4 }).start();
+          }
+        },
+        onPanResponderTerminate: () => {
+          Animated.spring(dragY, { toValue: 0, useNativeDriver: true }).start();
+        },
+      }),
+    [dragY],
+  );
+
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={close} statusBarTranslucent>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={close}
+      statusBarTranslucent
+    >
+      <KeyboardAvoidingView style={styles.flex} behavior="padding" enabled={Platform.OS === 'ios'}>
         <Pressable style={styles.backdrop} onPress={close} accessibilityLabel="Close" />
-        <View style={[styles.sheet, shadow('lg'), { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
-          <View style={styles.handle} />
-          <View style={styles.header}>
-            <View style={styles.headerCopy}>
-              <Text style={styles.title}>{title}</Text>
-              {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+        <Animated.View
+          style={[
+            styles.sheet,
+            shadow('lg'),
+            {
+              paddingBottom: Math.max(insets.bottom, spacing.md),
+              marginBottom: keyboard,
+              transform: [{ translateY: dragY }],
+            },
+          ]}
+        >
+          <View {...pan.panHandlers}>
+            <View style={styles.handleZone}>
+              <View style={styles.handle} />
             </View>
-            <Pressable
-              onPress={close}
-              hitSlop={10}
-              style={({ pressed }) => [styles.closeBtn, pressed && styles.pressed]}
-              accessibilityRole="button"
-              accessibilityLabel="Close"
-            >
-              <IconClose size={16} color={colors.slateDeep} />
-            </Pressable>
+            <View style={styles.header}>
+              <View style={styles.headerCopy}>
+                <Text style={styles.title}>{title}</Text>
+                {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+              </View>
+              <Pressable
+                onPress={close}
+                hitSlop={10}
+                style={({ pressed }) => [styles.closeBtn, pressed && styles.pressed]}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+              >
+                <IconClose size={16} color={colors.slateDeep} />
+              </Pressable>
+            </View>
           </View>
           <ScrollView
             style={styles.body}
@@ -72,7 +143,7 @@ export function BottomSheet({
             {children}
           </ScrollView>
           {footer ? <View style={styles.footer}>{footer}</View> : null}
-        </View>
+        </Animated.View>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -90,13 +161,12 @@ const styles = StyleSheet.create({
     borderTopRightRadius: radius.xl,
     maxHeight: '90%',
   },
+  handleZone: { alignItems: 'center', paddingTop: spacing.sm, paddingBottom: 2 },
   handle: {
     width: 40,
-    height: 4,
+    height: 5,
     borderRadius: radius.pill,
     backgroundColor: colors.border,
-    alignSelf: 'center',
-    marginTop: spacing.sm,
   },
   header: {
     flexDirection: 'row',

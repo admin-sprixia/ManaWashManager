@@ -1,7 +1,6 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Linking,
   Pressable,
   RefreshControl,
   SectionList,
@@ -16,6 +15,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { SyncBanner } from '../components/SyncBanner';
 import { PaymentSheet } from '../components/PaymentSheet';
+import { PeoplePickerSheet } from '../components/PeoplePickerSheet';
+import { ReadyPromptSheet } from '../components/ReadyPromptSheet';
+import { ShopSwitcherSheet } from '../components/ShopSwitcherSheet';
 import { Fab } from '../components/Fab';
 import { showToast } from '../components/Toast';
 import { BoardCompactBar, BoardHero, type BoardStats } from '../components/board/BoardHeader';
@@ -26,12 +28,13 @@ import { useAuth } from '../api/auth';
 import { useBoardJobs } from '../offline/useBoardJobs';
 import { useReminderCount } from '../offline/useReminderCount';
 import { useJobActions } from '../offline/useJobActions';
+import { useShop } from '../offline/ShopProvider';
 import type { BoardJob } from '../offline/types';
-import { buildWhatsAppLink } from '../utils/format';
 import { buildThankYouMessage } from '../utils/messages';
+import { openWhatsApp } from '../utils/whatsapp';
 import { customerLine, firstName, isToday, NEXT_STATUS, vehicleHeadline } from '../utils/jobs';
 import type { RootStackParamList } from '../navigation/RootNavigator';
-import type { JobStatus } from '@mana/domain';
+import { MAX_WASHERS_PER_JOB, type JobStatus } from '@mana/domain';
 
 type JobBoardScreenProps = NativeStackScreenProps<RootStackParamList, 'JobBoard'>;
 
@@ -60,6 +63,22 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
   const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [payJob, setPayJob] = useState<BoardJob | null>(null);
+  const [washerJob, setWasherJob] = useState<BoardJob | null>(null);
+  const [readyJob, setReadyJob] = useState<BoardJob | null>(null);
+  const {
+    googleReviewUrl,
+    unseenErrors,
+    joinRequests,
+    lowStock,
+    myShops,
+    info: shopInfo,
+  } = useShop();
+  const moreAlert = (isOwner && (unseenErrors > 0 || joinRequests > 0)) || lowStock > 0;
+  const [shopsOpen, setShopsOpen] = useState(false);
+  const shopSwitch =
+    isOwner && myShops.length > 1 && shopInfo
+      ? { name: shopInfo.name, onPress: () => setShopsOpen(true) }
+      : undefined;
   const [heroHeight, setHeroHeight] = useState(0);
   const [compact, setCompact] = useState(false);
   const [fabCollapsed, setFabCollapsed] = useState(false);
@@ -95,12 +114,17 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
         setPayJob(job);
         return;
       }
+      if (job.status === 'waiting') {
+        setWasherJob(job);
+        return;
+      }
       const next = NEXT_STATUS[job.status];
       if (!next || busyId) return;
       setBusyId(job.id);
       const message = await actions.advance(job.id, next);
       setBusyId(null);
       if (message) showToast(message, 'error');
+      else if (next === 'ready') setReadyJob(job);
     },
     [actions, busyId],
   );
@@ -110,22 +134,24 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
     [navigation],
   );
 
-  const onThankYou = useCallback((job: BoardJob) => {
-    const message = buildThankYouMessage({
-      jobId: job.id,
-      customerName: job.customer.name,
-      registrationNumber: job.vehicle.registrationNumber,
-      vehicleType: job.vehicle.vehicleType.name,
-      services: job.jobServices.map((js) => ({ name: js.service.name, quantity: js.quantity })),
-      total: job.total,
-      discount: job.discount,
-      paymentMethod: job.paymentMethod,
-      visitedAt: job.createdAt,
-    });
-    Linking.openURL(buildWhatsAppLink(job.customer.phone, message)).catch(() =>
-      showToast('Couldn’t open WhatsApp — is it installed?', 'error'),
-    );
-  }, []);
+  const onThankYou = useCallback(
+    (job: BoardJob) => {
+      const message = buildThankYouMessage({
+        jobId: job.id,
+        customerName: job.customer.name,
+        registrationNumber: job.vehicle.registrationNumber,
+        vehicleType: job.vehicle.vehicleType.name,
+        services: job.jobServices.map((js) => ({ name: js.service.name, quantity: js.quantity })),
+        total: job.total,
+        discount: job.discount,
+        paymentMethod: job.paymentMethod,
+        visitedAt: job.createdAt,
+        reviewUrl: googleReviewUrl,
+      });
+      void openWhatsApp(job.customer.phone, message);
+    },
+    [googleReviewUrl],
+  );
 
   const stats = useMemo<BoardStats>(() => {
     // Excludes void jobs — matches jobRepo.getStats' `carsWashed`, so this hero number and
@@ -181,6 +207,8 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
           ListHeaderComponent={
             <>
               <BoardHero
+                shopSwitch={shopSwitch}
+                shopName={shopInfo?.name}
                 name={name}
                 stats={stats}
                 isOwner={isOwner}
@@ -188,6 +216,7 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
                 onMore={goMore}
                 onReminders={goReminders}
                 reminderCount={reminderCount}
+                moreAlert={moreAlert}
                 onLayout={(e) => setHeroHeight(e.nativeEvent.layout.height)}
               />
               <View style={styles.bannerWrap}>
@@ -246,6 +275,7 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
           onMore={goMore}
           onReminders={goReminders}
           reminderCount={reminderCount}
+          moreAlert={moreAlert}
         />
 
         <Fab
@@ -269,6 +299,32 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
           return message;
         }}
       />
+
+      <PeoplePickerSheet
+        visible={washerJob != null}
+        title="Who’s washing it?"
+        subtitle={
+          washerJob ? `${vehicleHeadline(washerJob).title} · ${customerLine(washerJob)}` : ''
+        }
+        confirmLabel="Start wash"
+        max={MAX_WASHERS_PER_JOB}
+        onClose={() => setWasherJob(null)}
+        onSkip={async () => {
+          if (!washerJob) return null;
+          const message = await actions.advance(washerJob.id, 'washing');
+          if (!message) setWasherJob(null);
+          return message;
+        }}
+        onConfirm={async (washers) => {
+          if (!washerJob) return null;
+          const message = await actions.advance(washerJob.id, 'washing', washers);
+          if (!message) setWasherJob(null);
+          return message;
+        }}
+      />
+
+      <ReadyPromptSheet job={readyJob} onClose={() => setReadyJob(null)} />
+      <ShopSwitcherSheet visible={shopsOpen} onClose={() => setShopsOpen(false)} />
     </ScreenContainer>
   );
 }

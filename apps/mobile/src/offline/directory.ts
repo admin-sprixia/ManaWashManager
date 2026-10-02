@@ -1,5 +1,5 @@
 import { api, apiErrorMessage } from '../api/client';
-import { CacheKeys, readCache, writeCache } from './cache';
+import { CacheKeys, readCache, readChunkedCache, removeCache, writeChunkedCache } from './cache';
 
 /** One vehicle + its owner, as New Wash suggests them. Mirrors the API's DirectoryEntry. */
 export interface DirectoryEntry {
@@ -32,7 +32,7 @@ export const EMPTY_DIRECTORY: DirectorySnapshot = {
   lastFullSyncAt: null,
 };
 
-const PAGE_SIZE = 200;
+const PAGE_SIZE = 80;
 /** Safety stop so a server bug can never page forever (200 × 250 = 50k vehicles). */
 const MAX_PAGES = 250;
 /**
@@ -49,12 +49,33 @@ interface DirectoryPage {
   hasMore: boolean;
 }
 
+type DirectoryMeta = Omit<DirectorySnapshot, 'entries'>;
+
 export async function loadDirectory(): Promise<DirectorySnapshot> {
-  return (await readCache<DirectorySnapshot>(CacheKeys.directory)) ?? EMPTY_DIRECTORY;
+  const chunked = await readChunkedCache<DirectoryMeta, DirectoryEntry>(CacheKeys.directory);
+  if (chunked) {
+    const entries: Record<string, DirectoryEntry> = {};
+    for (const e of chunked.list) entries[e.registrationNumber] = e;
+    return {
+      entries,
+      cursor: chunked.meta.cursor,
+      lastSyncAt: chunked.meta.lastSyncAt,
+      lastFullSyncAt: chunked.meta.lastFullSyncAt,
+    };
+  }
+  // A copy saved by an older build in one value: move it over.
+  const legacy = await readCache<DirectorySnapshot>(CacheKeys.directoryV1);
+  if (legacy) {
+    await saveDirectory(legacy);
+    await removeCache(CacheKeys.directoryV1);
+    return legacy;
+  }
+  return EMPTY_DIRECTORY;
 }
 
 export async function saveDirectory(snapshot: DirectorySnapshot): Promise<void> {
-  await writeCache(CacheKeys.directory, snapshot);
+  const { entries, ...meta } = snapshot;
+  await writeChunkedCache<DirectoryMeta, DirectoryEntry>(CacheKeys.directory, meta, Object.values(entries));
 }
 
 function rewind(cursor: string): string {

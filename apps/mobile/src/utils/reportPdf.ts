@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
+import { SHOP } from '../config/shop';
 import { formatRupees } from './format';
 
 export interface ReportExportJob {
@@ -98,7 +99,7 @@ function drawLine(page: PDFPage, y: number) {
 }
 
 /**
- * Builds a clean A4 MANA wash report PDF (summary + payment split + job ledger).
+ * Builds a clean A4 report PDF for the signed-in shop (summary + payment split + job ledger).
  * Returns raw PDF bytes ready to write / share.
  */
 export async function buildReportPdf(data: ReportExportPayload): Promise<Uint8Array> {
@@ -113,7 +114,7 @@ export async function buildReportPdf(data: ReportExportPayload): Promise<Uint8Ar
     if (y - need >= MARGIN) return;
     page = doc.addPage([PAGE_W, PAGE_H]);
     y = PAGE_H - MARGIN;
-    page.drawText('MANA Wash Manager — continued', {
+    page.drawText(pdfSafe(`${SHOP.name} — continued`), {
       x: MARGIN,
       y,
       size: 9,
@@ -136,7 +137,7 @@ export async function buildReportPdf(data: ReportExportPayload): Promise<Uint8Ar
   };
 
   // Header
-  text('MANA WASH MANAGER', { size: 11, font: bold, color: WATER });
+  text(SHOP.name.toUpperCase(), { size: 11, font: bold, color: WATER });
   y -= 16;
   text('Business Report', { size: 20, font: bold });
   y -= 16;
@@ -275,7 +276,7 @@ export async function buildReportPdf(data: ReportExportPayload): Promise<Uint8Ar
   // Footer on last page
   ensureSpace(30);
   y = Math.min(y, MARGIN + 24);
-  text('MANA Car Wash — confidential business report', {
+  text(`${SHOP.name} — confidential business report`, {
     size: 8,
     color: MUTED,
     x: MARGIN,
@@ -284,7 +285,9 @@ export async function buildReportPdf(data: ReportExportPayload): Promise<Uint8Ar
   return doc.save();
 }
 
+const fileSafe = (s: string) => s.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '');
+
 export function reportFilename(data: ReportExportPayload): string {
-  const safe = data.label.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '');
-  return `MANA-Report-${safe || data.from}-${data.to}.pdf`;
+  const shop = fileSafe(SHOP.name) || 'Shop';
+  return `${shop}-Report-${fileSafe(data.label) || data.from}-${data.to}.pdf`;
 }

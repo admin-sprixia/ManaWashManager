@@ -11,6 +11,9 @@ interface ToastMessage {
   tone: Tone;
 }
 
+/** Clears the board's floating New Wash button, so a toast is never half hidden behind it. */
+const FAB_CLEARANCE = 84;
+
 let counter = 0;
 const listeners = new Set<(m: ToastMessage) => void>();
 
@@ -56,7 +59,10 @@ export function ToastHost() {
   const tone = TONES[message.tone];
 
   return (
-    <View pointerEvents="none" style={[styles.host, { bottom: Math.max(insets.bottom, spacing.md) + spacing.lg }]}>
+    <View
+      pointerEvents="none"
+      style={[styles.host, { bottom: Math.max(insets.bottom, spacing.md) + FAB_CLEARANCE }]}
+    >
       <Animated.View
         style={[
           styles.toast,
@@ -64,7 +70,9 @@ export function ToastHost() {
           { backgroundColor: tone.bg },
           {
             opacity: anim,
-            transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }],
+            transform: [
+              { translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) },
+            ],
           },
         ]}
       >

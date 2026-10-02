@@ -590,3 +590,155 @@ export function IconGift({ size = 20, color = '#0369A1' }: IconProps) {
     </Svg>
   );
 }
+
+export function IconCamera({ size = 20, color = '#0369A1' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M4 8.5 A1.5 1.5 0 0 1 5.5 7 H8 L9.5 4.8 H14.5 L16 7 H18.5 A1.5 1.5 0 0 1 20 8.5 V18 A1.5 1.5 0 0 1 18.5 19.5 H5.5 A1.5 1.5 0 0 1 4 18 Z"
+        stroke={color}
+        strokeWidth={1.9}
+        strokeLinejoin="round"
+      />
+      <Circle cx={12} cy={13} r={3.4} stroke={color} strokeWidth={1.9} />
+    </Svg>
+  );
+}
+
+export function IconImage({ size = 20, color = '#0369A1' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Rect x={4} y={4.5} width={16} height={15} rx={2.2} stroke={color} strokeWidth={1.9} />
+      <Circle cx={9} cy={9.6} r={1.6} stroke={color} strokeWidth={1.7} />
+      <Path
+        d="M4.5 17 L9.5 12.2 L13 15.4 L15.5 13 L19.5 16.8"
+        stroke={color}
+        strokeWidth={1.9}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+export function IconTrash({ size = 18, color = '#DC2626' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M4 7 H20" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M9.5 7 V4.5 H14.5 V7" stroke={color} strokeWidth={2} strokeLinejoin="round" />
+      <Path
+        d="M6.5 7 L7.4 19 A1.5 1.5 0 0 0 8.9 20.4 H15.1 A1.5 1.5 0 0 0 16.6 19 L17.5 7"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinejoin="round"
+      />
+      <Path d="M10.2 11 V16.4 M13.8 11 V16.4" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+export function IconStar({ size = 20, color = '#0369A1' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M12 3.8 L14.5 9 L20.2 9.7 L16 13.6 L17.1 19.3 L12 16.5 L6.9 19.3 L8 13.6 L3.8 9.7 L9.5 9 Z"
+        stroke={color}
+        strokeWidth={1.9}
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+export function IconDrawer({ size = 20, color = '#0369A1' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Rect x={3.5} y={5} width={17} height={14} rx={2} stroke={color} strokeWidth={1.9} />
+      <Path d="M3.5 12 H20.5" stroke={color} strokeWidth={1.9} />
+      <Path d="M10 8.5 H14 M10 15.5 H14" stroke={color} strokeWidth={1.9} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+export function IconCalendarCheck({ size = 20, color = '#0369A1' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Rect x={4} y={5.5} width={16} height={14.5} rx={2} stroke={color} strokeWidth={1.9} />
+      <Path d="M4 10 H20 M8.5 3.5 V7 M15.5 3.5 V7" stroke={color} strokeWidth={1.9} strokeLinecap="round" />
+      <Path d="M9 15 L11.2 17 L15 13" stroke={color} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+export function IconBug({ size = 20, color = '#0369A1' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Rect x={7.5} y={7.5} width={9} height={12} rx={4.5} stroke={color} strokeWidth={1.9} />
+      <Path
+        d="M9.5 7.5 A2.5 2.5 0 0 1 14.5 7.5 M12 11 V19 M4 13 H7.5 M16.5 13 H20 M5 8.5 L7.8 10 M19 8.5 L16.2 10 M5 18 L7.8 16.5 M19 18 L16.2 16.5"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+      />
+    </Svg>
+  );
+}
+
+/** Shop front with an awning — starting a shop, the shop's name and ID. */
+export function IconStore({ size = 20, color = '#0369A1' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M4 9.5 L5.5 4.5 H18.5 L20 9.5 M4 9.5 A2.67 2.67 0 0 0 9.33 9.5 A2.67 2.67 0 0 0 14.67 9.5 A2.67 2.67 0 0 0 20 9.5 M4 9.5 H20"
+        stroke={color}
+        strokeWidth={1.9}
+        strokeLinejoin="round"
+      />
+      <Path d="M5.5 12 V19.5 H18.5 V12 M10 19.5 V15 H14 V19.5" stroke={color} strokeWidth={1.9} strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+/** Person with a plus — asking to join, inviting teammates. */
+export function IconUserPlus({ size = 20, color = '#0369A1' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Circle cx={10} cy={8} r={3.5} stroke={color} strokeWidth={1.9} />
+      <Path d="M3.5 19.5 C3.5 15.9 6.4 13.5 10 13.5 C11.6 13.5 13 14 14.1 14.8" stroke={color} strokeWidth={1.9} strokeLinecap="round" />
+      <Path d="M18 13.5 V19.5 M15 16.5 H21" stroke={color} strokeWidth={1.9} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+/** Open box — inventory / stock. */
+export function IconBox({ size = 20, color = '#0369A1' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M12 3.5 L20 7.5 V16.5 L12 20.5 L4 16.5 V7.5 Z M4 7.5 L12 11.5 L20 7.5 M12 11.5 V20.5"
+        stroke={color}
+        strokeWidth={1.9}
+        strokeLinejoin="round"
+      />
+      <Path d="M8 5.5 L16 9.5" stroke={color} strokeWidth={1.9} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+/** Minus in a circle — taking stock off the shelf. */
+export function IconMinus({ size = 18, color = '#0369A1' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M6 12 H18" stroke={color} strokeWidth={2.2} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+export function IconShare({ size = 18, color = '#0369A1' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 3.5 V14.5 M7.5 8 L12 3.5 L16.5 8" stroke={color} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M5 12.5 V18.5 A2 2 0 0 0 7 20.5 H17 A2 2 0 0 0 19 18.5 V12.5" stroke={color} strokeWidth={1.9} strokeLinecap="round" />
+    </Svg>
+  );
+}

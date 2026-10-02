@@ -42,8 +42,16 @@ crons = ["30 21 * * *"]
 #   npx wrangler d1 create mana_db_staging   → paste its id below
 #   npx wrangler r2 bucket create mana-files-staging
 #   npx wrangler r2 bucket create mana-backups-staging
+# Single-level subdomain so Cloudflare's free certificate covers it (api.staging.… would not).
 [env.staging]
 name = "mana-api-staging"
+routes = [{ pattern = "api-staging.manawashmanager.com", custom_domain = true }]
+
+# Until WhatsApp is live, staging accepts the fixed test code (000000) like local dev.
+# Remove STAGING_TEST_CODES once real WhatsApp codes work here. Never add it to production.
+[env.staging.vars]
+ENVIRONMENT = "staging"
+STAGING_TEST_CODES = "true"
 
 [env.staging.observability]
 enabled = true
@@ -54,7 +62,7 @@ crons = ["30 21 * * *"]
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "mana_db_staging"
-database_id = "REPLACE_WITH_STAGING_D1_DATABASE_ID"
+database_id = "1379cc06-37c3-430f-87bc-2bc287eae180"
 migrations_dir = "migrations"
 
 [[env.staging.r2_buckets]]

@@ -20,12 +20,18 @@ export function isDevMode(env: Env, requestUrl: string): boolean {
   return flag && LOCAL_HOSTS.has(new URL(requestUrl).hostname);
 }
 
+/** Local dev, or the staging Worker with test codes switched on: fixed, reusable codes. */
+export function usesTestCodes(env: Env, requestUrl: string): boolean {
+  if (isDevMode(env, requestUrl)) return true;
+  return env.ENVIRONMENT === 'staging' && env.STAGING_TEST_CODES === 'true';
+}
+
 export function devCode(env: Env): string {
   return env.DEV_RECOVERY_CODE ?? env.DEV_OTP_CODE ?? '000000';
 }
 
 export function configuredRecoveryCode(env: Env, requestUrl: string): string | null {
-  if (isDevMode(env, requestUrl)) return devCode(env);
+  if (usesTestCodes(env, requestUrl)) return devCode(env);
   const code = env.OWNER_RECOVERY_CODE?.trim();
   return code && code.length >= MIN_RECOVERY_CODE_LENGTH ? code : null;
 }

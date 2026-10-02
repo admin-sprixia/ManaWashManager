@@ -1,7 +1,7 @@
 import { LOGIN_CODE_LENGTH, LOGIN_CODE_TTL_MINUTES } from '@mana/domain';
 import type { Env } from '../types';
 import { randomDigits } from './random';
-import { isDevMode, sha256Hex } from './recovery';
+import { sha256Hex, usesTestCodes } from './recovery';
 
 const GRAPH_API = 'https://graph.facebook.com/v25.0';
 
@@ -24,10 +24,11 @@ export function whatsappConfigured(env: Env): boolean {
 /**
  * Local testing without Meta: use the fixed DEV_RECOVERY_CODE and don't send WhatsApp.
  * True when WhatsApp isn't set up yet, or when WHATSAPP_OTP_BYPASS=true (e.g. template in review).
- * Always needs isDevMode (DEV_MODE + localhost), so it can't open a deployed Worker.
+ * Always needs usesTestCodes (DEV_MODE + localhost, or the staging Worker's test-code switch),
+ * so it can't open the production Worker.
  */
 export function bypassWhatsAppOtp(env: Env, requestUrl: string): boolean {
-  if (!isDevMode(env, requestUrl)) return false;
+  if (!usesTestCodes(env, requestUrl)) return false;
   return env.WHATSAPP_OTP_BYPASS === 'true' || !whatsappConfigured(env);
 }
 

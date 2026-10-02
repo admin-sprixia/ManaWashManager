@@ -17,20 +17,20 @@ import {
   normalizePhone,
   SHOP_TRIAL_DAYS,
 } from '@mana/domain';
-import { GradientHero } from '../components/GradientHero';
 import { Button } from '../components/Button';
 import { PinPad } from '../components/PinPad';
 import {
   IconAlert,
   IconChevronRight,
-  IconEdit,
   IconLock,
+  IconShield,
   IconStore,
   IconUserPlus,
 } from '../components/Icons';
+import { AuthHero } from '../components/auth/AuthHero';
 import { SignUpFlow } from '../components/auth/SignUpFlow';
 import { JoinShopFlow } from '../components/auth/JoinShopFlow';
-import { colors, radius, shadow, spacing, typography } from '../theme';
+import { colors, radius, spacing, typography } from '../theme';
 import { api } from '../api/client';
 import { NetworkError } from '../api/network';
 import { useAuth } from '../api/auth';
@@ -85,6 +85,8 @@ export function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   const [hintsLoaded, setHintsLoaded] = useState(false);
   const [resumeToken, setResumeToken] = useState<string | undefined>();
+  const [codeBack, setCodeBack] = useState<Step>('phone');
+  const [phoneFocused, setPhoneFocused] = useState(false);
 
   useEffect(() => {
     if (resendIn <= 0) return;
@@ -140,6 +142,7 @@ export function LoginScreen() {
 
   const requestCode = async () => {
     if (sending) return;
+    if (step !== 'code') setCodeBack(step === 'forgot' ? 'forgot' : 'phone');
     setError(null);
     setSending(true);
     try {
@@ -312,6 +315,49 @@ export function LoginScreen() {
     );
   }
 
+  const phoneLabel = `+91 ${formatPhone(digits)}`;
+  const changeNumber = { label: phoneLabel, onPress: () => goTo('phone') };
+  const hero: React.ComponentProps<typeof AuthHero> =
+    step === 'phone'
+      ? {
+          title: 'Sign in',
+          subtitle: 'Owner and staff use the same app — your role decides what you see.',
+          tall: true,
+        }
+      : step === 'choose'
+        ? {
+            title: 'Welcome to MANA',
+            subtitle: 'This number is new here. How will you use the app?',
+            phoneChip: changeNumber,
+            onBack: () => goTo('phone'),
+          }
+        : step === 'signup'
+          ? {
+              title: 'Start your shop',
+              subtitle: `Free for ${SHOP_TRIAL_DAYS} days · ready in about a minute.`,
+            }
+          : step === 'join'
+            ? { title: 'Join your shop', subtitle: 'Your owner approves you, then you’re in.' }
+            : step === 'pin'
+              ? { title: 'Welcome back', subtitle: 'Enter your PIN to continue.', phoneChip: changeNumber }
+              : step === 'forgot'
+                ? {
+                    title: 'Forgot your PIN?',
+                    subtitle: 'No problem — here’s how to get back in.',
+                    onBack: () => goTo('pin'),
+                  }
+                : step === 'code'
+                  ? {
+                      title: 'Check WhatsApp',
+                      subtitle: `We sent a ${LOGIN_CODE_LENGTH}-digit code to ${phoneLabel}. It works for ${LOGIN_CODE_TTL_MINUTES} minutes.`,
+                      onBack: () => goTo(codeBack),
+                    }
+                  : {
+                      title: 'Recovery code',
+                      subtitle: `Owner emergency sign-in for ${phoneLabel}.`,
+                      onBack: () => goTo('forgot'),
+                    };
+
   return (
     <KeyboardAvoidingView
       style={styles.flex}
@@ -322,17 +368,9 @@ export function LoginScreen() {
         keyboardShouldPersistTaps="handled"
         bounces={false}
       >
-        <GradientHero height={step === 'pin' || step === 'signup' || step === 'join' ? 170 : 250}>
-          <View style={styles.heroContent}>
-            <View style={styles.logoMark}>
-              <Text style={styles.logoMarkText}>M</Text>
-            </View>
-            <Text style={styles.wordmark}>MANA</Text>
-            <Text style={styles.tagline}>Wash Manager</Text>
-          </View>
-        </GradientHero>
+        <AuthHero {...hero} />
 
-        <View style={[styles.panel, shadow('md')]}>
+        <View style={styles.panel}>
           {sessionNotice ? (
             <View style={styles.notice}>
               <IconAlert size={16} color={colors.amberDeep} />
@@ -342,13 +380,14 @@ export function LoginScreen() {
 
           {step === 'phone' ? (
             <>
-              <Text style={styles.title}>Sign in</Text>
-              <Text style={styles.subtitle}>
-                Owner and staff use the same app — your role decides what you see.
-              </Text>
-
               <Text style={styles.fieldLabel}>Mobile number</Text>
-              <View style={[styles.phoneField, error ? styles.fieldError : null]}>
+              <View
+                style={[
+                  styles.phoneField,
+                  phoneFocused && styles.fieldFocused,
+                  error ? styles.fieldError : null,
+                ]}
+              >
                 <Text style={styles.countryCode}>+91</Text>
                 <View style={styles.phoneDivider} />
                 <TextInput
@@ -361,6 +400,8 @@ export function LoginScreen() {
                     setPhone(normalizePhone(t).slice(0, 10));
                     if (error) setError(null);
                   }}
+                  onFocus={() => setPhoneFocused(true)}
+                  onBlur={() => setPhoneFocused(false)}
                   maxLength={11}
                   autoFocus={!phone}
                   returnKeyType="go"
@@ -384,62 +425,58 @@ export function LoginScreen() {
                   loading={loading || sending}
                 />
               </View>
+              <View style={styles.trust}>
+                <IconShield size={14} color={colors.slate} />
+                <Text style={styles.trustText}>Your shop’s data stays private to your team.</Text>
+              </View>
             </>
           ) : step === 'choose' ? (
             <>
-              <Pressable
-                style={styles.numberChip}
-                onPress={() => goTo('phone')}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel="Change number"
-              >
-                <Text style={styles.numberChipText}>+91 {formatPhone(digits)}</Text>
-                <IconEdit size={14} color={colors.water} />
-              </Pressable>
-              <Text style={styles.title}>Welcome! Who are you?</Text>
-              <Text style={styles.subtitle}>This number is new here. Pick one to get started.</Text>
-              <Pressable
-                style={({ pressed }) => [styles.choice, pressed && styles.choicePressed]}
-                onPress={() => goTo('signup')}
-                accessibilityRole="button"
-              >
-                <View style={styles.choiceIcon}>
-                  <IconStore size={26} color={colors.waterDeep} />
-                </View>
-                <View style={styles.choiceCopy}>
-                  <Text style={[styles.choiceTag, styles.choiceTagOwner]}>OWNER</Text>
-                  <Text style={styles.choiceTitle}>I own a car wash</Text>
-                  <Text style={styles.choiceBody}>
-                    Set up your shop in a minute. Free for {SHOP_TRIAL_DAYS} days.
-                  </Text>
-                </View>
-                <View style={styles.choiceGo}>
-                  <IconChevronRight size={18} color={colors.waterDeep} />
-                </View>
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [styles.choice, pressed && styles.choicePressedTeal]}
-                onPress={() => {
-                  setResumeToken(undefined);
-                  goTo('join');
-                }}
-                accessibilityRole="button"
-              >
-                <View style={[styles.choiceIcon, styles.choiceIconTeal]}>
-                  <IconUserPlus size={26} color={colors.tealDeep} />
-                </View>
-                <View style={styles.choiceCopy}>
-                  <Text style={[styles.choiceTag, styles.choiceTagStaff]}>STAFF</Text>
-                  <Text style={styles.choiceTitle}>I work at a car wash</Text>
-                  <Text style={styles.choiceBody}>
-                    Join your shop with the 6-digit shop ID from your owner.
-                  </Text>
-                </View>
-                <View style={[styles.choiceGo, styles.choiceGoTeal]}>
-                  <IconChevronRight size={18} color={colors.tealDeep} />
-                </View>
-              </Pressable>
+              <Text style={styles.sectionLabel}>I am the…</Text>
+              <View style={styles.choiceList}>
+                <Pressable
+                  style={({ pressed }) => [styles.choice, pressed && styles.choicePressed]}
+                  onPress={() => goTo('signup')}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Owner. I own a car wash. Set up your shop, free for ${SHOP_TRIAL_DAYS} days.`}
+                >
+                  <View style={styles.choiceIcon}>
+                    <IconStore size={24} color={colors.waterDeep} />
+                  </View>
+                  <View style={styles.choiceCopy}>
+                    <View style={styles.choiceHead}>
+                      <Text style={styles.choiceTitle}>Owner</Text>
+                      <View style={styles.choiceTag}>
+                        <Text style={styles.choiceTagText}>{SHOP_TRIAL_DAYS} DAYS FREE</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.choiceBody}>
+                      I own a car wash. Set up my shop in a minute.
+                    </Text>
+                  </View>
+                  <IconChevronRight size={20} color={colors.slate} />
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [styles.choice, pressed && styles.choicePressedTeal]}
+                  onPress={() => {
+                    setResumeToken(undefined);
+                    goTo('join');
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Staff. I work at a car wash. Join with the shop ID from your owner."
+                >
+                  <View style={[styles.choiceIcon, styles.choiceIconTeal]}>
+                    <IconUserPlus size={24} color={colors.tealDeep} />
+                  </View>
+                  <View style={styles.choiceCopy}>
+                    <Text style={styles.choiceTitle}>Staff</Text>
+                    <Text style={styles.choiceBody}>
+                      I work at a car wash. Join with the 6-digit shop ID from my owner.
+                    </Text>
+                  </View>
+                  <IconChevronRight size={20} color={colors.slate} />
+                </Pressable>
+              </View>
               <Text style={styles.choiceHint}>
                 Not sure? The owner starts the shop first, then shares the shop ID with the team.
               </Text>
@@ -457,8 +494,6 @@ export function LoginScreen() {
             />
           ) : step === 'pin' ? (
             <>
-              <Text style={[styles.title, styles.center]}>Enter your PIN</Text>
-              <Text style={[styles.subtitle, styles.center]}>+91 {formatPhone(digits)}</Text>
               <View style={styles.pinWrap}>
                 <PinPad
                   value={pin}
@@ -481,57 +516,57 @@ export function LoginScreen() {
               {pin.length >= 4 && pin.length < 6 && !loading ? (
                 <Button label="Sign in" size="lg" onPress={() => void verifyPin()} />
               ) : null}
-              <View style={styles.linkRow}>
-                <Pressable onPress={() => goTo('phone')} hitSlop={8}>
-                  <Text style={styles.link}>Not you? Change number</Text>
-                </Pressable>
-                <Pressable onPress={() => goTo('forgot')} hitSlop={8}>
-                  <Text style={styles.link}>Forgot PIN?</Text>
-                </Pressable>
-              </View>
+              <Pressable
+                onPress={() => goTo('forgot')}
+                hitSlop={8}
+                style={styles.centerLink}
+                accessibilityRole="button"
+              >
+                <Text style={styles.link}>Forgot PIN?</Text>
+              </Pressable>
             </>
           ) : step === 'forgot' ? (
             <>
-              <Text style={styles.title}>Forgot your PIN?</Text>
-              <View style={styles.helpCard}>
-                <Text style={styles.helpTitle}>Staff</Text>
-                <Text style={styles.helpBody}>
-                  Ask the owner to reset it in More → Team. You can sign in with the new PIN right
-                  away.
-                </Text>
-              </View>
-              <View style={styles.helpCard}>
-                <View style={styles.helpHead}>
-                  <IconLock size={16} color={colors.waterDeep} />
-                  <Text style={styles.helpTitle}>Owner</Text>
+              <View style={styles.helpRow}>
+                <View style={[styles.helpIcon, styles.helpIconTeal]}>
+                  <IconUserPlus size={20} color={colors.tealDeep} />
                 </View>
-                <Text style={styles.helpBody}>
-                  We’ll send a {LOGIN_CODE_LENGTH}-digit code on WhatsApp to +91{' '}
-                  {formatPhone(digits)}. Enter it, then choose a new PIN.
-                </Text>
-                {error ? <Text style={styles.error}>{error}</Text> : null}
+                <View style={styles.helpCopy}>
+                  <Text style={styles.helpTitle}>I’m staff</Text>
+                  <Text style={styles.helpBody}>
+                    Ask the owner to reset it in More → Team. You can sign in with the new PIN
+                    right away.
+                  </Text>
+                </View>
+              </View>
+              <View style={[styles.helpRow, styles.helpRowLast]}>
+                <View style={styles.helpIcon}>
+                  <IconLock size={20} color={colors.waterDeep} />
+                </View>
+                <View style={styles.helpCopy}>
+                  <Text style={styles.helpTitle}>I’m the owner</Text>
+                  <Text style={styles.helpBody}>
+                    We’ll send a {LOGIN_CODE_LENGTH}-digit code on WhatsApp to {phoneLabel}. Enter
+                    it, then choose a new PIN.
+                  </Text>
+                </View>
+              </View>
+              {error ? <Text style={styles.error}>{error}</Text> : null}
+              <View style={styles.actions}>
                 <Button
                   label="Send code on WhatsApp"
                   size="lg"
                   onPress={() => void requestCode()}
                   loading={sending}
                 />
-                <Pressable onPress={() => goTo('recovery')} hitSlop={8} style={styles.inlineLink}>
-                  <Text style={styles.link}>No WhatsApp? Use the recovery code</Text>
-                </Pressable>
               </View>
-              <View style={styles.linkRow}>
-                <Pressable onPress={() => goTo('pin')} hitSlop={8}>
-                  <Text style={styles.link}>Back to PIN</Text>
-                </Pressable>
-              </View>
+              <Pressable onPress={() => goTo('recovery')} hitSlop={8} style={styles.centerLink}>
+                <Text style={styles.link}>No WhatsApp? Use the recovery code</Text>
+              </Pressable>
             </>
           ) : step === 'code' ? (
             <>
-              <Text style={styles.title}>Enter the WhatsApp code</Text>
-              <Text style={styles.subtitle}>
-                Sent to +91 {formatPhone(digits)}. It works for {LOGIN_CODE_TTL_MINUTES} minutes.
-              </Text>
+              <Text style={styles.fieldLabel}>WhatsApp code</Text>
               <TextInput
                 style={[styles.otpInput, error ? styles.fieldError : null]}
                 value={code}
@@ -542,7 +577,7 @@ export function LoginScreen() {
                   if (next.length === LOGIN_CODE_LENGTH) void verifyCode(next);
                 }}
                 placeholder={'•'.repeat(LOGIN_CODE_LENGTH)}
-                placeholderTextColor={colors.border}
+                placeholderTextColor={colors.waterLight}
                 keyboardType="number-pad"
                 textContentType="oneTimeCode"
                 autoComplete="sms-otp"
@@ -569,44 +604,36 @@ export function LoginScreen() {
                 loading={sending}
                 disabled={resendIn > 0 || loading}
               />
-              <View style={styles.linkRow}>
-                <Pressable onPress={() => goTo('pin')} hitSlop={8}>
-                  <Text style={styles.link}>Back to PIN</Text>
-                </Pressable>
-                <Pressable onPress={() => goTo('recovery')} hitSlop={8}>
-                  <Text style={styles.link}>Use recovery code</Text>
-                </Pressable>
-              </View>
+              <Pressable onPress={() => goTo('recovery')} hitSlop={8} style={styles.centerLink}>
+                <Text style={styles.link}>Use the recovery code instead</Text>
+              </Pressable>
             </>
           ) : (
             <>
-              <Text style={styles.title}>Recovery code</Text>
-              <View style={styles.helpCard}>
-                <View style={styles.helpHead}>
-                  <IconLock size={16} color={colors.waterDeep} />
-                  <Text style={styles.helpTitle}>Owner emergency sign-in</Text>
-                </View>
-                <Text style={styles.helpBody}>
-                  Enter the recovery code kept on the server for +91 {formatPhone(digits)}. It works
-                  once; you’ll choose a new PIN straight after.
-                </Text>
-                <TextInput
-                  style={[styles.codeInput, error ? styles.fieldError : null]}
-                  value={code}
-                  onChangeText={(t) => {
-                    setCode(t);
-                    if (error) setError(null);
-                  }}
-                  placeholder="Recovery code"
-                  placeholderTextColor={colors.slate}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  secureTextEntry
-                  returnKeyType="go"
-                  onSubmitEditing={() => void recover()}
-                  accessibilityLabel="Recovery code"
-                />
-                {error ? <Text style={styles.error}>{error}</Text> : null}
+              <Text style={styles.body}>
+                Enter the recovery code kept on the server. It works once; you’ll choose a new PIN
+                straight after.
+              </Text>
+              <Text style={styles.fieldLabel}>Recovery code</Text>
+              <TextInput
+                style={[styles.codeInput, error ? styles.fieldError : null]}
+                value={code}
+                onChangeText={(t) => {
+                  setCode(t);
+                  if (error) setError(null);
+                }}
+                placeholder="Recovery code"
+                placeholderTextColor={colors.slate}
+                autoCapitalize="none"
+                autoCorrect={false}
+                secureTextEntry
+                autoFocus
+                returnKeyType="go"
+                onSubmitEditing={() => void recover()}
+                accessibilityLabel="Recovery code"
+              />
+              {error ? <Text style={styles.error}>{error}</Text> : null}
+              <View style={styles.actions}>
                 <Button
                   label="Sign in with recovery code"
                   size="lg"
@@ -614,11 +641,6 @@ export function LoginScreen() {
                   loading={loading}
                   disabled={!code.trim()}
                 />
-              </View>
-              <View style={styles.linkRow}>
-                <Pressable onPress={() => goTo('forgot')} hitSlop={8}>
-                  <Text style={styles.link}>Back</Text>
-                </Pressable>
               </View>
             </>
           )}
@@ -629,7 +651,7 @@ export function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.surface },
+  flex: { flex: 1, backgroundColor: colors.white },
   loading: {
     flex: 1,
     alignItems: 'center',
@@ -637,34 +659,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   scroll: { flexGrow: 1 },
-  heroContent: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingBottom: spacing.xl,
-  },
-  logoMark: {
-    width: 56,
-    height: 56,
-    borderRadius: radius.lg,
-    backgroundColor: 'rgba(255,255,255,0.16)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.35)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.sm,
-  },
-  logoMarkText: { ...typography.title, color: colors.white },
-  wordmark: { ...typography.display, color: colors.white, letterSpacing: 6, fontSize: 30 },
-  tagline: { ...typography.body, color: 'rgba(255,255,255,0.85)', marginTop: 2 },
   panel: {
     flex: 1,
-    marginTop: -spacing.xl,
+    marginTop: -radius.xl,
     backgroundColor: colors.white,
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
+    paddingTop: spacing.lg + 4,
     paddingBottom: spacing.xl,
     gap: spacing.sm,
   },
@@ -680,21 +682,35 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   noticeText: { ...typography.label, color: colors.amberDeep, flex: 1, textTransform: 'none' },
-  title: { ...typography.title, color: colors.waterInk },
-  subtitle: { ...typography.body, color: colors.slateDeep, fontSize: 15, marginBottom: spacing.sm },
+  body: { ...typography.body, color: colors.slateDeep, fontSize: 15, lineHeight: 22 },
   center: { textAlign: 'center' },
-  fieldLabel: { ...typography.caption, color: colors.slateDeep, marginTop: spacing.sm },
+  fieldLabel: {
+    ...typography.caption,
+    color: colors.slateDeep,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  sectionLabel: {
+    ...typography.caption,
+    color: colors.slateDeep,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
   phoneField: {
     flexDirection: 'row',
     alignItems: 'center',
+    height: 62,
     borderWidth: 1.5,
     borderColor: colors.border,
     borderRadius: radius.md,
     backgroundColor: colors.surface,
     paddingHorizontal: spacing.md,
   },
+  fieldFocused: { borderColor: colors.water, backgroundColor: colors.white },
   fieldError: { borderColor: '#FCA5A5' },
-  countryCode: { ...typography.heading, color: colors.slateDeep, fontSize: 20 },
+  countryCode: { ...typography.heading, color: colors.waterInk, fontSize: 20 },
   phoneDivider: {
     width: 1,
     height: 26,
@@ -707,30 +723,88 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.waterInk,
     letterSpacing: 1,
-    paddingVertical: spacing.md,
+    paddingVertical: 0,
   },
-  helper: { ...typography.caption, color: colors.slate, letterSpacing: 0 },
+  helper: { ...typography.caption, color: colors.slate, letterSpacing: 0, lineHeight: 17 },
   error: { ...typography.label, color: colors.danger, textTransform: 'none', lineHeight: 19 },
   actions: { marginTop: spacing.md },
-  linkRow: {
+  trust: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: spacing.lg,
   },
+  trustText: { ...typography.caption, color: colors.slate, letterSpacing: 0 },
   link: { ...typography.label, color: colors.water, fontSize: 14 },
-  pinWrap: { marginTop: spacing.md },
-  pinStatus: { minHeight: 40, justifyContent: 'center', marginTop: spacing.sm },
-  helpCard: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-    gap: spacing.sm,
-    marginTop: spacing.sm,
+  centerLink: { alignSelf: 'center', paddingVertical: spacing.sm, marginTop: spacing.sm },
+  pinWrap: { marginTop: spacing.xs },
+  pinStatus: { minHeight: 40, justifyContent: 'center', marginTop: spacing.xs },
+  choiceList: {
+    marginHorizontal: -spacing.lg,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
   },
-  helpHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  inlineLink: { alignSelf: 'center', paddingVertical: spacing.xs },
+  choice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md + 4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  choicePressed: { backgroundColor: colors.waterPale },
+  choicePressedTeal: { backgroundColor: '#F0FDFA' },
+  choiceIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: colors.waterPale,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  choiceIconTeal: { backgroundColor: '#CCFBF1' },
+  choiceCopy: { flex: 1, gap: 3 },
+  choiceHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  choiceTitle: { ...typography.heading, color: colors.waterInk, fontSize: 18 },
+  choiceTag: {
+    backgroundColor: colors.waterPale,
+    borderRadius: radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  choiceTagText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.6, color: colors.waterDeep },
+  choiceBody: { ...typography.body, color: colors.slateDeep, fontSize: 14, lineHeight: 20 },
+  choiceHint: {
+    ...typography.caption,
+    color: colors.slate,
+    letterSpacing: 0,
+    lineHeight: 18,
+    textAlign: 'center',
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.md,
+  },
+  helpRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    paddingVertical: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  helpRowLast: { borderBottomWidth: 0 },
+  helpIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: colors.waterPale,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  helpIconTeal: { backgroundColor: '#CCFBF1' },
+  helpCopy: { flex: 1, gap: 4 },
+  helpTitle: { ...typography.bodyStrong, color: colors.waterInk },
+  helpBody: { ...typography.body, color: colors.slateDeep, fontSize: 14, lineHeight: 20 },
   otpInput: {
     borderWidth: 1.5,
     borderColor: colors.border,
@@ -742,81 +816,14 @@ const styles = StyleSheet.create({
     color: colors.waterInk,
     letterSpacing: 12,
     textAlign: 'center',
-    marginTop: spacing.sm,
   },
-  numberChip: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: colors.waterPale,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.sm + 4,
-    paddingVertical: 6,
-    marginBottom: spacing.sm,
-  },
-  numberChipText: { ...typography.bodyStrong, color: colors.waterDeep, fontSize: 14 },
-  choice: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.lg,
-    backgroundColor: colors.white,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md + 4,
-    marginTop: spacing.sm + 4,
-    shadowColor: colors.shadow,
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
-  },
-  choicePressed: { borderColor: colors.water, backgroundColor: colors.waterPale },
-  choicePressedTeal: { borderColor: colors.teal, backgroundColor: '#F0FDFA' },
-  choiceIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: colors.waterPale,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  choiceIconTeal: { backgroundColor: '#CCFBF1' },
-  choiceCopy: { flex: 1, gap: 3 },
-  choiceTag: { ...typography.caption, fontSize: 11, fontWeight: '700', letterSpacing: 0.8 },
-  choiceTagOwner: { color: colors.water },
-  choiceTagStaff: { color: colors.teal },
-  choiceTitle: { ...typography.heading, color: colors.waterInk, fontSize: 18 },
-  choiceBody: { ...typography.body, color: colors.slateDeep, fontSize: 13, lineHeight: 18 },
-  choiceGo: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.waterPale,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  choiceGoTeal: { backgroundColor: '#CCFBF1' },
-  choiceHint: {
-    ...typography.caption,
-    color: colors.slate,
-    letterSpacing: 0,
-    lineHeight: 18,
-    textAlign: 'center',
-    marginTop: spacing.lg,
-    paddingHorizontal: spacing.md,
-  },
-  helpTitle: { ...typography.bodyStrong, color: colors.waterInk },
-  helpBody: { ...typography.body, color: colors.slateDeep, fontSize: 14, lineHeight: 20 },
   codeInput: {
     borderWidth: 1.5,
     borderColor: colors.border,
     borderRadius: radius.md,
-    backgroundColor: colors.white,
+    backgroundColor: colors.surface,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 4,
+    paddingVertical: spacing.sm + 6,
     fontSize: 17,
     fontWeight: '600',
     color: colors.waterInk,

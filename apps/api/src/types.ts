@@ -46,6 +46,12 @@ export interface Env {
    * instead. Use while Meta is reviewing the template; turn off when real codes should go out.
    */
   WHATSAPP_OTP_BYPASS?: string;
+  /**
+   * Staging Worker only: ENVIRONMENT=staging plus STAGING_TEST_CODES=true accepts the same fixed
+   * codes as local dev (until WhatsApp is live). Production sets neither, so it can't turn on there.
+   */
+  ENVIRONMENT?: string;
+  STAGING_TEST_CODES?: string;
   /** Older names for DEV_MODE / DEV_RECOVERY_CODE, still honoured in local `.dev.vars`. */
   DEV_OTP_BYPASS?: string;
   DEV_OTP_CODE?: string;

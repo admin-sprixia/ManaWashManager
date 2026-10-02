@@ -35,11 +35,11 @@ import { hashPin, verifyPin } from '../lib/pin';
 import {
   configuredRecoveryCode,
   devCode,
-  isDevMode,
   recoveryCodeMatches,
   recoveryUsedKey,
   sameHex,
   sha256Hex,
+  usesTestCodes,
 } from '../lib/recovery';
 import { createShopWithOwner } from '../lib/shops';
 import { requireAuth, requireRole } from '../middleware/auth';
@@ -216,7 +216,7 @@ export const authRoutes = new Hono<{ Bindings: Env }>()
       message: 'That recovery code isn’t right for this number.',
     };
 
-    const dev = isDevMode(c.env, c.req.url);
+    const dev = usesTestCodes(c.env, c.req.url);
     const expected = configuredRecoveryCode(c.env, c.req.url);
     if (!expected) {
       return c.json(

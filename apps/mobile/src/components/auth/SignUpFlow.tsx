@@ -13,6 +13,11 @@ import { describeError, useSignupCode } from './useSignupCode';
 type Step = 'code' | 'pin' | 'details';
 
 const STEP_NUMBER: Record<Step, number> = { code: 1, pin: 2, details: 3 };
+const STEP_NAME: Record<Step, string> = {
+  code: 'Verify your number',
+  pin: 'Choose a PIN',
+  details: 'Shop details',
+};
 
 interface CreateShopBody {
   token?: string;
@@ -36,6 +41,7 @@ export function SignUpFlow({ phone, onBack }: { phone: string; onBack: () => voi
   const [city, setCity] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [focused, setFocused] = useState<'name' | 'shop' | 'city' | null>(null);
 
   useEffect(() => {
     void otp.request();
@@ -95,7 +101,18 @@ export function SignUpFlow({ phone, onBack }: { phone: string; onBack: () => voi
 
   return (
     <>
-      <Text style={styles.stepLabel}>New shop · step {STEP_NUMBER[step]} of 3</Text>
+      <View
+        style={styles.progress}
+        accessible
+        accessibilityLabel={`Step ${STEP_NUMBER[step]} of 3: ${STEP_NAME[step]}`}
+      >
+        {[1, 2, 3].map((n) => (
+          <View key={n} style={[styles.segment, n <= STEP_NUMBER[step] && styles.segmentDone]} />
+        ))}
+      </View>
+      <Text style={styles.stepLabel}>
+        Step {STEP_NUMBER[step]} of 3 · {STEP_NAME[step]}
+      </Text>
 
       {step === 'code' ? (
         <>
@@ -141,7 +158,9 @@ export function SignUpFlow({ phone, onBack }: { phone: string; onBack: () => voi
 
           <Text style={styles.fieldLabel}>Your name</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, focused === 'name' && styles.inputFocused]}
+            onFocus={() => setFocused('name')}
+            onBlur={() => setFocused(null)}
             value={name}
             onChangeText={setName}
             placeholder="e.g. Arun Kumar"
@@ -153,7 +172,9 @@ export function SignUpFlow({ phone, onBack }: { phone: string; onBack: () => voi
           />
           <Text style={styles.fieldLabel}>Shop name</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, focused === 'shop' && styles.inputFocused]}
+            onFocus={() => setFocused('shop')}
+            onBlur={() => setFocused(null)}
             value={shopName}
             onChangeText={setShopName}
             placeholder="e.g. Bubble Car Wash"
@@ -164,7 +185,9 @@ export function SignUpFlow({ phone, onBack }: { phone: string; onBack: () => voi
           />
           <Text style={styles.fieldLabel}>City (optional)</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, focused === 'city' && styles.inputFocused]}
+            onFocus={() => setFocused('city')}
+            onBlur={() => setFocused(null)}
             value={city}
             onChangeText={setCity}
             placeholder="e.g. Hyderabad"
@@ -200,21 +223,38 @@ export function SignUpFlow({ phone, onBack }: { phone: string; onBack: () => voi
 }
 
 const styles = StyleSheet.create({
-  stepLabel: { ...typography.caption, color: colors.water, letterSpacing: 0.5 },
-  title: { ...typography.title, color: colors.waterInk },
+  progress: { flexDirection: 'row', gap: 6 },
+  segment: { flex: 1, height: 4, borderRadius: 2, backgroundColor: colors.border },
+  segmentDone: { backgroundColor: colors.water },
+  stepLabel: {
+    ...typography.caption,
+    color: colors.waterDeep,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+    marginBottom: spacing.sm,
+  },
+  title: { ...typography.title, color: colors.waterInk, fontSize: 24 },
   subtitle: { ...typography.body, color: colors.slateDeep, fontSize: 15, marginBottom: spacing.xs },
-  fieldLabel: { ...typography.caption, color: colors.slateDeep, marginTop: spacing.sm },
+  fieldLabel: {
+    ...typography.caption,
+    color: colors.slateDeep,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+    marginTop: spacing.sm,
+  },
   input: {
+    height: 54,
     borderWidth: 1.5,
     borderColor: colors.border,
     borderRadius: radius.md,
     backgroundColor: colors.surface,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 4,
     fontSize: 17,
     fontWeight: '600',
     color: colors.waterInk,
   },
+  inputFocused: { borderColor: colors.water, backgroundColor: colors.white },
   error: {
     ...typography.label,
     color: colors.danger,

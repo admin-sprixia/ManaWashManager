@@ -80,7 +80,7 @@ Treat this section as the honest source of truth; every feature table below now 
 
 **Release 0.2.0 — shop operations (built and verified by typecheck, lint, domain tests and the API suites against local `wrangler dev`, then walked through on the phone with full demo data from `npm run db:seed:demo`):**
 
-- **Login:** everyone signs in day to day with phone + PIN. Staff are PIN only — the owner sets their PINs from Team. The owner proves it's them with a 6-digit **WhatsApp code** (Meta WhatsApp Cloud API, approved authentication template) on first sign-in, a new phone, or a forgotten PIN, then sets their own PIN. Codes last 10 min, allow 5 wrong tries, one resend per 30 s and 5 per hour; they're stored hashed (`login_codes`). The one-time `OWNER_RECOVERY_CODE` Worker secret stays as the emergency fallback if WhatsApp is unreachable; rotate it to use it again. Dev codes (`000000`) only work for requests to localhost. Changing your own phone number needs your PIN.
+- **Login:** everyone signs in day to day with phone + PIN. Staff are PIN only — the owner sets their PINs from Team. The owner proves it's them with a 6-digit **WhatsApp code** (Meta WhatsApp Cloud API, approved authentication template) on first sign-in, a new phone, or a forgotten PIN, then sets their own PIN. Codes last 10 min, allow 5 wrong tries, one resend per 30 s and 5 per hour; they're stored hashed (`login_codes`). The one-time `OWNER_RECOVERY_CODE` Worker secret stays as the emergency fallback if WhatsApp is unreachable; rotate it to use it again. Dev codes (`000000`) only work for requests to localhost, or on the staging Worker while `STAGING_TEST_CODES` is on (until WhatsApp is live). Changing your own phone number needs your PIN.
 - **Car-ready prompt:** moving a job to Ready offers a pre-filled WhatsApp "your vehicle is ready" message with the total.
 - **Google review link:** the owner sets it once (More → Google review link). It's added to the thank-you message, and left out when not set.
 - **Before/after photos:** optional, up to 10 before and 10 after per job (several can be picked from the gallery at once), taken at 1280 px / 70 % quality. They queue offline like everything else and are kept for 90 days. Staff can view photos on today's or board jobs; only the owner can delete.
@@ -504,9 +504,11 @@ The schema being white-label-ready is what makes it safe to say no to all of the
 
 Steps 1–4 below are done (kept for history). What's next now:
 
-1. Go live: deploy the API, `set-api-url`, release signing key, WhatsApp codes (README → Go live).
-2. Run MANA on it for real for a couple of weeks before building more.
-3. Then pick from "Not started" in Implementation status — the cheapest high-value ones are "how did you hear about us", revenue by service, and tagged discount reasons (finishing V1.2).
+1. Staging first: `mana-api-staging` at `https://api-staging.manawashmanager.com` (D1 `mana_db_staging`, R2 `mana-files-staging` / `mana-backups-staging`). Test the release app against it before production.
+2. **Action item — WhatsApp sign-in codes.** Pending: claim Meta's test number, create the `login_code` template, make a permanent system-user token. Until then staging accepts the fixed test code `000000` (`STAGING_TEST_CODES` in `wrangler.toml`). When WhatsApp works: set the WhatsApp secrets on staging, remove `STAGING_TEST_CODES`, retest, then do the same on production.
+3. Go live: production API at `https://api.manawashmanager.com`, `set-api-url`, release signing key (README → Go live).
+4. Run MANA on it for real for a couple of weeks before building more.
+5. Then pick from "Not started" in Implementation status — the cheapest high-value ones are "how did you hear about us", revenue by service, and tagged discount reasons (finishing V1.2).
 
 **Original steps (done):**
 

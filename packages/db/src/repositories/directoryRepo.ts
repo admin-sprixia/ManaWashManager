@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import type { DbClient } from '../client';
 import { MAX_IN_LIST } from '../chunk';
+import { rewardRepo, type RewardCardView } from './rewardRepo';
 
 /**
  * One row of New Wash's customer directory: a vehicle, who owns it, and just enough history
@@ -19,6 +20,10 @@ export interface DirectoryEntry {
   lastVisit: string | null;
   /** Services on this vehicle's most recent non-void job. */
   lastServices: { serviceId: string; quantity: number }[];
+  /** Stamp cards with stamps or a free wash on them (Pro shops; empty otherwise). */
+  rewardCards: RewardCardView[];
+  /** Welcome-gift items still owed to this vehicle (Pro shops; 0 otherwise). */
+  giftsOwed: number;
   updatedAt: string;
 }
 
@@ -36,6 +41,7 @@ export const directoryRepo = {
     db: DbClient,
     cursor: DirectoryCursor | null,
     limit: number,
+    options: { rewards: boolean; now?: Date } = { rewards: false },
   ): Promise<DirectoryEntry[]> {
     const rows = await db.vehicle.findMany({
       where: cursor
@@ -56,7 +62,7 @@ export const directoryRepo = {
     const vehicleIds = rows.map((v) => v.id);
     const customerIds = [...new Set(rows.map((v) => v.customerId))];
     const shopId = db.$shopId();
-    const [customers, visits, lines] = await Promise.all([
+    const [customers, visits, lines, cards, owed] = await Promise.all([
       db.customer.findMany({ where: { id: { in: customerIds } }, select: { id: true, name: true, phone: true } }),
       db.job.groupBy({
         by: ['customerId'],
@@ -77,6 +83,8 @@ export const directoryRepo = {
               LIMIT 1
            )
          ORDER BY js.job_id, js.service_id`,
+      options.rewards ? rewardRepo.cardsForVehicles(db, vehicleIds, options.now ?? new Date()) : null,
+      options.rewards ? rewardRepo.owedCountByVehicle(db, vehicleIds) : null,
     ]);
     const customerById = new Map(customers.map((c) => [c.id, c]));
     const visitsByCustomer = new Map(visits.map((v) => [v.customerId, v]));
@@ -100,6 +108,8 @@ export const directoryRepo = {
         visitCount: visit?._count._all ?? 0,
         lastVisit: visit?._max.createdAt?.toISOString() ?? null,
         lastServices: linesByVehicle.get(v.id) ?? [],
+        rewardCards: cards?.get(v.id) ?? [],
+        giftsOwed: owed?.get(v.id) ?? 0,
         updatedAt: v.updatedAt.toISOString(),
       };
     });

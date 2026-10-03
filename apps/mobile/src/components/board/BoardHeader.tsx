@@ -20,8 +20,8 @@ interface HeaderActionsProps {
   onReminders: () => void;
   /** Vehicles nobody has followed up on yet — shown as a badge on the bell. */
   reminderCount: number;
-  /** Something in More needs a look (new errors, for the owner) — a dot on its button. */
-  moreAlert?: boolean;
+  /** What in More needs a look (e.g. "stock running low") — a dot on its button, read out by screen readers. */
+  moreAlert?: string;
   compact?: boolean;
 }
 
@@ -81,7 +81,7 @@ function HeaderActions({
         style={({ pressed }) => [btn, pressed && styles.iconBtnPressed]}
         hitSlop={8}
         accessibilityRole="button"
-        accessibilityLabel={moreAlert ? 'More, new errors to review' : 'More'}
+        accessibilityLabel={moreAlert ? `More, ${moreAlert}` : 'More'}
       >
         <IconGrid size={18} color={colors.white} />
         {moreAlert ? <View style={styles.dot} /> : null}

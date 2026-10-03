@@ -35,6 +35,7 @@ const jobs = await call(token, '/jobs/today');
 const someJob = jobs.body?.jobs?.[0]?.id ?? jobs.body?.[0]?.id;
 const dir = await call(token, '/customers/directory');
 const someCustomer = dir.body?.entries?.[0]?.customerId;
+const somePlate = dir.body?.entries?.find((e) => e.registrationNumber)?.registrationNumber;
 
 const paths = [
   '/auth/me',
@@ -61,6 +62,11 @@ const paths = [
   '/shop/settings',
   '/shop/info',
   '/reports/staff?range=week',
+  '/rewards/settings',
+  somePlate && `/rewards/vehicle?registrationNumber=${somePlate}`,
+  someCustomer && `/rewards/customer/${someCustomer}`,
+  '/rewards/gifts/owed',
+  '/rewards/report?range=week',
 ].filter(Boolean);
 
 console.log(`Each database trip is delayed ${DELAY} ms.\n`);

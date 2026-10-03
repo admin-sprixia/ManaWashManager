@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import type { DbClient } from '../client';
 import { retryOnClash } from '../retryOnClash';
 
@@ -8,17 +9,21 @@ export type ReminderAction = 'reminded' | 'snooze' | 'dismiss';
 export const reminderRepo = {
   /**
    * Vehicles whose most recent real (non-void) wash is at or before `dueBefore` but after
-   * `seenAfter` — one row per vehicle, whoever owns it, at most `limit`. Walk-ins are skipped:
-   * there's no one to remind.
+   * `seenAfter`. Walk-ins are skipped: there's no one to remind.
    */
-  async listLapsed(db: DbClient, dueBefore: Date, now: Date, seenAfter: Date, limit: number) {
-    const lapsed = {
+  lapsedWhere(dueBefore: Date, seenAfter: Date): Prisma.VehicleWhereInput {
+    return {
       NOT: { registrationNumber: { startsWith: 'WALK-IN' } },
       jobs: {
         some: { ...liveJob, createdAt: { gt: seenAfter, lte: dueBefore } },
         none: { ...liveJob, createdAt: { gt: dueBefore } },
       },
     };
+  },
+
+  /** The `lapsedWhere` vehicles — one row per vehicle, whoever owns it, at most `limit`. */
+  async listLapsed(db: DbClient, dueBefore: Date, now: Date, seenAfter: Date, limit: number) {
+    const lapsed = this.lapsedWhere(dueBefore, seenAfter);
     // A lapsed vehicle's latest visit is inside the window, so these are the only jobs needed.
     const windowJobs = { ...liveJob, createdAt: { gt: seenAfter, lte: dueBefore }, vehicle: lapsed };
     // One round of parallel queries, each filtered by the same subquery: nested includes would

@@ -6,10 +6,9 @@
 // payment grace, and after a cancelled plan runs out. The webhook signature is always checked;
 // set RAZORPAY_WEBHOOK_SECRET in this shell (same value as .dev.vars) to also check a signed event.
 import { createHmac } from 'node:crypto';
-import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
+import { API, d1Run } from './lib/target.mjs';
 
-const API = process.env.API_URL ?? 'http://localhost:8787';
 const DEV_CODE = process.env.DEV_CODE ?? '000000';
 const WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET ?? '';
 const PIN = '2580';
@@ -44,11 +43,7 @@ async function call(token, method, path, body, extraHeaders = {}) {
   return { status: res.status, body: json };
 }
 
-function sql(command) {
-  execSync(`npx wrangler d1 execute mana_db --local --command "${command.replace(/"/g, '\\"')}"`, {
-    stdio: 'ignore',
-  });
-}
+const sql = d1Run;
 
 // ─── Stand-in Razorpay ─────────────────────────────────────────────────────
 // The checkout checks need Razorpay's API. Start the local API with a test key pointed here:
@@ -210,6 +205,7 @@ const gated = [
   ['GET', '/reports/audit', 'auditTrail'],
   ['GET', '/jobs/stats/export', 'pdfExport'],
   ['GET', '/shop/me/earnings?range=today', 'commission'],
+  ['GET', '/rewards/settings', 'rewards'],
 ];
 for (const [method, path, feature] of gated) {
   r = await call(O, method, path);

@@ -21,6 +21,7 @@ import { AttendanceScreen } from '../screens/AttendanceScreen';
 import { ErrorLogScreen } from '../screens/ErrorLogScreen';
 import { InventoryScreen } from '../screens/InventoryScreen';
 import { PlanScreen } from '../screens/PlanScreen';
+import { RewardsScreen } from '../screens/RewardsScreen';
 import { setOpenPlans, UpgradeHost } from '../components/UpgradeSheet';
 import { useAuth } from '../api/auth';
 import { colors } from '../theme';
@@ -41,6 +42,7 @@ export type RootStackParamList = {
   Attendance: undefined;
   ErrorLog: undefined;
   Inventory: undefined;
+  Rewards: undefined;
   Plan: undefined;
 };
 
@@ -85,6 +87,7 @@ export function RootNavigator() {
         <Stack.Screen name="Reminders" component={RemindersScreen} options={slide} />
         <Stack.Screen name="Cash" component={CashScreen} options={slide} />
         <Stack.Screen name="Inventory" component={InventoryScreen} options={slide} />
+        <Stack.Screen name="Rewards" component={RewardsScreen} options={slide} />
         {/* Owner-only screens aren't even registered for staff — the API enforces the same
             rules, this just keeps them out of reach in the UI. */}
         {isOwner ? (

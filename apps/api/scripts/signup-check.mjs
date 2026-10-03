@@ -3,7 +3,8 @@
 //   cd apps/api && npm run db:reset:local && npm run dev      (in one terminal)
 //   cd apps/api && npm run test:signup                        (in another)
 // Uses fresh random numbers each run, so it can be re-run without a reset.
-const API = process.env.API_URL ?? 'http://localhost:8787';
+import { API } from './lib/target.mjs';
+
 const DEV_CODE = process.env.DEV_CODE ?? '000000';
 const PIN = '2580';
 const MANA_CODE = '482193';

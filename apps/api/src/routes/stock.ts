@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { isUniqueClash, stockRepo } from '@mana/db';
+import { isUniqueClash, rewardRepo, stockRepo } from '@mana/db';
 import {
   EXPENSE_UNITS,
   MAX_STOCK_QUANTITY,
@@ -55,11 +55,18 @@ export const stockRoutes = new Hono<{ Bindings: Env }>()
   .use('*', requireAuth, requirePro('inventory'))
   .get('/', async (c) => {
     const db = c.get('db');
-    const [items, used] = await Promise.all([
+    const [items, used, owed] = await Promise.all([
       stockRepo.list(db),
       stockRepo.usedSince(db, startOfIstDaysAgo(6)),
+      rewardRepo.owedByItem(db),
     ]);
-    const rows = items.map((i) => ({ ...withLevel(i), usedWeek: used.get(i.id) ?? 0 }));
+    const rows = items.map((i) => ({
+      ...withLevel(i),
+      usedWeek: used.get(i.id) ?? 0,
+      // Welcome gifts waiting for this item: customers, and how much they need in all.
+      giftsOwed: owed.get(i.id)?.count ?? 0,
+      giftsOwedQuantity: owed.get(i.id)?.quantity ?? 0,
+    }));
     return c.json({
       items: rows,
       low: rows.filter((r) => r.level !== 'ok').length,
@@ -133,6 +140,8 @@ export const stockRoutes = new Hono<{ Bindings: Env }>()
     const item = await stockRepo.findById(db, id);
     if (!item) return c.json({ error: 'not_found' as const }, 404);
     if (item.active) await stockRepo.deactivate(db, id);
+    // A removed item can't be handed out to new cars; gifts already owed stay owed.
+    await rewardRepo.removeGiftItem(db, id);
     return c.json({ ok: true as const });
   })
   .get('/:id/moves', zValidator('param', itemParamSchema), async (c) => {

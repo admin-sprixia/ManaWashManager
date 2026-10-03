@@ -1,5 +1,6 @@
 import { api, apiErrorMessage } from '../api/client';
 import { CacheKeys, readCache, readChunkedCache, removeCache, writeChunkedCache } from './cache';
+import type { RewardCard } from './types';
 
 /** One vehicle + its owner, as New Wash suggests them. Mirrors the API's DirectoryEntry. */
 export interface DirectoryEntry {
@@ -12,6 +13,10 @@ export interface DirectoryEntry {
   visitCount: number;
   lastVisit: string | null;
   lastServices: { serviceId: string; quantity: number }[];
+  /** Stamp cards with stamps or a free wash on them (Pro shops). Missing in older saved copies. */
+  rewardCards?: RewardCard[];
+  /** Welcome-gift items still owed to this vehicle (Pro shops). */
+  giftsOwed?: number;
   updatedAt: string;
   /** Written on this phone by a wash that hasn't been confirmed by a server sync yet. */
   local?: boolean;
@@ -184,6 +189,9 @@ export function applyLocalVisit(snapshot: DirectorySnapshot, visit: LocalVisit):
     visitCount,
     lastVisit: visit.at,
     lastServices: visit.services,
+    // Stamps land when the wash is paid; the server's copy brings the new card.
+    rewardCards: existing?.rewardCards,
+    giftsOwed: existing?.giftsOwed,
     updatedAt: visit.at,
     local: true,
   };

@@ -30,6 +30,7 @@ import {
   IconCloudOff,
   IconDrawer,
   IconEdit,
+  IconGift,
   IconStar,
   IconLock,
   IconPerson,
@@ -97,7 +98,10 @@ export function MoreScreen({ navigation }: Props) {
     lowStock,
     myShops,
     canAddShop,
+    rewards,
+    rewardsOn,
   } = useShop();
+  const giftsOwed = rewards?.giftsOwed ?? 0;
   const { plan, isPro, washesUsed } = usePlan();
   const proPill = useProPill();
 
@@ -379,6 +383,22 @@ export function MoreScreen({ navigation }: Props) {
             }
             right={isPro && lowStock > 0 ? <Pill label={String(lowStock)} tone="amber" /> : proPill}
             onPress={() => openPro('inventory', () => navigation.navigate('Inventory'))}
+          />
+          <EdgeRow
+            icon={<IconGift size={19} color={giftsOwed > 0 ? '#C2410C' : colors.amberDeep} />}
+            iconBg={giftsOwed > 0 ? '#FFEDD5' : '#FEF3C7'}
+            title="Rewards"
+            subtitle={
+              giftsOwed > 0
+                ? `${giftsOwed} welcome gift item${giftsOwed === 1 ? '' : 's'} still owed`
+                : rewardsOn
+                  ? 'Stamp cards and welcome gifts are on'
+                  : isOwner
+                    ? 'Stamp cards for a free wash, and a welcome gift for new cars'
+                    : 'Stamp cards and welcome gifts'
+            }
+            right={isPro && giftsOwed > 0 ? <Pill label={String(giftsOwed)} tone="amber" /> : proPill}
+            onPress={() => openPro('rewards', () => navigation.navigate('Rewards'))}
           />
         </EdgeGroup>
 

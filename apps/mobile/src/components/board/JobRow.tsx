@@ -8,6 +8,7 @@ import {
   IconClock,
   IconCloudOff,
   IconDroplet,
+  IconGift,
   IconPlay,
   IconSparkle,
   IconUpi,
@@ -16,6 +17,7 @@ import {
 import { colors, radius, shadow, spacing, statusColors, typography } from '../../theme';
 import type { BoardJob } from '../../offline/types';
 import { formatRupees } from '../../utils/format';
+import { giftLine } from '../../utils/rewards';
 import {
   customerLine,
   firstName,
@@ -82,6 +84,18 @@ function primaryAction(job: BoardJob): PrimaryAction | null {
   return null;
 }
 
+/** Something to hand the customer: gifts the car is still owed first, else today's welcome gift. */
+function giftTag(job: BoardJob): { text: string; owed: boolean } | null {
+  if (job.status === 'void') return null;
+  const owed = job.giftsOwedForCar ?? [];
+  if (owed.length > 0) {
+    return { owed: true, text: owed.length === 1 ? `Owed: ${giftLine(owed[0]!)}` : `${owed.length} gifts owed` };
+  }
+  const given = (job.gifts ?? []).filter((g) => g.status === 'given');
+  if (given.length > 0) return { owed: false, text: `Welcome gift: ${given.map(giftLine).join(', ')}` };
+  return null;
+}
+
 interface JobRowProps {
   job: BoardJob;
   busy: boolean;
@@ -97,6 +111,7 @@ export const JobRow = memo(function JobRow({ job, busy, first, onOpen, onAction,
   const headline = vehicleHeadline(job);
   const isVoid = job.status === 'void';
   const action = primaryAction(job);
+  const gift = giftTag(job);
   const when = isToday(job.createdAt) ? formatTime(job.createdAt) : 'Earlier';
   const washers = washerNames(job);
   const by =
@@ -114,7 +129,7 @@ export const JobRow = memo(function JobRow({ job, busy, first, onOpen, onAction,
       android_ripple={{ color: colors.waterPale }}
       style={({ pressed }) => [styles.row, first && styles.rowFirst, pressed && styles.rowPressed]}
       accessibilityRole="button"
-      accessibilityLabel={`${headline.title}, ${headline.meta}, ${customerLine(job)}, ${STATUS_LABEL[job.status]}, ${formatRupees(job.total)}. Open details`}
+      accessibilityLabel={`${headline.title}, ${headline.meta}, ${customerLine(job)}, ${STATUS_LABEL[job.status]}, ${formatRupees(job.total)}${gift ? `, ${gift.text}` : ''}. Open details`}
     >
       <View style={[styles.statusIcon, { backgroundColor: tone.bg }]}>
         <StatusIcon status={job.status} />
@@ -173,6 +188,15 @@ export const JobRow = memo(function JobRow({ job, busy, first, onOpen, onAction,
             </Pressable>
           ) : null}
         </View>
+
+        {gift ? (
+          <View style={[styles.giftTag, gift.owed && styles.giftTagOwed]}>
+            <IconGift size={12} color={gift.owed ? colors.amberDeep : colors.tealDeep} />
+            <Text style={[styles.giftText, gift.owed && styles.giftTextOwed]} numberOfLines={1}>
+              {gift.text}
+            </Text>
+          </View>
+        ) : null}
 
         {job.syncState ? (
           <View style={[styles.syncTag, job.syncState === 'failed' && styles.syncTagFailed]}>
@@ -266,6 +290,23 @@ const styles = StyleSheet.create({
     borderColor: '#A7F3D0',
   },
   thanksLabel: { ...typography.label, color: colors.tealDeep, fontSize: 13 },
+  giftTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+    gap: 5,
+    marginTop: 6,
+    backgroundColor: '#ECFDF5',
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  giftTagOwed: { backgroundColor: '#FFFBEB', borderColor: colors.amberLight },
+  giftText: { ...typography.caption, color: colors.tealDeep, fontSize: 11, fontWeight: '700', letterSpacing: 0, flexShrink: 1 },
+  giftTextOwed: { color: colors.amberDeep },
   syncTag: {
     flexDirection: 'row',
     alignItems: 'center',

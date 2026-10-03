@@ -194,6 +194,12 @@ export function InventoryScreen({ navigation }: Props) {
             {item.lowAt != null ? `Alert at ${formatStock(item.lowAt, item.unit)}` : 'No alert set'}
             {item.usedWeek > 0 ? ` · used ${formatStock(item.usedWeek, item.unit)} this week` : ''}
           </Text>
+          {item.giftsOwed > 0 ? (
+            <Text style={styles.giftWaiting} numberOfLines={1}>
+              {plural(item.giftsOwed, 'customer')} waiting for {formatStock(item.giftsOwedQuantity, item.unit)} as a
+              welcome gift
+            </Text>
+          ) : null}
         </View>
         <Pressable
           onPress={() => setMoving({ item, kind: 'use' })}
@@ -1238,6 +1244,7 @@ const styles = StyleSheet.create({
   rowBalance: { ...typography.bodyStrong, fontSize: 15.5, fontWeight: '800' },
   rowMeta: { ...typography.caption, fontSize: 12, color: colors.slate, letterSpacing: 0 },
   pendingText: { color: colors.amberDeep, fontWeight: '700' },
+  giftWaiting: { ...typography.caption, fontSize: 12, color: '#C2410C', fontWeight: '700', letterSpacing: 0 },
   track: { height: 6, borderRadius: 3, backgroundColor: '#E2E8F0', overflow: 'hidden' },
   trackLg: { height: 10, borderRadius: 5, backgroundColor: '#E2E8F0', overflow: 'hidden' },
   trackFill: { height: '100%', borderRadius: 5 },

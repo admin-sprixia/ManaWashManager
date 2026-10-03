@@ -22,6 +22,7 @@ import {
   IconChevronDown,
   IconGift,
   IconSparkle,
+  IconStar,
   IconWhatsApp,
 } from '../components/Icons';
 import { colors, gradients, radius, shadow, spacing, typography } from '../theme';
@@ -34,6 +35,8 @@ import {
   buildReminderMessage,
 } from '../utils/messages';
 import { openWhatsApp } from '../utils/whatsapp';
+import { cardDaysLeft, cardExpiringSoon, daysLabel, liveCards } from '../utils/rewards';
+import type { RewardCard } from '../offline/types';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 
 type RemindersScreenProps = NativeStackScreenProps<RootStackParamList, 'Reminders'>;
@@ -56,6 +59,18 @@ interface ReminderItem {
   bucket: 'due' | 'comeback';
   remindedAt: string | null;
   coupon: CouponSummary | null;
+  /** The car's stamp cards with something on them (Pro shops with stamp cards). */
+  rewards?: RewardCard[];
+}
+
+/** The one card worth raising: a free wash waiting first, then the card that resets soonest. */
+function headlineCard(cards: RewardCard[] | undefined): RewardCard | null {
+  const live = liveCards(cards);
+  if (live.length === 0) return null;
+  const soonest = (a: RewardCard, b: RewardCard) =>
+    (a.expiresAt ? Date.parse(a.expiresAt) : Infinity) - (b.expiresAt ? Date.parse(b.expiresAt) : Infinity);
+  const free = live.filter((c) => c.free > 0).sort(soonest);
+  return free[0] ?? [...live].sort(soonest)[0] ?? null;
 }
 
 interface CouponRow extends CouponSummary {
@@ -158,6 +173,7 @@ export function RemindersScreen({ navigation }: RemindersScreenProps) {
           vehicleType: item.vehicleType,
           daysSince: item.daysSince,
           lastServices: item.lastServices,
+          reward: headlineCard(item.rewards),
         });
     if (!(await openWhatsApp(item.customer.phone, message))) return;
     animate();
@@ -534,6 +550,8 @@ function ReminderRow({
   const name = item.customer.name?.trim() || item.customer.phone;
   const comeback = item.bucket === 'comeback';
   const offerFirst = comeback && canOffer && !item.coupon;
+  const card = headlineCard(item.rewards);
+  const cardWarning = card != null && cardExpiringSoon(card);
 
   return (
     <View style={[styles.row, !last && styles.rowBorder]}>
@@ -571,6 +589,23 @@ function ReminderRow({
           <Text style={styles.couponChipText} numberOfLines={1}>
             <Text style={styles.couponCode}>{item.coupon.code}</Text> · {item.coupon.percent}% off ·
             till {shortDate(item.coupon.expiresAt)}
+          </Text>
+        </View>
+      ) : null}
+
+      {card ? (
+        <View style={[styles.rewardChip, cardWarning && styles.rewardChipUrgent]}>
+          <IconStar size={14} color={colors.amberDeep} />
+          <Text style={styles.rewardChipText} numberOfLines={1}>
+            {card.free > 0
+              ? `Free ${card.serviceName} waiting`
+              : `${card.stamps}/${card.every} stamps · ${card.serviceName}`}
+            {cardWarning ? (
+              <Text style={styles.rewardChipWarn}>
+                {' · '}
+                {card.free > 0 ? 'expires' : 'resets'} {daysLabel(cardDaysLeft(card) ?? 0)}
+              </Text>
+            ) : null}
           </Text>
         </View>
       ) : null}
@@ -860,6 +895,23 @@ const styles = StyleSheet.create({
   },
   couponChipText: { ...typography.caption, color: colors.tealDeep, letterSpacing: 0 },
   couponCode: { fontWeight: '800', letterSpacing: 0.6 },
+  rewardChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+    marginLeft: 54,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radius.sm,
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  rewardChipUrgent: { borderColor: colors.amber },
+  rewardChipText: { ...typography.caption, color: colors.amberDeep, letterSpacing: 0, flexShrink: 1 },
+  rewardChipWarn: { fontWeight: '800' },
   remindedLine: { flexDirection: 'row', alignItems: 'center', gap: 5, marginLeft: 54 },
   remindedText: { ...typography.caption, color: colors.teal, letterSpacing: 0 },
   actions: { flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 54 },

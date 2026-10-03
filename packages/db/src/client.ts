@@ -88,9 +88,26 @@ function scopeArgs(operation: string, args: Plain, shopId: string): Plain {
   return out;
 }
 
+/**
+ * Each PrismaClient loads its own copy of the query engine (WebAssembly): several milliseconds
+ * of CPU and megabytes of memory. A Worker isolate serves many requests, so one client per D1
+ * binding is shared by all of them; a client per request would pay that cost every time, and
+ * overlapping requests exhaust the isolate's memory ("RangeError: Invalid array buffer length").
+ * The per-shop scoping below is a cheap `$extends` layer on top of the shared client.
+ */
+const baseClients = new WeakMap<D1Database, PrismaClient>();
+
+function baseClient(d1: D1Database): PrismaClient {
+  let client = baseClients.get(d1);
+  if (!client) {
+    client = new PrismaClient({ adapter: new PrismaD1(d1 as never) });
+    baseClients.set(d1, client);
+  }
+  return client;
+}
+
 function build(d1: D1Database, shopId: string | null) {
-  const adapter = new PrismaD1(d1 as never);
-  return new PrismaClient({ adapter }).$extends({
+  return baseClient(d1).$extends({
     name: 'shop-scope',
     client: {
       /** The shop this client is locked to. Throws on the platform client. */

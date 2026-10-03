@@ -7,14 +7,12 @@ const INNER = Symbol('inner');
 
 type Statement = Record<string | symbol, unknown> & { bind: (...args: unknown[]) => Statement };
 
-/**
- * Local `wrangler dev` answers database calls instantly, so a request's round trips can't be
- * seen. With DEV_DB_DELAY_MS set (and dev mode on localhost), every database call waits that
- * long first: a request taking 3× the delay made three trips one after another.
- */
-export function withDevDbDelay(env: Env, requestUrl: string): Env {
-  const ms = Number(env.DEV_DB_DELAY_MS);
-  if (!(ms > 0) || !isDevMode(env, requestUrl)) return env;
+// One wrapper per binding, so the database client cached for that binding is reused across requests.
+const delayedBindings = new WeakMap<D1Database, { ms: number; db: D1Database }>();
+
+function delayed(db: D1Database, ms: number): D1Database {
+  const cached = delayedBindings.get(db);
+  if (cached?.ms === ms) return cached.db;
   const wait = () => new Promise((resolve) => setTimeout(resolve, ms));
   const wrap = (statement: Statement): Statement =>
     new Proxy(statement, {
@@ -31,8 +29,7 @@ export function withDevDbDelay(env: Env, requestUrl: string): Env {
         return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
       },
     });
-  const db = env.DB;
-  const delayed: D1Database = {
+  const out: D1Database = {
     prepare: (query) => wrap(db.prepare(query) as Statement),
     batch: async (statements) => {
       await wait();
@@ -43,5 +40,17 @@ export function withDevDbDelay(env: Env, requestUrl: string): Env {
       return db.exec(query);
     },
   };
-  return { ...env, DB: delayed };
+  delayedBindings.set(db, { ms, db: out });
+  return out;
+}
+
+/**
+ * Local `wrangler dev` answers database calls instantly, so a request's round trips can't be
+ * seen. With DEV_DB_DELAY_MS set (and dev mode on localhost), every database call waits that
+ * long first: a request taking 3× the delay made three trips one after another.
+ */
+export function withDevDbDelay(env: Env, requestUrl: string): Env {
+  const ms = Number(env.DEV_DB_DELAY_MS);
+  if (!(ms > 0) || !isDevMode(env, requestUrl)) return env;
+  return { ...env, DB: delayed(env.DB, ms) };
 }

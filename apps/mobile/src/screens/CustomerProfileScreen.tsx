@@ -38,6 +38,7 @@ import { useShop } from '../offline/ShopProvider';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { usePlan } from '../offline/PlanProvider';
 import { showUpgrade } from '../components/UpgradeSheet';
+import { CustomerRewards } from '../components/rewards/CustomerRewards';
 import type { JobStatus } from '@mana/domain';
 
 type CustomerProfileScreenProps = NativeStackScreenProps<RootStackParamList, 'CustomerProfile'>;
@@ -159,8 +160,8 @@ function favouriteService(history: HistoryJob[]): string | null {
 export function CustomerProfileScreen({ route, navigation }: CustomerProfileScreenProps) {
   const { customerId } = route.params;
   const insets = useSafeAreaInsets();
-  const { googleReviewUrl } = useShop();
-  const { atWashLimit } = usePlan();
+  const { googleReviewUrl, rewardsOn } = useShop();
+  const { atWashLimit, isPro } = usePlan();
   const [data, setData] = useState<LoadState>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -499,6 +500,8 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
             })}
           </View>
         )}
+
+        {isPro && rewardsOn ? <CustomerRewards customerId={customerId} /> : null}
 
         <SectionHeader title="History" count={data.visitCount} />
         {history.length === 0 ? (

@@ -363,6 +363,7 @@ Staff never see pricing controls or full reports — those stay Owner-only, enfo
 | --- | --- | --- | --- |
 | Automated WhatsApp follow-ups | Via WhatsApp Business Cloud API: thank-you + review request, 30-day inactive nudge, 60-day win-back offer | Must have | 🟡 Manual version done — thank-you with Google review link, ready prompt, and a Reminders list (Due at 10 days, Win back at 30) that staff send with one tap via `wa.me`, plus owner comeback coupons. **Automatic sending from the server is not built** (needs approved marketing templates) |
 | Membership/package tracking | Sell a 4-wash package, track redemptions, alert before expiry | Should have | ❌ Not built |
+| Rewards: stamp cards and welcome gifts | Every Nth wash of a chosen service free; a gift from Inventory on a car's first visit, owed if out of stock | Should have | ✅ Done (Pro) — stamp cards per service with "Use free" at New Wash, 6-month reset with a 10-day warning (also in Reminders), welcome gifts from Inventory with owed gifts when out of stock, and a Rewards card in Reports. See "Rewards" |
 | Customer segments | Auto-generated lists: first-time, 5+ visits, inactive 30/60 days — exportable for campaigns | Should have | ❌ Not built — only the Reminders "Due" and "Win back" lists exist; no first-time/5+ lists, no export |
 | Referral tracking | Link a referred customer's first visit to the referrer, auto-apply both discounts | Should have | ✅ Done — new customer gets 5–10 % off at once; referrer gets a coupon when that wash is paid; voiding takes it back |
 | Source attribution report | Monthly channel report from the V1.2 "how did you hear about us" field | Nice to have | ❌ Not built (depends on the V1.2 field) |
@@ -631,6 +632,71 @@ Still explicitly out of scope until there's a concrete need, regardless of the s
 
 The schema being white-label-ready is what makes it safe to say no to all of the above for now — nothing here is a wall MANA will hit later, it's a door that's already built and just not opened yet.
 
+## Rewards (stamp cards and welcome gifts)
+
+Agreed with the owner on 2026-10-03 and built the same day. A **Pro** feature, like coupons and reminders. The owner sets it up in More → Rewards.
+
+### Stamp cards
+
+**The owner decides:**
+- Which services have a stamp card: any service, as many as they like.
+- How many stamps earn a free one, per service: any number from 2 to 100.
+- Example: Full Wash every 10 → 1 free Full Wash; Interior Cleaning every 5 → 1 free Interior Cleaning; Polish has no card.
+
+**How stamps work:**
+1. **Every car (number plate) has its own card.** Ravi's white car and red car are counted separately.
+2. **A stamp is added only when the wash is paid.** Voiding the wash removes the stamp.
+3. **Combos count.** "Full Wash + Polish" gives a Full Wash stamp.
+4. **One visit can stamp several cards.** Full Wash + Interior Cleaning gives one stamp on each.
+
+**The free wash:**
+5. When a card is full, New Wash tells staff: "This car has a free Full Wash."
+6. **The customer decides:** use it today or keep it for later. It is never applied automatically.
+7. **It matches the car's size:** an SUV gets the SUV Full Wash price free.
+8. **The washer still gets their normal commission;** the shop pays it.
+9. **Using a free wash needs internet,** so two phones can't hand out the same one. Collecting stamps works offline.
+10. It is recorded as a normal wash line at full price with a 100% discount ("Loyalty reward"), so reports show exactly what rewards cost.
+
+**The 6-month rule:**
+11. **If a car doesn't get *that service* for 6 months, that card goes back to 0.** Example: Ravi has 7 Full Wash stamps; for 6 months he only comes for Polish, so his Full Wash card resets.
+12. **A saved free wash expires the same way:** if he doesn't get that service for 6 months, the unused free wash is gone.
+13. **Staff are warned in time:** "Ravi's free wash expires in 10 days", also shown in the Reminders list.
+
+### Welcome gift
+
+**The owner decides:**
+1. The gift can be **anything**, and **more than one item**: for example 1 cloth + 1 perfume.
+2. The quantity of each item.
+3. **Every gift item must exist in Inventory,** so we always know how many we have and how many we gave.
+
+**How it works:**
+4. **Every new car gets the gift on its first visit,** even an existing customer's new car.
+5. **Stock goes down when the wash is paid.** Voiding the wash puts the gift back in stock.
+
+**When an item is out of stock: a pending gift.**
+6. The wash still goes ahead, and the app saves a **pending gift** for that car. Example: cloth available, perfume out of stock. Staff give the cloth; the app saves "1 perfume pending for TS09 XY 5678".
+7. On the car's next visit, staff see "🎁 This customer is owed 1 perfume. Give it today."
+8. **Staff can mark it "Given" any time from the customer's page,** even without a wash (the customer just drops by). Stock goes down then.
+9. **Pending gifts never expire.** We always remember.
+10. The owner sees a **pending gifts list** ("5 pending: 3 perfumes, 2 cloths"). When that item is restocked, the app says "3 customers are waiting for perfume".
+
+### Reports
+
+- Free washes given and what they were worth ("6 this month, ₹3,000").
+- Gifts given and gifts pending.
+
+Walk-in plates (`WALK-IN-…`) never get stamps or gifts: there is no real car to follow.
+
+### How it is built
+
+- **Stamp count is worked out from wash history,** not kept as a separate counter (`stampCard()` in `@mana/domain`). It walks the car's paid jobs containing that service (directly or inside a combo), resetting after a 6-month gap, minus free washes used. Voids, corrections and rule changes fix themselves and the count can't drift. Turning a card on counts the car's existing history straight away.
+- **Tables** (migration `0005_rewards.sql`): `reward_rules` (service, every N, active), `reward_claims` (one row per free wash used, unique per car + service + sequence number, so two phones can't hand out the same free wash), `reward_gift_items` (the gift setup) and `reward_gifts` (one row per car and item: given, owed or cancelled).
+- **The free wash does not itself add a stamp.** It needs the service as its own bill line, so a combo that already covers the service can't also use it. Only one kind of discount applies per bill: a free wash can't be combined with a coupon, a referral or a manual discount.
+- **Gifts** are handed out when the wash is paid, as stock moves of kind `gift`. A void puts them back (`gift-back`) and cancels owed ones. Every write uses a fixed id, so retries and two phones can't double-count.
+- **Offline:** each car's cards and owed-gift count ride along in the saved customer directory, so New Wash shows them with no signal. Using a free wash and marking a gift "Given" need internet.
+- **Where staff see it:** New Wash (cards, "Use free", owed gifts with a "Given" button, the welcome gift preview), the pay alert ("Welcome gift · hand over now"), a tag on the job board row ("Owed: Wash mitt" or the welcome gift given), job details, the customer page, Inventory ("3 customers waiting"), Reminders (a chip, and the WhatsApp reminder mentions the free wash or stamps) and Reports.
+- **Tests:** `npm run test:rewards` (end to end), plus checks in `test:isolation` (another shop can't read or change any of it), `test:plans` (Pro lock) and `perf:trips`. The demo seed turns on two cards and a welcome gift, uses one free wash, and leaves three gifts owed.
+
 ## Open product decisions
 
 These came out of the "two things at once" audit (October 2026). None of them loses money or data. Each one is a choice about how the app should behave, so decide it with real use at MANA before building anything.
@@ -650,7 +716,7 @@ These came out of the "two things at once" audit (October 2026). None of them lo
 
 ## Speed and latency
 
-**Why screens felt slow (October 2026).** The server isn't slow; the distance is. The API runs in Cloudflare's Chennai location, while the database sits elsewhere in Asia-Pacific (staging) or in Australia (production `mana_db`). Each trip to the database costs about 150 ms. Before this work, a screen asked several questions one after another. The job board took 13 trips, about 2 seconds, before showing anything.
+**Why screens felt slow (October 2026).** The server isn't slow; the distance is. The API runs in Cloudflare's Chennai location, while the database sits elsewhere in Asia-Pacific (staging, and production `mana_db` since it was recreated there). Each trip to the database costs about 150 ms. Before this work, a screen asked several questions one after another. The job board took 13 trips, about 2 seconds, before showing anything.
 
 **How companies handle this**, cheapest first:
 
@@ -678,7 +744,7 @@ These came out of the "two things at once" audit (October 2026). None of them lo
 - Fixed along the way: Reminders failed to open ("server error") once a shop had more than about 100 vehicles due. The database refuses lists longer than 100.
 - `npm run perf:trips` counts trips per screen on a local server started with `--var DEV_DB_DELAY_MS:100`. Re-run it when adding a screen; aim for one trip.
 
-**Must do before launch:** production `mana_db` is in Australia (OC). Recreate it in Asia-Pacific (APAC), next to the Chennai server, before real shops use production. It's empty today, so this costs nothing now and is hard later.
+**Done (3 Oct 2026):** production `mana_db` was in Australia (OC). It was deleted while still empty and recreated in Asia-Pacific (APAC) with every migration applied and no data (database id `6dbc5c3d-93a6-4aee-b2e0-5cccb1b39dc3`).
 
 **Tried and dropped:** Cloudflare Smart Placement on staging. It made no difference, because all traffic comes from one city, so it was turned off again. Wrangler 4's explicit placement `region` is the next thing to try if needed.
 
@@ -688,7 +754,7 @@ Steps 1–4 below are done (kept for history). What's next now:
 
 1. Staging first: `mana-api-staging` at `https://api-staging.manawashmanager.com` (D1 `mana_db_staging`, R2 `mana-files-staging` / `mana-backups-staging`). Test the release app against it before production.
 2. **Action item — WhatsApp sign-in codes.** Pending: claim Meta's test number, create the `login_code` template, make a permanent system-user token. Until then staging accepts the fixed test code `000000` (`STAGING_TEST_CODES` in `wrangler.toml`). When WhatsApp works: set the WhatsApp secrets on staging, remove `STAGING_TEST_CODES`, retest, then do the same on production.
-3. Go live: production API at `https://api.manawashmanager.com`, `set-api-url`, release signing key (README → Go live). First recreate production `mana_db` in APAC (Speed and latency → Must do before launch).
+3. Go live: production API at `https://api.manawashmanager.com`, `set-api-url`, release signing key (README → Go live). Production `mana_db` is already in APAC with the schema applied.
 4. Run MANA on it for real for a couple of weeks before building more.
 5. ~~Build plans and payments~~ — built (see Pricing and plans).
 6. **Action item — Razorpay keys.** Staging has **placeholder** values for `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` and `RAZORPAY_WEBHOOK_SECRET` (set 2 Oct 2026), so the plan screen says "Payments aren't set up on the server yet" and nobody can pay. Limits, the trial and Free/Pro work normally. To finish:

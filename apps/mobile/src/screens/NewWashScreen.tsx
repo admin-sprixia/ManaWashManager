@@ -54,6 +54,10 @@ import { WelcomeCard, type RepeatOffer } from '../components/newWash/WelcomeCard
 import { CouponOffer, type UsableCoupon } from '../components/newWash/CouponOffer';
 import { ReferralField, useReferralQuote } from '../components/newWash/ReferralField';
 import { SellerField } from '../components/newWash/SellerField';
+import { RewardsPanel } from '../components/newWash/RewardsPanel';
+import { useVehicleRewards } from '../components/newWash/useVehicleRewards';
+import type { RewardCard } from '../offline/types';
+import { useShop } from '../offline/ShopProvider';
 import type { Person } from '../components/PeoplePickerSheet';
 import {
   KnownNotice,
@@ -161,6 +165,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   const { submit, online } = useSync();
   const { isPro, atWashLimit } = usePlan();
   const { user } = useAuth();
+  const { rewards: rewardSettings, rewardsOn, refreshRewards, refreshStock } = useShop();
   const directory = useDirectory();
   const scrollRef = useRef<ScrollView>(null);
   const searchRef = useRef<TextInput>(null);
@@ -197,6 +202,8 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   const [offer, setOffer] = useState<UsableCoupon | null>(null);
   const [couponApplied, setCouponApplied] = useState(false);
   const [referrerPhone, setReferrerPhone] = useState('');
+  /** Services the customer takes free from the car's stamp cards. */
+  const [freeIds, setFreeIds] = useState<Set<string>>(new Set());
   /** Who got a commission service; `null` means whoever is entering the wash. */
   const [sellers, setSellers] = useState<Person[] | null>(null);
 
@@ -313,6 +320,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
       setVehicleFamily(vt.category);
       setVehicleTypeId(vt.id);
       setSelectedServiceIds(new Set());
+      setFreeIds(new Set());
       setServiceQuery('');
       if (opts.scroll) scrollToServices();
     },
@@ -324,6 +332,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
       animate();
       setVehicleTypeId(null);
       setSelectedServiceIds(new Set());
+      setFreeIds(new Set());
       return;
     }
     selectVehicle(vt, { scroll: true });
@@ -335,6 +344,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     setVehicleFamily(next);
     setVehicleTypeId(null);
     setSelectedServiceIds(new Set());
+    setFreeIds(new Set());
     setServiceQuery('');
   };
 
@@ -551,6 +561,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
 
   const clearOrder = () => {
     setSelectedServiceIds(new Set());
+    setFreeIds(new Set());
     setSellers(null);
     setServiceQuery('');
     setDiscountOpen(false);
@@ -672,20 +683,99 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     return Math.round(rupees * 100);
   }, [discountRupees]);
 
+  // ---------- Rewards: stamp cards and welcome gift ----------
+
+  const rewardsEnabled = isPro && rewardsOn && mode !== 'search';
+  const rewardEntry = known && known.registrationNumber === reg ? known : plateEntry;
+  const vehicleRewards = useVehicleRewards(reg, rewardEntry, { enabled: rewardsEnabled, online });
+  const freeCards = useMemo(
+    () => new Map(vehicleRewards.cards.filter((c) => c.free > 0).map((c) => [c.serviceId, c])),
+    [vehicleRewards.cards],
+  );
+
+  // A free wash belongs to one car and one picked service: drop it when either changes.
+  useEffect(() => {
+    setFreeIds(new Set());
+  }, [reg]);
+  useEffect(() => {
+    setFreeIds((prev) => {
+      const kept = Array.from(prev).filter((id) => selectedServiceIds.has(id));
+      return kept.length === prev.size ? prev : new Set(kept);
+    });
+  }, [selectedServiceIds]);
+
+  const freeActiveIds = useMemo(
+    () => Array.from(freeIds).filter((id) => selectedServiceIds.has(id) && freeCards.has(id)),
+    [freeIds, selectedServiceIds, freeCards],
+  );
+  const freeActive = freeActiveIds.length > 0;
+  const freeSaving = freeActiveIds.reduce((sum, id) => sum + (priceFor(id) ?? 0), 0);
+
+  const freeState = (card: RewardCard): { disabled: boolean; note: string | null } => {
+    if (!online) return { disabled: true, note: 'Needs internet to use' };
+    if (!selectedVehicle) return { disabled: true, note: 'Pick the vehicle type first' };
+    const offered = servicesForVehicle.some((s) => s.id === card.serviceId) && priceFor(card.serviceId) != null;
+    if (!offered) return { disabled: true, note: `Not on the ${selectedVehicle.name} menu` };
+    const combo = coveredBy.get(card.serviceId);
+    if (combo) return { disabled: true, note: `In the ${combo} combo — pick ${card.serviceName} on its own to use it` };
+    return { disabled: false, note: null };
+  };
+
+  const toggleFree = (card: RewardCard) => {
+    animate();
+    if (freeIds.has(card.serviceId)) {
+      setFreeIds((prev) => {
+        const next = new Set(prev);
+        next.delete(card.serviceId);
+        return next;
+      });
+      return;
+    }
+    if (freeState(card).disabled) return;
+    // One kind of discount per bill: the free wash replaces a coupon or a typed discount.
+    setCouponApplied(false);
+    setDiscountOpen(false);
+    setDiscountRupees('');
+    setDiscountReason('');
+    if (!selectedServiceIds.has(card.serviceId)) toggleService(card.serviceId);
+    setFreeIds((prev) => new Set(prev).add(card.serviceId));
+  };
+
+  const onGiftGiven = () => {
+    vehicleRewards.reload();
+    void refreshRewards();
+    void refreshStock();
+  };
+
+  const welcomeGift =
+    rewardsEnabled &&
+    vehicleRewards.eligible &&
+    vehicleRewards.isNew &&
+    (mode === 'known' || (regOk && !server.looking)) &&
+    rewardSettings?.gift.length
+      ? rewardSettings.gift
+      : null;
+
   const subtotal = breakdown?.subtotal ?? 0;
   const discountTooBig = Boolean(breakdown) && discountPaise > subtotal;
   const discountNeedsReason = discountPaise > 0 && discountReason.trim().length === 0;
-  const couponActive = couponApplied && offer != null;
+  const couponActive = couponApplied && offer != null && !freeActive;
   const couponSaving = offer ? couponDiscount(subtotal, offer.percent) : 0;
   // Referrals are for genuinely new customers only: neither the phone nor the plate is on file.
   const isNewCustomer =
     isPro &&
     mode === 'form' && !known && regOk && phoneOk && !plateEntry && !phoneEntry && !server.looking;
   const referral = useReferralQuote(referrerPhone, phoneDigits, reg, isNewCustomer && online);
-  const referralActive = isNewCustomer && referral.quote != null;
+  const referralActive = isNewCustomer && referral.quote != null && !freeActive;
   const referralSaving = referral.quote ? couponDiscount(subtotal, referral.quote.percent) : 0;
-  const manualDiscount = couponActive || referralActive || discountTooBig ? 0 : discountPaise;
-  const appliedDiscount = couponActive ? couponSaving : referralActive ? referralSaving : manualDiscount;
+  const manualDiscount = couponActive || referralActive || freeActive || discountTooBig ? 0 : discountPaise;
+  const appliedDiscount = freeActive
+    ? freeSaving
+    : couponActive
+      ? couponSaving
+      : referralActive
+        ? referralSaving
+        : manualDiscount;
   const finalTotal = Math.max(0, subtotal - appliedDiscount);
 
   // A live comeback coupon for the customer at the counter. Asked only for a picked (known)
@@ -716,6 +806,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
         setDiscountOpen(false);
         setDiscountRupees('');
         setDiscountReason('');
+        setFreeIds(new Set());
       }
       return !on;
     });
@@ -786,7 +877,9 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
                   ? 'Pick at least one service'
                   : !breakdown
                     ? 'A selected service has no price for this vehicle'
-                    : couponActive && !online
+                    : freeActive && !online
+                      ? 'Free wash needs internet — remove it to save offline'
+                      : couponActive && !online
                       ? 'Coupon needs internet — remove it to save offline'
                       : isNewCustomer && referral.entered && !referralActive
                         ? referral.checking
@@ -856,6 +949,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
             discountReason: manualDiscount > 0 ? discountReason.trim() : undefined,
             couponCode: couponActive ? offer.code : undefined,
             referralToken: referralQuote?.token,
+            rewardServiceIds: freeActive ? freeActiveIds : undefined,
             sellerIds: commissionTotal > 0 ? pickedSellers.map((s) => s.id) : undefined,
           },
           meta: {
@@ -871,13 +965,15 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
             sellers: commissionTotal > 0 ? pickedSellers : undefined,
           },
         },
-        { requireOnline: couponActive || referralActive },
+        { requireOnline: couponActive || referralActive || freeActive },
       );
       if (result.status === 'rejected') {
         if (result.planError) {
           showUpgrade(result.planError);
           return;
         }
+        // The card may have changed (used on another phone, a wash voided): show it as it is now.
+        if (freeActive) vehicleRewards.reload();
         throw new Error(result.message);
       }
       directory.recordVisit({
@@ -893,7 +989,9 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
       showToast(
         result.status === 'queued'
           ? `Saved offline — ${firstName}’s ${reg} will sync automatically`
-          : `Wash started for ${firstName} · ${reg}`,
+          : freeActive
+            ? `Wash started for ${firstName} · free ${freeActiveIds.map((id) => freeCards.get(id)?.serviceName).join(' + ')} used`
+            : `Wash started for ${firstName} · ${reg}`,
         result.status === 'queued' ? 'offline' : 'success',
       );
       resetForm();
@@ -1233,6 +1331,20 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
             />
           </View>
 
+          {rewardsEnabled ? (
+            <RewardsPanel
+              cards={vehicleRewards.cards}
+              freeIds={new Set(freeActiveIds)}
+              freeState={freeState}
+              onToggleFree={toggleFree}
+              giftsOwed={vehicleRewards.giftsOwed}
+              giftsOwedCount={vehicleRewards.giftsOwedCount}
+              welcome={welcomeGift}
+              online={online}
+              onGiven={onGiftGiven}
+            />
+          ) : null}
+
           {!selectedVehicle ? (
             <View style={[styles.notice, styles.noticeSoft]}>
               <Text style={styles.noticeTitle}>Services appear here</Text>
@@ -1337,7 +1449,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
               ) : null}
 
               {/* Optional discount */}
-              {breakdown && !couponActive && !referralActive ? (
+              {breakdown && !couponActive && !referralActive && !freeActive ? (
                 <View style={[styles.group, styles.discountGroup]}>
                   {!discountOpen ? (
                     <Pressable
@@ -1414,7 +1526,11 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
             subtotal={subtotal}
             discount={appliedDiscount}
             discountLabel={
-              couponActive
+              freeActive
+                ? freeActiveIds.length === 1
+                  ? 'free wash'
+                  : `${freeActiveIds.length} free washes`
+                : couponActive
                 ? `${offer.percent}% coupon`
                 : referralActive && referral.quote
                   ? `${referral.quote.percent}% referral`

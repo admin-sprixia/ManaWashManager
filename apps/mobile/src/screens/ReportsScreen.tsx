@@ -25,7 +25,9 @@ import {
   IconChevronRight,
   IconClock,
   IconDownload,
+  IconGift,
   IconReceipt,
+  IconStar,
   IconTag,
   IconUserPlus,
   IconUsers,
@@ -36,6 +38,7 @@ import { formatRupees } from '../utils/format';
 import { shareReportPdf } from '../utils/shareReportPdf';
 import type { ReportExportPayload } from '../utils/reportPdf';
 import { usePlan, useProPill } from '../offline/PlanProvider';
+import { useShop } from '../offline/ShopProvider';
 import { handlePlanError, showUpgrade } from '../components/UpgradeSheet';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 
@@ -59,6 +62,14 @@ interface Stats {
   label?: string;
   from?: string;
   to?: string;
+}
+
+interface RewardsReport {
+  freeWashes: number;
+  freeValue: number;
+  giftsGiven: number;
+  gifts: { stockItemId: string; name: string; unit: string; count: number; quantity: number; label: string }[];
+  giftsOwedNow: number;
 }
 
 const PERIODS: { key: Range; label: string; hint: string }[] = [
@@ -100,7 +111,9 @@ const PRO_PERIODS: ReadonlySet<Range> = new Set<Range>(['month', 'year', 'custom
 
 export function ReportsScreen({ navigation }: ReportsScreenProps) {
   const { isPro } = usePlan();
+  const { rewardsOn } = useShop();
   const proPill = useProPill();
+  const [rewardsReport, setRewardsReport] = useState<RewardsReport | null>(null);
   const [range, setRange] = useState<Range>('today');
   const [periodOpen, setPeriodOpen] = useState(false);
   const [customFrom, setCustomFrom] = useState(todayIso());
@@ -136,7 +149,15 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
     setError(null);
     setForbidden(false);
     try {
-      const res = await api.jobs.stats.$get({ query });
+      // Rewards are Pro and optional: their report never holds up or fails the main one.
+      const rewardsCall = isPro
+        ? api.rewards.report
+            .$get({ query })
+            .then(async (r) => (r.ok ? ((await r.json()) as RewardsReport) : null))
+            .catch(() => null)
+        : Promise.resolve(null);
+      const [res, rewardsBody] = await Promise.all([api.jobs.stats.$get({ query }), rewardsCall]);
+      setRewardsReport(rewardsBody);
       if (await handlePlanError(res)) {
         setRange('today');
         setAppliedCustom(null);
@@ -160,7 +181,7 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
     } finally {
       setLoading(false);
     }
-  }, [query]);
+  }, [query, isPro]);
 
   useFocusEffect(
     useCallback(() => {
@@ -516,6 +537,59 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
               </View>
             </View>
 
+            {rewardsReport &&
+            (rewardsOn ||
+              rewardsReport.freeWashes > 0 ||
+              rewardsReport.giftsGiven > 0 ||
+              rewardsReport.giftsOwedNow > 0) ? (
+              <View style={[styles.card]}>
+                <View style={styles.cardHeadRow}>
+                  <Text style={styles.cardTitle}>Rewards</Text>
+                  <Pressable onPress={() => navigation.navigate('Rewards')} hitSlop={8} accessibilityRole="button">
+                    <Text style={styles.cardLink}>Set up ›</Text>
+                  </Pressable>
+                </View>
+                <View>
+                  <DetailRow
+                    icon={<IconStar size={16} color={colors.amberDeep} />}
+                    tint="#FEF3C7"
+                    label="Free washes used"
+                    value={String(rewardsReport.freeWashes)}
+                  />
+                  <DetailRow
+                    icon={<IconTag size={16} color={colors.amberDeep} />}
+                    tint="#FEF3C7"
+                    label="Value given free"
+                    value={rewardsReport.freeValue > 0 ? formatRupees(rewardsReport.freeValue) : '—'}
+                  />
+                  <DetailRow
+                    icon={<IconGift size={16} color={colors.tealDeep} />}
+                    tint="#CCFBF1"
+                    label="Welcome gifts handed over"
+                    value={String(rewardsReport.giftsGiven)}
+                  />
+                  <DetailRow
+                    icon={<IconGift size={16} color="#C2410C" />}
+                    tint="#FFEDD5"
+                    label="Gifts owed right now"
+                    value={String(rewardsReport.giftsOwedNow)}
+                    last
+                  />
+                </View>
+                {rewardsReport.gifts.length > 0 ? (
+                  <Text style={styles.cardFoot}>
+                    Handed over:{' '}
+                    {rewardsReport.gifts
+                      .map((g) => (g.unit === 'pcs' ? `${g.name} × ${g.quantity}` : `${g.name} ${g.label}`))
+                      .join(' · ')}
+                  </Text>
+                ) : null}
+                <Text style={styles.cardFoot}>
+                  Free washes are already inside “Discounts given”. Staff still earn their commission on them.
+                </Text>
+              </View>
+            ) : null}
+
             {/* Export */}
             <View style={[styles.card]}>
               <View style={styles.exportHead}>
@@ -751,6 +825,8 @@ const styles = StyleSheet.create({
   cardHeadRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
   cardTitle: { ...typography.heading, fontSize: 18, color: colors.waterInk, letterSpacing: -0.2 },
   cardMeta: { ...typography.label, fontSize: 14, color: colors.slateDeep },
+  cardLink: { ...typography.label, fontSize: 14, color: colors.water },
+  cardFoot: { ...typography.caption, fontSize: 12.5, lineHeight: 18, color: colors.slateDeep, letterSpacing: 0, marginTop: spacing.sm },
   customFields: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm },
   customField: { flex: 1, gap: 6 },
   customLabel: { ...typography.caption, fontSize: 12, color: colors.slateDeep, fontWeight: '700', letterSpacing: 0 },

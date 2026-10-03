@@ -61,8 +61,32 @@ export interface StockItemView {
   lowAt: number | null;
   level: StockLevel;
   usedWeek: number;
+  /** Customers waiting for this item as a welcome gift, and how much they need in all. */
+  giftsOwed: number;
+  giftsOwedQuantity: number;
   /** Set on the phone when a use / count on this item hasn't synced yet. */
   pending?: boolean;
+}
+
+export interface RewardRuleView {
+  serviceId: string;
+  serviceName: string;
+  every: number;
+}
+
+export interface GiftItemView {
+  stockItemId: string;
+  name: string;
+  unit: StockUnit;
+  quantity: number;
+  balance: number;
+}
+
+/** The shop's stamp cards and welcome gift (Pro), cached so New Wash knows them offline. */
+export interface RewardSettings {
+  rules: RewardRuleView[];
+  gift: GiftItemView[];
+  giftsOwed: number;
 }
 
 /** Server balances with this phone's unsynced stock entries applied on top. */
@@ -111,6 +135,13 @@ interface ShopContextValue extends ShopSnapshot {
   /** Items at or under their alert level, or out. */
   lowStock: number;
   refreshStock: () => Promise<void>;
+  /** Stamp cards and welcome gift; null when the shop isn't on Pro (or not read yet). */
+  rewards: RewardSettings | null;
+  /** True when a stamp card or welcome gift is set up. */
+  rewardsOn: boolean;
+  refreshRewards: () => Promise<void>;
+  /** Applies a saved change immediately instead of waiting for the next pull. */
+  setRewards: (next: RewardSettings) => void;
 }
 
 const ShopContext = createContext<ShopContextValue | null>(null);
@@ -128,14 +159,50 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
   const [unseenErrors, setUnseenErrors] = useState(0);
   const [joinRequests, setJoinRequests] = useState(0);
   const [serverStock, setServerStock] = useState<StockItemView[]>([]);
+  const [rewards, setRewardsState] = useState<RewardSettings | null>(null);
   const userId = user?.id ?? null;
 
   useEffect(() => {
     void readCache<Partial<ShopSnapshot>>(CacheKeys.shop).then((saved) => {
       setSnapshot(saved ? { ...EMPTY, ...saved } : EMPTY);
     });
-    void readCache<StockItemView[]>(CacheKeys.stock).then((saved) => setServerStock(saved ?? []));
+    void readCache<StockItemView[]>(CacheKeys.stock).then((saved) =>
+      setServerStock((saved ?? []).map((s) => ({ ...s, giftsOwed: s.giftsOwed ?? 0, giftsOwedQuantity: s.giftsOwedQuantity ?? 0 }))),
+    );
+    void readCache<RewardSettings>(CacheKeys.rewards).then((saved) => setRewardsState(saved));
   }, [userId]);
+
+  const setRewards = useCallback((next: RewardSettings | null) => {
+    setRewardsState(next);
+    void writeCache(CacheKeys.rewards, next);
+  }, []);
+
+  const refreshRewards = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const res = await api.rewards.settings.$get();
+      if (res.status === 402) {
+        // Rewards are Pro: forget cards cached during a trial so New Wash stops offering them.
+        setRewards(null);
+        return;
+      }
+      if (!res.ok) return;
+      const body = await res.json();
+      setRewards({
+        rules: body.rules.map((r) => ({ serviceId: r.serviceId, serviceName: r.serviceName, every: r.every })),
+        gift: body.gift.map((g) => ({
+          stockItemId: g.stockItemId,
+          name: g.name,
+          unit: g.unit,
+          quantity: g.quantity,
+          balance: g.balance,
+        })),
+        giftsOwed: body.giftsOwed,
+      });
+    } catch {
+      // Offline: keep the cached copy.
+    }
+  }, [userId, setRewards]);
 
   const refreshStock = useCallback(async () => {
     if (!userId) return;
@@ -157,6 +224,8 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
         lowAt: i.lowAt,
         level: i.level,
         usedWeek: i.usedWeek,
+        giftsOwed: i.giftsOwed,
+        giftsOwedQuantity: i.giftsOwedQuantity,
       }));
       setServerStock(next);
       void writeCache(CacheKeys.stock, next);
@@ -165,10 +234,12 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
     }
   }, [userId]);
 
-  // A synced stock entry or expense changes balances.
+  // A synced stock entry or expense changes balances; a synced payment can hand over a gift.
   useEffect(() => {
-    if (online) void refreshStock();
-  }, [online, version, refreshStock]);
+    if (!online) return;
+    void refreshStock();
+    void refreshRewards();
+  }, [online, version, refreshStock, refreshRewards]);
 
   const commit = useCallback((next: ShopSnapshot) => {
     setSnapshot(next);
@@ -234,10 +305,12 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void refresh();
+      if (state !== 'active') return;
+      void refresh();
+      void refreshRewards();
     });
     return () => sub.remove();
-  }, [refresh]);
+  }, [refresh, refreshRewards]);
 
   const shopName = snapshot.info?.name ?? null;
   useEffect(() => {
@@ -251,6 +324,7 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
 
   const stock = useMemo(() => withPendingMoves(serverStock, outbox), [serverStock, outbox]);
   const lowStock = useMemo(() => stock.filter((s) => s.level !== 'ok').length, [stock]);
+  const rewardsOn = Boolean(rewards && (rewards.rules.length > 0 || rewards.gift.length > 0));
 
   const value = useMemo(
     () => ({
@@ -263,6 +337,10 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
       stock,
       lowStock,
       refreshStock,
+      rewards,
+      rewardsOn,
+      refreshRewards,
+      setRewards,
     }),
     [
       snapshot,
@@ -274,6 +352,10 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
       stock,
       lowStock,
       refreshStock,
+      rewards,
+      rewardsOn,
+      refreshRewards,
+      setRewards,
     ],
   );
 

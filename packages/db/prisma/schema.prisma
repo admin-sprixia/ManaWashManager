@@ -26,26 +26,26 @@ datasource db {
 
 /// One car wash on the platform. Plan: trial | active | past_due | read_only | cancelled | free.
 model Shop {
-  id          String    @id @default(uuid())
+  id               String    @id @default(uuid())
   /// 6-digit shop ID staff type to ask to join. Not a secret — the owner still approves.
-  code        String    @unique
-  name        String
-  city        String?
+  code             String    @unique
+  name             String
+  city             String?
   /// Razorpay subscription status: trial | pending | active | past_due | cancelled | free.
   /// Free vs Pro comes from the dates (planStatus in @mana/domain), not from this.
-  plan              String    @default("trial")
-  trialEndsAt       DateTime? @map("trial_ends_at")
-  paidUntil         DateTime? @map("paid_until")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  subscriptionId    String?   @map("subscription_id")
-  billingInterval   String?   @map("billing_interval") // "monthly" | "yearly"
-  pricePaise        Int?      @map("price_paise")
+  plan             String    @default("trial")
+  trialEndsAt      DateTime? @map("trial_ends_at")
+  paidUntil        DateTime? @map("paid_until")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  subscriptionId   String?   @map("subscription_id")
+  billingInterval  String?   @map("billing_interval") // "monthly" | "yearly"
+  pricePaise       Int?      @map("price_paise")
   /// First founder-price payment. Holds one of the 50 founder slots for good.
-  founderAt         DateTime? @map("founder_at")
+  founderAt        DateTime? @map("founder_at")
   /// Founder slot held while the first founder-price charge is on its way; lapses if never paid.
-  founderHoldUntil  DateTime? @map("founder_hold_until")
+  founderHoldUntil DateTime? @map("founder_hold_until")
   /// When that hold was taken — for the last slot, the earlier claim wins.
-  founderHoldAt     DateTime? @map("founder_hold_at")
+  founderHoldAt    DateTime? @map("founder_hold_at")
 
   @@index([subscriptionId])
   @@map("shops")
@@ -53,15 +53,15 @@ model Shop {
 
 /// One subscription charge, for the owner's payment history.
 model BillingPayment {
-  id             String   @id // Razorpay payment id
-  shopId         String   @default("") @map("shop_id")
-  subscriptionId String   @map("subscription_id")
-  amountPaise    Int      @map("amount_paise")
+  id             String    @id // Razorpay payment id
+  shopId         String    @default("") @map("shop_id")
+  subscriptionId String    @map("subscription_id")
+  amountPaise    Int       @map("amount_paise")
   status         String // "captured" | "failed" | "refunded"
   method         String?
   periodEnd      DateTime? @map("period_end")
-  paidAt         DateTime @map("paid_at")
-  createdAt      DateTime @default(now()) @map("created_at")
+  paidAt         DateTime  @map("paid_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
 
   @@unique([shopId, id])
   @@index([shopId, paidAt])
@@ -134,6 +134,10 @@ model User {
   joinDecisions      JoinRequest[]     @relation("JoinRequestDecidedBy")
   remindersSent      VehicleReminder[] @relation("VehicleReminderRemindedBy")
   remindersDismissed VehicleReminder[] @relation("VehicleReminderDismissedBy")
+  rewardRules        RewardRule[]
+  rewardClaims       RewardClaim[]
+  rewardGiftItems    RewardGiftItem[]
+  rewardGiftsGiven   RewardGift[]
 
   @@index([shopId])
   @@index([phone])
@@ -173,6 +177,8 @@ model Service {
   jobServices     JobService[]
   comboItems      ServiceComboItem[] @relation("ComboItems")
   inCombos        ServiceComboItem[] @relation("InCombos")
+  rewardRule      RewardRule?
+  rewardClaims    RewardClaim[]
 
   @@index([shopId])
   @@map("services")
@@ -230,11 +236,12 @@ model Customer {
   marketingConsent Boolean  @default(false) @map("marketing_consent")
   createdAt        DateTime @default(now()) @map("created_at")
 
-  vehicles   Vehicle[]
-  jobs       Job[]
-  coupons    Coupon[]
-  referredBy Referral?  @relation("ReferralReferred")
-  referrals  Referral[] @relation("ReferralReferrer")
+  vehicles    Vehicle[]
+  jobs        Job[]
+  coupons     Coupon[]
+  rewardGifts RewardGift[]
+  referredBy  Referral?    @relation("ReferralReferred")
+  referrals   Referral[]   @relation("ReferralReferrer")
 
   @@unique([shopId, phone])
   @@map("customers")
@@ -251,11 +258,13 @@ model Vehicle {
   /// Sync cursor for the phones' offline customer directory — see apps/api/schema.sql.
   updatedAt          DateTime @default(now()) @updatedAt @map("updated_at")
 
-  customer    Customer         @relation(fields: [customerId], references: [id])
-  vehicleType VehicleType      @relation(fields: [vehicleTypeId], references: [id])
-  jobs        Job[]
-  coupons     Coupon[]
-  reminder    VehicleReminder?
+  customer     Customer         @relation(fields: [customerId], references: [id])
+  vehicleType  VehicleType      @relation(fields: [vehicleTypeId], references: [id])
+  jobs         Job[]
+  coupons      Coupon[]
+  reminder     VehicleReminder?
+  rewardClaims RewardClaim[]
+  rewardGifts  RewardGift[]
 
   @@unique([shopId, registrationNumber])
   @@index([shopId, updatedAt, id])
@@ -292,6 +301,7 @@ model Job {
   washers     JobWasher[]
   sellers     JobSeller[]
   photos      JobPhoto[]
+  rewardGifts RewardGift[]
 
   @@index([shopId, status])
   @@index([shopId, createdAt])
@@ -652,8 +662,10 @@ model StockItem {
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @default(now()) @updatedAt @map("updated_at")
 
-  createdBy User        @relation("StockItemCreatedBy", fields: [createdByUserId], references: [id])
-  moves     StockMove[]
+  createdBy   User            @relation("StockItemCreatedBy", fields: [createdByUserId], references: [id])
+  moves       StockMove[]
+  giftItem    RewardGiftItem?
+  rewardGifts RewardGift[]
 
   @@map("stock_items")
 }
@@ -663,7 +675,7 @@ model StockMove {
   id              String   @id @default(uuid())
   shopId          String   @default("") @map("shop_id")
   itemId          String   @map("item_id")
-  kind            String // in | use | count | void
+  kind            String // in | use | count | void | gift
   quantity        Float
   balanceAfter    Float    @map("balance_after")
   note            String?
@@ -679,6 +691,91 @@ model StockMove {
   @@index([shopId, kind, createdAt])
   @@index([expenseId])
   @@map("stock_moves")
+}
+
+/// Stamp card for one service: every `every` paid visits earn one free wash. Cards themselves
+/// aren't stored — see apps/api/schema.sql.
+model RewardRule {
+  serviceId       String   @id @map("service_id")
+  shopId          String   @default("") @map("shop_id")
+  every           Int
+  active          Boolean  @default(true)
+  updatedByUserId String   @map("updated_by_user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at")
+
+  service   Service @relation(fields: [serviceId], references: [id])
+  updatedBy User    @relation(fields: [updatedByUserId], references: [id])
+
+  @@index([shopId])
+  @@map("reward_rules")
+}
+
+/// A free wash used from a car's card. `jobId` is written before the job, so not a relation.
+model RewardClaim {
+  id              String   @id @default(uuid())
+  shopId          String   @default("") @map("shop_id")
+  vehicleId       String   @map("vehicle_id")
+  serviceId       String   @map("service_id")
+  seq             Int
+  jobId           String   @map("job_id")
+  createdByUserId String   @map("created_by_user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id])
+  service   Service @relation(fields: [serviceId], references: [id])
+  createdBy User    @relation(fields: [createdByUserId], references: [id])
+
+  @@unique([vehicleId, serviceId, seq])
+  @@unique([jobId, serviceId])
+  @@index([jobId])
+  @@index([shopId, createdAt])
+  @@map("reward_claims")
+}
+
+/// One item of the welcome gift every new car gets, in the item's stock unit.
+model RewardGiftItem {
+  stockItemId     String   @id @map("stock_item_id")
+  shopId          String   @default("") @map("shop_id")
+  quantity        Float
+  sortOrder       Int      @default(0) @map("sort_order")
+  updatedByUserId String   @map("updated_by_user_id")
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at")
+
+  item      StockItem @relation(fields: [stockItemId], references: [id])
+  updatedBy User      @relation(fields: [updatedByUserId], references: [id])
+
+  @@index([shopId])
+  @@map("reward_gift_items")
+}
+
+/// A welcome-gift item for one car: owed until handed over, given, or cancelled with its wash.
+/// One live gift per car and item — a partial unique index in schema.sql.
+model RewardGift {
+  id            String    @id
+  shopId        String    @default("") @map("shop_id")
+  jobId         String    @map("job_id")
+  vehicleId     String    @map("vehicle_id")
+  customerId    String    @map("customer_id")
+  stockItemId   String    @map("stock_item_id")
+  quantity      Float
+  status        String    @default("owed") // owed | given | cancelled
+  givenAt       DateTime? @map("given_at")
+  givenByUserId String?   @map("given_by_user_id")
+  cancelledAt   DateTime? @map("cancelled_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  job      Job       @relation(fields: [jobId], references: [id])
+  vehicle  Vehicle   @relation(fields: [vehicleId], references: [id])
+  customer Customer  @relation(fields: [customerId], references: [id])
+  item     StockItem @relation(fields: [stockItemId], references: [id])
+  givenBy  User?     @relation(fields: [givenByUserId], references: [id])
+
+  @@index([jobId])
+  @@index([shopId, status])
+  @@index([shopId, givenAt])
+  @@index([stockItemId, status])
+  @@map("reward_gifts")
 }
 
 /// Fixed-window counters for brute-force protection, keyed like "pin:ip:1.2.3.4". Platform-level.

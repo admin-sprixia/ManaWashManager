@@ -15,9 +15,10 @@ export const COUPON_MAX_PERCENT = 10;
 export const REMINDER_SNOOZE_DAYS = 3;
 /**
  * Vehicles not seen for longer than this drop off the reminder list — the customer has moved on,
- * and it keeps the list (and its query) from growing with every vehicle ever washed.
+ * and it keeps the list (and its query) from growing with every vehicle ever washed. Just over
+ * six months (184 days at most), so a stamp card about to reset is still on the list.
  */
-export const REMINDER_LOOKBACK_DAYS = 180;
+export const REMINDER_LOOKBACK_DAYS = 186;
 /** Hard cap on one reminder list, oldest-visit-last; a shop never works through more in a day. */
 export const REMINDER_LIST_MAX = 400;
 

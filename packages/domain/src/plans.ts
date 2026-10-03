@@ -108,7 +108,8 @@ export type ProFeature =
   | 'inventory'
   | 'staffReport'
   | 'auditTrail'
-  | 'branches';
+  | 'branches'
+  | 'rewards';
 
 export const PRO_FEATURE_LABEL: Record<ProFeature, string> = {
   photos: 'Before & after photos',
@@ -125,6 +126,7 @@ export const PRO_FEATURE_LABEL: Record<ProFeature, string> = {
   staffReport: 'Staff performance',
   auditTrail: 'Audit trail',
   branches: 'More branches',
+  rewards: 'Stamp cards & welcome gifts',
 };
 
 /** Shown on the plan screen, in this order. */
@@ -132,6 +134,7 @@ export const PRO_HIGHLIGHTS: readonly ProFeature[] = [
   'cashDrawer',
   'reminders',
   'coupons',
+  'rewards',
   'referrals',
   'fullReports',
   'pdfExport',

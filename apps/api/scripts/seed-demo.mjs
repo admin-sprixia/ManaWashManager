@@ -1,50 +1,42 @@
 #!/usr/bin/env node
-// Wipes the LOCAL database and fills it with a realistic shop, so every screen has something to
-// show and every feature can be tried end to end.
+// Wipes the LOCAL database (or, with --staging, the STAGING one) and fills it with a realistic
+// shop, so every screen has something to show and every feature can be tried end to end.
 //
 //   cd apps/api && npm run dev          (in one terminal — the seed talks to the running API)
 //   cd apps/api && npm run db:seed:demo (in another)
+//   cd apps/api && npm run db:seed:staging   (the deployed staging Worker and mana_db_staging)
 //
 // What it makes (all PINs 2580; the owner can also sign in with the dev code 000000):
 //   MANA Car Wash, Nellore — owner Hrushikesh 9888626111; staff Ravi 9300000011,
 //   Suresh 9300000012, Kiran 9300000013; Mahesh 9300000019 waiting to join.
 //   ~75 days of washes, customers and vehicles; reminders (due and comeback), coupons and
-//   referrals; expenses with bill photos; stock; attendance; cash drawer days; an error report.
+//   referrals; expenses with bill photos; stock; attendance; cash drawer days; an error report;
+//   stamp cards (one free wash used today) and a welcome gift, some of it owed (out of stock).
 //   A second branch, MANA Car Wash Kavali, with its own menu, staff (Venkat 9300000021) and washes.
 //
 // Washes older than a week are written straight into the database (the API only accepts a week
 // of backdating); everything newer goes through the real API, as the app would send it.
 // Photos are drawn on macOS with QuickLook + sips; elsewhere the vehicle pictures are used.
-// Local only — it never touches the remote database.
+// It never touches the production database.
 import { execFileSync } from 'node:child_process';
 import { randomUUID, webcrypto } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { API, API_DIR, STAGING, TARGET, d1Execute, d1Rows } from './lib/target.mjs';
 
-const API = process.env.API_URL ?? 'http://localhost:8787';
 const PIN = '2580';
-const API_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
 const VEHICLE_ART = join(API_DIR, '..', 'mobile', 'src', 'assets', 'vehicles');
 const TMP = mkdtempSync(join(tmpdir(), 'mana-seed-'));
 const SHOP = 'shop_mana';
 
 // ─── Plumbing ─────────────────────────────────────────────────────────────
 
-function d1(args) {
-  return execFileSync('npx', ['wrangler', 'd1', 'execute', 'mana_db', '--local', ...args], {
-    cwd: API_DIR,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    maxBuffer: 64 * 1024 * 1024,
-  });
-}
-const query = (sql) => JSON.parse(d1(['--json', '--command', sql]))[0].results;
+const query = d1Rows;
 function runSql(statements, label) {
   const file = join(TMP, `${label}.sql`);
   writeFileSync(file, statements.join('\n'));
-  d1([`--file=${file}`]);
+  d1Execute([`--file=${file}`]);
 }
 
 async function call(token, method, path, body) {
@@ -386,8 +378,11 @@ try {
   process.exit(1);
 }
 
-step('Resetting the local database (migrations + seed.sql)');
-execFileSync('node', [join(API_DIR, 'scripts', 'db-reset-local.mjs')], { cwd: API_DIR, stdio: 'ignore' });
+step(`Resetting the ${TARGET} database (migrations + seed.sql)`);
+execFileSync('node', [join(API_DIR, 'scripts', 'db-reset-local.mjs'), ...(STAGING ? ['--staging'] : [])], {
+  cwd: API_DIR,
+  stdio: 'ignore',
+});
 
 const PRICES = {};
 for (const row of query('SELECT service_id, vehicle_type_id, price FROM service_prices')) {
@@ -530,10 +525,21 @@ step(`Writing the team and ${visits.filter((v) => v.daysAgo > API_DAYS).length} 
 }
 
 step('Signing everyone in with their PIN');
+// The running API can drop the first requests while it reopens the database rebuilt above;
+// signing in is safe to repeat, so wait it out here rather than mid-seed.
+async function pinLogin(phone) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await call(null, 'POST', '/auth/pin/login', { phone, pin: PIN });
+    } catch (err) {
+      if (attempt >= 10 || !(err instanceof TypeError)) throw err;
+      await new Promise((r) => setTimeout(r, 500 * attempt));
+    }
+  }
+}
 const tokens = {};
 for (const person of [OWNER, ...STAFF]) {
-  const session = await call(null, 'POST', '/auth/pin/login', { phone: person.phone, pin: PIN });
-  tokens[person.id] = session.token;
+  tokens[person.id] = (await pinLogin(person.phone)).token;
 }
 const OWN = tokens[OWNER.id];
 const tokenOf = (person) => tokens[person.id];
@@ -576,6 +582,7 @@ async function runWash(v, { stopAt = 'paid', photos = false } = {}) {
     ...(discount && !v.couponCode && !v.referralToken ? { discountReason: v.discountReason } : {}),
     ...(v.couponCode ? { couponCode: v.couponCode } : {}),
     ...(v.referralToken ? { referralToken: v.referralToken } : {}),
+    ...(v.rewardServiceIds ? { rewardServiceIds: v.rewardServiceIds } : {}),
     ...(v.sellers?.length ? { sellerIds: v.sellers.map((s) => s.id) } : {}),
   });
   const upload = async (kind, when, by) => {
@@ -799,6 +806,38 @@ await call(OWN, 'POST', `/reminders/${unusedCouponFor.vehicles[0].id}/coupon`);
 await call(tokens.user_staff_suresh, 'POST', `/reminders/${due[0].vehicles[0].id}`, { action: 'reminded' });
 await call(OWN, 'POST', `/reminders/${due[1].vehicles[0].id}`, { action: 'snooze' });
 
+// ─── Rewards ──────────────────────────────────────────────────────────────
+
+step('Rewards: stamp cards on Complete Wash and Bike Complete, a welcome gift for new cars');
+// Cards are worked out from wash history, so regulars already have stamps the moment a card is on.
+await call(OWN, 'PUT', '/rewards/rules/svc_complete_wash', { every: 5 });
+await call(OWN, 'PUT', '/rewards/rules/svc_bike_complete', { every: 4 });
+// One mitt on the shelf: the first new car today gets it, the rest are owed until the next delivery.
+const washMitt = await call(OWN, 'POST', '/stock', { name: 'Wash mitt', unit: 'pcs', lowAt: 2, opening: 1 });
+const fragrance = STOCK.find((i) => i.name === 'Car fragrance');
+await call(OWN, 'PUT', '/rewards/gift', {
+  items: [
+    { stockItemId: fragrance.id, quantity: 1 },
+    { stockItemId: washMitt.id, quantity: 1 },
+  ],
+});
+// Today's washes come from these regulars (first five) and the reminder customers above.
+const regular = customers.filter((c) => c.lastOffset >= 5 && c.lastOffset <= 9 && c.vehicles.length === 1);
+// A regular with a full card, kept away from the customers today's other washes use.
+const busyToday = new Set(
+  [...regular.slice(0, 5), couponFor, unusedCouponFor, due[0], due[1]].map((c) => c.vehicles[0].id),
+);
+let freeFor = null;
+for (const c of customers) {
+  const v = c.vehicles[0];
+  if (c.vehicles.length !== 1 || !CAR_TYPES.includes(v.vt) || busyToday.has(v.id)) continue;
+  const card = await call(OWN, 'GET', `/rewards/vehicle?registrationNumber=${encodeURIComponent(v.plate)}`);
+  if (card.cards.some((k) => k.serviceId === 'svc_complete_wash' && k.free > 0)) {
+    freeFor = c;
+    break;
+  }
+}
+
 // ─── Today ────────────────────────────────────────────────────────────────
 
 step('Today: washes in every state, photos, a coupon and two referrals');
@@ -809,7 +848,6 @@ const walkIn = (vt, name) => {
   const [make, model] = pick(MODELS[vt]);
   return { customer: c, vehicle: { vt, plate: newPlate(!CAR_TYPES.includes(vt)), make, model } };
 };
-const regular = customers.filter((c) => c.lastOffset >= 5 && c.lastOffset <= 9 && c.vehicles.length === 1);
 const fromRegular = (c) => ({ customer: c, vehicle: c.vehicles[0] });
 const wash = (who, minutesAgo, extra = {}) => {
   const time = todayAt(minutesAgo);
@@ -860,6 +898,13 @@ const quote = await call(tokenOf(ravi), 'POST', '/referrals/quote', {
   registrationNumber: friend.vehicle.plate,
 });
 await runWash(wash(friend, minutesBack(170), { referralToken: quote.token, services: ['svc_complete_wash'], creator: ravi, method: 'upi' }));
+
+// A regular cashes in a full stamp card: the wash is on the house, the washer still earns.
+if (freeFor) {
+  await runWash(
+    wash(fromRegular(freeFor), minutesBack(150), { services: ['svc_complete_wash'], rewardServiceIds: ['svc_complete_wash'] }),
+  );
+}
 
 // Still in the shop.
 await runWash(wash(walkIn('vt_hatchback'), minutesBack(95), { washers: [ravi, kiran] }), { stopAt: 'ready', photos: true });
@@ -1019,11 +1064,15 @@ const [counts] = query(`SELECT
   (SELECT COUNT(*) FROM expenses WHERE shop_id = '${SHOP}') AS expenses,
   (SELECT COUNT(*) FROM job_photos WHERE shop_id = '${SHOP}') AS photos,
   (SELECT COUNT(*) FROM coupons WHERE shop_id = '${SHOP}') AS coupons,
-  (SELECT COUNT(*) FROM cash_days WHERE shop_id = '${SHOP}') AS cash_days`);
+  (SELECT COUNT(*) FROM cash_days WHERE shop_id = '${SHOP}') AS cash_days,
+  (SELECT COUNT(*) FROM reward_claims WHERE shop_id = '${SHOP}') AS free_washes,
+  (SELECT COUNT(*) FROM reward_gifts WHERE shop_id = '${SHOP}' AND status = 'given') AS gifts_given,
+  (SELECT COUNT(*) FROM reward_gifts WHERE shop_id = '${SHOP}' AND status = 'owed') AS gifts_owed`);
 console.log(`
 Done. MANA Car Wash (Nellore), shop ID 482193:
   ${counts.customers} customers · ${counts.vehicles} vehicles · ${counts.jobs} washes · ${counts.expenses} expenses
   ${counts.photos} wash photos · ${counts.coupons} coupons · ${counts.cash_days} cash drawer days
+  Rewards: ${counts.free_washes} free wash${counts.free_washes === 1 ? '' : 'es'} used · ${counts.gifts_given} welcome gifts given · ${counts.gifts_owed} owed
   ${canDraw ? '' : '(photos are vehicle pictures — bills are only drawn on macOS)\n  '}
 Sign in (PIN ${PIN} for everyone):
   Owner   Hrushikesh   ${OWNER.phone}   (both branches — switch from the shop name on Home)

@@ -22,6 +22,7 @@ import { attendanceRoutes } from './routes/attendance';
 import { cashRoutes } from './routes/cash';
 import { photoRoutes } from './routes/photo';
 import { stockRoutes } from './routes/stock';
+import { rewardRoutes } from './routes/reward';
 import { billingRoutes } from './routes/billing';
 import type { Env } from './types';
 
@@ -98,6 +99,7 @@ const routes = app
   .route('/cash', cashRoutes)
   .route('/photos', photoRoutes)
   .route('/stock', stockRoutes)
+  .route('/rewards', rewardRoutes)
   .route('/billing', billingRoutes);
 
 // Hono RPC: the mobile app imports this type (via hc<AppType>) to get a fully typed API

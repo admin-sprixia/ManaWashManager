@@ -1,7 +1,31 @@
-import { useCallback } from 'react';
+import React, { useCallback } from 'react';
 import type { PaymentMethod } from '@mana/domain';
 import { showToast } from '../components/Toast';
+import { showAlert } from '../components/AppAlert';
+import { IconGift } from '../components/Icons';
+import { colors } from '../theme';
+import { giftLine } from '../utils/rewards';
 import { useSync, type SubmitResult } from './SyncProvider';
+import type { BoardJob } from './types';
+
+/** A first paid visit writes the welcome gift: tell whoever took the money to hand it over. */
+function announceWelcomeGift(data: unknown): void {
+  const job = data as Partial<BoardJob> | null;
+  const gifts = job?.gifts ?? [];
+  const given = gifts.filter((g) => g.status === 'given');
+  const owed = gifts.filter((g) => g.status === 'owed');
+  if (given.length === 0 && owed.length === 0) return;
+  const plate = job?.vehicle?.registrationNumber;
+  const lines = [
+    given.length > 0 ? `Hand over now: ${given.map(giftLine).join(', ')}.` : null,
+    owed.length > 0
+      ? `${owed.map((g) => g.itemName).join(', ')} ${owed.length === 1 ? 'is' : 'are'} out of stock — saved as owed for their next visit.`
+      : null,
+  ].filter(Boolean);
+  showAlert(`Welcome gift${plate ? ` · ${plate}` : ''}`, `First visit for this car. ${lines.join(' ')}`, [{ text: 'Done' }], {
+    icon: React.createElement(IconGift, { size: 26, color: colors.tealDeep }),
+  });
+}
 
 /**
  * Job Board and Job Detail change jobs through here, so both get the same offline behaviour:
@@ -62,11 +86,14 @@ export function useJobActions() {
   );
 
   const pay = useCallback(
-    async (jobId: string, paymentMethod: PaymentMethod) =>
-      settle(
-        await submit({ kind: 'job.pay', payload: { jobId, paymentMethod, occurredAt: new Date().toISOString() } }),
-        'Payment saved offline — will sync automatically',
-      ),
+    async (jobId: string, paymentMethod: PaymentMethod) => {
+      const result = await submit({
+        kind: 'job.pay',
+        payload: { jobId, paymentMethod, occurredAt: new Date().toISOString() },
+      });
+      if (result.status === 'sent') announceWelcomeGift(result.data);
+      return settle(result, 'Payment saved offline — will sync automatically');
+    },
     [submit],
   );
 

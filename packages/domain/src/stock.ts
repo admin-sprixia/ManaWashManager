@@ -14,8 +14,11 @@ export const STOCK_UNIT_LABEL: Record<StockUnit, string> = {
   pcs: 'Pieces',
 };
 
-/** What changed a balance: bought (in), used up, a physical count, or an expense voided. */
-export type StockMoveKind = 'in' | 'use' | 'count' | 'void';
+/**
+ * What changed a balance: bought (in), used up, a physical count, an expense or gift voided, or
+ * handed to a customer as a welcome gift.
+ */
+export type StockMoveKind = 'in' | 'use' | 'count' | 'void' | 'gift';
 
 /** Expense categories whose purchases can go into stock. */
 export const STOCK_CATEGORIES: readonly ExpenseCategory[] = ['chemicals', 'maintenance', 'other'];

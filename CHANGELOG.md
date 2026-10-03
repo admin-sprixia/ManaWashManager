@@ -8,6 +8,60 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-03
+
+### Added
+
+- **Rewards (Pro): stamp cards and welcome gifts.** The owner sets it up in More → Rewards.
+  - **Stamp cards:** turn on a card for any service, with a free one every 2 to 100 washes. Each
+    car has its own card per service. A paid wash adds a stamp (combos count, one visit can
+    stamp several cards) and voiding it takes the stamp back. Existing wash history counts.
+  - **Free wash:** when a card is full, New Wash shows "Use free". The customer decides; it's
+    never applied on its own. It's priced at the car's size, the washer still earns commission,
+    and it's saved as a full-price line with a 100% "Loyalty reward" discount. It needs internet,
+    so two phones can't give away the same one, and it earns no stamp.
+  - **6-month rule:** if a car skips that service for 6 months its card resets and a saved free
+    wash expires. Staff see a warning 10 days before, on New Wash, the customer page and in
+    Reminders. The WhatsApp reminder mentions a waiting free wash or the stamps so far.
+  - **Welcome gift:** up to 5 Inventory items, given on every new car's first paid wash
+    (including an existing customer's new car). Stock goes down on pay and back on void. The pay
+    screen shows what to hand over.
+  - **Owed gifts:** when an item is out of stock the wash goes ahead and the gift is saved as
+    owed, with no expiry. Staff see it on the next visit and can mark it "Given" from New Wash,
+    the customer page or Rewards. Inventory shows "N customers waiting".
+  - **Job board:** a small tag on the row shows what to hand over: "Owed: Wash mitt" (amber)
+    while the car is owed something, or the welcome gift given on today's paid wash.
+  - **Reports:** free washes used and what they were worth, gifts handed over by item, and gifts
+    owed now.
+  - Walk-in plates never get stamps or gifts.
+- `npm run test:rewards` (API, in CI): end-to-end checks for stamps, free washes, voids, gifts,
+  owed gifts and the report. `test:isolation` now also proves one shop can't read or change
+  another shop's rewards.
+- Demo seed: two stamp cards, a welcome gift, one free wash used today and three gifts owed.
+- Staging tooling (API): `npm run db:reset:staging`, `npm run db:seed:staging`, and the test
+  scripts accept `--staging` (or `MANA_TARGET=staging`). `npm run perf:report` times every screen,
+  read and write and saves a report to `apps/api/perf-results/`. Staging and local dev responses
+  carry a `Server-Timing` header (server time, database time, rounds and queries).
+
+### Changed
+
+- Production database `mana_db` moved from Australia (OC) to Asia-Pacific (APAC), next to the
+  Chennai server: the empty database was deleted, recreated in APAC and given every migration.
+  It holds no data; shops are created by in-app sign-up.
+- New MANA logo set (`branding/logo/`) and Android app icon, including the adaptive icon for
+  Android 8 and later.
+
+### Fixed
+
+- The API no longer runs out of memory when requests overlap on Cloudflare ("RangeError: Invalid
+  array buffer length", HTTP 500). Each request built new Prisma clients, each loading its own query
+  engine; one client per database is now shared across requests, which also cuts CPU per request.
+- Two phones using the same free wash a moment apart could both get it. Exactly one now does.
+- The job board's More button told screen readers "new errors to review" whatever its dot meant;
+  it now says why (new errors, someone waiting to join, or stock running low).
+- Demo seed no longer stops at "Signing everyone in" when the local API is still reopening the
+  freshly reset database.
+
 ## [0.4.1] - 2026-10-03
 
 ### Changed
@@ -194,7 +248,8 @@ build was labelled 2.0.0.
   a customer profile.
 - **One shared MAJOR.MINOR.PATCH version** across every app and package.
 
-[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.2.0...v0.3.0

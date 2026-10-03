@@ -1,6 +1,6 @@
 {
   "name": "@mana/api",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "private": true,
   "main": "src/index.ts",
   "types": "src/index.ts",
@@ -14,14 +14,18 @@
     "test:signup": "node scripts/signup-check.mjs",
     "test:plans": "node scripts/plan-check.mjs",
     "test:races": "node scripts/race-check.mjs",
+    "test:rewards": "node scripts/rewards-check.mjs",
     "perf:trips": "node scripts/trips-check.mjs",
+    "perf:report": "node scripts/perf-report.mjs",
     "db:check": "node --no-warnings scripts/db-check.mjs",
     "db:migrate:local": "wrangler d1 migrations apply mana_db --local",
     "db:migrate:remote": "wrangler d1 migrations apply mana_db --remote",
     "db:migrate:staging": "wrangler d1 migrations apply mana_db_staging --remote --env staging",
     "db:migrations:status": "wrangler d1 migrations list mana_db --remote",
     "db:reset:local": "node scripts/db-reset-local.mjs",
+    "db:reset:staging": "node scripts/db-reset-local.mjs --staging",
     "db:seed:demo": "node scripts/seed-demo.mjs",
+    "db:seed:staging": "node scripts/seed-demo.mjs --staging",
     "backup:restore": "node scripts/restore-backup.mjs"
   },
   "dependencies": {

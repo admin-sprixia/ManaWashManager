@@ -7,6 +7,7 @@ import {
   expenseRepo,
   jobRepo,
   referralRepo,
+  rewardRepo,
   serviceRepo,
   type DbClient,
 } from '@mana/db';
@@ -37,6 +38,7 @@ import {
   verifyReferralQuote,
   type ReferralQuote,
 } from '../lib/referral';
+import { checkFreeWashes, settleRewardsForPaidJob } from '../lib/rewards';
 import { occurredAt } from '../lib/clientTime';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { reportWindowProblem, requirePro, washLimitProblem } from '../lib/plan';
@@ -47,10 +49,16 @@ import type { Env } from '../types';
 const MAX_SERVICE_QUANTITY = 20;
 const MAX_SERVICES_PER_JOB = 30;
 
-/** A voided wash hands back its coupon and cancels its referral. Safe to run more than once. */
-async function undoVoidedJobExtras(db: DbClient, jobId: string) {
-  await couponRepo.restoreForVoidedJob(db, jobId, new Date());
+/**
+ * A voided wash hands back its coupon, cancels its referral and takes back its welcome gift
+ * (stock returns to the shelf). Its free washes come back by themselves: a claim only counts
+ * while its job isn't voided. Safe to run more than once.
+ */
+async function undoVoidedJobExtras(db: DbClient, jobId: string, userId: string) {
+  const now = new Date();
+  await couponRepo.restoreForVoidedJob(db, jobId, now);
   await cancelReferralForVoidedJob(db, jobId);
+  await rewardRepo.returnForVoidedJob(db, jobId, { userId, now });
 }
 
 /** Client-generated ids (offline queue) — opaque, URL-safe, bounded. */
@@ -130,10 +138,21 @@ const startJobSchema = z
       .optional(),
     /** Signed quote from POST /referrals/quote; the server works out the discount. */
     referralToken: z.string().min(1).max(2000).optional(),
+    /** Services taken as a free wash from the car's stamp card (one of each, needs internet). */
+    rewardServiceIds: z
+      .array(z.string().min(1).max(64))
+      .min(1)
+      .max(MAX_SERVICES_PER_JOB)
+      .transform((ids) => [...new Set(ids)])
+      .optional(),
     ...pricingFields,
     sellerIds: sellerIdsSchema.optional(),
   })
   .refine(discountNeedsReason, discountReasonIssue)
+  .refine((d) => !d.rewardServiceIds || (d.discount === 0 && !d.couponCode && !d.referralToken), {
+    message: 'A free wash can’t be combined with another discount',
+    path: ['rewardServiceIds'],
+  })
   .refine((d) => !d.couponCode || d.discount === 0, {
     message: 'A coupon can’t be combined with a manual discount',
     path: ['couponCode'],
@@ -354,8 +373,12 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     const existing = await jobRepo.findBoardRow(db, body.id);
     if (existing) return c.json(await finishReplayedJob(db, existing, body, plan, session.sub), 200);
 
-    if (plan.tier !== 'pro' && (body.couponCode || body.referralToken)) {
-      const feature = body.couponCode ? ('coupons' as const) : ('referrals' as const);
+    if (plan.tier !== 'pro' && (body.couponCode || body.referralToken || body.rewardServiceIds)) {
+      const feature = body.couponCode
+        ? ('coupons' as const)
+        : body.referralToken
+          ? ('referrals' as const)
+          : ('rewards' as const);
       return c.json({ error: 'plan_required' as const, feature, message: planRequiredMessage(feature) }, 402);
     }
     const createdAt = occurredAt(c, body.occurredAt);
@@ -413,14 +436,37 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       referral = { ...quote, referrerCustomerId: recheck.referrer.id };
     }
 
+    // Free washes from the car's stamp cards: re-checked against its history right now, and
+    // claimed below so two phones can't spend the same one.
+    let freeWash: { vehicleId: string; discount: number; reason: string; seqs: Map<string, number> } | null = null;
+    if (body.rewardServiceIds) {
+      const rewardInvalid = (message: string) => c.json({ error: 'reward_invalid' as const, message }, 409);
+      if (body.ownership) return rewardInvalid('A free wash can’t be used while the vehicle’s owner is being changed.');
+      const check = await checkFreeWashes(db, {
+        registrationNumber: body.registrationNumber,
+        serviceIds: body.rewardServiceIds,
+        lineItems: priced.lineItems,
+        jobId: body.id,
+        now,
+      });
+      if (!check.ok) return rewardInvalid(check.message);
+      freeWash = check;
+    }
+
     const percentOff = coupon?.percent ?? referral?.percent ?? null;
-    const discount = percentOff != null ? couponDiscount(priced.subtotal, percentOff) : body.discount;
-    const discountReason = coupon
-      ? `Coupon ${coupon.code} · ${coupon.percent}% off`
-      : referral
-        ? `Referred by ${referral.referrerName?.trim() || referral.referrerPhone} · ${referral.percent}% off`
-        : body.discountReason;
-    const total = percentOff != null ? priced.subtotal - discount : priced.total;
+    const discount = freeWash
+      ? freeWash.discount
+      : percentOff != null
+        ? couponDiscount(priced.subtotal, percentOff)
+        : body.discount;
+    const discountReason = freeWash
+      ? freeWash.reason
+      : coupon
+        ? `Coupon ${coupon.code} · ${coupon.percent}% off`
+        : referral
+          ? `Referred by ${referral.referrerName?.trim() || referral.referrerPhone} · ${referral.percent}% off`
+          : body.discountReason;
+    const total = freeWash || percentOff != null ? priced.subtotal - discount : priced.total;
 
     const ensured = await customerRepo.ensureWithVehicle(db, {
       phone: body.customer.phone,
@@ -439,6 +485,28 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       );
     }
     const { customer, vehicle } = ensured;
+
+    if (freeWash && body.rewardServiceIds) {
+      for (const serviceId of body.rewardServiceIds) {
+        const claimed = await rewardRepo.claimFree(db, {
+          vehicleId: vehicle.id,
+          serviceId,
+          seq: freeWash.seqs.get(serviceId) ?? 1,
+          jobId: body.id,
+          userId: session.sub,
+          now,
+        });
+        if (!claimed) {
+          const winner = await jobRepo.findBoardRow(db, body.id);
+          if (winner) return c.json(winner, 200);
+          await rewardRepo.releaseClaims(db, body.id);
+          return c.json(
+            { error: 'reward_invalid' as const, message: 'This free wash was just used on another wash.' },
+            409,
+          );
+        }
+      }
+    }
 
     if (coupon) {
       const claimed = await couponRepo.claim(db, {
@@ -501,12 +569,13 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       });
       return c.json(job, 201);
     } catch (e) {
-      // A replay of this same request may have created the job first; its coupon and referral
-      // are this job's, so leave them alone.
+      // A replay of this same request may have created the job first; its coupon, referral and
+      // free washes are this job's, so leave them alone.
       const winner = await jobRepo.findBoardRow(db, body.id);
       if (winner) return c.json(await finishReplayedJob(db, winner, body, plan, session.sub), 200);
       if (coupon) await couponRepo.release(db, { couponId: coupon.id, jobId: body.id });
       if (referral) await referralRepo.removeForJob(db, body.id);
+      if (freeWash) await rewardRepo.releaseClaims(db, body.id);
       throw e;
     }
   })
@@ -706,12 +775,17 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
 
     const job = await jobRepo.findById(db, id);
     if (!job) return c.json({ error: 'job_not_found' as const }, 404);
+    const userId = c.get('session').sub;
+    // The referral reward and the welcome gift. Safe to repeat: a retry after a crash part-way
+    // only finishes what's missing.
+    const settle = async () => {
+      await settleReferralForPaidJob(db, id, userId);
+      return settleRewardsForPaidJob(db, id, c.get('plan'), userId);
+    };
 
     const from = job.status as JobStatus;
     if (from === 'paid') {
-      // A retry after a crash between marking paid and settling the referral: settle it now
-      // (safe to repeat — only a pending referral moves on).
-      await settleReferralForPaidJob(db, id, c.get('session').sub);
+      await settle();
       if (job.paymentMethod === body.paymentMethod)
         return c.json(await jobRepo.findBoardRow(db, id), 200);
       return c.json(
@@ -737,13 +811,15 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     const paid = await jobRepo.markPaid(db, id, {
       from,
       paymentMethod: body.paymentMethod,
-      userId: c.get('session').sub,
+      userId,
       at: occurredAt(c, body.occurredAt),
     });
     if (!paid) {
       const now = await jobRepo.findBoardRow(db, id);
-      if (now?.status === 'paid') await settleReferralForPaidJob(db, id, c.get('session').sub);
-      if (now?.status === 'paid' && now.paymentMethod === body.paymentMethod) return c.json(now, 200);
+      const gifted = now?.status === 'paid' && (await settle());
+      if (now?.status === 'paid' && now.paymentMethod === body.paymentMethod) {
+        return c.json((gifted ? await jobRepo.findBoardRow(db, id) : null) ?? now, 200);
+      }
       return c.json(
         {
           error: now?.status === 'paid' ? ('already_paid' as const) : ('invalid_transition' as const),
@@ -753,9 +829,10 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
         409,
       );
     }
-    // A referred customer's first wash is now paid: the referrer earns their reward.
-    await settleReferralForPaidJob(db, id, c.get('session').sub);
-    return c.json(paid, 200);
+    // A referred customer's first wash is now paid: the referrer earns their reward. A car's
+    // first paid wash gets the welcome gift.
+    const gifted = await settle();
+    return c.json((gifted ? await jobRepo.findBoardRow(db, id) : null) ?? paid, 200);
   })
   // Void with a reason. Anyone can void an unpaid job; voiding a paid one reverses collected
   // money and is owner-only. The job is kept (status 'void') so the audit trail survives.
@@ -771,7 +848,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     const from = job.status as JobStatus;
     if (from === 'void') {
       // A retry after a crash between voiding and the undo steps: finish them (safe to repeat).
-      await undoVoidedJobExtras(db, id);
+      await undoVoidedJobExtras(db, id, session.sub);
       return c.json(await jobRepo.findBoardRow(db, id), 200);
     }
     if (!canVoidJob(from, session.role)) {
@@ -792,7 +869,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       // and only the owner may void it now.
       const now = await jobRepo.findBoardRow(db, id);
       if (now?.status === 'void') {
-        await undoVoidedJobExtras(db, id);
+        await undoVoidedJobExtras(db, id, session.sub);
         return c.json(now, 200);
       }
       return c.json(
@@ -800,7 +877,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
         409,
       );
     }
-    await undoVoidedJobExtras(db, id);
+    await undoVoidedJobExtras(db, id, session.sub);
     return c.json(voided, 200);
   })
   // Owner correction: the job was paid by UPI but recorded as cash (or vice versa).

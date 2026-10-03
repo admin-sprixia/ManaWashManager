@@ -57,6 +57,18 @@ export interface ReminderInput {
   vehicleType?: string;
   daysSince: number;
   lastServices: string[];
+  /** The car's stamp card worth mentioning: a free wash waiting, or stamps that will reset. */
+  reward?: { serviceName: string; free: number; stamps: number; every: number; expiresAt: string | null } | null;
+}
+
+function rewardLine(reward: NonNullable<ReminderInput['reward']>): string {
+  const until = reward.expiresAt
+    ? new Date(reward.expiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+    : null;
+  if (reward.free > 0) {
+    return `🎁 Your *free ${reward.serviceName}* is waiting${until ? ` — use it by ${until} or it expires` : ''}.`;
+  }
+  return `⭐ You have ${reward.stamps} of ${reward.every} stamps towards a *free ${reward.serviceName}*${until ? ` — they reset on ${until}, so come by before then` : ''}.`;
 }
 
 /** Gentle "your car is due" nudge for a vehicle that hasn't been in for a while. */
@@ -69,6 +81,7 @@ export function buildReminderMessage(input: ReminderInput): string {
     `It’s been ${input.daysSince} days since ${yourVehicle(input.registrationNumber, input.vehicleType).replace(/^Your/, 'your')} got its last wash${last} at *${SHOP.name}* 🚿`,
     '',
     'Dust and grime build up fast — drop by whenever it suits you and we’ll have it shining again ✨',
+    ...(input.reward ? ['', rewardLine(input.reward)] : []),
     '',
     'See you soon!',
     `*Team ${SHOP.name}*`,

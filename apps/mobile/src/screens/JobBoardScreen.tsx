@@ -77,7 +77,12 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
     myShops,
     info: shopInfo,
   } = useShop();
-  const moreAlert = (isOwner && (unseenErrors > 0 || joinRequests > 0)) || lowStock > 0;
+  const moreAlerts = [
+    isOwner && unseenErrors > 0 ? 'new errors to review' : null,
+    isOwner && joinRequests > 0 ? 'someone waiting to join' : null,
+    lowStock > 0 ? 'stock running low' : null,
+  ].filter((a): a is string => a != null);
+  const moreAlert = moreAlerts.length > 0 ? moreAlerts.join(', ') : undefined;
   const [shopsOpen, setShopsOpen] = useState(false);
   const shopSwitch =
     isOwner && myShops.length > 1 && shopInfo

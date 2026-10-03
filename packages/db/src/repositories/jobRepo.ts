@@ -52,8 +52,25 @@ const detailInclude = {
   },
 } as const;
 
-export type BoardRow = Prisma.JobGetPayload<{ include: typeof boardInclude }>;
-export type JobDetail = Prisma.JobGetPayload<{ include: typeof detailInclude }>;
+/** A welcome-gift item on a job, as the board and detail screens show it. */
+export interface BoardGift {
+  id: string;
+  stockItemId: string;
+  itemName: string;
+  unit: string;
+  quantity: number;
+  status: string;
+}
+
+export type BoardRow = Prisma.JobGetPayload<{ include: typeof boardInclude }> & {
+  /** Services on this job taken as a free wash from the car's stamp card. */
+  freeServiceIds: string[];
+  /** The welcome gift written when this (first) wash was paid. */
+  gifts: BoardGift[];
+  /** Gifts this car is still owed from any visit, so staff can hand them over at pickup. */
+  giftsOwedForCar: BoardGift[];
+};
+export type JobDetail = Omit<Prisma.JobGetPayload<{ include: typeof detailInclude }>, keyof BoardRow> & BoardRow;
 
 type Person = { id: string; name: string };
 
@@ -84,7 +101,8 @@ async function loadBoard(
   orderBy?: Prisma.JobOrderByWithRelationInput,
 ): Promise<BoardRow[]> {
   const viaJob = { job: where };
-  const [jobs, customers, vehicles, lines, washers, sellers, vehicleTypes, services, people] = await Promise.all([
+  const owedForCar = { status: 'owed', vehicle: { jobs: { some: where } } };
+  const [jobs, customers, vehicles, lines, washers, sellers, vehicleTypes, services, people, claims, gifts, owed, giftItems] = await Promise.all([
     db.job.findMany({ where, orderBy }),
     db.customer.findMany({ where: { jobs: { some: where } } }),
     db.vehicle.findMany({ where: { jobs: { some: where } } }),
@@ -102,6 +120,19 @@ async function loadBoard(
     db.vehicleType.findMany(),
     db.service.findMany(),
     db.user.findMany({ select: { id: true, name: true } }),
+    // Claims don't link to their job in the database (they're written first), so they're found
+    // through the jobs' vehicles and matched by job id below.
+    db.rewardClaim.findMany({
+      where: { vehicle: { jobs: { some: where } } },
+      orderBy: [{ jobId: 'asc' }, { serviceId: 'asc' }],
+      select: { jobId: true, serviceId: true },
+    }),
+    db.rewardGift.findMany({ where: viaJob, orderBy: [{ jobId: 'asc' }, { id: 'asc' }] }),
+    db.rewardGift.findMany({ where: owedForCar, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] }),
+    db.stockItem.findMany({
+      where: { rewardGifts: { some: { OR: [viaJob, owedForCar] } } },
+      select: { id: true, name: true, unit: true },
+    }),
   ]);
   if (!jobs.length) return [];
   const customerById = byId(customers);
@@ -112,6 +143,26 @@ async function loadBoard(
   const linesByJob = groupByJob(lines);
   const washersByJob = groupByJob(washers);
   const sellersByJob = groupByJob(sellers);
+  const claimsByJob = groupByJob(claims);
+  const giftsByJob = groupByJob(gifts);
+  const giftItemById = byId(giftItems);
+  const owedByVehicle = new Map<string, typeof owed>();
+  for (const g of owed) {
+    const list = owedByVehicle.get(g.vehicleId);
+    if (list) list.push(g);
+    else owedByVehicle.set(g.vehicleId, [g]);
+  }
+  const toBoardGift = (g: (typeof gifts)[number]): BoardGift => {
+    const item = giftItemById.get(g.stockItemId);
+    return {
+      id: g.id,
+      stockItemId: g.stockItemId,
+      itemName: item?.name ?? 'Item',
+      unit: item?.unit ?? 'pcs',
+      quantity: g.quantity,
+      status: g.status,
+    };
+  };
   const person = (id: string | null) => (id ? (personById.get(id) ?? null) : null);
   return jobs.map((job) => {
     const vehicle = vehicleById.get(job.vehicleId)!;
@@ -124,6 +175,9 @@ async function loadBoard(
       paidBy: person(job.paidByUserId),
       washers: (washersByJob.get(job.id) ?? []).map((w) => ({ user: person(w.userId)! })),
       sellers: (sellersByJob.get(job.id) ?? []).map((s) => ({ user: person(s.userId)! })),
+      freeServiceIds: (claimsByJob.get(job.id) ?? []).map((c) => c.serviceId),
+      gifts: (giftsByJob.get(job.id) ?? []).map(toBoardGift),
+      giftsOwedForCar: (owedByVehicle.get(job.vehicleId) ?? []).map(toBoardGift),
     };
   });
 }
@@ -399,6 +453,7 @@ export const jobRepo = {
     });
     return loadBoardRow(db, id);
   },
+
 
   async voidJob(
     db: DbClient,

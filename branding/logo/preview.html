@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MANA logo sheet</title>
+<style>
+  :root { --ink:#0C4A6E; --deep:#0369A1; --water:#0EA5E9; --mist:#E0F2FE; --night:#082F49; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; color:var(--ink); background:#F6FAFD; }
+  header { padding:40px 32px 8px; max-width:1180px; margin:0 auto; }
+  h1 { margin:0 0 6px; font-size:28px; letter-spacing:-.3px; }
+  header p { margin:0; color:#475569; max-width:720px; }
+  main { max-width:1180px; margin:0 auto; padding:8px 32px 64px; }
+  h2 { margin:44px 0 4px; font-size:13px; letter-spacing:1.4px; text-transform:uppercase; color:var(--deep); }
+  .note { margin:0 0 16px; color:#475569; font-size:14px; }
+  .grid { display:grid; gap:16px; }
+  .g2 { grid-template-columns:repeat(2,1fr); }
+  .g3 { grid-template-columns:repeat(3,1fr); }
+  .g4 { grid-template-columns:repeat(4,1fr); }
+  .tile { border-radius:16px; padding:28px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; min-height:200px; border:1px solid #DBEAFE; }
+  .tile img { max-width:100%; display:block; }
+  .tile small { font-size:12px; letter-spacing:.3px; opacity:.75; }
+  .light { background:#fff; }
+  .dark  { background:var(--night); border-color:#0b3a57; color:#BAE6FD; }
+  .night { background:#0B1220; border-color:#1f2a44; color:#94A3B8; }
+  .brand { background:linear-gradient(135deg,#7DD3FC,#0EA5E9 45%,#0369A1); border-color:transparent; color:#fff; }
+  .mist  { background:var(--mist); }
+  .sizes { display:flex; align-items:flex-end; gap:28px; }
+  .sizes figure { margin:0; display:flex; flex-direction:column; align-items:center; gap:8px; font-size:11px; }
+  .squircle { border-radius:22.5%; overflow:hidden; }
+  .circle { border-radius:50%; overflow:hidden; }
+  .chips { display:flex; flex-wrap:wrap; gap:10px; }
+  .chip { display:flex; align-items:center; gap:10px; background:#fff; border:1px solid #DBEAFE; border-radius:12px; padding:8px 12px 8px 8px; font-size:12px; }
+  .chip i { width:30px; height:30px; border-radius:8px; display:block; }
+  .chip b { display:block; font-size:12px; }
+  .chip span { color:#64748B; }
+  @media (max-width:900px){ .g3,.g4{ grid-template-columns:repeat(2,1fr);} }
+  @media (max-width:560px){ .g2,.g3,.g4{ grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+<header>
+  <h1>MANA — logo sheet</h1>
+  <p>A plain water drop with a Venkateswara namam hidden inside it. The white U with its rippled base is the namam's two arms (and reads as water settling); the red line between them is the srichurnam and also a small drop. Every file is plain vector with the lettering drawn as paths, so it looks identical everywhere with no font installed.</p>
+</header>
+<main>
+
+<h2>1 · Full colour, on light</h2>
+<p class="note">The default. Use on white or very light backgrounds.</p>
+<div class="grid g2">
+  <div class="tile light"><img src="mana-logo-horizontal.svg" width="440" alt=""><small>mana-logo-horizontal.svg</small></div>
+  <div class="tile light"><img src="mana-logo-stacked.svg" width="300" alt=""><small>mana-logo-stacked.svg</small></div>
+</div>
+
+<h2>2 · Logo without the name (mark only)</h2>
+<p class="note">For avatars, favicons, WhatsApp profile photo, watermarks, small spaces.</p>
+<div class="grid g4">
+  <div class="tile light"><img src="mana-mark.svg" width="120" alt=""><small>mana-mark.svg</small></div>
+  <div class="tile dark"><img src="mana-mark-dark.svg" width="120" alt=""><small>mana-mark-dark.svg</small></div>
+  <div class="tile mist"><img src="mana-mark-mono.svg" width="120" alt=""><small>mana-mark-mono.svg</small></div>
+  <div class="tile brand"><img src="mana-mark-mono-white.svg" width="120" alt=""><small>mana-mark-mono-white.svg</small></div>
+</div>
+
+<h2>3 · Dark mode</h2>
+<p class="note">A brighter droplet and white lettering, tuned for dark navy and near-black.</p>
+<div class="grid g2">
+  <div class="tile dark"><img src="mana-logo-horizontal-dark.svg" width="440" alt=""><small>mana-logo-horizontal-dark.svg · on #082F49</small></div>
+  <div class="tile night"><img src="mana-logo-stacked-dark.svg" width="300" alt=""><small>mana-logo-stacked-dark.svg · on #0B1220</small></div>
+  </div>
+
+<h2>4 · One colour</h2>
+<p class="note">For stamps, receipts, embroidery, single-colour print, and photos. Ink on light, white on dark or on the brand blue.</p>
+<div class="grid g2">
+  <div class="tile light"><img src="mana-logo-horizontal-mono.svg" width="440" alt=""><small>mana-logo-horizontal-mono.svg</small></div>
+  <div class="tile brand"><img src="mana-logo-horizontal-mono-white.svg" width="440" alt=""><small>mana-logo-horizontal-mono-white.svg</small></div>
+</div>
+
+<h2>5 · App icon</h2>
+<p class="note">A white drop on the app's own gradient, with the same soft orbs as the Job Board header. The namam's arms are drawn in blue, like a window onto the background. Kept clear of the edges so Android's round and squircle masks never clip it.</p>
+<div class="grid g3">
+  <div class="tile mist"><div class="sizes"><figure><img class="squircle" src="mana-app-icon.svg" width="144" alt=""><span>squircle</span></figure><figure><img class="circle" src="mana-app-icon.svg" width="144" alt=""><span>round</span></figure></div><small>mana-app-icon.svg · 512×512</small></div>
+  <div class="tile light"><div class="sizes"><figure><img class="squircle" src="mana-app-icon.svg" width="64" alt=""><span>64</span></figure><figure><img class="squircle" src="mana-app-icon.svg" width="48" alt=""><span>48</span></figure><figure><img class="squircle" src="mana-app-icon.svg" width="32" alt=""><span>32</span></figure></div><small>small sizes</small></div>
+  <div class="tile light"><div class="sizes"><figure><img src="mana-mark.svg" width="64" alt=""><span>64</span></figure><figure><img src="mana-mark.svg" width="40" alt=""><span>40</span></figure><figure><img src="mana-mark.svg" width="24" alt=""><span>24</span></figure><figure><img src="mana-mark.svg" width="16" alt=""><span>16</span></figure></div><small>mark at small sizes</small></div>
+</div>
+
+<h2>6 · Badge / seal</h2>
+<p class="note">A round emblem for rubber stamps, uniforms, car stickers and the back of receipts.</p>
+<div class="grid g3">
+  <div class="tile light"><img src="mana-badge.svg" width="230" alt=""><small>mana-badge.svg</small></div>
+  <div class="tile dark"><img src="mana-badge-dark.svg" width="230" alt=""><small>mana-badge-dark.svg</small></div>
+  <div class="tile brand"><img src="mana-badge-mono-white.svg" width="230" alt=""><small>mana-badge-mono-white.svg</small></div>
+</div>
+
+<h2>Palette</h2>
+<p class="note">Taken straight from the app's theme, so print and screen match.</p>
+<div class="chips">
+  <div class="chip"><i style="background:#7DD3FC"></i><div><b>Sky</b><span>#7DD3FC</span></div></div>
+  <div class="chip"><i style="background:#0EA5E9"></i><div><b>Water</b><span>#0EA5E9</span></div></div>
+  <div class="chip"><i style="background:#0369A1"></i><div><b>Deep</b><span>#0369A1</span></div></div>
+  <div class="chip"><i style="background:#0C4A6E"></i><div><b>Ink</b><span>#0C4A6E</span></div></div>
+  <div class="chip"><i style="background:#082F49"></i><div><b>Midnight</b><span>#082F49</span></div></div>
+  <div class="chip"><i style="background:#F59E0B"></i><div><b>Shine</b><span>#F59E0B</span></div></div>
+  <div class="chip"><i style="background:#0D9488"></i><div><b>Teal</b><span>#0D9488</span></div></div>
+</div>
+
+</main>
+</body>
+</html>

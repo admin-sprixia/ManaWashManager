@@ -42,6 +42,7 @@ import {
   IconCloudOff,
   IconDroplet,
   IconEdit,
+  IconGift,
   IconPerson,
   IconPhone,
   IconPlay,
@@ -61,6 +62,7 @@ import { CacheKeys, readCache } from '../offline/cache';
 import type { BoardJob } from '../offline/types';
 import { formatDateTime, formatRupees } from '../utils/format';
 import { openWhatsApp } from '../utils/whatsapp';
+import { giftLine } from '../utils/rewards';
 import {
   actionLabel,
   customerLine,
@@ -348,10 +350,15 @@ export function JobDetailScreen({ navigation, route }: Props) {
         <View style={styles.bill}>
           {job.jobServices.map((line, i) => (
             <View key={i} style={styles.billRow}>
-              <Text style={styles.billName} numberOfLines={1}>
-                {line.service.name}
-                {line.quantity > 1 ? ` × ${line.quantity}` : ''}
-              </Text>
+              <View style={styles.billNameRow}>
+                <Text style={styles.billName} numberOfLines={1}>
+                  {line.service.name}
+                  {line.quantity > 1 ? ` × ${line.quantity}` : ''}
+                </Text>
+                {line.serviceId && job.freeServiceIds?.includes(line.serviceId) ? (
+                  <Pill label="FREE · STAMP CARD" tone="amber" />
+                ) : null}
+              </View>
               <Text style={styles.billAmount}>{formatRupees(line.priceAtTime * line.quantity)}</Text>
             </View>
           ))}
@@ -374,6 +381,40 @@ export function JobDetailScreen({ navigation, route }: Props) {
             <Text style={styles.billTotal}>{formatRupees(job.total)}</Text>
           </View>
         </View>
+
+        {job.gifts && job.gifts.length > 0 ? (
+          <>
+            <SectionLabel>Welcome gift</SectionLabel>
+            <EdgeGroup>
+              {job.gifts.map((g) => (
+                <EdgeRow
+                  key={g.id}
+                  icon={<IconGift size={19} color={g.status === 'owed' ? '#C2410C' : colors.tealDeep} />}
+                  iconBg={g.status === 'owed' ? '#FFEDD5' : '#CCFBF1'}
+                  title={giftLine(g)}
+                  subtitle={
+                    g.status === 'given'
+                      ? 'Handed over on this first visit'
+                      : g.status === 'owed'
+                        ? 'Out of stock — owed. Hand it over from the customer’s page.'
+                        : 'Taken back — this wash was voided'
+                  }
+                  right={
+                    <Pill
+                      label={g.status === 'given' ? 'GIVEN' : g.status === 'owed' ? 'OWED' : 'CANCELLED'}
+                      tone={g.status === 'given' ? 'teal' : g.status === 'owed' ? 'amber' : 'slate'}
+                    />
+                  }
+                  onPress={
+                    g.status === 'owed'
+                      ? () => navigation.navigate('CustomerProfile', { customerId: job.customer.id })
+                      : undefined
+                  }
+                />
+              ))}
+            </EdgeGroup>
+          </>
+        ) : null}
 
         {commission > 0 ? (
           <>
@@ -742,7 +783,8 @@ const styles = StyleSheet.create({
   },
   billRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: spacing.sm, gap: spacing.md },
   billDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, marginTop: 2 },
-  billName: { ...typography.body, color: colors.waterInk, flex: 1 },
+  billNameRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
+  billName: { ...typography.body, color: colors.waterInk, flexShrink: 1 },
   billAmount: { ...typography.bodyStrong, color: colors.waterInk },
   billMuted: { ...typography.body, color: colors.slateDeep, fontSize: 14 },
   billDiscount: { ...typography.body, color: colors.teal, fontSize: 14, flexShrink: 1 },

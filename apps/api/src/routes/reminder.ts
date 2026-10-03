@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { couponRepo, reminderRepo } from '@mana/db';
+import { couponRepo, reminderRepo, rewardRepo } from '@mana/db';
 import {
   addDays,
   COMEBACK_DAYS,
@@ -34,15 +34,13 @@ export const reminderRoutes = new Hono<{ Bindings: Env }>()
   .get('/', async (c) => {
     const db = c.get('db');
     const now = new Date();
-    const [vehicles, coupons] = await Promise.all([
-      reminderRepo.listLapsed(
-        db,
-        addDays(now, -REMINDER_DUE_DAYS),
-        now,
-        addDays(now, -REMINDER_LOOKBACK_DAYS),
-        REMINDER_LIST_MAX,
-      ),
+    const dueBefore = addDays(now, -REMINDER_DUE_DAYS);
+    const seenAfter = addDays(now, -REMINDER_LOOKBACK_DAYS);
+    const [vehicles, coupons, cards] = await Promise.all([
+      reminderRepo.listLapsed(db, dueBefore, now, seenAfter, REMINDER_LIST_MAX),
       couponRepo.listRecent(db, now, addDays(now, -RECENT_REDEMPTIONS_DAYS)),
+      // Stamp cards to mention in the reminder ("2 more for a free wash", "free wash waiting").
+      rewardRepo.cardsWhere(db, reminderRepo.lapsedWhere(dueBefore, seenAfter), now),
     ]);
 
     const items = vehicles.flatMap((v) => {
@@ -75,6 +73,7 @@ export const reminderRoutes = new Hono<{ Bindings: Env }>()
                 expiresAt: coupon.expiresAt.toISOString(),
               }
             : null,
+          rewards: cards.get(v.id) ?? [],
         },
       ];
     });

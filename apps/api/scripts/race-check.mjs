@@ -6,9 +6,8 @@
 // exact same instant the way it can in production. These checks prove every guard is in place
 // and that the second request is answered cleanly; the guards themselves are single statements
 // (or a per-number lock) so they also hold when requests truly overlap.
-import { execSync } from 'node:child_process';
+import { API, d1Rows, d1Run } from './lib/target.mjs';
 
-const API = process.env.API_URL ?? 'http://localhost:8787';
 const DEV_CODE = process.env.DEV_CODE ?? '000000';
 const PIN = '2580';
 
@@ -39,13 +38,8 @@ async function call(token, method, path, body, extraHeaders = {}) {
   return { status: res.status, body: json };
 }
 
-const wrangler = (command, json) =>
-  execSync(
-    `npx wrangler d1 execute mana_db --local ${json ? '--json ' : ''}--command "${command.replace(/"/g, '\\"')}"`,
-    { stdio: json ? ['ignore', 'pipe', 'ignore'] : 'ignore' },
-  );
-const sql = (command) => wrangler(command, false);
-const rows = (query) => JSON.parse(String(wrangler(query, true)))[0]?.results ?? [];
+const sql = d1Run;
+const rows = d1Rows;
 
 const run = Date.now().toString(36);
 const rand = (n) => String(Math.floor(Math.random() * 10 ** n)).padStart(n, '0');

@@ -15,6 +15,7 @@ export const CacheKeys = {
   directoryV1: 'directory.v1',
   shop: 'shop.v1',
   stock: 'stock.v1',
+  rewards: 'rewards.v1',
   plan: 'plan.v1',
 } as const;
 

@@ -3,9 +3,8 @@
 //   cd apps/api && npm run test:isolation                     (in another)
 // Shop A is the seeded MANA shop; Shop B ("Test Wash") is added by this script. Shop A creates
 // one of everything, then Shop B tries to read and change each of them by ID and by listing.
-import { execSync } from 'node:child_process';
+import { API, d1Rows, d1Run } from './lib/target.mjs';
 
-const API = process.env.API_URL ?? 'http://localhost:8787';
 const DEV_CODE = process.env.DEV_CODE ?? '000000';
 const PIN = '2580';
 
@@ -36,11 +35,8 @@ async function call(token, method, path, body) {
   return { status: res.status, body: json };
 }
 
-function sql(command) {
-  execSync(`npx wrangler d1 execute mana_db --local --command "${command.replace(/"/g, '\\"')}"`, {
-    stdio: 'ignore',
-  });
-}
+const sql = d1Run;
+const rows = d1Rows;
 
 /**
  * Owner sign-in the way the app does it: PIN if one is set (re-runs), otherwise the WhatsApp
@@ -126,6 +122,16 @@ form.append('file', new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], { type:
 const photo = await call(A, 'POST', '/photos', form);
 check('Shop A uploads a photo', photo.status === 200 || photo.status === 201, JSON.stringify(photo.body));
 
+const rule = await call(A, 'PUT', '/rewards/rules/svc_complete_wash', { every: 5 });
+check('Shop A turns on a stamp card', rule.status === 200, JSON.stringify(rule.body));
+const giftItemId = id('stk_iso_');
+const giftId = `${jobId}:${giftItemId}`;
+sql(
+  `INSERT INTO stock_items (id, shop_id, name, name_key, unit, balance, created_by_user_id) VALUES ('${giftItemId}', 'shop_mana', 'Iso cloth', 'iso cloth ${giftItemId}', 'pcs', 5, 'user_owner_seed');` +
+    `INSERT INTO reward_gift_items (stock_item_id, shop_id, quantity, sort_order, updated_by_user_id) VALUES ('${giftItemId}', 'shop_mana', 1, 0, 'user_owner_seed');` +
+    `INSERT INTO reward_gifts (id, shop_id, job_id, vehicle_id, customer_id, stock_item_id, quantity, status) VALUES ('${giftId}', 'shop_mana', '${jobId}', '${vehicleId}', '${customerId}', '${giftItemId}', 1, 'owed');`,
+);
+
 // ─── Shop B tries to READ Shop A's data ───────────────────────────────────
 
 let r = await call(B, 'GET', `/jobs/${jobId}`);
@@ -177,6 +183,20 @@ r = await call(B, 'GET', '/shop/errors');
 check('B’s error log is only B’s', r.status === 200);
 r = await call(B, 'GET', `/coupons/usable?registrationNumber=${plate}&phone=${customerPhone}`);
 check('B finds no coupon for A’s vehicle', !JSON.stringify(r.body).includes('"code"'));
+r = await call(B, 'GET', '/rewards/settings');
+check(
+  'B’s rewards settings have none of A’s cards or gift',
+  r.status === 200 && !JSON.stringify(r.body).includes('svc_complete_wash') && !JSON.stringify(r.body).includes(giftItemId),
+  JSON.stringify(r.body).slice(0, 160),
+);
+r = await call(B, 'GET', `/rewards/vehicle?registrationNumber=${plate}`);
+check('B’s reward lookup doesn’t know A’s car', r.status === 200 && r.body?.vehicleId === null && r.body?.isNew === true, JSON.stringify(r.body).slice(0, 160));
+r = await call(B, 'GET', `/rewards/customer/${customerId}`);
+check('B sees no rewards on A’s customer', r.status === 200 && r.body?.vehicles?.length === 0 && r.body?.giftsOwed?.length === 0);
+r = await call(B, 'GET', '/rewards/gifts/owed');
+check('B’s owed gifts have none of A’s', r.status === 200 && !JSON.stringify(r.body).includes(giftId));
+r = await call(B, 'GET', '/rewards/report');
+check('B’s rewards report has none of A’s gifts', r.status === 200 && r.body?.giftsOwedNow === 0, JSON.stringify(r.body).slice(0, 160));
 
 // ─── Shop B tries to CHANGE Shop A's data ─────────────────────────────────
 
@@ -208,6 +228,19 @@ r = await call(B, 'PUT', '/services/prices', { serviceId: 'svc_complete_wash', v
 check('B cannot change A’s prices', r.status >= 400, `${r.status}`);
 r = await call(B, 'PUT', '/services/commissions', { serviceId: 'svc_complete_wash', vehicleTypeId: 'vt_sedan', amount: 100 });
 check('B cannot set A’s commissions', r.status >= 400, `${r.status}`);
+r = await call(B, 'PUT', '/rewards/rules/svc_complete_wash', { every: 2 });
+check('B cannot change A’s stamp card', notMine(r), `${r.status}`);
+r = await call(B, 'DELETE', '/rewards/rules/svc_complete_wash');
+r = await call(A, 'GET', '/rewards/settings');
+check('B cannot switch off A’s stamp card', r.body?.rules?.some((x) => x.serviceId === 'svc_complete_wash' && x.every === 5), JSON.stringify(r.body).slice(0, 160));
+r = await call(B, 'PUT', '/rewards/gift', { items: [{ stockItemId: giftItemId, quantity: 1 }] });
+check('B cannot use A’s stock as its welcome gift', r.status === 400 && r.body?.error === 'item_not_found', `${r.status}`);
+r = await call(B, 'POST', `/rewards/gifts/${encodeURIComponent(giftId)}/give`);
+check('B cannot hand over A’s owed gift', notMine(r), `${r.status}`);
+const giftNow = rows(
+  `SELECT g.status AS status, s.balance AS balance FROM reward_gifts g JOIN stock_items s ON s.id = g.stock_item_id WHERE g.id = '${giftId}'`,
+)[0];
+check('…which stays owed, with A’s stock untouched', giftNow?.status === 'owed' && giftNow?.balance === 5, JSON.stringify(giftNow));
 
 r = await call(B, 'POST', '/jobs/start', {
   id: id('job'),

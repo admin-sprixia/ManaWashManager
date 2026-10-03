@@ -76,6 +76,7 @@ jobs:
       - run: npm run test:isolation
       - run: npm run test:signup
       - run: npm run test:races
+      - run: npm run test:rewards
       - name: Plan limits and billing webhook
         run: |
           RAZORPAY_WEBHOOK_SECRET="$(grep '^RAZORPAY_WEBHOOK_SECRET=' .dev.vars | cut -d= -f2-)" npm run test:plans

@@ -25,6 +25,7 @@ const FEATURE_PITCH: Record<ProFeature, string> = {
   reminders: 'See who’s due for their next wash and message them on WhatsApp in one tap.',
   coupons: 'Send comeback coupons that bring quiet customers back, and track every one used.',
   referrals: 'Reward customers who bring their friends, with the discount worked out for you.',
+  rewards: 'Give every car a stamp card — wash 5, the next one is free — and a welcome gift on its first visit.',
   fullReports: 'See this month, this year or any dates you pick — not just today and the last 7 days.',
   pdfExport: 'Share a clean PDF report with your partner or accountant.',
   expenses: 'Log what the shop spends with bill photos, and see your real profit.',

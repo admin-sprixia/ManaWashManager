@@ -13,7 +13,7 @@ enabled = true
 [[d1_databases]]
 binding = "DB"
 database_name = "mana_db"
-database_id = "9691507c-caf1-4987-9f7c-5093357601e1"
+database_id = "6dbc5c3d-93a6-4aee-b2e0-5cccb1b39dc3"
 migrations_dir = "migrations"
 
 # Job and expense photos (shops/<shop>/…).

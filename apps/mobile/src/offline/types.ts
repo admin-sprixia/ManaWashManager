@@ -1,4 +1,42 @@
-import type { ExpenseCategory, ExpenseUnit, JobStatus, PaymentMethod, VehicleCategory } from '@mana/domain';
+import type { ExpenseCategory, ExpenseUnit, JobStatus, PaymentMethod, StockUnit, VehicleCategory } from '@mana/domain';
+
+/** One car's stamp card for one service (API `RewardCardView`, dates as ISO strings). */
+export interface RewardCard {
+  serviceId: string;
+  serviceName: string;
+  every: number;
+  stamps: number;
+  free: number;
+  lastVisitAt: string | null;
+  /** When the card resets unless the car gets this service again; null = nothing to lose. */
+  expiresAt: string | null;
+}
+
+/** A welcome-gift item owed to, or handed over to, a car (API `RewardGiftView`). */
+export interface RewardGift {
+  id: string;
+  jobId: string;
+  vehicleId: string;
+  customerId: string;
+  stockItemId: string;
+  itemName: string;
+  unit: StockUnit;
+  quantity: number;
+  status: 'owed' | 'given' | 'cancelled';
+  createdAt: string;
+  givenAt: string | null;
+  givenBy: { id: string; name: string } | null;
+}
+
+/** The welcome gift written on a car's first paid wash, as the board shows it. */
+export interface BoardGift {
+  id: string;
+  stockItemId: string;
+  itemName: string;
+  unit: string;
+  quantity: number;
+  status: string;
+}
 
 /** A job row as the Job Board / Job Detail render it (API JSON, dates as ISO strings). */
 export interface BoardJob {
@@ -12,7 +50,19 @@ export interface BoardJob {
   paymentMethod: PaymentMethod | null;
   customer: { id: string; name: string | null; phone: string };
   vehicle: { registrationNumber: string; vehicleType: { name: string; category?: string } };
-  jobServices: { quantity: number; priceAtTime: number; commissionAtTime?: number; service: { name: string } }[];
+  jobServices: {
+    serviceId?: string;
+    quantity: number;
+    priceAtTime: number;
+    commissionAtTime?: number;
+    service: { name: string };
+  }[];
+  /** Services on this bill given free from the car's stamp card. */
+  freeServiceIds?: string[];
+  /** Welcome gift written when this (first) wash was paid. */
+  gifts?: BoardGift[];
+  /** Gifts this car is still owed from any visit (out of stock at the time). */
+  giftsOwedForCar?: BoardGift[];
   createdBy: { id: string; name: string } | null;
   paidBy: { id: string; name: string } | null;
   washers?: { user: { id: string; name: string } }[];
@@ -37,6 +87,8 @@ export interface StartJobPayload {
   couponCode?: string;
   /** Signed referral quote; the server re-checks it and applies the discount. Never queued offline. */
   referralToken?: string;
+  /** Free washes from the car's stamp cards; the server re-checks every one. Never queued offline. */
+  rewardServiceIds?: string[];
   /** Who got this service, when a picked service pays commission. Defaults to whoever enters it. */
   sellerIds?: string[];
 }

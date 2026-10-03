@@ -32,3 +32,6 @@ dist/
 # misc
 coverage/
 .DS_Store
+
+# Speed reports from npm run perf:report (machine-specific measurements)
+apps/api/perf-results/

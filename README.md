@@ -81,7 +81,8 @@ how something is named or structured.
 
 ## What's actually running right now
 
-`mana_db` exists on Cloudflare (database id `9691507c-caf1-4987-9f7c-5093357601e1`); locally
+`mana_db` exists on Cloudflare in the Asia-Pacific region (database id
+`6dbc5c3d-93a6-4aee-b2e0-5cccb1b39dc3`) with every migration applied and no data; locally
 the API, the full demo data (`npm run db:seed:demo`) and the Android app on a real device are
 verified end to end. Going live is a deliberate, one-time sequence — see [Go live](#go-live).
 
@@ -343,6 +344,7 @@ Don't merge a red build.
 cd apps/api && npm run test:isolation   # adds a second shop and proves neither can see or change the other's data
 cd apps/api && npm run test:signup      # new shop sign-up, join requests (approve/reject/cancel), remove from team
 cd apps/api && npm run test:plans       # Free limits (staff seats, 300 washes, 7-day reports, Pro-only features), trial, grace, webhook signature
+cd apps/api && npm run test:rewards     # stamp cards, free washes, welcome gifts and owed gifts, including voids and retries
 ```
 
 `test:plans` checks a correctly signed webhook too when `RAZORPAY_WEBHOOK_SECRET` is set in the

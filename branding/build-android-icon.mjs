@@ -1,22 +1,24 @@
-// Builds the Android launcher icon from the same shapes as the logo files.
-//   node branding/build-logos.mjs && node branding/build-android-icon.mjs
+// Builds the Android launcher icon from branding/android-icon/app-icon.svg (the source artwork).
+//   node branding/build-android-icon.mjs
 //
-// Writes into apps/mobile/android/app/src/main/res:
-//   - Adaptive icon (Android 8+): vector background + foreground, plus a monochrome layer that
-//     Android 13+ tints for "themed icons". The launcher masks it to a circle / squircle / square.
+// The artwork uses blurred glows, shadows and masks, which Android vector drawables cannot express, so the
+// adaptive icon's two image layers are rendered to PNG at every density. Writes into
+// apps/mobile/android/app/src/main/res:
+//   - Adaptive icon (Android 8+): mipmap-*/ic_launcher_background.png + ic_launcher_foreground.png (108 dp
+//     layers; the launcher guarantees only the centre 66 dp is visible, and masks to circle / squircle / square),
+//     plus a one-colour vector (drawable-v26/ic_launcher_monochrome.xml) that Android 13+ tints for themed icons.
 //   - Legacy PNGs (Android 6–7, minSdk is 23): rounded-square and round, at every density.
-// And a 512×512 PNG for the Play Store listing at branding/logo/mana-app-icon-512.png.
+// And writes the layers (background.svg, foreground.svg) and a 512×512 Play Store PNG into branding/android-icon/.
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
-import { DROP, NAMAM_ARMS, NAMAM_DROP, P, n } from './shapes.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RES = join(HERE, '..', 'apps', 'mobile', 'android', 'app', 'src', 'main', 'res');
-const ICON_SVG = join(HERE, 'logo', 'mana-app-icon.svg');
-const PLAY_PNG = join(HERE, 'logo', 'mana-app-icon-512.png');
+const SRC_DIR = join(HERE, 'android-icon');
+const SRC = join(SRC_DIR, 'app-icon.svg');
 
 const put = (path, content) => {
   mkdirSync(dirname(path), { recursive: true });
@@ -24,135 +26,115 @@ const put = (path, content) => {
   console.log('wrote', path.replace(join(HERE, '..') + '/', ''));
 };
 
-// ─── Adaptive icon (108 × 108 dp; the launcher guarantees only the centre 66 dp is visible) ──
-// Same composition as mana-app-icon.svg (512 canvas → 108 viewport).
-const K = 108 / 512;
-const SCALE = 1.25 * K;
-const TX = 96 * K;
-const TY = 100 * K;
+// ─── Split the source into a background layer and a foreground layer ────────────
+const src = readFileSync(SRC, 'utf8');
+const defs = src.match(/<defs>([\s\S]*?)<\/defs>/)[1];
+const afterDefs = src.slice(src.indexOf('</defs>') + 7, src.lastIndexOf('</svg>'));
+const groupAt = afterDefs.indexOf('<g transform="translate(');
+if (groupAt < 0) throw new Error('app-icon.svg: could not find the drop group');
+const backgroundArt = afterDefs.slice(0, groupAt); // tile, glow, stars
+const dropArt = afterDefs.slice(groupAt).replace(/^<g transform="[^"]*">/, '').replace(/<\/g>$/, '');
 
-const argb = (hex, alpha) =>
-  '#' + Math.round(alpha * 255).toString(16).padStart(2, '0').toUpperCase() + hex.slice(1);
+// The drop in the 108 dp adaptive layer. Its height (with thickness) is 235 source units; this scale keeps
+// that inside the 66 dp safe circle with room for the soft glow.
+const K = 108 / 512;
+const SCALE = 1.2 * K;
+const DROP_CENTRE_Y = 131.5; // the drop spans y 14–249 in source units, including its thickness
+const TX = 54 - 128 * SCALE;
+const TY = 54 - DROP_CENTRE_Y * SCALE;
+
+const svgOpen = (vb) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb}" width="108" height="108">`;
+const backgroundSvg = `${svgOpen('0 0 512 512')}<defs>${defs}</defs>${backgroundArt}</svg>\n`;
+const foregroundSvg =
+  `${svgOpen('0 0 108 108')}<defs>${defs}</defs>` +
+  `<g transform="translate(${TX.toFixed(3)} ${TY.toFixed(3)}) scale(${SCALE.toFixed(4)})">${dropArt}</g></svg>\n`;
+put(join(SRC_DIR, 'background.svg'), backgroundSvg);
+put(join(SRC_DIR, 'foreground.svg'), foregroundSvg);
+
+// ─── Adaptive icon layers as PNGs, one per density ────────────────────────────
+const LAYER_PX = { mdpi: 108, hdpi: 162, xhdpi: 216, xxhdpi: 324, xxxhdpi: 432 };
+const renderSvg = (svg, px) => sharp(Buffer.from(svg), { density: (72 * px) / 108 * 2 }).resize(px, px, { kernel: 'lanczos3' });
+
+for (const [density, px] of Object.entries(LAYER_PX)) {
+  put(join(RES, `mipmap-${density}`, 'ic_launcher_background.png'), await renderSvg(backgroundSvg, px).flatten({ background: '#060A22' }).png({ compressionLevel: 9 }).toBuffer());
+  put(join(RES, `mipmap-${density}`, 'ic_launcher_foreground.png'), await renderSvg(foregroundSvg, px).png({ compressionLevel: 9 }).toBuffer());
+}
+
+// Safe-zone check on the largest foreground: how far from the centre is anything clearly visible?
+{
+  const px = 432;
+  const { data, info } = await renderSvg(foregroundSvg, px).raw().toBuffer({ resolveWithObject: true });
+  const dpPerPx = 108 / px;
+  let solid = 0, faint = 0;
+  for (let y = 0; y < info.height; y++) {
+    for (let x = 0; x < info.width; x++) {
+      const a = data[(y * info.width + x) * info.channels + 3];
+      const r = Math.hypot(x + 0.5 - px / 2, y + 0.5 - px / 2) * dpPerPx;
+      if (a > 128) solid = Math.max(solid, r);
+      if (a > 12) faint = Math.max(faint, r);
+    }
+  }
+  console.log(`safe zone: solid art reaches ${solid.toFixed(1)} dp, soft glow ${faint.toFixed(1)} dp (circle is 33 dp, full layer 54 dp to the edge)`);
+  if (solid > 33) throw new Error('artwork leaves the 66 dp safe zone');
+}
+
+// ─── One-colour layer for Android 13+ themed icons ─────────────────────────────
+const pathOf = (fill) => {
+  const m = src.match(new RegExp(`<path d="([^"]+)" fill="${fill.replace(/[()#]/g, '\\$&')}"`));
+  if (!m) throw new Error(`app-icon.svg: no path filled ${fill}`);
+  return m[1];
+};
+const pd = (d) => d.replace(/([A-Za-z])/g, ' $1 ').replace(/\s+/g, ' ').trim();
+const DROP = pathOf('url(#s1b-face)');
+const RIM = pathOf('url(#s1b-rim)');
+const LINE = pathOf('url(#s1b-line)');
 
 const XML_HEAD = '<?xml version="1.0" encoding="utf-8"?>\n';
-const VECTOR_OPEN =
+const monochrome =
+  XML_HEAD +
   '<vector xmlns:android="http://schemas.android.com/apk/res/android"\n' +
-  '    xmlns:aapt="http://schemas.android.com/aapt"\n' +
-  '    android:width="108dp"\n' +
-  '    android:height="108dp"\n' +
-  '    android:viewportWidth="108"\n' +
-  '    android:viewportHeight="108">\n';
-
-/** Android path data wants the same syntax as SVG; just make sure commas/spaces are tidy. */
-const pd = (d) => d.replace(/([A-Za-z])/g, ' $1 ').replace(/\s+/g, ' ').trim();
-
-const linear = (attr, { x1, y1, x2, y2, stops }) =>
-  `    <aapt:attr name="android:${attr}">\n` +
-  `      <gradient android:type="linear" android:startX="${n(x1)}" android:startY="${n(y1)}" android:endX="${n(x2)}" android:endY="${n(y2)}">\n` +
-  stops.map(([o, c]) => `        <item android:offset="${o}" android:color="${c}"/>\n`).join('') +
-  `      </gradient>\n` +
-  `    </aapt:attr>\n`;
-
-const circlePath = (cx, cy, r) =>
-  `M${n(cx - r)},${n(cy)} a${n(r)},${n(r)} 0 1,0 ${n(2 * r)},0 a${n(r)},${n(r)} 0 1,0 ${n(-2 * r)},0 Z`;
-
-function background() {
-  const orbA = { cx: 448 * K, cy: 64 * K, r: 190 * K };
-  const orbB = { cx: 56 * K, cy: 484 * K, r: 104 * K };
-  return (
-    XML_HEAD +
-    VECTOR_OPEN +
-    `  <path android:pathData="M0,0h108v108h-108z">\n` +
-    linear('fillColor', {
-      x1: 0, y1: 0, x2: 108, y2: 108,
-      stops: [[0, P.waterLight], [0.45, P.water], [1, P.waterDeep]],
-    }) +
-    `  </path>\n` +
-    `  <path android:fillColor="${argb('#FFFFFF', 0.1)}" android:pathData="${circlePath(orbA.cx, orbA.cy, orbA.r)}"/>\n` +
-    `  <path android:fillColor="${argb(P.tealLight, 0.2)}" android:strokeColor="${argb('#FFFFFF', 0.14)}" android:strokeWidth="0.4" android:pathData="${circlePath(orbB.cx, orbB.cy, orbB.r)}"/>\n` +
-    `</vector>\n`
-  );
-}
-
-const GROUP_OPEN =
-  `  <group\n` +
-  `      android:translateX="${n(TX)}"\n` +
-  `      android:translateY="${n(TY)}"\n` +
-  `      android:scaleX="${Math.round(SCALE * 10000) / 10000}"\n` +
-  `      android:scaleY="${Math.round(SCALE * 10000) / 10000}">\n`;
-
-function foreground() {
-  return (
-    XML_HEAD +
-    VECTOR_OPEN +
-    GROUP_OPEN +
-    // soft drop shadow, then the white droplet
-    `    <group android:translateY="7">\n` +
-    `      <path android:fillColor="${argb(P.waterInk, 0.2)}" android:pathData="${pd(DROP)}"/>\n` +
-    `    </group>\n` +
-    `    <path android:pathData="${pd(DROP)}">\n` +
-    linear('fillColor', { x1: 77.6, y1: 14, x2: 178.4, y2: 242, stops: [[0, P.white], [1, P.waterPale]] }) +
-    `    </path>\n` +
-    // the namam: blue arms (a window onto the background) and the red line between them
-    `    <path android:pathData="${pd(NAMAM_ARMS)}">\n` +
-    linear('fillColor', { x1: 128, y1: 110, x2: 128, y2: 205, stops: [[0, P.water], [1, P.waterDeep]] }) +
-    `    </path>\n` +
-    `    <path android:fillColor="${P.namamRed}" android:pathData="${pd(NAMAM_DROP)}"/>\n` +
-    `  </group>\n` +
-    `</vector>\n`
-  );
-}
-
-/** Themed-icon layer: one colour only (Android 13+ recolours it), so the droplet is an outline. */
-function monochrome() {
-  return (
-    XML_HEAD +
-    VECTOR_OPEN +
-    GROUP_OPEN +
-    `    <path android:pathData="${pd(DROP)}" android:strokeColor="#FF000000" android:strokeWidth="10" android:strokeLineJoin="round"/>\n` +
-`    <path android:fillColor="#FF000000" android:pathData="${pd(NAMAM_ARMS)}"/>\n` +
-    `    <path android:fillColor="#FF000000" android:pathData="${pd(NAMAM_DROP)}"/>\n` +
-    `  </group>\n` +
-    `</vector>\n`
-  );
-}
+  '    android:width="108dp"\n    android:height="108dp"\n    android:viewportWidth="108"\n    android:viewportHeight="108">\n' +
+  `  <group\n      android:translateX="${TX.toFixed(3)}"\n      android:translateY="${TY.toFixed(3)}"\n      android:scaleX="${SCALE.toFixed(4)}"\n      android:scaleY="${SCALE.toFixed(4)}">\n` +
+  `    <path android:pathData="${pd(DROP)}" android:strokeColor="#FF000000" android:strokeWidth="9" android:strokeLineJoin="round"/>\n` +
+  `    <path android:fillColor="#FF000000" android:pathData="${pd(RIM)}"/>\n` +
+  `    <path android:fillColor="#FF000000" android:pathData="${pd(LINE)}"/>\n` +
+  `  </group>\n</vector>\n`;
 
 const ADAPTIVE =
   XML_HEAD +
   '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n' +
-  '    <background android:drawable="@drawable/ic_launcher_background"/>\n' +
-  '    <foreground android:drawable="@drawable/ic_launcher_foreground"/>\n' +
+  '    <background android:drawable="@mipmap/ic_launcher_background"/>\n' +
+  '    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>\n' +
   '    <monochrome android:drawable="@drawable/ic_launcher_monochrome"/>\n' +
   '</adaptive-icon>\n';
 
-// These drawables use vector gradients (API 24+) and are only referenced by the API 26+
-// adaptive icon, so they live in drawable-v26 and never get built for older Androids.
-put(join(RES, 'drawable-v26', 'ic_launcher_background.xml'), background());
-put(join(RES, 'drawable-v26', 'ic_launcher_foreground.xml'), foreground());
-put(join(RES, 'drawable-v26', 'ic_launcher_monochrome.xml'), monochrome());
+put(join(RES, 'drawable-v26', 'ic_launcher_monochrome.xml'), monochrome);
 put(join(RES, 'mipmap-anydpi-v26', 'ic_launcher.xml'), ADAPTIVE);
 put(join(RES, 'mipmap-anydpi-v26', 'ic_launcher_round.xml'), ADAPTIVE);
 
-// ─── PNGs: legacy launcher icons + Play Store ────────────────────────────────
-const svg = readFileSync(ICON_SVG);
+// The earlier vector background and foreground are replaced by the PNG layers above.
+for (const stale of ['ic_launcher_background.xml', 'ic_launcher_foreground.xml']) {
+  const p = join(RES, 'drawable-v26', stale);
+  if (existsSync(p)) {
+    unlinkSync(p);
+    console.log('removed', p.replace(join(HERE, '..') + '/', ''));
+  }
+}
 
+// ─── Legacy launcher PNGs + Play Store ─────────────────────────────────────────
+const iconSvg = Buffer.from(src);
 async function raster(size, shape) {
-  // Render large, then downscale — much cleaner than rasterising at 48 px directly.
-  const img = sharp(svg, { density: 288 }).resize(size, size, { kernel: 'lanczos3' });
+  const img = sharp(iconSvg, { density: 288 }).resize(size, size, { kernel: 'lanczos3' });
   if (shape === 'square') return img.png({ compressionLevel: 9 }).toBuffer();
   const mask =
     shape === 'round'
       ? `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><circle cx="${size / 2}" cy="${size / 2}" r="${size / 2}" fill="#fff"/></svg>`
       : `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><rect width="${size}" height="${size}" rx="${size * 0.2}" fill="#fff"/></svg>`;
-  return img
-    .composite([{ input: Buffer.from(mask), blend: 'dest-in' }])
-    .png({ compressionLevel: 9 })
-    .toBuffer();
+  return img.composite([{ input: Buffer.from(mask), blend: 'dest-in' }]).png({ compressionLevel: 9 }).toBuffer();
 }
-
-const DENSITIES = { mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144, xxxhdpi: 192 };
-for (const [density, size] of Object.entries(DENSITIES)) {
+const LEGACY_PX = { mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144, xxxhdpi: 192 };
+for (const [density, size] of Object.entries(LEGACY_PX)) {
   put(join(RES, `mipmap-${density}`, 'ic_launcher.png'), await raster(size, 'rounded'));
   put(join(RES, `mipmap-${density}`, 'ic_launcher_round.png'), await raster(size, 'round'));
 }
-put(PLAY_PNG, await raster(512, 'square'));
+put(join(SRC_DIR, 'play-store-512.png'), await raster(512, 'square'));

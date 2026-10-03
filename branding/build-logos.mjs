@@ -1,16 +1,15 @@
 // Generates every MANA logo file in ./logo from one set of shapes, so all variants stay identical.
 //   node branding/build-logos.mjs
 //
-// The mark is a plain water droplet with a Venkateswara namam hidden inside it: the white U with
-// its rippled base is the namam's two arms (and reads as water settling), and the red line between
-// them is both the srichurnam and a small drop. Colours are the app's own palette
-// (apps/mobile/src/theme/colors.ts). All lettering is drawn as vector paths, never <text>, so
-// the files look the same everywhere with no font installed.
+// The mark is a glass water drop: drops within a drop, like ripples (geometry in shapes.mjs).
+// Colours are the app's own palette (apps/mobile/src/theme/colors.ts).
+// All lettering is drawn as vector paths, never <text>, so the files look the same everywhere
+// with no font installed. Set MARK_STYLE=gold for a warm centre drop instead of the water one.
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DROP, NAMAM_ARMS, NAMAM_DROP, n, P, sparkle } from './shapes.mjs';
+import { CORE, CORE_STOPS, DROP, n, P, SHELL, sparkle } from './shapes.mjs';
 
 const OUT = join(dirname(fileURLToPath(import.meta.url)), 'logo');
 mkdirSync(OUT, { recursive: true });
@@ -27,21 +26,24 @@ function markColor(theme, idp) {
   const drop = dark
     ? [[0, P.skyBright], [0.5, P.water], [1, '#0284C7']]
     : [[0, P.waterLight], [0.5, P.water], [1, P.waterDeep]];
-  const defs = `<linearGradient id="${idp}-drop" x1="0.15" y1="0" x2="0.85" y2="1">${stops(drop)}</linearGradient>`;
+  const defs =
+    `<linearGradient id="${idp}-drop" x1="0.15" y1="0" x2="0.85" y2="1">${stops(drop)}</linearGradient>` +
+    `<linearGradient id="${idp}-shell" x1="0" y1="0" x2="0" y2="1">${stops([[0, P.white], [1, '#DDF3FE']])}</linearGradient>` +
+    `<linearGradient id="${idp}-core" x1="0" y1="0" x2="0" y2="1">${stops(CORE_STOPS[dark ? 'dark' : 'light'])}</linearGradient>`;
   const body =
     `<path d="${DROP}" fill="url(#${idp}-drop)"/>` +
-    `<path d="${NAMAM_ARMS}" fill="${P.white}"/>` +
-    `<path d="${NAMAM_DROP}" fill="${P.namamRed}"/>`;
+    `<path d="${SHELL}" fill="url(#${idp}-shell)"/>` +
+    `<path d="${CORE}" fill="url(#${idp}-core)"/>`;
   return { defs, body };
 }
 
-/** One-colour mark: droplet with the namam knocked out (the two arms and the centre line). */
+/** One-colour mark: the drop with the shell and the centre drop knocked out of it. */
 function markMono(color, idp) {
   const defs =
     `<mask id="${idp}-cut" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256">` +
     `<rect width="256" height="256" fill="#fff"/>` +
-    `<path d="${NAMAM_ARMS}" fill="#000"/>` +
-    `<path d="${NAMAM_DROP}" fill="#000"/>` +
+    `<path d="${SHELL}" fill="#000"/>` +
+    `<path d="${CORE}" fill="#000"/>` +
     `</mask>`;
   const body = `<path d="${DROP}" fill="${color}" mask="url(#${idp}-cut)"/>`;
   return { defs, body };
@@ -206,7 +208,8 @@ function appIcon() {
   const defs =
     `<linearGradient id="ic-bg" x1="0" y1="0" x2="1" y2="1">${stops([[0, P.waterLight], [0.45, P.water], [1, P.waterDeep]])}</linearGradient>` +
     `<linearGradient id="ic-drop" x1="0.2" y1="0" x2="0.8" y2="1">${stops([[0, P.white], [1, P.waterPale]])}</linearGradient>` +
-    `<linearGradient id="ic-arms" x1="0" y1="0" x2="0" y2="1">${stops([[0, P.water], [1, P.waterDeep]])}</linearGradient>`;
+    `<linearGradient id="ic-shell" x1="0" y1="0" x2="0" y2="1">${stops([[0, P.water], [1, P.waterDeep]])}</linearGradient>` +
+    `<linearGradient id="ic-core" x1="0" y1="0" x2="0" y2="1">${stops(CORE_STOPS.icon)}</linearGradient>`;
   const body =
     `<rect width="512" height="512" fill="url(#ic-bg)"/>` +
     `<circle cx="448" cy="64" r="190" fill="#fff" fill-opacity="0.10"/>` +
@@ -214,8 +217,8 @@ function appIcon() {
     `<g transform="translate(96 100) scale(1.25)">` +
     `<path d="${DROP}" fill="${P.waterInk}" fill-opacity="0.2" transform="translate(0 7)"/>` +
     `<path d="${DROP}" fill="url(#ic-drop)"/>` +
-    `<path d="${NAMAM_ARMS}" fill="url(#ic-arms)"/>` +
-    `<path d="${NAMAM_DROP}" fill="${P.namamRed}"/>` +
+    `<path d="${SHELL}" fill="url(#ic-shell)"/>` +
+    `<path d="${CORE}" fill="url(#ic-core)"/>` +
     `</g>`;
   return doc({ viewBox: '0 0 512 512', title: 'MANA Wash Manager app icon', defs, body });
 }

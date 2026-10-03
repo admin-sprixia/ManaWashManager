@@ -1,17 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
   <group
-      android:translateX="20.25"
-      android:translateY="21.09"
-      android:scaleX="0.2637"
-      android:scaleY="0.2637">
-    <path android:pathData="M 128 14 C 128 14 212 96 212 158 A 84 84 0 0 1 44 158 C 44 96 128 14 128 14 Z" android:strokeColor="#FF000000" android:strokeWidth="10" android:strokeLineJoin="round"/>
-    <path android:fillColor="#FF000000" android:pathData="M 79.12 114.28 L 88.52 174.44 C 88.52 184.78 94.16 189.48 100.74 186.66 C 105.44 184.78 108.26 181.02 113.9 183.84 C 119.54 186.66 122.36 201.7 128 201.7 C 133.64 201.7 136.46 186.66 142.1 183.84 C 147.74 181.02 150.56 184.78 155.26 186.66 C 161.84 189.48 167.48 184.78 167.48 174.44 L 176.88 114.28 L 148.68 114.28 L 142.1 151.88 C 142.1 166.92 137.4 174.44 128 174.44 C 118.6 174.44 113.9 166.92 113.9 151.88 L 107.32 114.28 Z"/>
-    <path android:fillColor="#FF000000" android:pathData="M 128 97.36 C 128 97.36 119.07 134.96 119.07 153.76 A 8.93 8.93 0 0 0 136.93 153.76 C 136.93 134.96 128 97.36 128 97.36 Z"/>
+      android:translateX="21.600"
+      android:translateY="20.714"
+      android:scaleX="0.2531"
+      android:scaleY="0.2531">
+    <path android:pathData="M 128 14 C 128 14 212 96 212 158 A 84 84 0 0 1 44 158 C 44 96 128 14 128 14 Z" android:strokeColor="#FF000000" android:strokeWidth="9" android:strokeLineJoin="round"/>
+    <path android:fillColor="#FF000000" android:pathData="M 80.37 80 C 63.69 104.42 49.04 133.01 49.04 158.12 A 78.96 78.96 0 0 0 206.96 158.12 C 206.96 133.01 192.31 104.42 175.63 80 L 175.63 80 C 168.96 101.53 189.32 132.46 189.32 158.54 A 61.32 61.32 0 0 1 66.68 158.54 C 66.68 132.46 87.04 101.53 80.37 80 Z"/>
+    <path android:fillColor="#FF000000" android:pathData="M 128 56 C 128 56 118 128 118 166 A 10 10 0 0 0 138 166 C 138 128 128 56 128 56 Z"/>
   </group>
 </vector>

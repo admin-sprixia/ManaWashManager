@@ -3,7 +3,7 @@
 //   cd apps/api && npm run db:reset:local && npm run dev      (in one terminal)
 //   cd apps/api && npm run test:signup                        (in another)
 // Uses fresh random numbers each run, so it can be re-run without a reset.
-import { API } from './lib/target.mjs';
+import { API, apiFetch } from './lib/target.mjs';
 
 const DEV_CODE = process.env.DEV_CODE ?? '000000';
 const PIN = '2580';
@@ -21,7 +21,7 @@ function check(name, ok, detail = '') {
 async function call(token, method, path, body) {
   const headers = token ? { authorization: `Bearer ${token}` } : {};
   if (body !== undefined) headers['content-type'] = 'application/json';
-  const res = await fetch(API + path, {
+  const res = await apiFetch(API + path, {
     method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),

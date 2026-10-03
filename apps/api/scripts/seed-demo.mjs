@@ -23,7 +23,7 @@ import { randomUUID, webcrypto } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { API, API_DIR, STAGING, TARGET, d1Execute, d1Rows } from './lib/target.mjs';
+import { API, API_DIR, STAGING, TARGET, apiFetch, d1Execute, d1Rows } from './lib/target.mjs';
 
 const PIN = '2580';
 const VEHICLE_ART = join(API_DIR, '..', 'mobile', 'src', 'assets', 'vehicles');
@@ -47,7 +47,7 @@ async function call(token, method, path, body) {
     headers['content-type'] = 'application/json';
     payload = JSON.stringify(body);
   }
-  const res = await fetch(API + path, { method, headers, body: payload });
+  const res = await apiFetch(API + path, { method, headers, body: payload });
   const text = await res.text();
   let json;
   try {
@@ -372,7 +372,7 @@ for (const c of customers) {
 const step = (msg) => console.log(`\n▸ ${msg}`);
 
 try {
-  await fetch(`${API}/health`);
+  await apiFetch(`${API}/health`);
 } catch {
   console.error(`The API isn't running at ${API}. Start it first:  cd apps/api && npm run dev`);
   process.exit(1);

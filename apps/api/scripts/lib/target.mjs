@@ -16,6 +16,23 @@ export const DB_NAME = STAGING ? 'mana_db_staging' : 'mana_db';
 export const DB_FLAGS = STAGING ? ['--remote', '--env', 'staging'] : ['--local'];
 export const API_DIR = fileURLToPath(new URL('../..', import.meta.url));
 
+const STALE_SOCKET = new Set(['UND_ERR_SOCKET', 'ECONNRESET', 'EPIPE']);
+
+/**
+ * `fetch` that retries once when the connection drops before any response. Node reuses idle
+ * keep-alive sockets, and `wrangler dev` can close one just as a request goes out (typically after
+ * a pause for a `wrangler d1` query); the server never sees that request, so sending it again is
+ * safe.
+ */
+export async function apiFetch(url, init) {
+  try {
+    return await fetch(url, init);
+  } catch (err) {
+    if (!STALE_SOCKET.has(err?.cause?.code)) throw err;
+    return fetch(url, init);
+  }
+}
+
 /** Runs `wrangler d1 execute` against the target database; returns stdout. */
 export function d1Execute(args) {
   return execFileSync('npx', ['wrangler', 'd1', 'execute', DB_NAME, ...DB_FLAGS, ...args], {

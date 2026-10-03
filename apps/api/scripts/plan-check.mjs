@@ -7,7 +7,7 @@
 // set RAZORPAY_WEBHOOK_SECRET in this shell (same value as .dev.vars) to also check a signed event.
 import { createHmac } from 'node:crypto';
 import { createServer } from 'node:http';
-import { API, d1Run } from './lib/target.mjs';
+import { API, apiFetch, d1Run } from './lib/target.mjs';
 
 const DEV_CODE = process.env.DEV_CODE ?? '000000';
 const WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET ?? '';
@@ -32,7 +32,7 @@ async function call(token, method, path, body, extraHeaders = {}) {
     headers['content-type'] = 'application/json';
     payload = JSON.stringify(body);
   }
-  const res = await fetch(API + path, { method, headers, body: payload });
+  const res = await apiFetch(API + path, { method, headers, body: payload });
   const text = await res.text();
   let json = null;
   try {

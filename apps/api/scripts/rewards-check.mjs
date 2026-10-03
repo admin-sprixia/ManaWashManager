@@ -3,7 +3,7 @@
 // later, void puts stock back). Run against the local API:
 //   cd apps/api && npm run db:reset:local && npm run dev      (in one terminal)
 //   cd apps/api && npm run test:rewards                       (in another)
-import { API, d1Rows, d1Run } from './lib/target.mjs';
+import { API, apiFetch, d1Rows, d1Run } from './lib/target.mjs';
 
 const DEV_CODE = process.env.DEV_CODE ?? '000000';
 const PIN = '2580';
@@ -24,7 +24,7 @@ async function call(token, method, path, body) {
     headers['content-type'] = 'application/json';
     payload = JSON.stringify(body);
   }
-  const res = await fetch(API + path, { method, headers, body: payload });
+  const res = await apiFetch(API + path, { method, headers, body: payload });
   const text = await res.text();
   let json = null;
   try {

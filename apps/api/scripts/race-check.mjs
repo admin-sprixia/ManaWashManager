@@ -6,7 +6,7 @@
 // exact same instant the way it can in production. These checks prove every guard is in place
 // and that the second request is answered cleanly; the guards themselves are single statements
 // (or a per-number lock) so they also hold when requests truly overlap.
-import { API, d1Rows, d1Run } from './lib/target.mjs';
+import { API, apiFetch, d1Rows, d1Run } from './lib/target.mjs';
 
 const DEV_CODE = process.env.DEV_CODE ?? '000000';
 const PIN = '2580';
@@ -27,7 +27,7 @@ async function call(token, method, path, body, extraHeaders = {}) {
     headers['content-type'] = 'application/json';
     payload = JSON.stringify(body);
   }
-  const res = await fetch(API + path, { method, headers, body: payload });
+  const res = await apiFetch(API + path, { method, headers, body: payload });
   const text = await res.text();
   let json = null;
   try {
@@ -345,7 +345,7 @@ async function upload(token, photoId) {
   form.set('jobId', photoJob);
   form.set('kind', 'before');
   form.set('file', new Blob([jpeg], { type: 'image/jpeg' }), 'p.jpg');
-  const res = await fetch(`${API}/photos`, { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: form });
+  const res = await apiFetch(`${API}/photos`, { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: form });
   return { status: res.status, body: await res.json().catch(() => null) };
 }
 for (let i = 0; i < 9; i++) await upload(A, id('photo'));

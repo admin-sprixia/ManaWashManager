@@ -46,6 +46,8 @@ export interface Env {
    * instead. Use while Meta is reviewing the template; turn off when real codes should go out.
    */
   WHATSAPP_OTP_BYPASS?: string;
+  /** Local only (needs DEV_MODE + localhost): delay every database call, to count round trips. */
+  DEV_DB_DELAY_MS?: string;
   /**
    * Staging Worker only: ENVIRONMENT=staging plus STAGING_TEST_CODES=true accepts the same fixed
    * codes as local dev (until WhatsApp is live). Production sets neither, so it can't turn on there.

@@ -1,4 +1,5 @@
 import type { DbClient } from '../client';
+import { MAX_IN_LIST } from '../chunk';
 import { couponRepo } from './couponRepo';
 import { directoryRepo } from './directoryRepo';
 
@@ -103,15 +104,40 @@ export const customerRepo = {
 
   /** One page of a customer's jobs for their profile, newest first, before `before` if given. */
   async getHistory(db: DbClient, customerId: string, opts: { before?: Date; limit: number }) {
-    return db.job.findMany({
-      where: { customerId, ...(opts.before ? { createdAt: { lt: opts.before } } : {}) },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: opts.limit,
-      include: {
-        jobServices: { include: { service: true } },
-        vehicle: { include: { vehicleType: true } },
-      },
-    });
+    // Two rounds instead of one per nested include; the page is small enough for an `IN` list.
+    const [jobs, vehicles, types, services] = await Promise.all([
+      db.job.findMany({
+        where: { customerId, ...(opts.before ? { createdAt: { lt: opts.before } } : {}) },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: Math.min(opts.limit, MAX_IN_LIST),
+      }),
+      db.vehicle.findMany({ where: { jobs: { some: { customerId } } } }),
+      db.vehicleType.findMany(),
+      db.service.findMany(),
+    ]);
+    const lines = jobs.length
+      ? await db.jobService.findMany({
+          where: { jobId: { in: jobs.map((j) => j.id) } },
+          orderBy: [{ jobId: 'asc' }, { serviceId: 'asc' }],
+        })
+      : [];
+    const typeById = new Map(types.map((t) => [t.id, t]));
+    const serviceById = new Map(services.map((s) => [s.id, s]));
+    const vehicleById = new Map(vehicles.map((v) => [v.id, { ...v, vehicleType: typeById.get(v.vehicleTypeId)! }]));
+    const linesByJob = new Map<string, (typeof lines)[number][]>();
+    for (const line of lines) {
+      const list = linesByJob.get(line.jobId) ?? [];
+      list.push(line);
+      linesByJob.set(line.jobId, list);
+    }
+    return jobs.map((job) => ({
+      ...job,
+      jobServices: (linesByJob.get(job.id) ?? []).map((line) => ({
+        ...line,
+        service: serviceById.get(line.serviceId)!,
+      })),
+      vehicle: vehicleById.get(job.vehicleId)!,
+    }));
   },
 
   /**

@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import type { DbClient } from '../client';
 import {
   jobCommission,
@@ -6,7 +7,6 @@ import {
   type JobStatus,
   type PaymentMethod,
 } from '@mana/domain';
-import { chunk } from '../chunk';
 import { directoryRepo } from './directoryRepo';
 
 export interface CreateJobInput {
@@ -40,6 +40,97 @@ const boardInclude = {
   washers: { select: { user: personSelect }, orderBy: { assignedAt: 'asc' } },
   sellers: { select: { user: personSelect }, orderBy: { assignedAt: 'asc' } },
 } as const;
+
+const detailInclude = {
+  ...boardInclude,
+  voidedBy: personSelect,
+  events: { orderBy: { createdAt: 'asc' }, include: { user: personSelect } },
+  photos: {
+    where: { deletedAt: null },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true, kind: true, createdAt: true, takenBy: personSelect },
+  },
+} as const;
+
+export type BoardRow = Prisma.JobGetPayload<{ include: typeof boardInclude }>;
+export type JobDetail = Prisma.JobGetPayload<{ include: typeof detailInclude }>;
+
+type Person = { id: string; name: string };
+
+function byId<T extends { id: string }>(rows: T[]): Map<string, T> {
+  return new Map(rows.map((r) => [r.id, r]));
+}
+
+function groupByJob<T extends { jobId: string }>(rows: T[]): Map<string, T[]> {
+  const out = new Map<string, T[]>();
+  for (const r of rows) {
+    const list = out.get(r.jobId);
+    if (list) list.push(r);
+    else out.set(r.jobId, [r]);
+  }
+  return out;
+}
+
+/**
+ * The same rows `include: boardInclude` returns, but in one round of parallel queries. Prisma
+ * loads each included relation as its own query, one after another (eleven here), and every
+ * query is a round trip to the database; each part below is filtered by the same `where` as a
+ * subquery, so nothing waits on the job ids first. Ties are broken by each table's key, the
+ * same order Prisma returns related rows in.
+ */
+async function loadBoard(
+  db: DbClient,
+  where: Prisma.JobWhereInput,
+  orderBy?: Prisma.JobOrderByWithRelationInput,
+): Promise<BoardRow[]> {
+  const viaJob = { job: where };
+  const [jobs, customers, vehicles, lines, washers, sellers, vehicleTypes, services, people] = await Promise.all([
+    db.job.findMany({ where, orderBy }),
+    db.customer.findMany({ where: { jobs: { some: where } } }),
+    db.vehicle.findMany({ where: { jobs: { some: where } } }),
+    db.jobService.findMany({ where: viaJob, orderBy: [{ jobId: 'asc' }, { serviceId: 'asc' }] }),
+    db.jobWasher.findMany({
+      where: viaJob,
+      orderBy: [{ assignedAt: 'asc' }, { jobId: 'asc' }, { userId: 'asc' }],
+      select: { jobId: true, userId: true },
+    }),
+    db.jobSeller.findMany({
+      where: viaJob,
+      orderBy: [{ assignedAt: 'asc' }, { jobId: 'asc' }, { userId: 'asc' }],
+      select: { jobId: true, userId: true },
+    }),
+    db.vehicleType.findMany(),
+    db.service.findMany(),
+    db.user.findMany({ select: { id: true, name: true } }),
+  ]);
+  if (!jobs.length) return [];
+  const customerById = byId(customers);
+  const vehicleById = byId(vehicles);
+  const typeById = byId(vehicleTypes);
+  const serviceById = byId(services);
+  const personById = byId<Person>(people);
+  const linesByJob = groupByJob(lines);
+  const washersByJob = groupByJob(washers);
+  const sellersByJob = groupByJob(sellers);
+  const person = (id: string | null) => (id ? (personById.get(id) ?? null) : null);
+  return jobs.map((job) => {
+    const vehicle = vehicleById.get(job.vehicleId)!;
+    return {
+      ...job,
+      customer: customerById.get(job.customerId)!,
+      vehicle: { ...vehicle, vehicleType: typeById.get(vehicle.vehicleTypeId)! },
+      jobServices: (linesByJob.get(job.id) ?? []).map((l) => ({ ...l, service: serviceById.get(l.serviceId)! })),
+      createdBy: person(job.createdByUserId)!,
+      paidBy: person(job.paidByUserId),
+      washers: (washersByJob.get(job.id) ?? []).map((w) => ({ user: person(w.userId)! })),
+      sellers: (sellersByJob.get(job.id) ?? []).map((s) => ({ user: person(s.userId)! })),
+    };
+  });
+}
+
+async function loadBoardRow(db: DbClient, id: string): Promise<BoardRow | null> {
+  return (await loadBoard(db, { id }))[0] ?? null;
+}
 
 function event(
   userId: string,
@@ -93,10 +184,10 @@ export const jobRepo = {
           ],
         },
       },
-      include: boardInclude,
+      select: { id: true },
     });
     await directoryRepo.touchCustomer(db, data.customerId);
-    return job;
+    return (await loadBoardRow(db, job.id))!;
   },
 
   /**
@@ -144,7 +235,7 @@ export const jobRepo = {
         }),
       );
     }
-    return db.job.findUnique({ where: { id }, include: boardInclude });
+    return loadBoardRow(db, id);
   },
 
   async findById(db: DbClient, id: string) {
@@ -152,27 +243,29 @@ export const jobRepo = {
   },
 
   async findBoardRow(db: DbClient, id: string) {
-    return db.job.findUnique({ where: { id }, include: boardInclude });
+    return loadBoardRow(db, id);
   },
 
   /** Job Detail screen: the job, its lines, attribution, and the full audit trail. */
-  async findDetail(db: DbClient, id: string) {
-    return db.job.findUnique({
-      where: { id },
-      include: {
-        ...boardInclude,
-        voidedBy: personSelect,
-        events: {
-          orderBy: { createdAt: 'asc' },
-          include: { user: personSelect },
-        },
-        photos: {
-          where: { deletedAt: null },
-          orderBy: { createdAt: 'asc' },
-          select: { id: true, kind: true, createdAt: true, takenBy: personSelect },
-        },
-      },
-    });
+  async findDetail(db: DbClient, id: string): Promise<JobDetail | null> {
+    const [row, events, photos, people] = await Promise.all([
+      loadBoardRow(db, id),
+      db.jobEvent.findMany({ where: { jobId: id }, orderBy: { createdAt: 'asc' } }),
+      db.jobPhoto.findMany({
+        where: { jobId: id, deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, kind: true, createdAt: true, takenByUserId: true },
+      }),
+      db.user.findMany({ select: { id: true, name: true } }),
+    ]);
+    if (!row) return null;
+    const personById = byId<Person>(people);
+    return {
+      ...row,
+      voidedBy: row.voidedByUserId ? (personById.get(row.voidedByUserId) ?? null) : null,
+      events: events.map((e) => ({ ...e, user: personById.get(e.userId)! })),
+      photos: photos.map(({ takenByUserId, ...p }) => ({ ...p, takenBy: personById.get(takenByUserId)! })),
+    };
   },
 
   /**
@@ -203,7 +296,7 @@ export const jobRepo = {
         })),
       });
     }
-    return db.job.findUnique({ where: { id }, include: boardInclude });
+    return loadBoardRow(db, id);
   },
 
   /** Correct who washed a job. Logged in the audit trail with the before/after names. */
@@ -213,7 +306,7 @@ export const jobRepo = {
     data: { washerIds: string[]; userId: string; fromNames: string; toNames: string },
   ) {
     const at = new Date();
-    return db.job.update({
+    await db.job.update({
       where: { id },
       data: {
         washers: {
@@ -233,8 +326,9 @@ export const jobRepo = {
           ],
         },
       },
-      include: boardInclude,
+      select: { id: true },
     });
+    return (await loadBoardRow(db, id))!;
   },
 
   /** Correct who got the commission services. Logged with the before/after names. */
@@ -244,7 +338,7 @@ export const jobRepo = {
     data: { sellerIds: string[]; userId: string; fromNames: string; toNames: string },
   ) {
     const at = new Date();
-    return db.job.update({
+    await db.job.update({
       where: { id },
       data: {
         sellers: {
@@ -264,8 +358,9 @@ export const jobRepo = {
           ],
         },
       },
-      include: boardInclude,
+      select: { id: true },
     });
+    return (await loadBoardRow(db, id))!;
   },
 
   async listWasherIds(db: DbClient, jobId: string): Promise<string[]> {
@@ -302,7 +397,7 @@ export const jobRepo = {
     await db.jobEvent.create({
       data: { jobId: id, ...event(data.userId, 'paid', data.at, { fromValue: data.from, toValue: data.paymentMethod }) },
     });
-    return db.job.findUnique({ where: { id }, include: boardInclude });
+    return loadBoardRow(db, id);
   },
 
   async voidJob(
@@ -321,7 +416,7 @@ export const jobRepo = {
         ...event(data.userId, 'voided', data.at, { fromValue: data.from, toValue: 'void', reason: data.reason }),
       },
     });
-    const job = await db.job.findUnique({ where: { id }, include: boardInclude });
+    const job = await loadBoardRow(db, id);
     if (job) await directoryRepo.touchCustomer(db, job.customerId);
     return job;
   },
@@ -347,7 +442,7 @@ export const jobRepo = {
         }),
       },
     });
-    return db.job.findUnique({ where: { id }, include: boardInclude });
+    return loadBoardRow(db, id);
   },
 
   /**
@@ -357,16 +452,16 @@ export const jobRepo = {
    * yesterday has to stay visible until someone closes it out.
    */
   async listToday(db: DbClient, startOfDay: Date) {
-    return db.job.findMany({
-      where: {
+    return loadBoard(
+      db,
+      {
         OR: [
           { createdAt: { gte: startOfDay } },
           { status: { in: ['waiting', 'washing', 'ready'] } },
         ],
       },
-      include: boardInclude,
-      orderBy: { createdAt: 'desc' },
-    });
+      { createdAt: 'desc' },
+    );
   },
 
   /**
@@ -384,28 +479,25 @@ export const jobRepo = {
    * customer's first-ever job; "repeat" means they'd visited before `from`.
    */
   async getStats(db: DbClient, from: Date, to: Date) {
-    const jobs = await db.job.findMany({
-      where: { createdAt: { gte: from, lt: to } },
-      select: { status: true, total: true, discount: true, paymentMethod: true, customerId: true },
-    });
+    const notVoid = { status: { not: 'void' } };
+    const [jobs, firstVisits] = await Promise.all([
+      db.job.findMany({
+        where: { createdAt: { gte: from, lt: to } },
+        select: { status: true, total: true, discount: true, paymentMethod: true, customerId: true },
+      }),
+      // First visit of every customer seen in the window, fetched alongside rather than after.
+      db.job.groupBy({
+        by: ['customerId'],
+        where: { ...notVoid, customer: { jobs: { some: { ...notVoid, createdAt: { gte: from, lt: to } } } } },
+        _min: { createdAt: true },
+      }),
+    ]);
 
     const real = jobs.filter((j) => j.status !== 'void');
     const paid = jobs.filter((j) => j.status === 'paid');
     const sumWhere = (pred: (j: (typeof paid)[number]) => boolean) =>
       paid.filter(pred).reduce((sum, j) => sum + j.total, 0);
 
-    const customerIds = [...new Set(real.map((j) => j.customerId))];
-    const firstVisits = (
-      await Promise.all(
-        chunk(customerIds).map((ids) =>
-          db.job.groupBy({
-            by: ['customerId'],
-            where: { customerId: { in: ids }, status: { not: 'void' } },
-            _min: { createdAt: true },
-          }),
-        ),
-      )
-    ).flat();
     const firstVisitAt = new Map(firstVisits.map((f) => [f.customerId, f._min.createdAt]));
 
     let newCustomers = 0;
@@ -440,27 +532,43 @@ export const jobRepo = {
    * at the end of a shift and to pay them.
    */
   async getStaffStats(db: DbClient, from: Date, to: Date) {
-    const [users, jobs, events] = await Promise.all([
+    const inWindow = { createdAt: { gte: from, lt: to } };
+    const byJobThenUser = [{ jobId: 'asc' as const }, { userId: 'asc' as const }];
+    const [users, jobRows, lines, washers, sellers, events] = await Promise.all([
       db.user.findMany({ select: { id: true, name: true, role: true, active: true } }),
       db.job.findMany({
-        where: { createdAt: { gte: from, lt: to } },
+        where: inWindow,
         select: {
+          id: true,
           status: true,
           total: true,
           paymentMethod: true,
           createdByUserId: true,
           paidByUserId: true,
           voidedByUserId: true,
-          jobServices: { select: { commissionAtTime: true, quantity: true } },
-          washers: { select: { userId: true } },
-          sellers: { select: { userId: true } },
         },
       }),
+      db.jobService.findMany({
+        where: { job: inWindow },
+        orderBy: [{ jobId: 'asc' }, { serviceId: 'asc' }],
+        select: { jobId: true, commissionAtTime: true, quantity: true },
+      }),
+      db.jobWasher.findMany({ where: { job: inWindow }, orderBy: byJobThenUser, select: { jobId: true, userId: true } }),
+      db.jobSeller.findMany({ where: { job: inWindow }, orderBy: byJobThenUser, select: { jobId: true, userId: true } }),
       db.jobEvent.findMany({
-        where: { createdAt: { gte: from, lt: to }, action: 'payment_method_changed' },
+        where: { ...inWindow, action: 'payment_method_changed' },
         select: { userId: true },
       }),
     ]);
+    const linesByJob = groupByJob(lines);
+    const washersByJob = groupByJob(washers);
+    const sellersByJob = groupByJob(sellers);
+    const jobs = jobRows.map((job) => ({
+      ...job,
+      jobServices: linesByJob.get(job.id) ?? [],
+      washers: washersByJob.get(job.id) ?? [],
+      sellers: sellersByJob.get(job.id) ?? [],
+    }));
 
     const rows = new Map(
       users.map((u) => [

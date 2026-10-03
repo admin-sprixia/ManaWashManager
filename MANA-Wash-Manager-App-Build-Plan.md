@@ -648,13 +648,47 @@ These came out of the "two things at once" audit (October 2026). None of them lo
    - Options: double the lockout after each repeat (15 min, 30, 60, up to a day), or after three lockouts require a WhatsApp code to sign in.
    - Do this before going live with many shops; it matters less while it's only MANA.
 
+## Speed and latency
+
+**Why screens felt slow (October 2026).** The server isn't slow; the distance is. The API runs in Cloudflare's Chennai location, while the database sits elsewhere in Asia-Pacific (staging) or in Australia (production `mana_db`). Each trip to the database costs about 150 ms. Before this work, a screen asked several questions one after another. The job board took 13 trips, about 2 seconds, before showing anything.
+
+**How companies handle this**, cheapest first:
+
+1. **Show saved data first.** The app opens instantly from what's on the phone, then refreshes in the background. MANA already does this offline-first.
+2. **Fewer trips.** Ask everything a screen needs at the same time instead of one question after another.
+3. **Remembering.** Don't re-check things that rarely change (who's signed in, the plan) on every request.
+4. **Server and database close together, near the users.** One region, both in the same city.
+5. **Read copies of the database** in several regions, once there are users across many regions.
+
+**Our options:**
+
+| Option | Cost | Typical screen | When |
+|---|---|---|---|
+| Stay as is | ₹0 | 1–2 s | — |
+| Fewer trips + remembering | ₹0 | ~0.15–0.3 s | **Done (v0.4.1)** |
+| Keep Cloudflare; Postgres in Mumbai (Neon or Supabase) through Hyperdrive | ~$20–25/month | ~0.05 s per trip | When MANA has many shops, or a screen still feels slow |
+| Move everything to AWS Mumbai (server + database together) | ~$30–60/month + upkeep | ~0.01 s per trip | Only if we outgrow Cloudflare; big rewrite |
+
+**Recommendation:** fewer trips plus remembering is enough for a car wash app that opens from saved data and refreshes in a quarter second. Revisit the Postgres-in-Mumbai option only if real use says a screen is still slow.
+
+**What was done:**
+
+- Most screens now take **one** database trip; 24 common requests went from 98 trips to 30. Examples: job board and job details 13 → 1, reminders 8 → 1, customer directory 5 → 2, customer profile 6 → 2. Everything a screen needs is asked for at once, and the output is byte-for-byte what it was.
+- The sign-in check, run on every request, loads the user, plan and staff order together. For reads, it reuses the last check of the same sign-in for 30 seconds. Writes, sign-in and billing always check fresh. Only Pro shops are remembered, so a shop that just paid never sees a stale lock. A shop's memory is dropped after any change it makes or any billing update for it.
+- Fixed along the way: Reminders failed to open ("server error") once a shop had more than about 100 vehicles due. The database refuses lists longer than 100.
+- `npm run perf:trips` counts trips per screen on a local server started with `--var DEV_DB_DELAY_MS:100`. Re-run it when adding a screen; aim for one trip.
+
+**Must do before launch:** production `mana_db` is in Australia (OC). Recreate it in Asia-Pacific (APAC), next to the Chennai server, before real shops use production. It's empty today, so this costs nothing now and is hard later.
+
+**Tried and dropped:** Cloudflare Smart Placement on staging. It made no difference, because all traffic comes from one city, so it was turned off again. Wrangler 4's explicit placement `region` is the next thing to try if needed.
+
 ## Next steps
 
 Steps 1–4 below are done (kept for history). What's next now:
 
 1. Staging first: `mana-api-staging` at `https://api-staging.manawashmanager.com` (D1 `mana_db_staging`, R2 `mana-files-staging` / `mana-backups-staging`). Test the release app against it before production.
 2. **Action item — WhatsApp sign-in codes.** Pending: claim Meta's test number, create the `login_code` template, make a permanent system-user token. Until then staging accepts the fixed test code `000000` (`STAGING_TEST_CODES` in `wrangler.toml`). When WhatsApp works: set the WhatsApp secrets on staging, remove `STAGING_TEST_CODES`, retest, then do the same on production.
-3. Go live: production API at `https://api.manawashmanager.com`, `set-api-url`, release signing key (README → Go live).
+3. Go live: production API at `https://api.manawashmanager.com`, `set-api-url`, release signing key (README → Go live). First recreate production `mana_db` in APAC (Speed and latency → Must do before launch).
 4. Run MANA on it for real for a couple of weeks before building more.
 5. ~~Build plans and payments~~ — built (see Pricing and plans).
 6. **Action item — Razorpay keys.** Staging has **placeholder** values for `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` and `RAZORPAY_WEBHOOK_SECRET` (set 2 Oct 2026), so the plan screen says "Payments aren't set up on the server yet" and nobody can pay. Limits, the trial and Free/Pro work normally. To finish:

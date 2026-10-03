@@ -3,6 +3,19 @@ import type { ExpenseCategory, ExpenseUnit, PaymentMethod } from '@mana/domain';
 
 const personSelect = { select: { id: true, name: true } } as const;
 
+type ExpenseRow = { createdByUserId: string; voidedByUserId: string | null };
+
+/** Adds `createdBy` / `voidedBy` with the users loaded in one query rather than an include each. */
+async function withPeople<T extends ExpenseRow>(db: DbClient, rows: Promise<T[]>) {
+  const [list, users] = await Promise.all([rows, db.user.findMany(personSelect)]);
+  const byId = new Map(users.map((u) => [u.id, u]));
+  return list.map((e) => ({
+    ...e,
+    createdBy: byId.get(e.createdByUserId)!,
+    voidedBy: e.voidedByUserId ? (byId.get(e.voidedByUserId) ?? null) : null,
+  }));
+}
+
 export const expenseRepo = {
   async findById(db: DbClient, id: string) {
     return db.expense.findUnique({ where: { id } });
@@ -31,14 +44,14 @@ export const expenseRepo = {
 
   /** Expenses in `[from, to)`, newest first. Pass `createdByUserId` to scope to one person. */
   async list(db: DbClient, from: Date, to: Date, opts: { createdByUserId?: string } = {}) {
-    return db.expense.findMany({
+    const rows = db.expense.findMany({
       where: {
         date: { gte: from, lt: to },
         ...(opts.createdByUserId ? { createdByUserId: opts.createdByUserId } : {}),
       },
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
-      include: { createdBy: personSelect, voidedBy: personSelect },
     });
+    return withPeople(db, rows);
   },
 
   /** Sum of non-voided expenses in `[from, to)`. */
@@ -62,11 +75,11 @@ export const expenseRepo = {
 
   /** Expenses voided in `[from, to)` — feeds the owner's audit log alongside job corrections. */
   async listVoided(db: DbClient, from: Date, to: Date) {
-    return db.expense.findMany({
+    const rows = db.expense.findMany({
       where: { voidedAt: { gte: from, lt: to } },
       orderBy: { voidedAt: 'desc' },
-      include: { createdBy: personSelect, voidedBy: personSelect },
     });
+    return withPeople(db, rows);
   },
 
   /** Only voids a live expense, so two voids at once keep the first one's reason and name. */

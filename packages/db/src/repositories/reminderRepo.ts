@@ -12,34 +12,65 @@ export const reminderRepo = {
    * there's no one to remind.
    */
   async listLapsed(db: DbClient, dueBefore: Date, now: Date, seenAfter: Date, limit: number) {
-    return db.vehicle.findMany({
-      where: {
-        NOT: { registrationNumber: { startsWith: 'WALK-IN' } },
-        jobs: {
-          some: { ...liveJob, createdAt: { gt: seenAfter, lte: dueBefore } },
-          none: { ...liveJob, createdAt: { gt: dueBefore } },
-        },
+    const lapsed = {
+      NOT: { registrationNumber: { startsWith: 'WALK-IN' } },
+      jobs: {
+        some: { ...liveJob, createdAt: { gt: seenAfter, lte: dueBefore } },
+        none: { ...liveJob, createdAt: { gt: dueBefore } },
       },
-      take: limit,
-      include: {
-        customer: { select: { id: true, name: true, phone: true } },
-        vehicleType: { select: { name: true } },
-        reminder: true,
-        jobs: {
-          where: liveJob,
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-          select: {
-            createdAt: true,
-            jobServices: { select: { service: { select: { name: true } } } },
-          },
-        },
-        coupons: {
-          where: { status: 'active', expiresAt: { gt: now } },
-          take: 1,
-          select: { id: true, code: true, percent: true, expiresAt: true, customerId: true },
-        },
-      },
+    };
+    // A lapsed vehicle's latest visit is inside the window, so these are the only jobs needed.
+    const windowJobs = { ...liveJob, createdAt: { gt: seenAfter, lte: dueBefore }, vehicle: lapsed };
+    // One round of parallel queries, each filtered by the same subquery: nested includes would
+    // run one after another, and an `IN` list of up to `limit` ids breaks D1's 100-value cap.
+    const [vehicles, customers, types, reminders, jobs, lines, services, coupons] = await Promise.all([
+      db.vehicle.findMany({ where: lapsed, take: limit }),
+      db.customer.findMany({ where: { vehicles: { some: lapsed } }, select: { id: true, name: true, phone: true } }),
+      db.vehicleType.findMany({ select: { id: true, name: true } }),
+      db.vehicleReminder.findMany({ where: { vehicle: lapsed } }),
+      db.job.findMany({ where: windowJobs, select: { id: true, vehicleId: true, createdAt: true } }),
+      db.jobService.findMany({
+        where: { job: windowJobs },
+        orderBy: [{ jobId: 'asc' }, { serviceId: 'asc' }],
+        select: { jobId: true, serviceId: true },
+      }),
+      db.service.findMany({ select: { id: true, name: true } }),
+      db.coupon.findMany({
+        where: { status: 'active', expiresAt: { gt: now }, vehicle: lapsed },
+        orderBy: { id: 'asc' },
+        select: { id: true, code: true, percent: true, expiresAt: true, customerId: true, vehicleId: true },
+      }),
+    ]);
+    const customerById = new Map(customers.map((c) => [c.id, c]));
+    const typeById = new Map(types.map((t) => [t.id, t]));
+    const serviceName = new Map(services.map((s) => [s.id, s.name]));
+    const reminderByVehicle = new Map(reminders.map((r) => [r.vehicleId, r]));
+    const latestJob = new Map<string, (typeof jobs)[number]>();
+    for (const job of jobs) {
+      const seen = latestJob.get(job.vehicleId);
+      if (!seen || job.createdAt > seen.createdAt) latestJob.set(job.vehicleId, job);
+    }
+    const linesByJob = new Map<string, { service: { name: string } }[]>();
+    for (const line of lines) {
+      const list = linesByJob.get(line.jobId) ?? [];
+      list.push({ service: { name: serviceName.get(line.serviceId) ?? '' } });
+      linesByJob.set(line.jobId, list);
+    }
+    const couponByVehicle = new Map<string, Omit<(typeof coupons)[number], 'vehicleId'>>();
+    for (const { vehicleId, ...coupon } of coupons) {
+      if (!couponByVehicle.has(vehicleId)) couponByVehicle.set(vehicleId, coupon);
+    }
+    return vehicles.map((v) => {
+      const last = latestJob.get(v.id);
+      const coupon = couponByVehicle.get(v.id);
+      return {
+        ...v,
+        customer: customerById.get(v.customerId)!,
+        vehicleType: { name: typeById.get(v.vehicleTypeId)?.name ?? '' },
+        reminder: reminderByVehicle.get(v.id) ?? null,
+        jobs: last ? [{ createdAt: last.createdAt, jobServices: linesByJob.get(last.id) ?? [] }] : [],
+        coupons: coupon ? [coupon] : [],
+      };
     });
   },
 

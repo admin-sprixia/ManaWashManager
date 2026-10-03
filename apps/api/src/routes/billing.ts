@@ -31,7 +31,7 @@ import {
   type RazorpaySubscription,
 } from '../lib/razorpay';
 import { startOfIstMonth } from '../lib/istDate';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { forgetShop, requireAuth, requireRole } from '../middleware/auth';
 import type { Env } from '../types';
 
 const subscribeSchema = z.object({ interval: z.enum(['monthly', 'yearly']) });
@@ -356,6 +356,7 @@ export const billingRoutes = new Hono<{ Bindings: Env }>()
         if (!duplicate) {
           await applySubscription(db, shop.id, sub);
           if (payment?.id) await recordPayment(db, shop.id, sub, payment);
+          forgetShop(shop.id);
         }
       } else {
         console.warn(`billing webhook: no shop for subscription ${snapshot.id}`);

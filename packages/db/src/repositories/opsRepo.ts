@@ -11,11 +11,22 @@ export const opsRepo = {
 
   /** Attendance rows for IST dates in `[fromDate, toDate]` (inclusive, `YYYY-MM-DD`). */
   async listAttendance(db: DbClient, fromDate: string, toDate: string, userId?: string) {
-    return db.attendance.findMany({
-      where: { date: { gte: fromDate, lte: toDate }, ...(userId ? { userId } : {}) },
-      orderBy: [{ date: 'asc' }],
-      select: { userId: true, date: true, status: true, markedBy: personSelect, markedAt: true },
-    });
+    const [rows, users] = await Promise.all([
+      db.attendance.findMany({
+        where: { date: { gte: fromDate, lte: toDate }, ...(userId ? { userId } : {}) },
+        orderBy: [{ date: 'asc' }],
+        select: { userId: true, date: true, status: true, markedByUserId: true, markedAt: true },
+      }),
+      db.user.findMany(personSelect),
+    ]);
+    const byId = new Map(users.map((u) => [u.id, u]));
+    return rows.map((r) => ({
+      userId: r.userId,
+      date: r.date,
+      status: r.status,
+      markedBy: byId.get(r.markedByUserId)!,
+      markedAt: r.markedAt,
+    }));
   },
 
   /** Mark or change a day, or clear it with `null`. */
@@ -41,10 +52,16 @@ export const opsRepo = {
   // ─── Cash drawer ──────────────────────────────────────────────────────────
 
   async findCashDay(db: DbClient, date: string) {
-    return db.cashDay.findFirst({
-      where: { date },
-      include: { floatSetBy: personSelect, closedBy: personSelect, reopenedBy: personSelect },
-    });
+    const [day, users] = await Promise.all([db.cashDay.findFirst({ where: { date } }), db.user.findMany(personSelect)]);
+    if (!day) return null;
+    const byId = new Map(users.map((u) => [u.id, u]));
+    const person = (id: string | null) => (id ? (byId.get(id) ?? null) : null);
+    return {
+      ...day,
+      floatSetBy: byId.get(day.floatSetByUserId)!,
+      closedBy: person(day.closedByUserId),
+      reopenedBy: person(day.reopenedByUserId),
+    };
   },
 
   /** The latest closed day before `date` — its counted cash is the suggested next float. */
@@ -163,11 +180,19 @@ export const opsRepo = {
   },
 
   async listCashDays(db: DbClient, fromDate: string, toDate: string) {
-    return db.cashDay.findMany({
-      where: { date: { gte: fromDate, lte: toDate } },
-      orderBy: { date: 'desc' },
-      include: { floatSetBy: personSelect, closedBy: personSelect, reopenedBy: personSelect },
-    });
+    // Users load alongside instead of one include after another.
+    const [days, users] = await Promise.all([
+      db.cashDay.findMany({ where: { date: { gte: fromDate, lte: toDate } }, orderBy: { date: 'desc' } }),
+      db.user.findMany(personSelect),
+    ]);
+    const byId = new Map(users.map((u) => [u.id, u]));
+    const person = (id: string | null) => (id ? (byId.get(id) ?? null) : null);
+    return days.map((d) => ({
+      ...d,
+      floatSetBy: person(d.floatSetByUserId),
+      closedBy: person(d.closedByUserId),
+      reopenedBy: person(d.reopenedByUserId),
+    }));
   },
 
   // ─── Photos ───────────────────────────────────────────────────────────────

@@ -221,26 +221,50 @@ export const couponRepo = {
 
   /** Live and recently used coupons for the Reminders screen. */
   async listRecent(db: DbClient, now: Date, since: Date) {
-    const include = {
-      ...couponInclude,
-      issuedBy: { select: { id: true, name: true } },
-      redeemedBy: { select: { id: true, name: true } },
-      referrals: { select: { referred: { select: { name: true } } }, take: 1 },
-    } as const;
-    const [active, redeemed] = await Promise.all([
-      db.coupon.findMany({
-        where: { status: 'active', expiresAt: { gt: now } },
-        orderBy: { expiresAt: 'asc' },
-        take: 100,
-        include,
+    const activeWhere = { status: 'active', expiresAt: { gt: now } };
+    const redeemedWhere = { status: 'redeemed', redeemedAt: { gte: since } };
+    const listed = { OR: [activeWhere, redeemedWhere] };
+    // One round of parallel queries; the related rows are matched by the same filter instead
+    // of nested includes, which would each wait for the one before.
+    const [active, redeemed, vehicles, customers, users, referrals] = await Promise.all([
+      db.coupon.findMany({ where: activeWhere, orderBy: { expiresAt: 'asc' }, take: 100 }),
+      db.coupon.findMany({ where: redeemedWhere, orderBy: { redeemedAt: 'desc' }, take: 50 }),
+      db.vehicle.findMany({
+        where: { coupons: { some: listed } },
+        select: { id: true, registrationNumber: true, customerId: true },
       }),
-      db.coupon.findMany({
-        where: { status: 'redeemed', redeemedAt: { gte: since } },
-        orderBy: { redeemedAt: 'desc' },
-        take: 50,
-        include,
+      db.customer.findMany({
+        where: { OR: [{ coupons: { some: listed } }, { referredBy: { rewardCoupon: listed } }] },
+        select: { id: true, name: true, phone: true },
+      }),
+      db.user.findMany({ select: { id: true, name: true } }),
+      db.referral.findMany({
+        where: { rewardCoupon: listed },
+        orderBy: { id: 'asc' },
+        select: { rewardCouponId: true, referredCustomerId: true },
       }),
     ]);
-    return { active, redeemed };
+    const vehicleById = new Map(vehicles.map((v) => [v.id, v]));
+    const customerById = new Map(customers.map((c) => [c.id, c]));
+    const userById = new Map(users.map((u) => [u.id, u]));
+    const referralByCoupon = new Map<string, { referred: { name: string | null } }>();
+    for (const r of referrals) {
+      if (!r.rewardCouponId || referralByCoupon.has(r.rewardCouponId)) continue;
+      referralByCoupon.set(r.rewardCouponId, {
+        referred: { name: customerById.get(r.referredCustomerId)?.name ?? null },
+      });
+    }
+    const withRelations = (cp: (typeof active)[number]) => {
+      const referral = referralByCoupon.get(cp.id);
+      return {
+        ...cp,
+        vehicle: vehicleById.get(cp.vehicleId)!,
+        customer: customerById.get(cp.customerId)!,
+        issuedBy: userById.get(cp.issuedByUserId)!,
+        redeemedBy: cp.redeemedByUserId ? (userById.get(cp.redeemedByUserId) ?? null) : null,
+        referrals: referral ? [referral] : [],
+      };
+    };
+    return { active: active.map(withRelations), redeemed: redeemed.map(withRelations) };
   },
 };

@@ -8,6 +8,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-03
+
+### Changed
+
+- **Faster screens.** Each screen now asks the database for everything it needs at once instead of
+  one question after another, and the answers are exactly the same as before. Most screens take
+  one database trip; 24 common requests went from 98 trips to 30. Examples: job board and job
+  details 13 → 1, reminders 8 → 1, customer directory 5 → 2, customer profile 6 → 2, and cash
+  drawer, expenses, attendance, services, stats and staff report → 1.
+- **Sign-in check remembered for reads.** Every request checks who's asking. That check loads the
+  user, plan and staff order together, and screens that only read reuse it for 30 seconds.
+  Writes, sign-in and billing always check fresh. Only Pro shops are remembered, so a payment
+  shows at once. A shop's memory is dropped after any change it makes or any billing update.
+
+### Fixed
+
+- Reminders no longer fails with a server error when more than about 100 vehicles are due.
+
+### Added
+
+- `npm run perf:trips` (API): counts database trips per screen against a local server started
+  with `--var DEV_DB_DELAY_MS:100`. The delay only works on a local dev server.
+- Roadmap: a "Speed and latency" section with the options, the recommendation, and moving
+  production `mana_db` to APAC before launch.
+
 ## [0.4.0] - 2026-10-03
 
 ### Added
@@ -169,7 +194,8 @@ build was labelled 2.0.0.
   a customer profile.
 - **One shared MAJOR.MINOR.PATCH version** across every app and package.
 
-[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.1.0...v0.2.0

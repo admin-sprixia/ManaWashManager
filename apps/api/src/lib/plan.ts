@@ -53,7 +53,10 @@ export const teamSeats = (plan: PlanStatus) => 1 + plan.limits.staff;
  * and the order can't be gamed from the phone. Owners are never locked.
  */
 export async function seatLocked(db: DbClient, userId: string, plan: PlanStatus): Promise<boolean> {
-  const order = await billingRepo.listSeatOrder(db);
+  return seatIsLocked(await billingRepo.listSeatOrder(db), userId, plan);
+}
+
+export function seatIsLocked(order: { id: string }[], userId: string, plan: PlanStatus): boolean {
   const index = order.findIndex((u) => u.id === userId);
   return index === -1 || index >= teamSeats(plan);
 }

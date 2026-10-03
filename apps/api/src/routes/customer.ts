@@ -120,10 +120,8 @@ export const customerRoutes = new Hono<{ Bindings: Env }>()
     const db = c.get('db');
     const id = c.req.param('id');
     const { before } = c.req.valid('query');
-    const customer = await customerRepo.findById(db, id);
-    if (!customer) return c.json(null);
-
-    const [vehicles, page, summary] = await Promise.all([
+    const [customer, vehicles, page, summary] = await Promise.all([
+      customerRepo.findById(db, id),
       vehicleRepo.listForCustomer(db, id),
       customerRepo.getHistory(db, id, {
         before: before ? new Date(before) : undefined,
@@ -131,6 +129,7 @@ export const customerRoutes = new Hono<{ Bindings: Env }>()
       }),
       customerRepo.visitSummary(db, id),
     ]);
+    if (!customer) return c.json(null);
 
     return c.json({
       customer,

@@ -1,4 +1,6 @@
+import { Prisma } from '@prisma/client';
 import type { DbClient } from '../client';
+import { MAX_IN_LIST } from '../chunk';
 
 /**
  * One row of New Wash's customer directory: a vehicle, who owns it, and just enough history
@@ -45,35 +47,62 @@ export const directoryRepo = {
           }
         : undefined,
       orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }],
-      take: limit,
-      include: {
-        customer: {
-          include: {
-            _count: { select: { jobs: true } },
-            jobs: { orderBy: { createdAt: 'desc' }, take: 1, select: { createdAt: true } },
-          },
-        },
-        jobs: {
-          where: { status: { not: 'void' } },
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-          select: { jobServices: { select: { serviceId: true, quantity: true } } },
-        },
-      },
+      take: Math.min(limit, MAX_IN_LIST),
+      select: { id: true, registrationNumber: true, vehicleTypeId: true, customerId: true, updatedAt: true },
     });
+    if (rows.length === 0) return [];
 
-    return rows.map((v) => ({
-      vehicleId: v.id,
-      registrationNumber: v.registrationNumber,
-      vehicleTypeId: v.vehicleTypeId,
-      customerId: v.customerId,
-      customerName: v.customer.name ?? '',
-      customerPhone: v.customer.phone,
-      visitCount: v.customer._count.jobs,
-      lastVisit: v.customer.jobs[0]?.createdAt.toISOString() ?? null,
-      lastServices: v.jobs[0]?.jobServices ?? [],
-      updatedAt: v.updatedAt.toISOString(),
-    }));
+    // Second (and last) round, all in parallel: nested includes would cost one trip each.
+    const vehicleIds = rows.map((v) => v.id);
+    const customerIds = [...new Set(rows.map((v) => v.customerId))];
+    const shopId = db.$shopId();
+    const [customers, visits, lines] = await Promise.all([
+      db.customer.findMany({ where: { id: { in: customerIds } }, select: { id: true, name: true, phone: true } }),
+      db.job.groupBy({
+        by: ['customerId'],
+        where: { customerId: { in: customerIds } },
+        _count: { _all: true },
+        _max: { createdAt: true },
+      }),
+      db.$queryRaw<{ vehicleId: string; serviceId: string; quantity: number | bigint }[]>`
+        SELECT j.vehicle_id AS vehicleId, js.service_id AS serviceId, js.quantity AS quantity
+          FROM jobs j
+          JOIN job_services js ON js.job_id = j.id AND js.shop_id = j.shop_id
+         WHERE j.shop_id = ${shopId}
+           AND j.vehicle_id IN (${Prisma.join(vehicleIds)})
+           AND j.id = (
+             SELECT l.id FROM jobs l
+              WHERE l.shop_id = j.shop_id AND l.vehicle_id = j.vehicle_id AND l.status <> 'void'
+              ORDER BY l.created_at DESC
+              LIMIT 1
+           )
+         ORDER BY js.job_id, js.service_id`,
+    ]);
+    const customerById = new Map(customers.map((c) => [c.id, c]));
+    const visitsByCustomer = new Map(visits.map((v) => [v.customerId, v]));
+    const linesByVehicle = new Map<string, { serviceId: string; quantity: number }[]>();
+    for (const line of lines) {
+      const list = linesByVehicle.get(line.vehicleId) ?? [];
+      list.push({ serviceId: line.serviceId, quantity: Number(line.quantity) });
+      linesByVehicle.set(line.vehicleId, list);
+    }
+
+    return rows.map((v) => {
+      const customer = customerById.get(v.customerId);
+      const visit = visitsByCustomer.get(v.customerId);
+      return {
+        vehicleId: v.id,
+        registrationNumber: v.registrationNumber,
+        vehicleTypeId: v.vehicleTypeId,
+        customerId: v.customerId,
+        customerName: customer?.name ?? '',
+        customerPhone: customer?.phone ?? '',
+        visitCount: visit?._count._all ?? 0,
+        lastVisit: visit?._max.createdAt?.toISOString() ?? null,
+        lastServices: linesByVehicle.get(v.id) ?? [],
+        updatedAt: v.updatedAt.toISOString(),
+      };
+    });
   },
 
   /**

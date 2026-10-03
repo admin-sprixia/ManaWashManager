@@ -5,12 +5,21 @@ import type { ServiceAppliesTo, VehicleCategory } from '@mana/domain';
 export const serviceRepo = {
   /** Active services; `includes` lists the services a combo bundles (empty for a plain service). */
   async listActive(db: DbClient, category?: VehicleCategory) {
-    const rows = await db.service.findMany({
-      where: { active: true },
-      orderBy: { sortOrder: 'asc' },
-      include: { comboItems: { select: { serviceId: true } } },
-    });
-    const services = rows.map(({ comboItems, ...s }) => ({ ...s, includes: comboItems.map((i) => i.serviceId) }));
+    const [rows, items] = await Promise.all([
+      db.service.findMany({ where: { active: true }, orderBy: { sortOrder: 'asc' } }),
+      db.serviceComboItem.findMany({
+        where: { combo: { active: true } },
+        orderBy: [{ comboId: 'asc' }, { serviceId: 'asc' }],
+        select: { comboId: true, serviceId: true },
+      }),
+    ]);
+    const includesByCombo = new Map<string, string[]>();
+    for (const item of items) {
+      const list = includesByCombo.get(item.comboId) ?? [];
+      list.push(item.serviceId);
+      includesByCombo.set(item.comboId, list);
+    }
+    const services = rows.map((s) => ({ ...s, includes: includesByCombo.get(s.id) ?? [] }));
     if (!category) return services;
     return services.filter((s) => s.appliesTo === 'both' || s.appliesTo === category);
   },

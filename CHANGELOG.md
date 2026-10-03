@@ -8,6 +8,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-03
+
+### Fixed
+
+- Overlapping requests no longer hang on Cloudflare ("Worker's code had hung", request
+  cancelled). 0.5.0 shared one Prisma client across requests, but Cloudflare won't let one request
+  wait on database work another request started. Each request now borrows its own client from a
+  small pool for its whole life (including work that finishes after the response) and hands it
+  back afterwards, so clients are reused without being shared and memory stays flat. Cron jobs get
+  their own client.
+
 ## [0.5.0] - 2026-10-03
 
 ### Added
@@ -248,7 +259,8 @@ build was labelled 2.0.0.
   a customer profile.
 - **One shared MAJOR.MINOR.PATCH version** across every app and package.
 
-[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.3.0...v0.4.0

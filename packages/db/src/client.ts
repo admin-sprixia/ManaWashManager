@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { PrismaClient } from '@prisma/client';
 import { PrismaD1 } from '@prisma/adapter-d1';
 
@@ -90,20 +91,57 @@ function scopeArgs(operation: string, args: Plain, shopId: string): Plain {
 
 /**
  * Each PrismaClient loads its own copy of the query engine (WebAssembly): several milliseconds
- * of CPU and megabytes of memory. A Worker isolate serves many requests, so one client per D1
- * binding is shared by all of them; a client per request would pay that cost every time, and
- * overlapping requests exhaust the isolate's memory ("RangeError: Invalid array buffer length").
- * The per-shop scoping below is a cheap `$extends` layer on top of the shared client.
+ * of CPU and megabytes of memory, so a client per request exhausts the isolate's memory when
+ * requests overlap ("RangeError: Invalid array buffer length"). But one client can't be shared
+ * by requests running at the same time either: Prisma batches concurrent queries into one
+ * database call, and the Workers runtime cancels a request left waiting on I/O another request
+ * started ("the Worker's code had hung"). So each request leases clients from a per-isolate pool
+ * for its whole life (`openDbLease`) and hands them back when it — and its background work — is
+ * done. The pool grows only to the number of requests that actually overlap.
+ * The per-shop scoping below is a cheap `$extends` layer on top of the leased client.
  */
-const baseClients = new WeakMap<D1Database, PrismaClient>();
+interface Lease {
+  clients: Map<D1Database, PrismaClient>;
+  released: boolean;
+}
+
+const currentLease = new AsyncLocalStorage<Lease>();
+const idleClients = new WeakMap<D1Database, PrismaClient[]>();
+
+const newClient = (d1: D1Database) => new PrismaClient({ adapter: new PrismaD1(d1 as never) });
 
 function baseClient(d1: D1Database): PrismaClient {
-  let client = baseClients.get(d1);
+  const lease = currentLease.getStore();
+  // Outside a request (the nightly job), or late work after its lease ended: a client of its own.
+  if (!lease || lease.released) return newClient(d1);
+  let client = lease.clients.get(d1);
   if (!client) {
-    client = new PrismaClient({ adapter: new PrismaD1(d1 as never) });
-    baseClients.set(d1, client);
+    client = idleClients.get(d1)?.pop() ?? newClient(d1);
+    lease.clients.set(d1, client);
   }
   return client;
+}
+
+/**
+ * One request's database clients. Run the request inside `run`; call `release` once the
+ * response is sent and every `waitUntil` task has settled, so no other request gets the
+ * clients while this one may still be using them.
+ */
+export function openDbLease(): { run<T>(fn: () => T): T; release(): void } {
+  const lease: Lease = { clients: new Map(), released: false };
+  return {
+    run: (fn) => currentLease.run(lease, fn),
+    release() {
+      if (lease.released) return;
+      lease.released = true;
+      for (const [d1, client] of lease.clients) {
+        const idle = idleClients.get(d1);
+        if (idle) idle.push(client);
+        else idleClients.set(d1, [client]);
+      }
+      lease.clients.clear();
+    },
+  };
 }
 
 function build(d1: D1Database, shopId: string | null) {

@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MANA — indigo and white styles</title>
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif; color:#0F1743; background:#F4F6FF; }
+  main { max-width:1200px; margin:0 auto; padding:32px; }
+  h1 { margin:0 0 4px; font-size:26px; } p { margin:0 0 18px; color:#475569; max-width:740px; }
+  h3 { margin:34px 0 10px; font-size:13px; letter-spacing:1.4px; text-transform:uppercase; color:#2D3D9E; }
+  .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
+  .card { background:#fff; border:1px solid #DDE3FA; border-radius:18px; padding:20px; display:flex; flex-direction:column; align-items:center; gap:14px; }
+  .card h2 { margin:0; font-size:15px; } .card small { color:#64748B; text-align:center; }
+  .sq { border-radius:22.5%; box-shadow:0 10px 22px rgba(10,16,48,.28); } .ci { border-radius:50%; }
+  .small { display:flex; gap:12px; align-items:flex-end; }
+  .row { display:flex; flex-wrap:wrap; gap:16px; }
+  .tile { border-radius:16px; padding:22px; display:flex; flex-direction:column; align-items:center; gap:10px; border:1px solid #DDE3FA; }
+  .tile small { font-size:11px; opacity:.7; }
+  .white { background:#fff; } .indigo { background:linear-gradient(135deg,#7F93E6,#3A4DB0 50%,#1B2878); color:#fff; } .night { background:#080E2B; color:#9BAEF5; } .mist { background:#EEF1FF; }
+  .dock { display:flex; gap:12px; align-items:flex-end; padding:12px 16px; border-radius:26px; background:rgba(255,255,255,.7); border:1px solid #fff; box-shadow:0 8px 30px rgba(10,16,48,.12); width:max-content; max-width:100%; flex-wrap:wrap; }
+  .dock img { border-radius:22.5%; box-shadow:0 6px 12px rgba(0,0,0,.2); }
+  @media (max-width:900px){ .grid{ grid-template-columns:1fr; } }
+</style></head><body><main>
+<h1>MANA — indigo and white styles</h1>
+<p>The round 7 logo (same drop, same arms, same centre drop) in six different lift styles, using only deep indigo blues and white. Nothing here is wired into the app yet.</p>
+<div class="grid">
+  <div class="card"><h2>1 · Glass</h2>
+    <img class="sq" src="01-glass/app-icon.svg" width="200" alt="">
+    <div class="small"><img class="ci" src="01-glass/app-icon.svg" width="72" alt=""><img class="sq" src="01-glass/app-icon.svg" width="56" alt=""><img class="sq" src="01-glass/app-icon.svg" width="40" alt=""><img class="sq" src="01-glass/app-icon.svg" width="28" alt=""></div>
+    <small>A luminous indigo glass drop on a deep night-blue tile, with a soft glow and a few stars.</small></div>
+  <div class="card"><h2>1b · Glass, white line</h2>
+    <img class="sq" src="01b-glass-white-line/app-icon.svg" width="200" alt="">
+    <div class="small"><img class="ci" src="01b-glass-white-line/app-icon.svg" width="72" alt=""><img class="sq" src="01b-glass-white-line/app-icon.svg" width="56" alt=""><img class="sq" src="01b-glass-white-line/app-icon.svg" width="40" alt=""><img class="sq" src="01b-glass-white-line/app-icon.svg" width="28" alt=""></div>
+    <small>The Glass style with the centre drop in glowing white instead of a dark cut.</small></div>
+  <div class="card"><h2>1c · Glass, warm line</h2>
+    <img class="sq" src="01c-glass-warm-line/app-icon.svg" width="200" alt="">
+    <div class="small"><img class="ci" src="01c-glass-warm-line/app-icon.svg" width="72" alt=""><img class="sq" src="01c-glass-warm-line/app-icon.svg" width="56" alt=""><img class="sq" src="01c-glass-warm-line/app-icon.svg" width="40" alt=""><img class="sq" src="01c-glass-warm-line/app-icon.svg" width="28" alt=""></div>
+    <small>1b with a small warm glow at the foot of the white centre line, like a spark of light on the drop.</small></div>
+  <div class="card"><h2>2 · Pearl</h2>
+    <img class="sq" src="02-pearl/app-icon.svg" width="200" alt="">
+    <div class="small"><img class="ci" src="02-pearl/app-icon.svg" width="72" alt=""><img class="sq" src="02-pearl/app-icon.svg" width="56" alt=""><img class="sq" src="02-pearl/app-icon.svg" width="40" alt=""><img class="sq" src="02-pearl/app-icon.svg" width="28" alt=""></div>
+    <small>A white pearl drop with indigo rim arms, lifted off a rich indigo tile.</small></div>
+  <div class="card"><h2>3 · Emboss</h2>
+    <img class="sq" src="03-emboss/app-icon.svg" width="200" alt="">
+    <div class="small"><img class="ci" src="03-emboss/app-icon.svg" width="72" alt=""><img class="sq" src="03-emboss/app-icon.svg" width="56" alt=""><img class="sq" src="03-emboss/app-icon.svg" width="40" alt=""><img class="sq" src="03-emboss/app-icon.svg" width="28" alt=""></div>
+    <small>One soft indigo material: the drop is pressed up out of the tile, and the centre drop is pressed in.</small></div>
+  <div class="card"><h2>4 · Float</h2>
+    <img class="sq" src="04-float/app-icon.svg" width="200" alt="">
+    <div class="small"><img class="ci" src="04-float/app-icon.svg" width="72" alt=""><img class="sq" src="04-float/app-icon.svg" width="56" alt=""><img class="sq" src="04-float/app-icon.svg" width="40" alt=""><img class="sq" src="04-float/app-icon.svg" width="28" alt=""></div>
+    <small>The drop hovers above a clean white tile. Its shadow is small and far below, so it feels lifted high.</small></div>
+  <div class="card"><h2>5 · Long shadow</h2>
+    <img class="sq" src="05-long-shadow/app-icon.svg" width="200" alt="">
+    <div class="small"><img class="ci" src="05-long-shadow/app-icon.svg" width="72" alt=""><img class="sq" src="05-long-shadow/app-icon.svg" width="56" alt=""><img class="sq" src="05-long-shadow/app-icon.svg" width="40" alt=""><img class="sq" src="05-long-shadow/app-icon.svg" width="28" alt=""></div>
+    <small>Completely flat colours: a white drop, indigo arms, and one long diagonal shadow that fades into the tile.</small></div>
+  <div class="card"><h2>6 · Liquid glass</h2>
+    <img class="sq" src="06-liquid-glass/app-icon.svg" width="200" alt="">
+    <div class="small"><img class="ci" src="06-liquid-glass/app-icon.svg" width="72" alt=""><img class="sq" src="06-liquid-glass/app-icon.svg" width="56" alt=""><img class="sq" src="06-liquid-glass/app-icon.svg" width="40" alt=""><img class="sq" src="06-liquid-glass/app-icon.svg" width="28" alt=""></div>
+    <small>A clear frosted drop with a bright edge, floating over soft indigo light. The most modern look.</small></div></div>
+<h3>On a dock</h3>
+<div class="dock"><img src="01-glass/app-icon.svg" width="64" alt=""><img src="01b-glass-white-line/app-icon.svg" width="64" alt=""><img src="01c-glass-warm-line/app-icon.svg" width="64" alt=""><img src="02-pearl/app-icon.svg" width="64" alt=""><img src="03-emboss/app-icon.svg" width="64" alt=""><img src="04-float/app-icon.svg" width="64" alt=""><img src="05-long-shadow/app-icon.svg" width="64" alt=""><img src="06-liquid-glass/app-icon.svg" width="64" alt=""></div>
+<h3>Standalone marks</h3>
+<div class="row">
+  <div class="tile white"><img src="mark-indigo.svg" width="150" alt=""><small>mark-indigo · on white</small></div>
+  <div class="tile mist"><img src="mark-indigo.svg" width="150" alt=""><small>on pale indigo</small></div>
+  <div class="tile white"><img src="mark-indigo-white-line.svg" width="150" alt=""><small>mark-indigo-white-line · on white</small></div>
+  <div class="tile white"><img src="mark-indigo-warm-line.svg" width="150" alt=""><small>mark-indigo-warm-line · on white</small></div>
+  <div class="tile indigo"><img src="mark-white.svg" width="150" alt=""><small>mark-white · on indigo</small></div>
+  <div class="tile night"><img src="mark-white.svg" width="150" alt=""><small>on night</small></div>
+</div>
+</main></body></html>

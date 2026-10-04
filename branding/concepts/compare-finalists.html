@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MANA — the three finalists</title>
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif; color:#0C4A6E; background:#F6FAFD; }
+  main { max-width:1180px; margin:0 auto; padding:32px; }
+  h1 { margin:0 0 4px; font-size:26px; } p { margin:0 0 18px; color:#475569; max-width:720px; }
+  .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
+  .card { background:#fff; border:1px solid #DBEAFE; border-radius:18px; padding:20px; display:flex; flex-direction:column; align-items:center; gap:14px; }
+  .card h2 { margin:0; font-size:15px; letter-spacing:.4px; } .card small { color:#64748B; text-align:center; }
+  .sq { border-radius:22.5%; box-shadow:0 10px 24px rgba(3,31,51,.28); }
+  .pair { display:flex; gap:14px; } .small { display:flex; gap:12px; align-items:flex-end; }
+  .dock { margin-top:22px; display:flex; gap:14px; align-items:flex-end; padding:12px 16px; border-radius:26px; background:rgba(255,255,255,.7); border:1px solid #fff; box-shadow:0 8px 30px rgba(3,31,51,.12); width:max-content; }
+  .dock i { width:64px; height:64px; border-radius:22.5%; display:block; box-shadow:0 6px 12px rgba(0,0,0,.18); }
+  .dock img { box-shadow:0 6px 12px rgba(0,0,0,.18); border-radius:22.5%; }
+  @media (max-width:900px){ .grid{ grid-template-columns:1fr; } }
+</style></head><body><main>
+<h1>MANA — the three finalists</h1>
+<p>Same size, same lighting, side by side. Round 7 is the plain drop with a slim drop in the middle. Round 8 is the nested drop. Round 10 is the nested drop with its centre line running through the tip.</p>
+<div class="grid">
+  <div class="card"><h2>ROUND 7 · Glass drop</h2>
+    <div class="pair"><img class="sq" src="v7-3d-drop/app-icon-3d-light.svg" width="150" alt=""><img class="sq" src="v7-3d-drop/app-icon-3d-dark.svg" width="150" alt=""></div>
+    <div class="small"><img src="v7-3d-drop/mark-3d.svg" width="90" alt=""><img src="v7-3d-drop/mark-3d.svg" width="48" alt=""><img src="v7-3d-drop/mark-3d.svg" width="28" alt=""></div>
+    <small>Reads as a plain water drop.</small></div>
+  <div class="card"><h2>ROUND 8 · Nested drop</h2>
+    <div class="pair"><img class="sq" src="v8-3d-nested/app-icon-3d-light.svg" width="150" alt=""><img class="sq" src="v8-3d-nested/app-icon-3d-dark.svg" width="150" alt=""></div>
+    <div class="small"><img src="v8-3d-nested/mark-3d.svg" width="90" alt=""><img src="v8-3d-nested/mark-3d.svg" width="48" alt=""><img src="v8-3d-nested/mark-3d.svg" width="28" alt=""></div>
+    <small>A drop inside a drop. The tip stays whole.</small></div>
+  <div class="card"><h2>ROUND 10 · Nested, through the tip</h2>
+    <div class="pair"><img class="sq" src="v10-3d-nested-through/app-icon-3d-light.svg" width="150" alt=""><img class="sq" src="v10-3d-nested-through/app-icon-3d-dark.svg" width="150" alt=""></div>
+    <div class="small"><img src="v10-3d-nested-through/mark-3d.svg" width="90" alt=""><img src="v10-3d-nested-through/mark-3d.svg" width="48" alt=""><img src="v10-3d-nested-through/mark-3d.svg" width="28" alt=""></div>
+    <small>The most distinctive shape.</small></div>
+</div>
+<div class="dock">
+  <i style="background:linear-gradient(#ff9a8b,#e0422f)"></i><i style="background:linear-gradient(#ffd66b,#f59e0b)"></i>
+  <img src="v7-3d-drop/app-icon-3d-dark.svg" width="64" alt=""><img src="v8-3d-nested/app-icon-3d-dark.svg" width="64" alt=""><img src="v10-3d-nested-through/app-icon-3d-dark.svg" width="64" alt="">
+  <i style="background:linear-gradient(#a7f3d0,#0d9488)"></i><i style="background:linear-gradient(#c4b5fd,#6d28d9)"></i>
+</div>
+</main></body></html>

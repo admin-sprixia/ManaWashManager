@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MANA — 3D icons, round 7</title>
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif; color:#0C4A6E; background:#F6FAFD; }
+  header, main { max-width:1200px; margin:0 auto; padding:32px 32px 0; }
+  h1 { margin:0 0 6px; font-size:26px; } p { margin:0 0 14px; color:#475569; max-width:760px; }
+  h2 { margin:34px 0 10px; font-size:13px; letter-spacing:1.4px; text-transform:uppercase; color:#0369A1; }
+  .row { display:flex; flex-wrap:wrap; gap:18px; align-items:flex-end; }
+  .tile { border-radius:16px; border:1px solid #DBEAFE; padding:22px; display:flex; flex-direction:column; align-items:center; gap:12px; }
+  .tile small { font-size:11px; opacity:.7; }
+  .light { background:#fff; } .night { background:#0B1220; color:#94A3B8; border-color:#1f2a44; } .mist { background:#E0F2FE; }
+  .sq { border-radius:22.5%; box-shadow:0 10px 24px rgba(3,31,51,.28); } .ci { border-radius:50%; }
+  .dock { display:flex; gap:14px; align-items:flex-end; padding:12px 16px; border-radius:26px; background:rgba(255,255,255,.55); border:1px solid #fff; box-shadow:0 8px 30px rgba(3,31,51,.15); }
+  .dock i { width:64px; height:64px; border-radius:22.5%; display:block; box-shadow:0 6px 12px rgba(0,0,0,.18); }
+</style></head><body>
+<header><h1>MANA — 3D icons, round 7</h1>
+<p>The round-5 3D drop, with the centre line drawn as the slim drop from the nested-drop logo instead of the diamond. Rounds 1–6 are untouched. Nothing here is wired into the app yet.</p></header>
+<main>
+<h2>App icon</h2>
+<div class="row">
+  <div class="tile mist"><img class="sq" src="app-icon-3d-light.svg" width="220" alt=""><small>light tile</small></div>
+  <div class="tile mist"><img class="sq" src="app-icon-3d-dark.svg" width="220" alt=""><small>dark tile</small></div>
+  <div class="tile mist"><img class="ci" src="app-icon-3d-light.svg" width="140" alt=""><img class="ci" src="app-icon-3d-dark.svg" width="140" alt=""><small>round</small></div>
+</div>
+<h2>On a dock</h2>
+<div class="dock">
+  <i style="background:linear-gradient(#ff9a8b,#e0422f)"></i><i style="background:linear-gradient(#ffd66b,#f59e0b)"></i>
+  <img class="sq" style="box-shadow:0 6px 12px rgba(0,0,0,.18)" src="app-icon-3d-light.svg" width="64" alt="">
+  <img class="sq" style="box-shadow:0 6px 12px rgba(0,0,0,.18)" src="app-icon-3d-dark.svg" width="64" alt="">
+  <i style="background:linear-gradient(#a7f3d0,#0d9488)"></i><i style="background:linear-gradient(#c4b5fd,#6d28d9)"></i>
+</div>
+<h2>Standalone mark</h2>
+<div class="row">
+  <div class="tile light"><img src="mark-3d.svg" width="170" alt=""><small>on white</small></div>
+  <div class="tile mist"><img src="mark-3d.svg" width="170" alt=""><small>on light blue</small></div>
+  <div class="tile night"><img src="mark-3d.svg" width="170" alt=""><small>on dark</small></div>
+  <div class="tile light"><div class="row"><img src="mark-3d.svg" width="64" alt=""><img src="mark-3d.svg" width="40" alt=""><img src="mark-3d.svg" width="28" alt=""></div><small>small</small></div>
+</div>
+</main><div style="height:56px"></div></body></html>

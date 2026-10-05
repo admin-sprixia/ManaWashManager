@@ -56,7 +56,7 @@ Treat this section as the honest source of truth; every feature table below now 
 **Pending for V0.1/V1.0 to be fully "done":**
 
 - Going live: the step-by-step is in the README's **Go live** section (two R2 buckets, `JWT_SECRET` + `OWNER_RECOVERY_CODE` secrets, `npm run db:migrate:remote`, `npm run deploy`, `npm run set-api-url`, `npm run build:release`). Until then the Worker only runs locally (`wrangler dev` + `adb reverse`) and the real D1 database is empty
-- **Release signing:** the release build is still signed with the shared debug key (`apps/mobile/android/app/build.gradle`). Create a private upload keystore and wire it in before the first Play Store upload or before installing release builds on shop phones — deliberately left for a separate pass
+- **Release signing:** the release build is still signed with the shared debug key (`apps/manager/android/app/build.gradle`, and the same in `apps/customer`). Create a private upload keystore and wire it in before the first Play Store upload or before installing release builds on shop phones — deliberately left for a separate pass
 - WhatsApp sign-in codes: the code and template format are ready (Graph API v25.0); waiting on Meta to issue the test number, then the `login_code` template and a permanent system-user token (see README → Go live)
 - Automated on-device tests (Maestro) — device testing is still manual (live device + adb); API, isolation and sign-up suites are automated and run in CI
 - iOS build — deliberately out of scope per your direction (Android-only; MANA's customer base doesn't use iPhones). No `ios/` folder exists.
@@ -452,7 +452,7 @@ Every screen a new organization's staff sees is the same app MANA already runs �
 | Messaging | `wa.me` links (V1) → WhatsApp Business Cloud API (V3) | Zero setup to start, graduates only once volume justifies the integration |
 | Testing | Vitest for domain/unit tests (Worker logic tested via Miniflare), Maestro for critical mobile flows (new wash → paid) from V1.0 | Confidence to change code without manually re-testing every release |
 | Linting/formatting | ESLint (typescript-eslint strict) + Prettier, enforced in a pre-commit hook and CI | Consistent code regardless of who writes it, including future contributors |
-| Monorepo-ready structure | `apps/mobile`, `apps/api` (the Worker), `packages/domain`, `packages/db` — exact package names in Naming conventions below | A future admin tool or second app can import `domain`/`db` packages without duplicating logic |
+| Monorepo-ready structure | `apps/manager` (the team app), `apps/customer` (the MANA Car Wash app), `apps/api` (the Worker), `packages/domain`, `packages/db`, `packages/ui` (shared theme) — exact package names in Naming conventions below | A future admin tool or second app can import `domain`/`db` packages without duplicating logic |
 
 **What was actually used (Oct 2026):** Hono RPC (not tRPC); Android only (no iOS, Fastlane or CodePush); Vitest plus the API suites in `apps/api/scripts` run by GitHub Actions CI; no Maestro tests and no pre-commit hook yet (Prettier is set up as `npm run format`).
 
@@ -606,8 +606,8 @@ Established once here so every Worker, database, secret, table, and function is 
 | Repository functions | `{entity}Repo.{verb}...`, camelCase | `customerRepo.findByPhone(phone)`, `jobRepo.updateStatus(id, status)` |
 | Application use-cases | verb-first camelCase function, no `Repo` suffix | `startWash()`, `markPaid()`, `addExpense()` |
 | tRPC/API routes | `{entity}.{action}`, camelCase | `job.create`, `job.markPaid`, `customer.lookup` |
-| Monorepo packages | folder path → npm package name | `apps/mobile` → `@mana/mobile`, `apps/api` → `@mana/api`, `packages/domain` → `@mana/domain`, `packages/db` → `@mana/db` |
-| Version naming | `MAJOR.MINOR.PATCH`, one number shared by every app and package (root, `@mana/api`, `@mana/mobile`, `@mana/db`, `@mana/domain`, Android `versionName`). Starts at `0.1.0`; while in `0.x`, MINOR = feature release and PATCH = fix; `1.0.0` = first production release, after which MAJOR = breaking change. Change it only with `npm run version:set -- X.Y.Z`; `npm run version:check` fails on drift. Android `versionCode` = MAJOR·10000 + MINOR·100 + PATCH. Git tag `vX.Y.Z` per release | `0.1.0`, `0.2.0`, `0.2.1`, `1.0.0` |
+| Monorepo packages | folder path → npm package name | `apps/manager` → `@mana/manager`, `apps/customer` → `@mana/customer`, `apps/api` → `@mana/api`, `packages/domain` → `@mana/domain`, `packages/db` → `@mana/db`, `packages/ui` → `@mana/ui` |
+| Version naming | `MAJOR.MINOR.PATCH`, one number shared by every app and package (root, `@mana/api`, `@mana/manager`, `@mana/customer`, `@mana/db`, `@mana/domain`, `@mana/ui`, both apps' Android `versionName` and iOS `MARKETING_VERSION`). Starts at `0.1.0`; while in `0.x`, MINOR = feature release and PATCH = fix; `1.0.0` = first production release, after which MAJOR = breaking change. Change it only with `npm run version:set -- X.Y.Z`; `npm run version:check` fails on drift. Android `versionCode` = MAJOR·10000 + MINOR·100 + PATCH. Git tag `vX.Y.Z` per release | `0.1.0`, `0.2.0`, `0.2.1`, `1.0.0` |
 
 **Shops are data, not deployments:** every shop runs on the same Worker and database, so every name above is identical for every shop — only the `shops` row and the shop's own data differ. Shop ids are UUIDs, except the seeded `shop_mana`.
 

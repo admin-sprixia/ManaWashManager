@@ -1,9 +1,28 @@
-import { createPlatformDb, createShopDb, shopRepo, userRepo } from '@mana/db';
+import { createPlatformDb, createShopDb, platformSettingsRepo, shopRepo, userRepo } from '@mana/db';
 import { SHOP_CODE_LENGTH, SHOP_TRIAL_DAYS } from '@mana/domain';
 import { randomDigits } from './random';
+import { isDevMode } from './recovery';
 import type { Env } from '../types';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+export const SIGNUP_OPEN_SETTING = 'signup.open';
+
+/**
+ * Whether a new number may start its own shop. MANA runs its own branches only, so this is off
+ * on staging and production unless the platform setting says `true`; local dev (and CI) default
+ * to on so the sign-up code stays tested. Joining an existing shop with its shop ID is unaffected.
+ */
+export async function signupOpen(env: Env, requestUrl: string): Promise<boolean> {
+  const value = await platformSettingsRepo.get(createPlatformDb(env.DB), SIGNUP_OPEN_SETTING);
+  if (value != null) return value === 'true';
+  return isDevMode(env, requestUrl);
+}
+
+export const signupClosed = {
+  error: 'signup_closed' as const,
+  message: 'New shops can’t be started here. Ask your owner to add you to the team.',
+};
 
 /** A shop ID nobody has yet. Never starts with 0, so it reads as a normal number. */
 async function newShopCode(env: Env): Promise<string> {

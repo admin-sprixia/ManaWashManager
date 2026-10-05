@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MANA customer app — Washes, redesigned</title>
+<style>
+  :root {
+    --white:#FFFFFF; --surface:#F4F6FF;
+    --indigoPale:#E8ECFF; --indigoMist:#C4CCF0; --indigoSoft:#9BAEF5; --indigoBright:#5468D4;
+    --indigo:#3A4DB0; --indigoMid:#2D3D9E; --indigoDeep:#1B2878;
+    --ink:#0F1743; --slate:#8791B5; --slateDeep:#4A5280; --border:#E2E7FB; --hair:#E9EDFC;
+    --teal:#0D9488; --tealDeep:#0B5F57; --tealPale:#D9F5EE;
+    --amber:#F59E0B; --amberDeep:#9A5B00; --amberPale:#FFF4D6; --amberLight:#FDE68A;
+    --danger:#DC2626;
+    --g-hero:linear-gradient(160deg,#5468D4 0%,#3A4DB0 46%,#1B2878 100%);
+    --g-primary:linear-gradient(180deg,#5468D4,#3A4DB0);
+    --g-tabpill:linear-gradient(160deg,#5468D4,#2D3D9E);
+    --sh-md:0 8px 24px rgba(27,40,120,.09);
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; color:var(--ink); background:#E9EDFB; line-height:1.45; }
+  button { font:inherit; color:inherit; cursor:pointer; }
+
+  /* page chrome */
+  .page { max-width:1240px; margin:0 auto; padding:36px 28px 80px; }
+  .page h1 { margin:0 0 6px; font-size:28px; letter-spacing:-.4px; }
+  .lead { margin:0 0 26px; color:#4A5280; max-width:760px; }
+  .stage { display:grid; grid-template-columns:minmax(0,430px) 1fr; gap:44px; align-items:start; }
+  .states { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px; }
+  .states button { border:1px solid #CBD3F5; background:#fff; border-radius:999px; padding:7px 14px; font-size:13px; font-weight:600; color:#2D3D9E; }
+  .states button[aria-pressed="true"] { background:#3A4DB0; border-color:#3A4DB0; color:#fff; }
+  .notes section { background:#fff; border:1px solid #DDE3FA; border-radius:18px; padding:20px 22px; margin-bottom:18px; }
+  .notes h2 { margin:0 0 8px; font-size:13px; letter-spacing:1.3px; text-transform:uppercase; color:#3A4DB0; }
+  .notes p, .notes li { color:#4A5280; font-size:14px; } .notes p { margin:0 0 10px; } .notes ul { margin:0; padding-left:18px; } .notes li { margin:3px 0; }
+  code { font-family:ui-monospace,Menlo,monospace; font-size:12.5px; background:#EEF1FF; padding:1px 6px; border-radius:6px; color:#2D3D9E; }
+  table { width:100%; border-collapse:collapse; font-size:13px; } th, td { text-align:left; padding:7px 8px; border-bottom:1px solid #E7EBFB; vertical-align:top; }
+  th { color:#3A4DB0; font-size:11.5px; letter-spacing:.8px; text-transform:uppercase; }
+
+  /* phone */
+  .phone { width:410px; margin:0 auto; padding:10px; border-radius:54px; background:#0B1020; box-shadow:0 30px 60px rgba(8,14,43,.35), inset 0 0 0 2px #1d2540; position:sticky; top:20px; }
+  .screen { position:relative; width:390px; height:844px; border-radius:44px; overflow:hidden; background:var(--surface); display:flex; flex-direction:column; }
+  .island { position:absolute; z-index:31; top:10px; left:50%; width:104px; height:28px; margin-left:-52px; border-radius:20px; background:#05070f; }
+  .statusbar { position:absolute; z-index:30; top:0; left:0; right:0; height:44px; padding:14px 26px 0; display:flex; justify-content:space-between; font-size:14px; font-weight:700; color:#fff; pointer-events:none; }
+  .scroll { flex:1; overflow-y:auto; overflow-x:hidden; scrollbar-width:none; }
+  .scroll::-webkit-scrollbar { display:none; }
+
+  /* hero (same as every tab) */
+  .hero { position:relative; overflow:hidden; background:var(--g-hero); border-radius:0 0 32px 32px; padding:58px 20px 30px; color:#fff; }
+  .hero .glow { position:absolute; inset:0; background:radial-gradient(circle at 88% -6%, rgba(155,174,245,.65), transparent 52%), radial-gradient(circle at 0% 105%, rgba(84,104,212,.55), transparent 50%); }
+  .hero svg.deco { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+  .hero .brand { position:relative; display:flex; align-items:center; gap:8px; font-weight:800; letter-spacing:2.4px; font-size:12px; opacity:.95; }
+  .hero .brand svg { width:22px; height:22px; }
+  .hero h2 { position:relative; margin:18px 0 0; font-size:32px; line-height:36px; font-weight:800; letter-spacing:-.6px; }
+  .hero p { position:relative; margin:4px 0 0; font-size:15px; color:rgba(255,255,255,.85); }
+
+  /* the list: edge to edge, no gaps between rows */
+  .month { display:flex; justify-content:space-between; align-items:baseline; padding:22px 20px 8px; }
+  .month h3 { margin:0; font-size:12px; font-weight:800; letter-spacing:1px; text-transform:uppercase; color:var(--slateDeep); }
+  .month span { font-size:12.5px; font-weight:600; color:var(--slate); }
+  .list { background:var(--white); border-top:1px solid var(--hair); border-bottom:1px solid var(--hair); }
+  .item { position:relative; display:flex; align-items:center; gap:14px; padding:14px 14px 14px 16px; background:var(--white); border:0; width:100%; text-align:left; }
+  .item:active { background:var(--surface); }
+  .item + .item::before { content:""; position:absolute; top:0; left:74px; right:0; height:1px; background:var(--hair); }
+  .tile { flex:none; width:44px; height:44px; border-radius:14px; display:grid; place-items:center; background:linear-gradient(160deg,#EEF1FF,#DDE3FF); box-shadow:inset 0 0 0 1px rgba(84,104,212,.14); }
+  .grow { flex:1; min-width:0; }
+  .l1 { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+  .t { font-size:16.5px; font-weight:700; letter-spacing:-.1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .amt { flex:none; font-size:17px; font-weight:800; letter-spacing:-.3px; }
+  .l2 { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; margin-top:3px; }
+  .m { font-size:13.5px; color:var(--slateDeep); }
+  .plate { font-size:11.5px; font-weight:800; letter-spacing:.8px; color:var(--slateDeep); background:var(--surface); border:1px solid var(--border); padding:2px 8px; border-radius:7px; }
+  .photos { display:inline-flex; align-items:center; gap:4px; font-size:12.5px; font-weight:700; color:var(--slateDeep); }
+  .pill { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:800; }
+  .p-washing { background:var(--indigoPale); color:var(--indigoMid); }
+  .p-ready { background:var(--amberLight); color:var(--amberDeep); }
+  .p-waiting { background:#EEF0FA; color:var(--slateDeep); }
+  .dot { width:7px; height:7px; border-radius:50%; background:var(--indigoBright); animation:pulse 1.4s ease-in-out infinite; }
+  .p-ready .dot { background:var(--amber); animation:none; }
+  @keyframes pulse { 0%,100%{ box-shadow:0 0 0 0 rgba(84,104,212,.45);} 50%{ box-shadow:0 0 0 5px rgba(84,104,212,0);} }
+  .item.live::after { content:""; position:absolute; left:0; top:0; bottom:0; width:4px; background:linear-gradient(180deg,#5468D4,#1B2878); }
+  .item.live.ready::after { background:linear-gradient(180deg,#FBBF24,#F59E0B); }
+  .chev { flex:none; width:16px; display:grid; place-items:center; }
+
+  /* notice, footer, empty, skeleton */
+  .notice { display:flex; gap:10px; align-items:flex-start; margin:16px 16px 0; padding:12px 14px; border-radius:14px; background:#FFFBEB; border:1px solid var(--amberLight); color:var(--amberDeep); font-size:14px; font-weight:500; line-height:20px; }
+  .more { display:flex; align-items:center; justify-content:center; gap:10px; padding:18px 0 4px; color:var(--slateDeep); font-size:13.5px; font-weight:600; }
+  .spin { width:20px; height:20px; border-radius:50%; border:2.5px solid var(--indigoPale); border-top-color:var(--indigoBright); animation:rot .8s linear infinite; }
+  @keyframes rot { to { transform:rotate(360deg); } }
+  .end { text-align:center; padding:18px 0 4px; color:var(--slate); font-size:12.5px; font-weight:600; }
+  .card { margin:16px 16px 0; background:#fff; border:1px solid var(--hair); border-radius:20px; box-shadow:var(--sh-md); text-align:center; padding:28px 22px 24px; }
+  .card .mark { width:84px; height:84px; margin:0 auto 14px; border-radius:26px; display:grid; place-items:center; background:linear-gradient(160deg,#F1F3FF,#DCE2FF); box-shadow:inset 0 0 0 1px rgba(84,104,212,.16); }
+  .card .mark svg { width:56px; height:56px; filter:drop-shadow(0 6px 8px rgba(27,40,120,.28)); }
+  .card h4 { margin:0 0 4px; font-size:18px; font-weight:800; } .card p { margin:0; color:var(--slateDeep); font-size:14.5px; }
+  .btn { display:inline-flex; margin-top:16px; padding:12px 26px; border:0; border-radius:14px; color:#fff; font-weight:800; font-size:15px; background:var(--g-primary); box-shadow:0 8px 18px rgba(58,77,176,.35), inset 0 1px 0 rgba(255,255,255,.28); }
+  .sk { border-radius:8px; background:linear-gradient(90deg,#E9EDFB 25%,#F5F7FF 50%,#E9EDFB 75%); background-size:200% 100%; animation:sh 1.3s linear infinite; }
+  @keyframes sh { to { background-position:-200% 0; } }
+
+  /* floating tab bar (same as Home) */
+  .tabwrap { flex:none; padding:6px 14px 12px; background:var(--surface); }
+  .tabbar { height:72px; display:flex; align-items:center; padding:0 8px; background:#FDFDFF; border:1px solid var(--border); border-radius:28px; box-shadow:0 16px 36px rgba(27,40,120,.20), 0 2px 6px rgba(27,40,120,.08); }
+  .tab { flex:1; border:0; background:none; display:flex; flex-direction:column; align-items:center; gap:3px; padding:2px 0 0; font-size:11px; font-weight:700; color:var(--slate); }
+  .tab .ic { width:52px; height:32px; border-radius:16px; display:grid; place-items:center; }
+  .tab[aria-current="page"] { color:var(--indigoMid); }
+  .tab[aria-current="page"] .ic { background:var(--g-tabpill); box-shadow:0 8px 16px rgba(58,77,176,.38), inset 0 1px 0 rgba(255,255,255,.3); }
+  .homebar { position:absolute; z-index:45; left:50%; bottom:5px; width:128px; height:5px; margin-left:-64px; border-radius:3px; background:rgba(15,23,67,.55); }
+
+  @media (max-width:980px){ .stage{ grid-template-columns:1fr; } .phone{ position:relative; top:0; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>MANA customer app — Washes, redesigned</h1>
+  <p class="lead">One continuous list from edge to edge, with no gaps between rows and no separate cards. Washes are grouped by month, rows are compact, and only the information that matters is shown. Switch states with the buttons and scroll the phone.</p>
+
+  <div class="stage">
+    <div>
+      <div class="states" id="states" role="group" aria-label="Screen state"></div>
+      <div class="phone">
+        <div class="screen">
+          <div class="island"></div>
+          <div class="statusbar"><span>11:02</span><span>83%</span></div>
+          <div class="scroll" id="scroll"></div>
+          <div class="tabwrap"><nav class="tabbar" id="tabbar" aria-label="Main"></nav></div>
+          <div class="homebar"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="notes">
+      <section>
+        <h2>What changed from the cards</h2>
+        <ul>
+          <li><b>One list, edge to edge.</b> The rows sit in a single white surface that runs from the left edge of the screen to the right, with a hairline between rows. There is no gap and no shadow between them.</li>
+          <li><b>Grouped by month.</b> A small header for each month, with how many washes it had, so a long history is easy to scan.</li>
+          <li><b>Less on each row.</b> The “Done” badge is gone, because almost every wash is done. A status pill only shows while a wash is still in progress. The plate shows only if the customer has more than one vehicle.</li>
+          <li><b>Compact.</b> A row is about 75–78 px tall, because the date, plate and photo count share one line. A card plus its gap was about 120 px, so a screen shows roughly 1.6 times as many washes.</li>
+          <li><b>Same look as the rest of the app.</b> The indigo hero with the logo watermark, the indigo and white palette, and the floating tab bar.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Row spec</h2>
+        <table>
+          <tr><th>Part</th><th>Spec</th></tr>
+          <tr><td>Row</td><td>Full width, white, padding 14 left 16 right 14. Pressed: <code>surface</code> background. Divider: 1 px <code>#E9EDFC</code> starting at 74 (under the text), so the icon column stays clean. The first row has no divider; the block has a hairline top and bottom.</td></tr>
+          <tr><td>Icon tile</td><td>44 × 44, radius 14, soft indigo gradient with a 1 px inner ring. A car icon, or the bike icon for a bike.</td></tr>
+          <tr><td>Title</td><td>16.5 / 700 ink, one line, ellipsis (for example “Complete Car Wash, Wax”).</td></tr>
+          <tr><td>Amount</td><td>17 / 800 on the first line, right-aligned.</td></tr>
+          <tr><td>Date</td><td>13.5, secondary text: “28 Sept · 1:25 pm”.</td></tr>
+          <tr><td>Second line</td><td>The date, then the plate chip (only with more than one vehicle) and the photo count with a camera icon. It wraps to a new line only if it doesn’t fit. A wash in progress shows its status pill and the plate instead of the date, since it is today’s.</td></tr>
+          <tr><td>In-progress row</td><td>A 4 px left accent (indigo while washing, amber when ready), a pill with a pulsing dot, and these rows come first.</td></tr>
+          <tr><td>Month header</td><td>12 / 800 uppercase, 1.0 tracking, plus “N washes” on the right. 22 above, 8 below, 20 left and right.</td></tr>
+          <tr><td>Chevron</td><td>A plain 16 px slate chevron on the right, no disc.</td></tr>
+        </table>
+      </section>
+
+      <section>
+        <h2>States</h2>
+        <ul>
+          <li><b>Default</b> (two vehicles): plate chips on, photo counts, grouped by month.</li>
+          <li><b>One vehicle:</b> the plate chips disappear, so rows are even shorter.</li>
+          <li><b>Wash in progress:</b> live washes first, with the pill and accent, above the history.</li>
+          <li><b>Loading more:</b> a small spinner under the last row while the next page loads; “That’s all your washes” once there are no more.</li>
+          <li><b>Loading, Empty, Couldn’t load:</b> shimmering rows in the same layout; a card with the brand mark; the same card with a Try again button.</li>
+          <li><b>Connection lost:</b> the amber notice sits above the list, and the list stays on screen.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Implementation map</h2>
+        <table>
+          <tr><th>File</th><th>Change</th></tr>
+          <tr><td><code>components/WashRow.tsx</code></td><td>Becomes the edge-to-edge row described above: no card shell, no shadow, no margins. Keeps <code>WASH_STATUS_LABEL</code> and <code>washTitle</code>. Takes <code>showPlate</code> and <code>first</code> (to skip the top divider).</td></tr>
+          <tr><td><code>screens/WashesScreen.tsx</code></td><td>The <code>FlatList</code> becomes a <code>SectionList</code> grouped by month (newest first), with the same paging, refresh and error handling. Each section is a white block with hairline borders; the month header sits on the surface colour. Plates show when the loaded washes cover more than one vehicle.</td></tr>
+          <tr><td>List footer</td><td>The spinner while loading more, and the end note once <code>nextBefore</code> is null.</td></tr>
+          <tr><td>Everything else</td><td>No change: the hero, the pinned header, the tab bar and the navigation to the wash detail.</td></tr>
+        </table>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+const SW = 1.9;
+const ICON = {
+  car: (c) => `<path d="M5 16 L7 10 H17 L19 16" stroke="${c}" stroke-width="1.8" stroke-linejoin="round"/><path d="M3 16 H21 M5 16 V18 M19 16 V18" stroke="${c}" stroke-width="1.8" stroke-linecap="round"/><circle cx="7.5" cy="16" r="1.4" fill="${c}"/><circle cx="16.5" cy="16" r="1.4" fill="${c}"/>`,
+  bike: (c) => `<circle cx="5.5" cy="16" r="3.5" stroke="${c}" stroke-width="1.8"/><circle cx="18.5" cy="16" r="3.5" stroke="${c}" stroke-width="1.8"/><path d="M5.5 16 L9.5 9.5 H14.5 L18.5 16 M12 16 L9.5 9.5 M14.5 9.5 L13.5 6.5 H16" stroke="${c}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`,
+  chev: (c) => `<path d="M9 6 L15 12 L9 18" stroke="${c}" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/>`,
+  camera: (c) => `<path d="M4 8.5 A1.5 1.5 0 0 1 5.5 7 H8 L9.5 4.8 H14.5 L16 7 H18.5 A1.5 1.5 0 0 1 20 8.5 V18 A1.5 1.5 0 0 1 18.5 19.5 H5.5 A1.5 1.5 0 0 1 4 18 Z" stroke="${c}" stroke-width="${SW}" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.4" stroke="${c}" stroke-width="${SW}"/>`,
+  alert: (c) => `<path d="M12 3.5 L21 19.5 H3 Z" stroke="${c}" stroke-width="1.9" stroke-linejoin="round"/><path d="M12 10 V14" stroke="${c}" stroke-width="1.9" stroke-linecap="round"/><circle cx="12" cy="16.8" r="1.1" fill="${c}"/>`,
+  home: (c) => `<path d="M3.5 10.5 L12 3.5 L20.5 10.5 M5.5 9 V19.5 A1 1 0 0 0 6.5 20.5 H10 V14.5 H14 V20.5 H17.5 A1 1 0 0 0 18.5 19.5 V9" stroke="${c}" stroke-width="${SW}" stroke-linecap="round" stroke-linejoin="round"/>`,
+  dropO: (c) => `<path d="M12 3.5 C12 3.5 6.2 10.2 6.2 14.5 A5.8 5.8 0 0 0 17.8 14.5 C17.8 10.2 12 3.5 12 3.5 Z" stroke="${c}" stroke-width="${SW}" stroke-linejoin="round"/>`,
+  store: (c) => `<path d="M4 9.5 L5.5 4.5 H18.5 L20 9.5 M4 9.5 A2.67 2.67 0 0 0 9.33 9.5 A2.67 2.67 0 0 0 14.67 9.5 A2.67 2.67 0 0 0 20 9.5 M4 9.5 H20" stroke="${c}" stroke-width="${SW}" stroke-linejoin="round"/><path d="M5.5 12 V19.5 H18.5 V12 M10 19.5 V15 H14 V19.5" stroke="${c}" stroke-width="${SW}" stroke-linejoin="round"/>`,
+  person: (c) => `<circle cx="12" cy="8" r="3.5" stroke="${c}" stroke-width="1.8"/><path d="M5.5 19.5 C5.5 16.5 8.3 14.5 12 14.5 C15.7 14.5 18.5 16.5 18.5 19.5" stroke="${c}" stroke-width="1.8" stroke-linecap="round"/>`,
+};
+const ic = (n, s, c) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" aria-hidden="true">${ICON[n](c)}</svg>`;
+const LOGO = { drop: 'M128 14C128 14 212 96 212 158A84 84 0 0 1 44 158C44 96 128 14 128 14Z', rim: 'M80.37 80C63.69 104.42 49.04 133.01 49.04 158.12A78.96 78.96 0 0 0 206.96 158.12C206.96 133.01 192.31 104.42 175.63 80L175.63 80C168.96 101.53 189.32 132.46 189.32 158.54A61.32 61.32 0 0 1 66.68 158.54C66.68 132.46 87.04 101.53 80.37 80Z', line: 'M128 56C128 56 118 128 118 166A10 10 0 0 0 138 166C138 128 128 56 128 56Z' };
+const mark = (v) => v === 'glass'
+  ? `<svg viewBox="0 0 256 256"><defs><linearGradient id="gd" x1=".2" y1="0" x2=".8" y2="1"><stop offset="0" stop-color="#9BAEF5"/><stop offset=".45" stop-color="#4458CC"/><stop offset="1" stop-color="#1B2878"/></linearGradient></defs><path d="${LOGO.drop}" fill="url(#gd)"/><path d="${LOGO.rim}" fill="#fff"/><path d="${LOGO.line}" fill="#fff"/></svg>`
+  : `<svg viewBox="0 0 256 256"><path d="${LOGO.drop}" fill="#fff"/><path d="${LOGO.rim}" fill="#4458CC"/><path d="${LOGO.line}" fill="#4458CC"/></svg>`;
+
+const stars = `<svg class="deco" viewBox="0 0 390 230" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+  ${[[40,70,1.6,.6],[96,40,1.1,.5],[160,96,1.3,.4],[250,44,1.8,.7],[318,102,1.2,.5],[356,40,1.4,.6],[210,150,1,.4],[70,170,1.2,.35]].map(([x,y,r,o]) => `<circle cx="${x}" cy="${y}" r="${r}" fill="#fff" fill-opacity="${o}"/>`).join('')}
+  <g transform="translate(236 40) scale(.78)"><path d="${LOGO.drop}" fill="#fff" fill-opacity=".09"/><path d="${LOGO.rim}" fill="#fff" fill-opacity=".13"/><path d="${LOGO.line}" fill="#fff" fill-opacity=".2"/></g></svg>`;
+const hero = `<header class="hero"><div class="glow"></div>${stars}<div class="brand">${mark('onDark')}MANA</div><h2>My washes</h2><p>Every visit, with its bill and photos.</p></header>`;
+
+/* ── data ── */
+const W = (title, date, total, month, plate, over = {}) => ({ title, date, total, month, plate, status: 'paid', photos: 0, kind: 'car', ...over });
+const HISTORY = [
+  W('Exterior Wash', '28 Sept · 1:25 pm', '₹250', 'September 2026', 'AP39GB7534', { photos: 3 }),
+  W('Bike Wash', '19 Sept · 9:40 am', '₹120', 'September 2026', 'AP26CU5678', { kind: 'bike', photos: 2 }),
+  W('MANA Combo', '11 Sept · 5:28 pm', '₹500', 'September 2026', 'AP39GB7534'),
+  W('Complete Car Wash, Wax', '25 Aug · 11:38 am', '₹450', 'August 2026', 'AP39GB7534', { photos: 4 }),
+  W('Complete Car Wash', '7 Aug · 11:16 am', '₹400', 'August 2026', 'AP39GB7534'),
+  W('Bike Wash', '2 Aug · 6:02 pm', '₹120', 'August 2026', 'AP26CU5678', { kind: 'bike' }),
+  W('Complete Car Wash', '23 Jul · 11:05 am', '₹400', 'July 2026', 'AP39GB7534', { photos: 1 }),
+  W('Exterior Wash', '9 Jul · 4:12 pm', '₹250', 'July 2026', 'AP39GB7534'),
+];
+const LIVE = [
+  W('Complete Car Wash', '10:48 am', '₹450', 'now', 'AP39GB7534', { status: 'washing' }),
+];
+const LABEL = { waiting: 'In the queue', washing: 'Washing now', ready: 'Ready to collect' };
+
+const row = (w, showPlate) => {
+  const live = w.status !== 'paid';
+  const l2 = [];
+  if (live) l2.push(`<span class="pill p-${w.status}"><i class="dot"></i>${LABEL[w.status]}</span>`);
+  if (!live) l2.push(`<span class="m">${w.date}</span>`);
+  if (showPlate) l2.push(`<span class="plate">${w.plate}</span>`);
+  if (w.photos) l2.push(`<span class="photos">${ic('camera', 14, '#4A5280')}${w.photos}</span>`);
+  return `<button class="item ${live ? 'live ' + w.status : ''}" type="button">
+    <span class="tile">${ic(w.kind, 22, '#3A4DB0')}</span>
+    <span class="grow"><span class="l1"><span class="t">${w.title}</span><span class="amt">${w.total}</span></span>
+      <span class="l2">${l2.join('')}</span></span>
+    <span class="chev">${ic('chev', 16, '#B3BAD6')}</span></button>`;
+};
+const months = (items, showPlate) => {
+  const order = [...new Set(items.map((i) => i.month))];
+  return order.map((m) => {
+    const rows = items.filter((i) => i.month === m);
+    return `<div class="month"><h3>${m}</h3><span>${rows.length} ${rows.length === 1 ? 'wash' : 'washes'}</span></div><div class="list">${rows.map((r) => row(r, showPlate)).join('')}</div>`;
+  }).join('');
+};
+const live = (items, showPlate) => `<div class="month"><h3>Today</h3><span>${items.length} in progress</span></div><div class="list">${items.map((r) => row(r, showPlate)).join('')}</div>`;
+const notice = (t) => `<div class="notice">${ic('alert', 18, '#9A5B00')}<span>${t}</span></div>`;
+const skRow = () => `<div class="item"><span class="tile sk" style="box-shadow:none;background:none"></span><span class="grow"><span class="sk" style="display:block;height:15px;width:58%"></span><span class="sk" style="display:block;height:12px;width:36%;margin-top:9px"></span></span><span class="sk" style="width:46px;height:15px"></span></div>`;
+const messageCard = (title, body, action) => `<div class="card"><div class="mark">${mark('glass')}</div><h4>${title}</h4><p>${body}</p>${action ? `<button class="btn" type="button">${action}</button>` : ''}</div>`;
+
+const STATES = {
+  default: { label: 'Default (2 vehicles)', html: () => hero + months(HISTORY, true) + `<div class="end">That’s all your washes</div><div style="height:12px"></div>` },
+  one: { label: 'One vehicle', html: () => hero + months(HISTORY.map((w) => ({ ...w, kind: 'car', title: w.title.replace('Bike Wash', 'Exterior Wash') })).filter((w) => w.plate === 'AP39GB7534'), false) + `<div class="end">That’s all your washes</div><div style="height:12px"></div>` },
+  live: { label: 'Wash in progress', html: () => hero + live(LIVE, true) + months(HISTORY, true) + `<div class="end">That’s all your washes</div><div style="height:12px"></div>` },
+  more: { label: 'Loading more', html: () => hero + months(HISTORY, true) + `<div class="more"><i class="spin"></i>Loading more…</div><div style="height:12px"></div>` },
+  loading: { label: 'Loading', html: () => hero + `<div class="month"><h3 class="sk" style="width:120px;height:12px;border-radius:6px"></h3></div><div class="list">${skRow()}${skRow()}${skRow()}${skRow()}</div><div class="month"><h3 class="sk" style="width:100px;height:12px;border-radius:6px"></h3></div><div class="list">${skRow()}${skRow()}${skRow()}</div>` },
+  empty: { label: 'No washes yet', html: () => hero + messageCard('No washes yet', 'Each wash at MANA shows here, with its photos.') },
+  error: { label: 'Couldn’t load', html: () => hero + messageCard('Couldn’t load your washes', 'No connection. Check your internet and try again.', 'Try again') },
+  offline: { label: 'Connection lost', html: () => hero + notice('No connection. Check your internet and try again.') + months(HISTORY.slice(0, 5), true) },
+};
+
+const TABS = [['Home', 'home'], ['Washes', 'dropO'], ['Vehicles', 'car'], ['Visit us', 'store'], ['Profile', 'person']];
+let key = 'default', tab = 'Washes';
+function tabs() {
+  document.getElementById('tabbar').innerHTML = TABS.map(([n, i]) => {
+    const on = n === tab;
+    return `<button class="tab" ${on ? 'aria-current="page"' : ''} data-t="${n}"><span class="ic">${ic(i, 22, on ? '#fff' : '#8791B5')}</span>${n}</button>`;
+  }).join('');
+}
+function draw() {
+  const el = document.getElementById('scroll');
+  el.innerHTML = STATES[key].html();
+  el.scrollTop = 0;
+}
+function buttons() {
+  const w = document.getElementById('states');
+  w.innerHTML = Object.entries(STATES).map(([k, s]) => `<button type="button" data-k="${k}" aria-pressed="${k === key}">${s.label}</button>`).join('');
+  w.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { key = b.dataset.k; buttons(); draw(); }));
+}
+buttons(); tabs(); draw();
+</script>
+</body>
+</html>

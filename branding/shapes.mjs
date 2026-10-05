@@ -8,7 +8,7 @@
 /** Round to 2 decimals for compact path data. */
 export const n = (v) => String(Math.round(v * 100) / 100);
 
-// Palette — from apps/mobile/src/theme/colors.ts
+// Palette — from packages/ui/src/theme/colors.ts
 export const P = {
   waterPale: '#E0F2FE',
   waterLight: '#7DD3FC',

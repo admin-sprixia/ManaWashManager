@@ -1,40 +1,21 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import {
-  createPlatformDb,
-  createShopDb,
-  joinRequestRepo,
-  shopRepo,
-  signupCodeRepo,
-  userRepo,
-} from '@mana/db';
+import { createPlatformDb, createShopDb, joinRequestRepo, shopRepo, userRepo } from '@mana/db';
 import {
   checkPin,
   isValidShopCode,
   JOIN_REQUEST_TTL_DAYS,
   JOIN_REQUESTS_PER_SHOP,
-  LOGIN_CODE_MAX_ATTEMPTS,
-  LOGIN_CODE_RESEND_SECONDS,
-  LOGIN_CODE_TTL_MINUTES,
-  LOGIN_CODES_PER_HOUR,
   normalizePhone,
   pinProblemMessage,
   SIGNUP_CODES_PER_IP_PER_HOUR,
 } from '@mana/domain';
-import {
-  bypassWhatsAppOtp,
-  generateLoginCode,
-  hashLoginCode,
-  loginCodeExpiry,
-  sendLoginCodeOnWhatsApp,
-  whatsappConfigured,
-} from '../lib/loginCode';
+import { checkPhoneCode, sendPhoneCode } from '../lib/phoneCode';
 import { phoneBusy, withPhoneLock } from '../lib/phoneLock';
 import { hashPin } from '../lib/pin';
-import { devCode, sameHex } from '../lib/recovery';
 import { issueSession } from '../lib/session';
-import { createShopWithOwner } from '../lib/shops';
+import { createShopWithOwner, signupClosed, signupOpen } from '../lib/shops';
 import { createTicket, readTicket } from '../lib/ticket';
 import type { Env } from '../types';
 
@@ -68,8 +49,7 @@ const joinSchema = z.object({
 const requestTokenSchema = z.object({ requestToken: z.string().min(1) });
 const completeJoinSchema = z.object({ requestToken: z.string().min(1), pin: z.string() });
 
-const HOUR_MS = 60 * 60 * 1000;
-const DAY_MS = 24 * HOUR_MS;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const alreadyRegistered = {
   error: 'already_registered' as const,
@@ -122,123 +102,49 @@ function describeJoin(found: NonNullable<Awaited<ReturnType<typeof loadJoinReque
 // hands the phone a signed ticket for the next one; nothing is created until the last step.
 //
 // New shop:  /code → /verify → /shop (PIN, name, shop name) — the shop and owner are made together.
+//            Only while sign-up is open (`signupOpen`); every step checks, so an old ticket can't.
 // Join shop: /shops/:code → /code → /verify → /join → owner approves in Team → /join/complete (PIN).
 export const signupRoutes = new Hono<{ Bindings: Env }>()
   .post('/code', zValidator('json', codeRequestSchema), async (c) => {
     const { phone, purpose } = c.req.valid('json');
+    if (purpose === 'signup' && !(await signupOpen(c.env, c.req.url))) {
+      return c.json(signupClosed, 403);
+    }
     const platform = createPlatformDb(c.env.DB);
     if (await userRepo.findByPhone(platform, phone)) return c.json(alreadyRegistered, 409);
 
-    const now = new Date();
-    const recent = await signupCodeRepo.listForPhoneSince(
-      platform,
-      phone,
-      new Date(now.getTime() - HOUR_MS),
-    );
-    const latest = recent[0];
-    if (latest) {
-      const wait = Math.ceil(
-        LOGIN_CODE_RESEND_SECONDS - (now.getTime() - latest.createdAt.getTime()) / 1000,
-      );
-      if (wait > 0) return c.json({ error: 'too_soon' as const, retryAfter: wait }, 429);
-    }
-    const tooMany = (retryAfter: number) =>
-      c.json(
-        {
-          error: 'too_many' as const,
-          retryAfter,
-          message: `Too many codes asked for. Try again in ${Math.ceil(retryAfter / 60)} min.`,
-        },
-        429,
-      );
-    if (recent.length >= LOGIN_CODES_PER_HOUR) {
-      const oldest = recent[recent.length - 1]!;
-      return tooMany(Math.ceil((oldest.createdAt.getTime() + HOUR_MS - now.getTime()) / 1000));
-    }
-    const ip = c.req.header('cf-connecting-ip') ?? null;
-    if (
-      ip &&
-      (await signupCodeRepo.countForIpSince(platform, ip, new Date(now.getTime() - HOUR_MS))) >=
-        SIGNUP_CODES_PER_IP_PER_HOUR
-    ) {
-      return tooMany(60 * 60);
-    }
-
-    const bypass = bypassWhatsAppOtp(c.env, c.req.url);
-    if (!bypass && !whatsappConfigured(c.env)) {
-      return c.json(
-        {
-          error: 'code_not_configured' as const,
-          message: 'WhatsApp codes aren’t set up on the server yet.',
-        },
-        503,
-      );
-    }
-
-    const code = bypass ? devCode(c.env) : generateLoginCode();
-    const row = await signupCodeRepo.create(platform, {
+    const sent = await sendPhoneCode({
+      env: c.env,
+      requestUrl: c.req.url,
+      ip: c.req.header('cf-connecting-ip') ?? null,
       phone,
       purpose,
-      codeHash: await hashLoginCode(code, codeSubject(purpose, phone), c.env.JWT_SECRET),
-      ip,
-      expiresAt: loginCodeExpiry(now),
+      subject: codeSubject(purpose, phone),
+      perIpPerHour: SIGNUP_CODES_PER_IP_PER_HOUR,
     });
-    await signupCodeRepo.retireOthers(platform, phone, row.id, now);
-
-    if (!bypass && !(await sendLoginCodeOnWhatsApp(c.env, phone, code))) {
-      await signupCodeRepo.consume(platform, row.id, now);
-      return c.json(
-        {
-          error: 'send_failed' as const,
-          message: 'Couldn’t send the WhatsApp message. Try again in a minute.',
-        },
-        502,
-      );
-    }
-    return c.json({
-      sent: true as const,
-      expiresInMinutes: LOGIN_CODE_TTL_MINUTES,
-      resendAfter: LOGIN_CODE_RESEND_SECONDS,
-    });
+    if (!sent.ok) return c.json(sent.body, sent.status);
+    return c.json(sent.body);
   })
   .post('/verify', zValidator('json', codeVerifySchema), async (c) => {
     const { phone, purpose, code } = c.req.valid('json');
-    const platform = createPlatformDb(c.env.DB);
-    const now = new Date();
-    const expired = {
-      error: 'code_expired' as const,
-      message: 'This code has expired or was replaced. Tap “Send a new code”.',
-    };
-    const live = await signupCodeRepo.findLive(
-      platform,
+    if (purpose === 'signup' && !(await signupOpen(c.env, c.req.url))) {
+      return c.json(signupClosed, 403);
+    }
+    const checked = await checkPhoneCode({
+      env: c.env,
       phone,
       purpose,
-      now,
-      LOGIN_CODE_MAX_ATTEMPTS,
-    );
-    if (!live) return c.json(expired, 410);
-
-    const attemptsLeft = await signupCodeRepo.reserveGuess(platform, live.id, LOGIN_CODE_MAX_ATTEMPTS);
-    if (attemptsLeft == null) {
-      return c.json({ ...expired, message: 'Too many wrong tries. Tap “Send a new code”.' }, 410);
-    }
-    const expected = await hashLoginCode(code, codeSubject(purpose, phone), c.env.JWT_SECRET);
-    if (!sameHex(expected, live.codeHash)) {
-      if (attemptsLeft <= 0) {
-        return c.json({ ...expired, message: 'Too many wrong tries. Tap “Send a new code”.' }, 410);
-      }
-      return c.json(
-        { error: 'invalid_code' as const, message: 'That code isn’t right.', attemptsLeft },
-        401,
-      );
-    }
-    if (!(await signupCodeRepo.consume(platform, live.id, now))) return c.json(expired, 410);
+      subject: codeSubject(purpose, phone),
+      code,
+    });
+    if (!checked.ok) return c.json(checked.body, checked.status);
     return c.json({ ticket: await createTicket({ phone, purpose }, c.env.JWT_SECRET) });
   })
   // The last step of a new shop: shop, owner and PIN are created together, so an app closed
   // halfway through leaves nothing behind.
   .post('/shop', zValidator('json', createShopSchema), async (c) => {
     const body = c.req.valid('json');
+    if (!(await signupOpen(c.env, c.req.url))) return c.json(signupClosed, 403);
     const ticket = await readTicket(body.ticket, c.env.JWT_SECRET, 'signup');
     if (!ticket) return c.json(ticketExpired, 401);
     const problem = checkPin(body.pin);

@@ -7,7 +7,6 @@ import {
   loginCodeRepo,
   platformSettingsRepo,
   shopRepo,
-  signupCodeRepo,
   userRepo,
   type DbClient,
 } from '@mana/db';
@@ -35,6 +34,7 @@ import {
   sendLoginCodeOnWhatsApp,
   whatsappConfigured,
 } from '../lib/loginCode';
+import { checkPhoneCode, sendPhoneCode } from '../lib/phoneCode';
 import { phoneBusy, withPhoneLock } from '../lib/phoneLock';
 import { hashPin, verifyPin } from '../lib/pin';
 import {
@@ -46,7 +46,7 @@ import {
   sha256Hex,
   usesTestCodes,
 } from '../lib/recovery';
-import { createShopWithOwner } from '../lib/shops';
+import { createShopWithOwner, signupOpen } from '../lib/shops';
 import { requireAuth, requireRole } from '../middleware/auth';
 import type { Env } from '../types';
 
@@ -216,11 +216,14 @@ function wrongPinMessage(result: { lockedUntil: Date } | { attemptsLeft: number 
 // routes/signup.ts (start a shop, or ask to join one).
 export const authRoutes = new Hono<{ Bindings: Env }>()
   // Tells the app what to ask for after the phone number: the PIN pad, a WhatsApp code (owner
-  // with no PIN yet), or — for a number with no account — "start a shop or join one?".
+  // with no PIN yet), or — for a number with no account — "join a shop" (and "start one" only
+  // while sign-up is open).
   .post('/start', zValidator('json', codeRequestSchema), async (c) => {
     const { phone } = c.req.valid('json');
     const found = await findSignInUser(c.env, phone);
-    if (!found) return c.json({ next: 'new' as const });
+    if (!found) {
+      return c.json({ next: 'new' as const, signupOpen: await signupOpen(c.env, c.req.url) });
+    }
     const { user } = found;
     if (!user.active) return c.json({ error: 'account_disabled' as const }, 403);
     if (user.pinHash) return c.json({ next: 'pin' as const });
@@ -514,49 +517,16 @@ export const authRoutes = new Hono<{ Bindings: Env }>()
     const taken = await userRepo.findByPhone(platform, phone);
     if (taken && taken.id !== me.id) return c.json(phoneTakenBody, 409);
 
-    const now = new Date();
-    const recent = await signupCodeRepo.listForPhoneSince(platform, phone, new Date(now.getTime() - 60 * 60 * 1000));
-    const latest = recent[0];
-    if (latest) {
-      const wait = Math.ceil(LOGIN_CODE_RESEND_SECONDS - (now.getTime() - latest.createdAt.getTime()) / 1000);
-      if (wait > 0) return c.json({ error: 'too_soon' as const, retryAfter: wait }, 429);
-    }
-    if (recent.length >= LOGIN_CODES_PER_HOUR) {
-      const oldest = recent[recent.length - 1]!;
-      const retryAfter = Math.ceil((oldest.createdAt.getTime() + 60 * 60 * 1000 - now.getTime()) / 1000);
-      return c.json(
-        {
-          error: 'too_many' as const,
-          retryAfter,
-          message: `Too many codes asked for. Try again in ${Math.ceil(retryAfter / 60)} min.`,
-        },
-        429,
-      );
-    }
-    const bypass = bypassWhatsAppOtp(c.env, c.req.url);
-    if (!bypass && !whatsappConfigured(c.env)) {
-      return c.json(
-        { error: 'code_not_configured' as const, message: 'WhatsApp codes aren’t set up on the server yet.' },
-        503,
-      );
-    }
-    const code = bypass ? devCode(c.env) : generateLoginCode();
-    const row = await signupCodeRepo.create(platform, {
+    const sent = await sendPhoneCode({
+      env: c.env,
+      requestUrl: c.req.url,
+      ip: c.req.header('cf-connecting-ip') ?? null,
       phone,
       purpose: 'phone',
-      codeHash: await hashLoginCode(code, phoneChangeSubject(me.id, phone), c.env.JWT_SECRET),
-      ip: c.req.header('cf-connecting-ip') ?? null,
-      expiresAt: loginCodeExpiry(now),
+      subject: phoneChangeSubject(me.id, phone),
     });
-    await signupCodeRepo.retireOthers(platform, phone, row.id, now);
-    if (!bypass && !(await sendLoginCodeOnWhatsApp(c.env, phone, code))) {
-      await signupCodeRepo.consume(platform, row.id, now);
-      return c.json(
-        { error: 'send_failed' as const, message: 'Couldn’t send the WhatsApp message. Try again in a minute.' },
-        502,
-      );
-    }
-    return c.json({ sent: true as const, expiresInMinutes: LOGIN_CODE_TTL_MINUTES, resendAfter: LOGIN_CODE_RESEND_SECONDS });
+    if (!sent.ok) return c.json(sent.body, sent.status);
+    return c.json(sent.body);
   })
   // Step 2: the phone number is the sign-in identity, so moving it needs the current PIN (a
   // borrowed, unlocked phone can't redirect the account) and the code sent to the new number.
@@ -580,22 +550,15 @@ export const authRoutes = new Hono<{ Bindings: Env }>()
     const result = await guardedCheck(db, me, now, () => verifyPin(pin, pinHash));
     if (!('ok' in result)) return c.json({ error: 'invalid_pin' as const, message: wrongPinMessage(result) }, 401);
 
-    // The code to the new number: one guess taken before comparing, used once.
+    const checked = await checkPhoneCode({
+      env: c.env,
+      phone,
+      purpose: 'phone',
+      subject: phoneChangeSubject(me.id, phone),
+      code,
+    });
+    if (!checked.ok) return c.json(checked.body, checked.status);
     const platform = createPlatformDb(c.env.DB);
-    const codeExpired = {
-      error: 'code_expired' as const,
-      message: 'This code has expired or was replaced. Tap “Send a new code”.',
-    };
-    const live = await signupCodeRepo.findLive(platform, phone, 'phone', now, LOGIN_CODE_MAX_ATTEMPTS);
-    if (!live) return c.json(codeExpired, 410);
-    const attemptsLeft = await signupCodeRepo.reserveGuess(platform, live.id, LOGIN_CODE_MAX_ATTEMPTS);
-    if (attemptsLeft == null) return c.json(codeExpired, 410);
-    const expected = await hashLoginCode(code, phoneChangeSubject(me.id, phone), c.env.JWT_SECRET);
-    if (!sameHex(expected, live.codeHash)) {
-      if (attemptsLeft <= 0) return c.json({ ...codeExpired, message: 'Too many wrong tries. Tap “Send a new code”.' }, 410);
-      return c.json({ error: 'invalid_code' as const, message: 'That code isn’t right.', attemptsLeft }, 401);
-    }
-    if (!(await signupCodeRepo.consume(platform, live.id, now))) return c.json(codeExpired, 410);
 
     // Phones are unique across every shop, so check them all — without saying which shop.
     const moved = await withPhoneLock(c.env, phone, async () => {

@@ -24,7 +24,7 @@ Leave this running. Confirm it's up: `curl http://localhost:8787/health` → `{"
 **Terminal 2 — Metro (the JS bundler)**
 
 ```bash
-cd apps/mobile
+cd apps/manager
 npx react-native start
 ```
 
@@ -40,7 +40,7 @@ adb reverse tcp:8787 tcp:8787
 **Install and launch on the phone:**
 
 ```bash
-cd apps/mobile
+cd apps/manager
 npx react-native run-android
 ```
 
@@ -120,12 +120,12 @@ wipe the live database.
    The live database starts empty: no demo shop, no demo accounts.
 5. **Deploy** — `npm run deploy`. Note the `https://mana-api.<subdomain>.workers.dev` URL it
    prints.
-6. **Point the app at it** — from `apps/mobile`:
+6. **Point the app at it** — from `apps/manager`:
    `npm run set-api-url -- https://mana-api.<subdomain>.workers.dev`
    It calls `/health` first and refuses an address that isn't the MANA API, then saves it in
    `src/config/release.json`. Debug builds keep using `localhost:8787`. A release build stops
    with an error while this is still the placeholder, so a phone can never ship pointing nowhere.
-7. **Build the release app** — from `apps/mobile`: `npm run build:release`. Install
+7. **Build the release app** — from `apps/manager`: `npm run build:release`. Install
    `android/app/build/outputs/apk/release/app-release.apk` on each shop phone (the `.aab` next
    to it under `bundle/release` is the Play Store upload).
 8. **First sign-in** — the owner opens the app, enters their phone, picks **Start a new shop**
@@ -283,13 +283,13 @@ npm run dev   # inside apps/api — starts wrangler dev on http://localhost:8787
 
 ### 6. The Android app — Android-only, by design
 
-MANA is Android-only (no iOS build target is maintained). `apps/mobile/android` is already
+MANA is Android-only (no iOS build target is maintained). `apps/manager/android` is already
 generated and configured — verified end to end on a real device (a USB-connected Motorola
 Edge 40 Neo): `npm run android` builds, installs, and launches the app, and it renders the
 real Login screen in the white/water-blue theme.
 
-Two monorepo-specific fixes are already baked into `apps/mobile/android` and
-`apps/mobile/metro.config.js` — know these exist if node_modules ever gets wiped and
+Two monorepo-specific fixes are already baked into `apps/manager/android` and
+`apps/manager/metro.config.js` — know these exist if node_modules ever gets wiped and
 regenerated, or if you copy this setup elsewhere:
 
 1. **Gradle's node_modules paths.** The stock RN template assumes `node_modules` sits right
@@ -298,7 +298,7 @@ regenerated, or if you copy this setup elsewhere:
    accordingly (see the comments in those files) — don't "fix" these back to the template
    defaults.
 2. **Metro doesn't resolve `package.json` "exports" maps by default**, and Hono's client
-   (`hono/client`, used by `apps/mobile/src/api/client.ts`) relies on one. Without
+   (`hono/client`, used by `apps/manager/src/api/client.ts`) relies on one. Without
    `resolver.unstable_enablePackageExports: true` in `metro.config.js`, the bundle fails to
    build (a blank/gray screen on device, a 500 from Metro in the logs).
 
@@ -307,7 +307,7 @@ builds use the address saved by `npm run set-api-url` in `src/config/release.jso
 via USB (`adb devices` should list it) or an emulator running:
 
 ```bash
-cd apps/mobile
+cd apps/manager
 npm run android
 ```
 
@@ -363,11 +363,14 @@ RAZORPAY_WEBHOOK_SECRET=local npm run test:plans
 **Sign-up flow** — a number with no account picks "Start a new shop" (WhatsApp code → PIN twice →
 name, shop name, city) or "I work at a shop" (6-digit shop ID → WhatsApp code → name → the owner
 approves in More → Team → they choose their own PIN). The seeded MANA shop's ID is `482193`.
+"Start a new shop" is only offered while sign-up is open: by default on local `wrangler dev` (and
+CI), never on staging or production. The platform setting `signup.open` (`true`/`false`)
+overrides that; with it closed, a new number goes straight to "I work at a shop".
 
 Run it after any change to a route or repository. Every signed-in route must use
 `c.get('db')` (locked to the signed-in shop), never `createPlatformDb`.
 
 ## Design
 
-White and water-blue only, defined once in `apps/mobile/src/theme/colors.ts` — every screen
+White and water-blue only, defined once in `apps/manager/src/theme/colors.ts` — every screen
 composes from those tokens rather than choosing colors per-screen.

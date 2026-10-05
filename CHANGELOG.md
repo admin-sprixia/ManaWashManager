@@ -8,6 +8,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+
+- **Public sign-up is closed.** MANA Wash Manager now runs MANA Car Wash's own branches only, so a
+  new number can no longer start its own shop on staging or production. It goes straight to "Join
+  your shop" (ask to join with the 6-digit shop ID; the owner approves in Team), which works as
+  before. Every step of starting a shop refuses with `signup_closed`, including a half-finished
+  one. The platform setting `signup.open` (`true`/`false`) overrides this; without it, sign-up
+  stays open only on local `wrangler dev` (and CI), so `test:signup` keeps guarding the code.
+- **New look for the MANA Car Wash app (and the shared UI).** Deep indigo and white throughout:
+  a new hero (gradient, glow, stars and the logo watermark), a floating bottom bar, and the same
+  edge-to-edge lists on every screen. Home gets a latest-wash card, free-wash cards that show each
+  stamp as a water drop, offer and gift tickets with a Copy button, an invite card, and skeleton
+  loading. Washes are grouped by month in one continuous list. The shared form fields, chips,
+  buttons, bottom sheet and dialogs follow the new look, so the Wash Manager picks it up too.
+- The wash list and wash detail the customer app reads now say whether the vehicle is a car or a
+  bike (`vehicle.category`), so the right icon shows.
+- The customer app needs a native rebuild: it adds `@react-native-clipboard/clipboard` (run
+  `npm run pods` in `apps/customer` for iOS).
+
 ## [0.5.1] - 2026-10-03
 
 ### Fixed

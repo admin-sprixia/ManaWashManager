@@ -5,16 +5,19 @@ import { jwtVerify, SignJWT } from 'jose';
  * - `signup` / `join`: "this number was just verified on WhatsApp" (30 minutes), so the later
  *   steps don't need another code.
  * - `join_request`: lets the phone check on, cancel, or finish its request to join a shop.
+ * - `service_request`: the MANA Car Wash app, for a number the car wash hasn't registered —
+ *   lets that phone ask for service and follow its requests without another code.
  *
  * Signed with a key derived from JWT_SECRET but different from the session key, so a ticket can
  * never be used as a session and vice versa.
  */
-export type TicketPurpose = 'signup' | 'join' | 'join_request';
+export type TicketPurpose = 'signup' | 'join' | 'join_request' | 'service_request';
 
 const TTL_SECONDS: Record<TicketPurpose, number> = {
   signup: 30 * 60,
   join: 30 * 60,
   join_request: 8 * 24 * 60 * 60,
+  service_request: 30 * 24 * 60 * 60,
 };
 
 export interface Ticket {

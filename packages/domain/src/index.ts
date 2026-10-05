@@ -10,3 +10,6 @@ export * from './photos';
 export * from './stock';
 export * from './plans';
 export * from './rewards';
+export * from './serviceArea';
+export * from './serviceRequests';
+export * from './customerApp';

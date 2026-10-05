@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MANA customer app — Home, redesigned</title>
+<style>
+  /* ── Design tokens (these are the names proposed for packages/ui/src/theme/colors.ts) ─────────── */
+  :root {
+    --white:#FFFFFF;
+    --surface:#F4F6FF;          /* screen background */
+    --indigoPale:#E8ECFF;
+    --indigoMist:#C4CCF0;
+    --indigoSoft:#9BAEF5;
+    --indigoBright:#5468D4;
+    --indigo:#3A4DB0;           /* primary */
+    --indigoMid:#2D3D9E;
+    --indigoDeep:#1B2878;
+    --ink:#0F1743;              /* text */
+    --night:#080E2B;
+    --slate:#8791B5;            /* inactive */
+    --slateDeep:#4A5280;        /* secondary text */
+    --border:#E2E7FB;
+    /* semantic accents (the only non-indigo hues) */
+    --teal:#0D9488; --tealDeep:#0B5F57; --tealPale:#D9F5EE;
+    --amber:#F59E0B; --amberDeep:#9A5B00; --amberPale:#FFF4D6; --amberLight:#FDE68A;
+    --danger:#DC2626; --dangerPale:#FEE2E2;
+    /* gradients */
+    --g-hero:linear-gradient(160deg,#5468D4 0%,#3A4DB0 46%,#1B2878 100%);
+    --g-primary:linear-gradient(180deg,#5468D4,#3A4DB0);
+    --g-promo:linear-gradient(135deg,#5468D4 0%,#2D3D9E 58%,#1B2878 100%);
+    --g-gold:linear-gradient(160deg,#FDE68A,#F59E0B);
+    --g-tabpill:linear-gradient(160deg,#5468D4,#2D3D9E);
+    /* radius + shadow */
+    --r-sm:12px; --r-md:16px; --r-lg:20px; --r-xl:28px;
+    --sh-sm:0 2px 6px rgba(27,40,120,.06);
+    --sh-md:0 8px 24px rgba(27,40,120,.09);
+    --sh-lg:0 14px 36px rgba(27,40,120,.16);
+  }
+  * { box-sizing:border-box; }
+  html { -webkit-text-size-adjust:100%; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; color:var(--ink); background:#E9EDFB; line-height:1.45; }
+  button { font:inherit; color:inherit; cursor:pointer; }
+
+  /* ── Page chrome (not part of the app) ───────────────────────────────────────────────────────── */
+  .page { max-width:1240px; margin:0 auto; padding:36px 28px 80px; }
+  .page h1 { margin:0 0 6px; font-size:28px; letter-spacing:-.4px; }
+  .page .lead { margin:0 0 26px; color:#4A5280; max-width:760px; }
+  .stage { display:grid; grid-template-columns:minmax(0,430px) 1fr; gap:44px; align-items:start; }
+  .states { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px; }
+  .states button { border:1px solid #CBD3F5; background:#fff; border-radius:999px; padding:7px 14px; font-size:13px; font-weight:600; color:#2D3D9E; }
+  .states button[aria-pressed="true"] { background:#3A4DB0; border-color:#3A4DB0; color:#fff; }
+  .notes h2 { margin:0 0 8px; font-size:13px; letter-spacing:1.3px; text-transform:uppercase; color:#3A4DB0; }
+  .notes section { background:#fff; border:1px solid #DDE3FA; border-radius:18px; padding:20px 22px; margin-bottom:18px; }
+  .notes p { margin:0 0 10px; color:#4A5280; font-size:14px; }
+  .notes ul { margin:0; padding-left:18px; color:#4A5280; font-size:14px; }
+  .notes li { margin:3px 0; }
+  code, .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.5px; background:#EEF1FF; padding:1px 6px; border-radius:6px; color:#2D3D9E; }
+  .swatches { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; }
+  .sw { border:1px solid #E2E7FB; border-radius:12px; overflow:hidden; background:#fff; }
+  .sw i { display:block; height:44px; }
+  .sw div { padding:7px 10px 9px; font-size:12px; line-height:1.35; }
+  .sw b { display:block; font-size:12.5px; }
+  .sw span { color:#6B7399; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid #E7EBFB; vertical-align:top; }
+  th { color:#3A4DB0; font-size:11.5px; letter-spacing:.8px; text-transform:uppercase; }
+  .chipdot { display:inline-block; width:12px; height:12px; border-radius:4px; vertical-align:-1px; margin-right:6px; border:1px solid rgba(0,0,0,.08); }
+  .gradrow { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:10px; }
+  .gradrow div { height:64px; border-radius:14px; color:#fff; font-size:12px; font-weight:700; padding:9px 11px; display:flex; align-items:flex-end; }
+
+  /* ── The phone ───────────────────────────────────────────────────────────────────────────────── */
+  .phone { width:410px; margin:0 auto; padding:10px; border-radius:54px; background:#0B1020; box-shadow:0 30px 60px rgba(8,14,43,.35), inset 0 0 0 2px #1d2540; position:sticky; top:20px; }
+  .screen { position:relative; width:390px; height:844px; border-radius:44px; overflow:hidden; background:var(--surface); }
+  .scroll { position:absolute; inset:0; overflow-y:auto; overflow-x:hidden; padding-bottom:128px; scrollbar-width:none; }
+  .scroll::-webkit-scrollbar { display:none; }
+  .statusbar { position:absolute; z-index:30; top:0; left:0; right:0; height:50px; padding:14px 26px 0; display:flex; justify-content:space-between; font-size:14px; font-weight:700; color:#fff; pointer-events:none; }
+  .scrim { position:absolute; z-index:29; top:0; left:0; right:0; height:50px; pointer-events:none; opacity:0; transition:opacity .2s; background:linear-gradient(180deg,rgba(58,77,176,.97) 0%,rgba(58,77,176,.9) 62%,rgba(58,77,176,0) 100%); }
+  .scrim.on { opacity:1; }
+  .statusbar .r { display:flex; gap:6px; align-items:center; }
+  .island { position:absolute; z-index:31; top:10px; left:50%; width:104px; height:28px; margin-left:-52px; border-radius:20px; background:#05070f; }
+
+  /* Hero */
+  .hero { position:relative; overflow:hidden; background:var(--g-hero); border-radius:0 0 32px 32px; padding:58px 20px 72px; color:#fff; }
+  .hero .glow { position:absolute; inset:0; background:radial-gradient(circle at 88% -6%, rgba(155,174,245,.65), transparent 52%), radial-gradient(circle at 0% 105%, rgba(84,104,212,.55), transparent 50%); }
+  .hero svg.deco { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+  .hero .toprow { position:relative; display:flex; align-items:center; justify-content:space-between; }
+  .brand { display:flex; align-items:center; gap:8px; font-weight:800; letter-spacing:2.4px; font-size:12.5px; opacity:.95; }
+  .brand svg { width:26px; height:26px; }
+  .avatar { width:40px; height:40px; border-radius:50%; display:grid; place-items:center; font-weight:800; font-size:16px; background:rgba(255,255,255,.16); border:1.5px solid rgba(255,255,255,.4); box-shadow:inset 0 1px 0 rgba(255,255,255,.35); }
+  .hello { position:relative; margin-top:22px; }
+  .hello small { display:block; font-size:15px; font-weight:600; color:rgba(255,255,255,.82); }
+  .hello h2 { margin:2px 0 0; font-size:34px; line-height:1.1; font-weight:800; letter-spacing:-.6px; }
+  .hero .chips { position:relative; display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+  .glass { display:inline-flex; align-items:center; gap:6px; padding:6px 12px 6px 9px; border-radius:999px; font-size:13.5px; font-weight:600; background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.26); backdrop-filter:blur(6px); }
+  .goldpill { display:inline-flex; align-items:center; gap:6px; padding:6px 13px 6px 9px; border-radius:999px; font-size:13.5px; font-weight:800; color:#4D2F00; background:var(--g-gold); box-shadow:0 6px 16px rgba(245,158,11,.4), inset 0 1px 0 rgba(255,255,255,.55); }
+
+  /* Sections + cards */
+  .body { padding:0 16px; }
+  .over { margin-top:-44px; position:relative; z-index:2; }
+  .seclabel { display:flex; justify-content:space-between; align-items:center; margin:26px 4px 10px; }
+  .seclabel h3 { margin:0; font-size:12px; font-weight:800; letter-spacing:1px; text-transform:uppercase; color:var(--slateDeep); }
+  .link { display:inline-flex; align-items:center; gap:2px; border:0; background:none; padding:0; font-size:13.5px; font-weight:700; color:var(--indigo); }
+  .card { background:var(--white); border:1px solid #E9EDFC; border-radius:var(--r-lg); box-shadow:var(--sh-md); }
+  .card.pad { padding:16px; }
+  .tile { flex:none; width:48px; height:48px; border-radius:15px; display:grid; place-items:center; background:linear-gradient(160deg,#EEF1FF,#DDE3FF); box-shadow:inset 0 0 0 1px rgba(84,104,212,.14); }
+  .row { display:flex; align-items:center; gap:14px; }
+  .grow { flex:1; min-width:0; }
+  .t { font-size:16.5px; font-weight:700; color:var(--ink); letter-spacing:-.1px; }
+  .m { font-size:13.5px; color:var(--slateDeep); margin-top:1px; }
+  .amount { font-size:19px; font-weight:800; letter-spacing:-.3px; color:var(--ink); text-align:right; }
+  .chev { flex:none; width:28px; height:28px; border-radius:50%; display:grid; place-items:center; background:var(--surface); }
+  .badges { display:flex; gap:8px; flex-wrap:wrap; margin-top:13px; }
+  .badge { display:inline-flex; align-items:center; gap:5px; padding:4px 11px 4px 9px; border-radius:999px; font-size:12.5px; font-weight:700; }
+  .b-done { background:var(--tealPale); color:var(--tealDeep); }
+  .b-plain { background:var(--surface); color:var(--slateDeep); border:1px solid var(--border); }
+  .b-amber { background:var(--amberPale); color:var(--amberDeep); }
+  .b-indigo { background:var(--indigoPale); color:var(--indigoMid); }
+
+  /* Free-wash (stamp) card */
+  .stamp-card { padding:16px 16px 15px; background:linear-gradient(180deg,#fff, #F8F9FF); }
+  .stamp-card.free { background:linear-gradient(160deg,#FFFBEA,#FFF1C7); border-color:#F6DC8B; box-shadow:0 10px 26px rgba(245,158,11,.18); }
+  .stamp-head { display:flex; align-items:center; gap:10px; }
+  .count { margin-left:auto; padding:3px 11px; border-radius:999px; font-size:13px; font-weight:800; background:var(--indigoPale); color:var(--indigoMid); }
+  .free .count { background:var(--amber); color:#fff; }
+  .plate { font-size:11.5px; font-weight:800; letter-spacing:.8px; color:var(--slateDeep); background:var(--surface); border:1px solid var(--border); padding:2px 8px; border-radius:7px; }
+  .track { display:flex; align-items:center; gap:9px; margin:15px 0 12px; }
+  .stamp { position:relative; width:36px; height:42px; flex:none; }
+  .stamp > svg { width:100%; height:100%; display:block; }
+  .stamp .ck { position:absolute; left:0; right:0; top:15px; display:grid; place-items:center; }
+  .track .link-line { flex:1; height:2px; border-radius:2px; background:repeating-linear-gradient(90deg,#C4CCF0 0 4px,transparent 4px 8px); min-width:8px; }
+  .reward { flex:none; width:46px; height:46px; border-radius:15px; display:grid; place-items:center; background:var(--g-gold); box-shadow:0 6px 14px rgba(245,158,11,.38), inset 0 1px 0 rgba(255,255,255,.6); }
+  .free .reward { animation:pop 1.8s ease-in-out infinite; }
+  @keyframes pop { 0%,100%{ transform:scale(1);} 50%{ transform:scale(1.07);} }
+  .meter { height:6px; border-radius:6px; background:var(--indigoPale); overflow:hidden; margin-bottom:11px; }
+  .meter i { display:block; height:100%; border-radius:6px; background:linear-gradient(90deg,#5468D4,#3A4DB0); }
+  .free .meter { background:#FBE3A0; } .free .meter i { background:linear-gradient(90deg,#FBBF24,#F59E0B); }
+  .stamp-msg { font-size:14px; font-weight:600; color:var(--slateDeep); }
+  .stamp-msg b { color:var(--indigo); }
+  .free .stamp-msg { color:var(--amberDeep); font-weight:800; }
+  .warn { display:flex; align-items:center; gap:6px; margin-top:9px; font-size:13px; font-weight:700; color:var(--amberDeep); }
+
+  /* Offer / gift tickets */
+  .ticket { display:flex; position:relative; margin-bottom:12px; }
+  .stub { flex:none; width:92px; border-radius:var(--r-lg) 0 0 var(--r-lg); color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; background:var(--g-promo); position:relative; }
+  .stub.gold { background:var(--g-gold); color:#4D2F00; }
+  .stub b { font-size:30px; line-height:1; font-weight:800; letter-spacing:-1px; }
+  .stub em { font-style:normal; font-size:11px; font-weight:800; letter-spacing:1.6px; margin-top:3px; opacity:.9; }
+  .tbody { flex:1; min-width:0; padding:14px 16px 14px 18px; border-left:2px dashed #D3D9F6; border-radius:0 var(--r-lg) var(--r-lg) 0; }
+  .ticket::before, .ticket::after { content:""; position:absolute; left:81px; width:22px; height:22px; border-radius:50%; background:var(--surface); box-shadow:inset 0 0 0 1px #E9EDFC; z-index:2; }
+  .ticket::before { top:-11px; clip-path:inset(50% 0 0 0); } .ticket::after { bottom:-11px; clip-path:inset(0 0 50% 0); }
+  .code { display:flex; align-items:center; gap:8px; margin-top:10px; padding:7px 8px 7px 11px; border:1.5px dashed #B9C4F2; border-radius:11px; background:#F7F8FF; }
+  .code span { font-family:ui-monospace,Menlo,monospace; font-size:12.5px; font-weight:700; letter-spacing:.4px; color:var(--indigoMid); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .code button { border:0; background:var(--indigoPale); color:var(--indigoMid); font-size:12px; font-weight:800; padding:4px 10px; border-radius:8px; }
+
+  /* Invite promo + help */
+  .promo { position:relative; overflow:hidden; border-radius:22px; padding:18px; color:#fff; background:var(--g-promo); box-shadow:0 14px 30px rgba(45,61,158,.32); }
+  .promo svg.deco { position:absolute; right:-14px; bottom:-18px; width:150px; height:150px; opacity:.5; }
+  .promo .tile { background:rgba(255,255,255,.16); box-shadow:inset 0 0 0 1px rgba(255,255,255,.25); }
+  .promo h4 { margin:0; font-size:19px; font-weight:800; letter-spacing:-.3px; }
+  .promo p { margin:3px 0 0; font-size:14px; color:rgba(255,255,255,.86); max-width:250px; }
+  .cta { display:inline-flex; align-items:center; gap:6px; margin-top:14px; padding:9px 16px; border:0; border-radius:999px; font-weight:800; font-size:14px; color:var(--indigoMid); background:#fff; box-shadow:0 6px 14px rgba(8,14,43,.25); }
+  .help { margin-top:12px; padding:14px 16px; }
+
+  /* Live wash */
+  .live { position:relative; overflow:hidden; padding:16px; }
+  .live::before { content:""; position:absolute; left:0; top:0; bottom:0; width:5px; background:linear-gradient(180deg,#5468D4,#1B2878); }
+  .live.ready::before { background:linear-gradient(180deg,#FBBF24,#F59E0B); }
+  .live .plate { font-size:12px; }
+  .stepper { display:flex; align-items:flex-start; margin:18px 4px 16px; }
+  .step { display:flex; flex-direction:column; align-items:center; gap:7px; width:62px; font-size:12px; font-weight:700; color:var(--slate); }
+  .step.done { color:var(--indigoMid); }
+  .dot { width:22px; height:22px; border-radius:50%; border:2px solid #CBD3F5; background:#fff; display:grid; place-items:center; }
+  .step.done .dot { background:linear-gradient(160deg,#5468D4,#2D3D9E); border-color:transparent; }
+  .step.cur .dot { background:#fff; border:2px solid var(--indigoBright); box-shadow:0 0 0 5px rgba(84,104,212,.18); animation:pulse 1.6s ease-in-out infinite; }
+  .step.cur .dot::after { content:""; width:8px; height:8px; border-radius:50%; background:var(--indigoBright); }
+  .live.ready .step.cur .dot { border-color:var(--amber); box-shadow:0 0 0 5px rgba(245,158,11,.2); animation:none; } .live.ready .step.cur .dot::after { background:var(--amber); }
+  .live.ready .step.done { color:var(--amberDeep); } .live.ready .step.done .dot { background:linear-gradient(160deg,#FBBF24,#F59E0B); }
+  @keyframes pulse { 0%,100%{ box-shadow:0 0 0 4px rgba(84,104,212,.18);} 50%{ box-shadow:0 0 0 8px rgba(84,104,212,.06);} }
+  .bar { flex:1; height:3px; margin-top:10px; background:#D8DEF7; border-radius:3px; }
+  .bar.on { background:linear-gradient(90deg,#5468D4,#3A4DB0); } .live.ready .bar.on { background:linear-gradient(90deg,#FBBF24,#F59E0B); }
+  .billrow { display:flex; justify-content:space-between; align-items:flex-end; gap:10px; padding-top:12px; border-top:1px solid var(--border); }
+  .topay { font-size:12px; font-weight:800; color:var(--amberDeep); text-align:right; }
+  .actions { display:flex; gap:10px; margin-top:14px; }
+  .chip { flex:1; display:flex; align-items:center; justify-content:center; gap:7px; padding:11px 10px; border-radius:14px; border:1px solid #D3DAF8; background:var(--indigoPale); color:var(--indigoMid); font-weight:700; font-size:14px; }
+
+  /* Empty / error / skeleton */
+  .empty { text-align:center; padding:28px 22px 24px; }
+  .empty .mark { width:84px; height:84px; margin:0 auto 14px; border-radius:26px; display:grid; place-items:center; background:linear-gradient(160deg,#F1F3FF,#DCE2FF); box-shadow:inset 0 0 0 1px rgba(84,104,212,.16); }
+  .empty .mark svg { width:56px; height:56px; filter:drop-shadow(0 6px 8px rgba(27,40,120,.28)); }
+  .empty h4 { margin:0 0 4px; font-size:18px; font-weight:800; } .empty p { margin:0; color:var(--slateDeep); font-size:14.5px; }
+  .btn { display:inline-flex; align-items:center; justify-content:center; margin-top:16px; padding:12px 22px; border:0; border-radius:14px; color:#fff; font-weight:800; font-size:15px; background:var(--g-primary); box-shadow:0 8px 18px rgba(58,77,176,.35), inset 0 1px 0 rgba(255,255,255,.28); }
+  .sk { border-radius:10px; background:linear-gradient(90deg,#E9EDFB 25%,#F5F7FF 50%,#E9EDFB 75%); background-size:200% 100%; animation:sh 1.3s linear infinite; }
+  @keyframes sh { to { background-position:-200% 0; } }
+
+  /* Floating tab bar */
+  .tabbar { position:absolute; z-index:40; left:14px; right:14px; bottom:14px; height:72px; padding:0 8px; display:flex; align-items:center; justify-content:space-between; background:rgba(255,255,255,.94); backdrop-filter:blur(14px); border:1px solid #E2E7FB; border-radius:28px; box-shadow:0 16px 36px rgba(27,40,120,.20), 0 2px 6px rgba(27,40,120,.08); }
+  .tab { flex:1; border:0; background:none; display:flex; flex-direction:column; align-items:center; gap:3px; padding:6px 0 0; font-size:11px; font-weight:700; color:var(--slate); }
+  .tab .ic { width:52px; height:32px; border-radius:16px; display:grid; place-items:center; transition:all .2s; }
+  .tab[aria-current="page"] { color:var(--indigoMid); }
+  .tab[aria-current="page"] .ic { background:var(--g-tabpill); box-shadow:0 8px 16px rgba(58,77,176,.38), inset 0 1px 0 rgba(255,255,255,.3); }
+  .homebar { position:absolute; z-index:45; left:50%; bottom:5px; width:128px; height:5px; margin-left:-64px; border-radius:3px; background:rgba(15,23,67,.55); }
+
+  @media (max-width:980px){ .stage{ grid-template-columns:1fr; } .phone{ position:relative; top:0; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="gDrop" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7F93E6"/><stop offset=".5" stop-color="#4458CC"/><stop offset="1" stop-color="#1B2878"/></linearGradient>
+  </defs>
+</svg>
+
+<div class="page">
+  <h1>MANA customer app — Home, redesigned</h1>
+  <p class="lead">The Home screen from your screenshot, redesigned in the new deep-indigo and white palette, with every state it can show. Switch states with the buttons, scroll the phone, and tap the tabs. Below the phone are the tokens, the component specs and an implementation map for the existing source files.</p>
+
+  <div class="stage">
+    <div>
+      <div class="states" id="states" role="group" aria-label="Screen state"></div>
+      <div class="phone">
+        <div class="screen">
+          <div class="scrim" id="scrim"></div><div class="island"></div>
+          <div class="statusbar"><span>10:04</span><span class="r" id="sb"></span></div>
+          <div class="scroll" id="scroll"></div>
+          <nav class="tabbar" id="tabbar" aria-label="Main"></nav>
+          <div class="homebar"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="notes">
+      <section>
+        <h2>What changed, in short</h2>
+        <ul>
+          <li><b>One palette.</b> Deep indigo and white from the new logo, with teal for "done" and a single warm gold reserved for rewards and "ready".</li>
+          <li><b>A real hero.</b> Gradient with soft light, faint stars and the logo as a watermark, a clear greeting, and the branch as a glass chip. The first card overlaps it.</li>
+          <li><b>Cards, not hairline lists.</b> Rounded white cards with soft indigo shadows, so each section reads as its own thing.</li>
+          <li><b>Free-wash cards show progress as drops.</b> Each stamp is a water drop; the last slot is the gold reward.</li>
+          <li><b>Offers look like tickets</b>, with the code ready to copy.</li>
+          <li><b>Floating bottom bar</b> with an indigo pill behind the active icon.</li>
+          <li><b>Status-bar scrim.</b> A fixed indigo fade at the very top keeps the clock and icons readable when content scrolls under them.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Colour tokens</h2>
+        <p>Brand colours are the logo's. Neutrals are tinted indigo so greys never look flat against it. Teal and amber are kept, but only as meaning (done / reward).</p>
+        <div class="swatches" id="swatches"></div>
+      </section>
+
+      <section>
+        <h2>Gradients</h2>
+        <div class="gradrow" id="grads"></div>
+      </section>
+
+      <section>
+        <h2>Type, radius, elevation</h2>
+        <table id="typeTable"></table>
+      </section>
+    </div>
+  </div>
+
+  <div class="notes" style="margin-top:26px">
+    <section>
+      <h2>Component specs</h2>
+      <table id="specs"></table>
+    </section>
+    <section>
+      <h2>Implementation map</h2>
+      <p>Where each piece lands in the code you already have. Token names are kept and re-valued first, so the manager app, which shares <code>@mana/ui</code>, recolours at the same time without a rewrite.</p>
+      <table id="impl"></table>
+    </section>
+    <section>
+      <h2>Old token → new value</h2>
+      <table id="mapTable"></table>
+    </section>
+  </div>
+</div>
+
+<script>
+/* ───────────────────────── icons: the exact shapes from packages/ui/src/components/Icons.tsx ───────────── */
+const SW = 1.9;
+const ICONS = {
+  home: (c) => `<path d="M3.5 10.5 L12 3.5 L20.5 10.5 M5.5 9 V19.5 A1 1 0 0 0 6.5 20.5 H10 V14.5 H14 V20.5 H17.5 A1 1 0 0 0 18.5 19.5 V9" stroke="${c}" stroke-width="${SW}" stroke-linecap="round" stroke-linejoin="round"/>`,
+  drop: (c) => `<path d="M12 3 C12 3 6 10 6 14.5 A6 6 0 0 0 18 14.5 C18 10 12 3 12 3 Z" fill="${c}"/>`,
+  dropO: (c) => `<path d="M12 3.5 C12 3.5 6.2 10.2 6.2 14.5 A5.8 5.8 0 0 0 17.8 14.5 C17.8 10.2 12 3.5 12 3.5 Z" stroke="${c}" stroke-width="${SW}" stroke-linejoin="round"/>`,
+  car: (c) => `<path d="M5 16 L7 10 H17 L19 16" stroke="${c}" stroke-width="1.8" stroke-linejoin="round"/><path d="M3 16 H21 M5 16 V18 M19 16 V18" stroke="${c}" stroke-width="1.8" stroke-linecap="round"/><circle cx="7.5" cy="16" r="1.4" fill="${c}"/><circle cx="16.5" cy="16" r="1.4" fill="${c}"/>`,
+  store: (c) => `<path d="M4 9.5 L5.5 4.5 H18.5 L20 9.5 M4 9.5 A2.67 2.67 0 0 0 9.33 9.5 A2.67 2.67 0 0 0 14.67 9.5 A2.67 2.67 0 0 0 20 9.5 M4 9.5 H20" stroke="${c}" stroke-width="${SW}" stroke-linejoin="round"/><path d="M5.5 12 V19.5 H18.5 V12 M10 19.5 V15 H14 V19.5" stroke="${c}" stroke-width="${SW}" stroke-linejoin="round"/>`,
+  person: (c) => `<circle cx="12" cy="8" r="3.5" stroke="${c}" stroke-width="1.8"/><path d="M5.5 19.5 C5.5 16.5 8.3 14.5 12 14.5 C15.7 14.5 18.5 16.5 18.5 19.5" stroke="${c}" stroke-width="1.8" stroke-linecap="round"/>`,
+  chev: (c) => `<path d="M9 6 L15 12 L9 18" stroke="${c}" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/>`,
+  check: (c) => `<path d="M5 12.5 L10 17.5 L19 7" stroke="${c}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>`,
+  star: (c, f) => `<path d="M12 3.8 L14.5 9 L20.2 9.7 L16 13.6 L17.1 19.3 L12 16.5 L6.9 19.3 L8 13.6 L3.8 9.7 L9.5 9 Z" fill="${f ? c : 'none'}" stroke="${c}" stroke-width="${SW}" stroke-linejoin="round"/>`,
+  tag: (c) => `<path d="M3.5 12.2V4.5a1 1 0 0 1 1-1h7.7a1 1 0 0 1 .7.3l7.8 7.8a1 1 0 0 1 0 1.4l-7.7 7.7a1 1 0 0 1-1.4 0l-7.8-7.8a1 1 0 0 1-.3-.7z" stroke="${c}" stroke-width="${SW}" stroke-linejoin="round"/><circle cx="8.5" cy="8.5" r="1.6" fill="${c}"/>`,
+  gift: (c) => `<rect x="4" y="9" width="16" height="11" rx="1.8" stroke="${c}" stroke-width="${SW}"/><path d="M3 9 H21 M12 9 V20" stroke="${c}" stroke-width="${SW}" stroke-linecap="round"/><path d="M12 9 C12 9 11 4.5 8.3 4.5 A2.2 2.2 0 0 0 8.3 9 M12 9 C12 9 13 4.5 15.7 4.5 A2.2 2.2 0 0 1 15.7 9" stroke="${c}" stroke-width="${SW}" stroke-linecap="round"/>`,
+  userplus: (c) => `<circle cx="10" cy="8" r="3.5" stroke="${c}" stroke-width="${SW}"/><path d="M3.5 19.5 C3.5 15.9 6.4 13.5 10 13.5 C11.6 13.5 13 14 14.1 14.8" stroke="${c}" stroke-width="${SW}" stroke-linecap="round"/><path d="M18 13.5 V19.5 M15 16.5 H21" stroke="${c}" stroke-width="${SW}" stroke-linecap="round"/>`,
+  phone: (c) => `<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z" stroke="${c}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`,
+  pin: (c) => `<path d="M12 21 C12 21 5 14.6 5 9.5 A7 7 0 0 1 19 9.5 C19 14.6 12 21 12 21 Z" stroke="${c}" stroke-width="${SW}" stroke-linejoin="round"/><circle cx="12" cy="9.5" r="2.5" stroke="${c}" stroke-width="${SW}"/>`,
+  camera: (c) => `<path d="M4 8.5 A1.5 1.5 0 0 1 5.5 7 H8 L9.5 4.8 H14.5 L16 7 H18.5 A1.5 1.5 0 0 1 20 8.5 V18 A1.5 1.5 0 0 1 18.5 19.5 H5.5 A1.5 1.5 0 0 1 4 18 Z" stroke="${c}" stroke-width="${SW}" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.4" stroke="${c}" stroke-width="${SW}"/>`,
+  alert: (c) => `<path d="M12 3.5 L21 19.5 H3 Z" stroke="${c}" stroke-width="1.9" stroke-linejoin="round"/><path d="M12 10 V14" stroke="${c}" stroke-width="1.9" stroke-linecap="round"/><circle cx="12" cy="16.8" r="1.1" fill="${c}"/>`,
+};
+const ic = (n, s = 20, c = '#3A4DB0', f) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" aria-hidden="true">${ICONS[n](c, f)}</svg>`;
+
+/* The logo, used as a quiet watermark and brand mark */
+const LOGO = {
+  drop: 'M128 14C128 14 212 96 212 158A84 84 0 0 1 44 158C44 96 128 14 128 14Z',
+  rim: 'M80.37 80C63.69 104.42 49.04 133.01 49.04 158.12A78.96 78.96 0 0 0 206.96 158.12C206.96 133.01 192.31 104.42 175.63 80L175.63 80C168.96 101.53 189.32 132.46 189.32 158.54A61.32 61.32 0 0 1 66.68 158.54C66.68 132.46 87.04 101.53 80.37 80Z',
+  line: 'M128 56C128 56 118 128 118 166A10 10 0 0 0 138 166C138 128 128 56 128 56Z',
+};
+/* the logo as it appears on a light tile: indigo glass drop, white arms and centre drop */
+const logoSvg = () => `<svg viewBox="0 0 256 256" aria-hidden="true"><path d="${LOGO.drop}" fill="url(#gDrop)"/><path d="${LOGO.rim}" fill="#fff"/><path d="${LOGO.line}" fill="#fff"/></svg>`;
+
+/* ───────────────────────── pieces ───────────────────────── */
+const stars = `<svg class="deco" viewBox="0 0 390 230" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+  ${[[40,70,1.6,.6],[96,40,1.1,.5],[160,96,1.3,.4],[250,44,1.8,.7],[318,102,1.2,.5],[356,40,1.4,.6],[210,150,1,.4],[70,170,1.2,.35]].map(([x,y,r,o]) => `<circle cx="${x}" cy="${y}" r="${r}" fill="#fff" fill-opacity="${o}"/>`).join('')}
+  <g transform="translate(236 40) scale(.78)" style="opacity:1"><path d="${LOGO.drop}" fill="#fff" fill-opacity=".09"/><path d="${LOGO.rim}" fill="#fff" fill-opacity=".13"/><path d="${LOGO.line}" fill="#fff" fill-opacity=".2"/></g>
+</svg>`;
+
+function hero(d) {
+  return `<header class="hero"><div class="glow"></div>${stars}
+    <div class="toprow">
+      <div class="brand"><svg viewBox="0 0 256 256"><path d="${LOGO.drop}" fill="#fff"/><path d="${LOGO.rim}" fill="#4458CC"/><path d="${LOGO.line}" fill="#4458CC"/></svg>MANA</div>
+      <div class="avatar" aria-label="Profile">${d.initial}</div>
+    </div>
+    <div class="hello"><small>${d.greet}</small><h2>${d.name}</h2></div>
+    <div class="chips"><span class="glass">${ic('pin', 15, '#fff')}${d.branch}</span>${d.free ? `<span class="goldpill">${ic('star', 15, '#4D2F00', true)}${d.free}</span>` : ''}</div>
+  </header>`;
+}
+const label = (t, right = '') => `<div class="seclabel"><h3>${t}</h3>${right}</div>`;
+const seeAll = `<button class="link">See all ${ic('chev', 16, '#3A4DB0')}</button>`;
+
+function latestCard(w) {
+  return `<article class="card pad over">
+    <div class="row"><div class="tile">${ic('car', 24, '#3A4DB0')}</div>
+      <div class="grow"><div class="t">${w.title}</div><div class="m">${w.when}</div></div>
+      <div class="amount">${w.total}</div><div class="chev">${ic('chev', 16, '#8791B5')}</div></div>
+    <div class="badges"><span class="badge b-done">${ic('check', 13, '#0B5F57')}Done</span><span class="plate" style="align-self:center">${w.plate}</span>${w.photos ? `<span class="badge b-plain">${ic('camera', 14, '#4A5280')}${w.photos} photos</span>` : ''}</div>
+  </article>`;
+}
+
+function stampCard(c) {
+  const free = c.free > 0;
+  const slots = Array.from({ length: c.every }, (_, i) => {
+    const on = i < c.stamps;
+    return `<span class="stamp" aria-hidden="true"><svg viewBox="0 0 36 42"><path d="M18 2 C18 2 4 17 4 27 A14 14 0 0 0 32 27 C32 17 18 2 18 2 Z" ${on ? 'fill="url(#gDrop)"' : 'fill="#F4F6FF" stroke="#C4CCF0" stroke-width="2" stroke-dasharray="3.5 3.5"'}/></svg>${on ? `<span class="ck">${ic('check', 15, '#fff')}</span>` : ''}</span>`;
+  }).join('');
+  const left = c.every - c.stamps;
+  const msg = free
+    ? (c.free === 1 ? 'A free wash is ready. Ask for it on your next visit.' : `${c.free} free washes are ready.`)
+    : `<b>${left} more ${left === 1 ? 'wash' : 'washes'}</b> and the next one is free.`;
+  return `<article class="card stamp-card ${free ? 'free' : ''}" aria-label="${c.name}: ${c.stamps} of ${c.every} stamps">
+    <div class="stamp-head"><div class="tile" style="width:40px;height:40px;border-radius:13px;${free ? 'background:var(--g-gold);box-shadow:0 6px 14px rgba(245,158,11,.35)' : ''}">${ic('star', 19, free ? '#4D2F00' : '#3A4DB0', free)}</div>
+      <div class="t">${c.name}</div>${c.plate ? `<span class="plate">${c.plate}</span>` : ''}<span class="count">${c.stamps}/${c.every}</span></div>
+    <div class="track">${slots}<span class="link-line"></span><span class="reward">${ic('gift', 24, '#4D2F00')}</span></div>
+    <div class="meter"><i style="width:${Math.min(100, (free ? 100 : (c.stamps / c.every) * 100))}%"></i></div>
+    <div class="stamp-msg">${msg}</div>
+    ${c.warn ? `<div class="warn">${ic('alert', 14, '#9A5B00')}${c.warn}</div>` : ''}
+  </article>`;
+}
+
+const offerTicket = (o) => `<article class="card ticket" style="box-shadow:var(--sh-md)">
+  <div class="stub"><b>${o.percent}%</b><em>OFF</em></div>
+  <div class="tbody"><div class="t">${o.percent}% off your next wash</div>
+    <div class="badges" style="margin-top:8px"><span class="plate">${o.plate}</span><span class="badge b-indigo" style="padding:2px 9px">Till ${o.till}</span></div>
+    <div class="code"><span>${o.code}</span><button type="button">Copy</button></div></div></article>`;
+const giftTicket = (g) => `<article class="card ticket">
+  <div class="stub gold">${ic('gift', 30, '#4D2F00')}<em style="color:#4D2F00">GIFT</em></div>
+  <div class="tbody"><div class="t">A gift for ${g.plate}</div><div class="m" style="margin-top:5px">${g.item} · collect it on your next visit</div></div></article>`;
+
+const promo = () => `<article class="promo">
+  <svg class="deco" viewBox="0 0 150 150" aria-hidden="true"><path d="M105 26 C105 26 72 62 72 86 A33 33 0 0 0 138 86 C138 62 105 26 105 26Z" fill="#fff" fill-opacity=".1"/><path d="M52 78 C52 78 34 98 34 112 A18 18 0 0 0 70 112 C70 98 52 78 52 78Z" fill="#fff" fill-opacity=".14"/></svg>
+  <div class="row" style="align-items:flex-start;position:relative"><div class="tile">${ic('userplus', 24, '#fff')}</div>
+    <div class="grow"><h4>Invite a friend</h4><p>They get 5–10% off their first wash, and so do you.</p><button class="cta" type="button">Share your invite ${ic('chev', 15, '#2D3D9E')}</button></div></div></article>`;
+const helpRow = () => `<article class="card help"><div class="row"><div class="tile">${ic('phone', 22, '#3A4DB0')}</div>
+  <div class="grow"><div class="t">Help &amp; support</div><div class="m">Call the branch or report a problem</div></div><div class="chev">${ic('chev', 16, '#8791B5')}</div></div></article>`;
+const more = () => label('More from MANA') + promo() + helpRow();
+
+function liveCard(l) {
+  const order = ['waiting', 'washing', 'ready'], labels = ['In queue', 'Washing', 'Ready'];
+  const at = order.indexOf(l.status);
+  const steps = order.map((s, i) => `${i ? `<span class="bar ${i <= at ? 'on' : ''}"></span>` : ''}<div class="step ${i <= at ? 'done' : ''} ${i === at ? 'cur' : ''}"><span class="dot">${i < at ? ic('check', 11, '#fff') : ''}</span>${labels[i]}</div>`).join('');
+  const ready = l.status === 'ready';
+  return `<article class="card live ${ready ? 'ready' : ''} over" style="padding-left:20px">
+    <div class="row" style="align-items:flex-start"><div class="grow"><div class="t" style="font-size:19px;color:${ready ? '#9A5B00' : '#1B2878'}">${l.title}</div><div class="m">${l.body}</div></div>
+      <span class="plate">${l.plate}</span></div>
+    <div class="stepper">${steps}</div>
+    <div class="billrow"><div class="m" style="margin:0">${l.services}</div><div><div class="amount">${l.total}</div>${ready ? '<div class="topay">to pay</div>' : ''}</div></div>
+    ${ready ? `<div class="actions"><div class="chip">${ic('phone', 17, '#2D3D9E')}Call the branch</div><div class="chip">${ic('pin', 17, '#2D3D9E')}Directions</div></div>` : ''}
+  </article>`;
+}
+
+const empty = (title, body, action) => `<article class="card empty"><div class="mark">${logoSvg()}</div><h4>${title}</h4><p>${body}</p>${action ? `<button class="btn" type="button">${action}</button>` : ''}</article>`;
+const skeleton = () => `<div class="card pad over"><div class="row"><div class="sk" style="width:48px;height:48px;border-radius:15px"></div><div class="grow"><div class="sk" style="height:16px;width:62%"></div><div class="sk" style="height:12px;width:80%;margin-top:9px"></div></div></div></div>
+  ${label('Free-wash cards')}<div class="card pad"><div class="sk" style="height:16px;width:46%"></div><div class="row" style="margin-top:16px">${'<div class="sk" style="width:36px;height:42px"></div>'.repeat(5)}</div><div class="sk" style="height:12px;width:70%;margin-top:16px"></div></div>
+  ${label('More from MANA')}<div class="sk" style="height:128px;border-radius:22px"></div>`;
+
+/* ───────────────────────── states ───────────────────────── */
+const base = { initial: 'R', greet: 'Good morning', name: 'Rohit', branch: 'MANA Car Wash · Nellore' };
+const latest = { title: 'Exterior Wash', plate: 'AP39GB7534', when: '28 Sept · 1:25 pm', total: '₹250', photos: 3 };
+const STATES = {
+  default: { label: 'Default', render: () => hero(base) + `<div class="body">${latestCardWrap()}
+      ${label('Free-wash cards')}${stampCard({ name: 'Complete Car Wash', stamps: 4, every: 5, free: 0 })}
+      ${label('Waiting for you')}${offerTicket({ percent: 6, plate: 'AP39GB7534', code: 'MANA-7534-ZVKTRE', till: '19 Oct' })}
+      ${more()}</div>` },
+  washing: { label: 'Wash in progress', render: () => hero(base) + `<div class="body">
+      ${liveCard({ status: 'washing', title: 'Being washed', body: 'Our team is working on your vehicle now.', plate: 'AP39GB7534', services: 'Exterior Wash', total: '₹250' })}
+      ${label('Free-wash cards')}${stampCard({ name: 'Complete Car Wash', stamps: 4, every: 5, free: 0 })}
+      ${more()}</div>` },
+  ready: { label: 'Ready + free wash', render: () => hero({ ...base, free: 'You have a free wash' }) + `<div class="body">
+      ${liveCard({ status: 'ready', title: 'Ready for pickup', body: 'Your vehicle is clean and waiting for you.', plate: 'AP39GB7534', services: 'Complete Car Wash', total: '₹450' })}
+      ${label('Free-wash cards')}${stampCard({ name: 'Complete Car Wash', stamps: 5, every: 5, free: 1, warn: 'Use it before it expires in 6 days' })}
+      ${label('Waiting for you')}${offerTicket({ percent: 6, plate: 'AP39GB7534', code: 'MANA-7534-ZVKTRE', till: '19 Oct' })}${giftTicket({ plate: 'AP39GB7534', item: 'Car perfume' })}
+      ${more()}</div>` },
+  fresh: { label: 'New customer', render: () => hero({ ...base, name: 'Asha', initial: 'A' }) + `<div class="body"><div class="over">${empty('No washes yet', 'Your washes and their photos will show here after your first visit.')}</div>${more()}</div>` },
+  loading: { label: 'Loading', render: () => hero(base) + `<div class="body">${skeleton()}</div>` },
+  error: { label: 'Couldn’t load', render: () => hero(base) + `<div class="body"><div class="over">${empty('Couldn’t load your washes', 'Check your connection and try again.', 'Try again')}</div></div>` },
+};
+function latestCardWrap() { return latestCard(latest).replace('<article class="card pad over">', `<article class="card pad over"><div class="seclabel" style="margin:0 2px 12px"><h3>Latest wash</h3>${seeAll}</div>`); }
+
+/* ───────────────────────── tab bar ───────────────────────── */
+const TABS = [['Home', 'home'], ['Washes', 'dropO'], ['Vehicles', 'car'], ['Visit us', 'store'], ['Profile', 'person']];
+let tab = 'Home', stateKey = 'default';
+function drawTabs() {
+  document.getElementById('tabbar').innerHTML = TABS.map(([n, i]) => {
+    const on = n === tab;
+    return `<button class="tab" ${on ? 'aria-current="page"' : ''} data-tab="${n}"><span class="ic">${ic(i, 22, on ? '#fff' : '#8791B5')}</span>${n}</button>`;
+  }).join('');
+  document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; drawTabs(); drawScreen(); }));
+}
+function drawScreen() {
+  const el = document.getElementById('scroll');
+  el.innerHTML = tab === 'Home'
+    ? STATES[stateKey].render()
+    : `<div class="hero" style="padding-bottom:40px"><div class="glow"></div><div class="hello"><small>Preview</small><h2>${tab}</h2></div></div><div class="body"><div class="over" style="margin-top:-24px">${empty(tab + ' tab', 'Only the Home screen is designed here.')}</div></div>`;
+  el.scrollTop = 0;
+}
+function drawStates() {
+  const wrap = document.getElementById('states');
+  wrap.innerHTML = Object.entries(STATES).map(([k, s]) => `<button type="button" data-k="${k}" aria-pressed="${k === stateKey}">${s.label}</button>`).join('');
+  wrap.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { stateKey = b.dataset.k; tab = 'Home'; drawStates(); drawTabs(); drawScreen(); }));
+}
+document.getElementById('scroll').addEventListener('scroll', (e) => document.getElementById('scrim').classList.toggle('on', e.target.scrollTop > 24));
+document.getElementById('sb').innerHTML = `<svg width="18" height="12" viewBox="0 0 18 12" fill="#fff"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="2" width="3" height="10" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg><svg width="26" height="12" viewBox="0 0 26 12" fill="none"><rect x=".5" y=".5" width="22" height="11" rx="3.5" stroke="#fff" opacity=".6"/><rect x="2" y="2" width="16" height="8" rx="2" fill="#fff"/><rect x="24" y="4" width="2" height="4" rx="1" fill="#fff" opacity=".6"/></svg>`;
+drawStates(); drawTabs(); drawScreen();
+
+/* ───────────────────────── documentation tables ───────────────────────── */
+const SW_LIST = [
+  ['indigoDeep', '#1B2878', 'Gradient end, deep accents'], ['indigoMid', '#2D3D9E', 'Pressed states, strong text on pale'],
+  ['indigo', '#3A4DB0', 'Primary: links, buttons, active'], ['indigoBright', '#5468D4', 'Gradient start, highlights'],
+  ['indigoSoft', '#9BAEF5', 'Glows, soft accents'], ['indigoMist', '#C4CCF0', 'Dashed outlines, dividers'],
+  ['indigoPale', '#E8ECFF', 'Tinted fills, chips'], ['surface', '#F4F6FF', 'Screen background'],
+  ['white', '#FFFFFF', 'Cards'], ['ink', '#0F1743', 'Primary text'], ['slateDeep', '#4A5280', 'Secondary text'], ['slate', '#8791B5', 'Inactive, hints'],
+  ['night', '#080E2B', 'Darkest (dark surfaces later)'], ['border', '#E2E7FB', 'Hairlines'],
+  ['teal / tealDeep', '#0D9488 / #0B5F57', 'Done, paid'], ['amber / amberDeep', '#F59E0B / #9A5B00', 'Reward, ready'], ['danger', '#DC2626', 'Errors only'],
+];
+document.getElementById('swatches').innerHTML = SW_LIST.map(([n, h, u]) => `<div class="sw"><i style="background:${h.split(' ')[0]}"></i><div><b>${n}</b>${h}<br><span>${u}</span></div></div>`).join('');
+const GR = [
+  ['hero', 'linear-gradient(160deg,#5468D4,#3A4DB0 46%,#1B2878)', '160° · #5468D4 → #3A4DB0 → #1B2878, plus light at top-right'],
+  ['primary', 'linear-gradient(180deg,#5468D4,#3A4DB0)', 'Buttons'], ['promo', 'linear-gradient(135deg,#5468D4,#2D3D9E 58%,#1B2878)', 'Invite card, offer stub'],
+  ['tabPill', 'linear-gradient(160deg,#5468D4,#2D3D9E)', 'Active tab'], ['gold', 'linear-gradient(160deg,#FDE68A,#F59E0B)', 'Reward only'],
+  ['stamp', 'linear-gradient(135deg,#7F93E6,#4458CC 50%,#1B2878)', 'Filled stamp drop'],
+];
+document.getElementById('grads').innerHTML = GR.map(([n, g, u]) => `<div style="background:${g}${n === 'gold' ? ';color:#4D2F00' : ''}"><span>${n}<br><small style="font-weight:500;opacity:.85">${u}</small></span></div>`).join('');
+document.getElementById('typeTable').innerHTML = `<tr><th>Role</th><th>Spec</th></tr>
+ <tr><td>Greeting name</td><td>34 / 800, −0.6 tracking, white. Greeting line 15 / 600 at 82% white.</td></tr>
+ <tr><td>Card title</td><td>16.5 / 700 ink. Meta 13.5 / 400 slateDeep.</td></tr>
+ <tr><td>Amount</td><td>19 / 800, −0.3 tracking.</td></tr>
+ <tr><td>Section label</td><td>12 / 800, uppercase, 1.0 tracking, slateDeep.</td></tr>
+ <tr><td>Tab label</td><td>11 / 700; active indigoMid, inactive slate.</td></tr>
+ <tr><td>Radius</td><td>sm 12 · md 16 · lg 20 (cards) · xl 28 (hero bottom is 32, tab bar 28) · pill 999</td></tr>
+ <tr><td>Elevation</td><td>sm 0 2 6 @6% · md 0 8 24 @9% (cards) · lg 0 14 36 @16% (tab bar uses 0 16 36 @20%). All shadow colour #1B2878.</td></tr>
+ <tr><td>Spacing</td><td>Screen gutter 16 · card padding 16 · section gap 26 (label 10 above card) · tab bar inset 14, height 72.</td></tr>`;
+document.getElementById('specs').innerHTML = `<tr><th>Component</th><th>Spec</th></tr>
+ <tr><td>Hero</td><td>Gradient hero, bottom radius 32, top padding = status bar + 14, bottom padding 72 so the first card can overlap by 44. Top row: logo mark + “MANA” (12.5 / 800, 2.4 tracking) left, profile avatar 40 (white 16% fill, 1.5 white border) right. Branch is a glass chip (white 15%, 1px white 26%). Gold pill only when a free wash is ready. Decoration: radial light, 8 faint stars, logo watermark at 9–20% white.</td></tr>
+ <tr><td>Latest wash card</td><td>White card, radius 20, shadow md, padding 16, overlaps hero by 44. Header row “Latest wash” + “See all” (opens Washes). Row: 48 tile (car icon), title / “plate · date”, amount right, 28 chevron disc. Badges: Done (teal) and photo count.</td></tr>
+ <tr><td>Free-wash card</td><td>Card with a faint white→#F8F9FF gradient. Header: 40 star tile, title, plate (only if more than one vehicle), count pill “4/5”. Track: one 36×42 drop per stamp — filled uses the stamp gradient with a white check, empty is a dashed #C4CCF0 outline — then a dashed line and the 46 gold reward tile. Progress meter, then the message with the remaining count in indigo. More than 12 stamps: hide the drops and keep only the meter. When a free wash is ready the card turns gold-tinted, the count pill goes amber, the reward tile pulses, and the message turns amberDeep. Expiry warning row stays amber.</td></tr>
+ <tr><td>Offer / gift ticket</td><td>Card with a 92 stub (indigo promo gradient for percent offers, gold for gifts) and a dashed divider with two notches (22 circles in the screen colour). Right side: title, plate + expiry chips, code box (dashed #B9C4F2) with a Copy button that copies the code and shows a toast.</td></tr>
+ <tr><td>Invite promo</td><td>Radius 22, promo gradient, glass icon tile, title 19 / 800, body at 86% white, white pill “Share your invite” that opens Refer. Two translucent drops as decoration.</td></tr>
+ <tr><td>Help row</td><td>White card, 48 tile, title + subtitle, chevron disc. Opens Help.</td></tr>
+ <tr><td>Live wash card</td><td>Card overlapping the hero, 5 px left accent (indigo; amber when ready), status title 19 / 800, plate chip, stepper (In queue → Washing → Ready) with done dots in indigo, the current dot pulsing, services and total. Ready: amber accent, “to pay” under the total, and two actions (Call the branch, Directions).</td></tr>
+ <tr><td>Floating tab bar</td><td>Inset 14 from the sides and bottom (plus the safe area), height 72, radius 28, white 94% with a hairline border and shadow lg. Icons 22. Active tab: 52×32 pill in the tab gradient with a white icon and an indigo label; inactive: slate icon and label. Washes uses the outline drop. Content needs about 128 bottom padding to clear it.</td></tr>
+ <tr><td>Status-bar scrim</td><td>A non-interactive 50-tall gradient pinned to the top of the screen (indigo at 97% fading to transparent) so light status-bar icons stay readable. In React Native: an absolutely positioned <code>LinearGradient</code> with <code>pointerEvents="none"</code>, height = top safe-area inset + 6.</td></tr>
+ <tr><td>Empty, error, loading</td><td>Empty: card with the logo in a pale tile, title, one line of copy. Error: same with a primary button “Try again”. Loading: shimmering skeletons shaped like the real cards.</td></tr>
+ <tr><td>Accessibility</td><td>Every tappable target is at least 44 tall. Text on the hero is white on #3A4DB0 or darker (contrast above 7:1). Stamp cards keep their full-sentence accessibility label. Pulsing is purely decorative.</td></tr>`;
+document.getElementById('impl').innerHTML = `<tr><th>File</th><th>Change</th></tr>
+ <tr><td><code>packages/ui/src/theme/colors.ts</code></td><td>Add the indigo tokens, ink, slate and border values from the swatches, and re-point the old <code>water*</code> names to them so every screen and the manager app recolour at once. Add the new gradients (hero, primary, promo, tabPill, gold, stamp).</td></tr>
+ <tr><td><code>packages/ui/src/theme/spacing.ts</code></td><td>Update the shadow colour to #1B2878 and add <code>radius.xxl = 32</code>.</td></tr>
+ <tr><td><code>packages/ui/src/components/GradientHero.tsx</code></td><td>New gradient, larger bottom radius (32), light glow, stars, and the logo watermark (as an SVG). Keep its API.</td></tr>
+ <tr><td><code>packages/ui/src/components/EdgeList.tsx</code></td><td>Add a <code>Card</code> variant: <code>EdgeGroup</code> rendered as an inset rounded card with a shadow, or a separate <code>CardGroup</code>. Other screens can keep the old full-bleed groups until they are redone.</td></tr>
+ <tr><td><code>apps/customer/src/components/StampCard.tsx</code></td><td>Draw drops instead of dots, add the reward tile and meter, and the gold “free ready” style.</td></tr>
+ <tr><td><code>apps/customer/src/components/WashRow.tsx</code></td><td>Add a <code>variant="card"</code> for the Home latest-wash card (tile, amount, chips).</td></tr>
+ <tr><td><code>apps/customer/src/components/LiveWashCard.tsx</code></td><td>Restyle with the card shell, accent bar and indigo/amber stepper.</td></tr>
+ <tr><td><code>apps/customer/src/components/OfferTicket.tsx</code> (new)</td><td>The ticket for offers and gifts, with copy-code.</td></tr>
+ <tr><td><code>apps/customer/src/components/InvitePromo.tsx</code> (new)</td><td>The promo card, wired to the existing <code>navigation.navigate('Refer')</code>.</td></tr>
+ <tr><td><code>apps/customer/src/components/FloatingTabBar.tsx</code> (new)</td><td>A custom <code>tabBar</code> for the bottom-tabs navigator.</td></tr>
+ <tr><td><code>apps/customer/src/navigation/MainNavigator.tsx</code></td><td>Pass <code>tabBar={(p) =&lt;FloatingTabBar {...p} /&gt;}</code> and keep the same five routes and icons.</td></tr>
+ <tr><td><code>apps/customer/src/screens/HomeScreen.tsx</code></td><td>Compose the new pieces. Logic, data and navigation stay as they are. Bottom padding on the scroll content rises to about 128 plus the safe-area inset.</td></tr>`;
+document.getElementById('mapTable').innerHTML = `<tr><th>Token (today)</th><th>Now</th><th>New token</th></tr>` + [
+  ['waterPale', '#E0F2FE', '#E8ECFF', 'indigoPale'], ['waterLight', '#7DD3FC', '#9BAEF5', 'indigoSoft'], ['water', '#0EA5E9', '#3A4DB0', 'indigo'],
+  ['waterDeep', '#0369A1', '#1B2878', 'indigoDeep'], ['waterInk', '#0C4A6E', '#0F1743', 'ink'], ['waterMidnight', '#082F49', '#080E2B', 'night'],
+  ['surface', '#F6FAFD', '#F4F6FF', 'surface'], ['border', '#DBEAFE', '#E2E7FB', 'border'], ['slate', '#94A3B8', '#8791B5', 'slate'], ['slateDeep', '#475569', '#4A5280', 'slateDeep'],
+  ['teal / tealDeep', '#0D9488 / #115E59', '#0D9488 / #0B5F57', 'unchanged hue'], ['amber / amberDeep', '#F59E0B / #B45309', '#F59E0B / #9A5B00', 'unchanged hue'],
+].map(([a, b, c, d]) => `<tr><td><code>${a}</code></td><td><span class="chipdot" style="background:${b.split(' ')[0]}"></span>${b}</td><td><span class="chipdot" style="background:${c.split(' ')[0]}"></span>${c} · <code>${d}</code></td></tr>`).join('');
+</script>
+</body>
+</html>

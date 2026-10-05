@@ -11,6 +11,16 @@
 INSERT INTO shops (id, code, name, city, plan, trial_ends_at) VALUES
   ('shop_mana', '482193', 'MANA Car Wash', 'Hyderabad', 'trial', strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now', '+14 days'));
 
+-- Listed in the MANA Car Wash app, washing within 8 km of the Kovur hub, plus two named areas
+-- for customers who don't share their location. Contact details and hours for the branch page.
+UPDATE shops SET in_customer_app = 1, latitude = 14.4936, longitude = 79.9884, service_radius_km = 8,
+  address = 'Main Road, near Bus Stand, Kovur, Nellore 524137', contact_phone = '9888626111',
+  opens_at = '07:00', closes_at = '20:00', weekly_off = NULL
+WHERE id = 'shop_mana';
+INSERT INTO service_areas (id, shop_id, name, name_key, pincode) VALUES
+  ('area_kovur',   'shop_mana', 'Kovur',   'kovur',   '524137'),
+  ('area_nellore', 'shop_mana', 'Nellore', 'nellore', '524001');
+
 -- ─── Seed: vehicle types ────────────────────────────────────────────────────
 
 INSERT INTO vehicle_types (id, shop_id, name, category, sort_order)

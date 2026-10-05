@@ -1,5 +1,11 @@
 # MANA Car Wash Manager — Multi-Shop Plan
 
+> **Update, 4 Oct 2026:** MANA is no longer sold to other car washes. MANA is the car wash's own
+> brand and app. The multi-shop foundation built from this plan stays, because each **branch** is
+> a shop; public sign-up closes and plan screens are hidden for MANA's own shops (see
+> [MANA-Community-Implementation-Plan.md](MANA-Community-Implementation-Plan.md), Part 1.3).
+> The rest of this document is kept as history.
+
 **Product:** MANA Car Wash Manager, by Sprixia Labs Private Limited
 **Goal:** any car wash in India can download the app, sign up with their shop name, and run
 their shop on it for ₹2,000 a month. MANA Car Wash (our own shop) becomes customer #1.
@@ -77,7 +83,7 @@ shops.)
 - There is no concept of a "shop" in the database. All 22 tables hold one shop's data.
 - Phone numbers, car numbers and coupon codes are unique across the whole database, so two
   shops couldn't both have car `TS09AB1234`.
-- The shop name is hardcoded as `'MANA Car Wash'` in `apps/mobile/src/config/shop.ts`.
+- The shop name is hardcoded as `'MANA Car Wash'` in `apps/manager/src/config/shop.ts`.
 - The service, price and vehicle-type lists can be read without signing in (they'd need to know
   which shop).
 - No sign-up, no trial, no billing, no Sprixia admin panel.

@@ -24,6 +24,10 @@ import { photoRoutes } from './routes/photo';
 import { stockRoutes } from './routes/stock';
 import { rewardRoutes } from './routes/reward';
 import { billingRoutes } from './routes/billing';
+import { serviceRequestRoutes } from './routes/serviceRequest';
+import { serviceAreaRoutes } from './routes/serviceArea';
+import { customerAppRoutes } from './routes/customerApp';
+import { appFeedbackRoutes } from './routes/appFeedback';
 import type { Env } from './types';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -39,6 +43,14 @@ app.use('/auth/code/*', rateLimit('code', 20, TEN_MIN));
 app.use('/auth/me/phone', rateLimit('phone', 10, TEN_MIN));
 app.use('/auth/me/phone/code', rateLimit('phone-code', 10, TEN_MIN));
 app.use('/signup/*', rateLimit('signup', 60, TEN_MIN));
+app.use('/c/auth/*', rateLimit('c-auth', 30, TEN_MIN));
+const serviceRequestLimit = rateLimit('c-request', 30, TEN_MIN);
+app.use('/c/*', (c, next) =>
+  c.req.path.startsWith('/c/service-requests')
+    ? serviceRequestLimit(c as Context<{ Bindings: Env }, string>, next)
+    : next(),
+);
+app.use('/c/service-area/check', rateLimit('c-area', 60, TEN_MIN));
 
 // Requests are read into memory, so cap their size before anything parses them. Uploads carry
 // photos (one per request, two for an expense); everything else is small JSON.
@@ -100,12 +112,17 @@ const routes = app
   .route('/photos', photoRoutes)
   .route('/stock', stockRoutes)
   .route('/rewards', rewardRoutes)
-  .route('/billing', billingRoutes);
+  .route('/billing', billingRoutes)
+  .route('/service-requests', serviceRequestRoutes)
+  .route('/service-area', serviceAreaRoutes)
+  .route('/app-feedback', appFeedbackRoutes)
+  .route('/c', customerAppRoutes);
 
-// Hono RPC: the mobile app imports this type (via hc<AppType>) to get a fully typed API
-// client with zero codegen — this is what "tRPC or Hono RPC" in the build plan resolved to.
+// Hono RPC: both apps import this type (via hc<AppType>) to get a fully typed API client with
+// zero codegen — this is what "tRPC or Hono RPC" in the build plan resolved to. The customer app
+// only ever calls `/c/*`; the team app everything else.
 export type AppType = typeof routes;
 
-// The Worker entry (fetch + cron) lives in worker.ts, so this file — which the mobile app
-// imports for AppType — never needs the Workers runtime's global types.
+// The Worker entry (fetch + cron) lives in worker.ts, so this file — which the apps import for
+// AppType — never needs the Workers runtime's global types.
 export { app };

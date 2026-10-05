@@ -2,7 +2,7 @@
 //   node branding/build-logos.mjs
 //
 // The mark is a glass water drop: drops within a drop, like ripples (geometry in shapes.mjs).
-// Colours are the app's own palette (apps/mobile/src/theme/colors.ts).
+// Colours are the app's own palette (packages/ui/src/theme/colors.ts).
 // All lettering is drawn as vector paths, never <text>, so the files look the same everywhere
 // with no font installed. Set MARK_STYLE=gold for a warm centre drop instead of the water one.
 

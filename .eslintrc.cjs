@@ -21,7 +21,7 @@ module.exports = {
   },
   overrides: [
     {
-      files: ['apps/mobile/**/*.{ts,tsx}'],
+      files: ['apps/manager/**/*.{ts,tsx}', 'apps/customer/**/*.{ts,tsx}', 'packages/ui/**/*.{ts,tsx}'],
       plugins: ['react-hooks'],
       rules: {
         'react-hooks/rules-of-hooks': 'error',

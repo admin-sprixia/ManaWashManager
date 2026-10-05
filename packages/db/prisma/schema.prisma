@@ -9,7 +9,8 @@
 //   - Columns: snake_case via @map, with `_id` for foreign keys and `_at` for timestamps.
 //   - Money: stored as an Int in paise (1 rupee = 100 paise) to avoid float rounding.
 //
-// Multi-shop: every model except Shop, PlatformSetting, SignupCode and RateLimit has `shopId`. Queries never set it by
+// Multi-shop: every model except Shop, PlatformSetting, SignupCode, RateLimit, BillingEvent and
+// CustomerAccount has `shopId`. Queries never set it by
 // hand — the shop-scoped client (src/client.ts) adds it to every read and write. Its
 // `@default("")` only exists so create inputs don't demand it; the database has no default, so
 // a row that somehow skipped the scoped client fails to insert instead of landing shopless.
@@ -46,6 +47,19 @@ model Shop {
   founderHoldUntil DateTime? @map("founder_hold_until")
   /// When that hold was taken — for the last slot, the earlier claim wins.
   founderHoldAt    DateTime? @map("founder_hold_at")
+  /// Listed in the MANA Car Wash app. Set by Sprixia for MANA's own branches, never by an owner.
+  inCustomerApp    Boolean   @default(false) @map("in_customer_app")
+  /// The hub, and how far from it the branch washes (null = only its service areas).
+  latitude         Float?
+  longitude        Float?
+  serviceRadiusKm  Float?    @map("service_radius_km")
+  /// Contact details and opening hours shown in the app. Hours are "HH:MM" IST, both or neither.
+  address          String?
+  contactPhone     String?   @map("contact_phone")
+  opensAt          String?   @map("opens_at")
+  closesAt         String?   @map("closes_at")
+  /// Day of the week the branch is closed: Sunday = 0 … Saturday = 6.
+  weeklyOff        Int?      @map("weekly_off")
 
   @@index([subscriptionId])
   @@map("shops")
@@ -138,6 +152,9 @@ model User {
   rewardClaims       RewardClaim[]
   rewardGiftItems    RewardGiftItem[]
   rewardGiftsGiven   RewardGift[]
+  serviceRequests    ServiceRequest[]  @relation("ServiceRequestHandledBy")
+  vehicleRequests    VehicleRequest[]  @relation("VehicleRequestHandledBy")
+  problemsResolved   WashProblem[]     @relation("WashProblemResolvedBy")
 
   @@index([shopId])
   @@index([phone])
@@ -157,6 +174,7 @@ model VehicleType {
   servicePrices   ServicePrice[]
   commissionRates CommissionRate[]
   vehicles        Vehicle[]
+  vehicleRequests VehicleRequest[]
 
   @@index([shopId])
   @@map("vehicle_types")
@@ -232,34 +250,41 @@ model Customer {
   shopId           String   @default("") @map("shop_id")
   name             String?
   phone            String
-  source           String? // google | friend | board | instagram | other
+  source           String? // google | friend | board | instagram | other | app (MANA Car Wash request)
   marketingConsent Boolean  @default(false) @map("marketing_consent")
   createdAt        DateTime @default(now()) @map("created_at")
 
-  vehicles    Vehicle[]
-  jobs        Job[]
-  coupons     Coupon[]
-  rewardGifts RewardGift[]
-  referredBy  Referral?    @relation("ReferralReferred")
-  referrals   Referral[]   @relation("ReferralReferrer")
+  vehicles        Vehicle[]
+  jobs            Job[]
+  coupons         Coupon[]
+  rewardGifts     RewardGift[]
+  requests        ServiceRequest[]
+  vehicleRequests VehicleRequest[]
+  washRatings     WashRating[]
+  problems        WashProblem[]
+  referredBy      Referral?        @relation("ReferralReferred")
+  referrals       Referral[]       @relation("ReferralReferrer")
 
   @@unique([shopId, phone])
   @@map("customers")
 }
 
 model Vehicle {
-  id                 String   @id @default(uuid())
-  shopId             String   @default("") @map("shop_id")
-  customerId         String   @map("customer_id")
-  registrationNumber String   @map("registration_number")
+  id                 String    @id @default(uuid())
+  shopId             String    @default("") @map("shop_id")
+  customerId         String    @map("customer_id")
+  registrationNumber String    @map("registration_number")
   make               String?
   model              String?
-  vehicleTypeId      String   @map("vehicle_type_id")
+  vehicleTypeId      String    @map("vehicle_type_id")
   /// Sync cursor for the phones' offline customer directory — see apps/api/schema.sql.
-  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at")
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at")
+  /// The customer removed it from their list in the MANA Car Wash app. Only hides it there.
+  appHiddenAt        DateTime? @map("app_hidden_at")
 
   customer     Customer         @relation(fields: [customerId], references: [id])
   vehicleType  VehicleType      @relation(fields: [vehicleTypeId], references: [id])
+  requests     VehicleRequest[]
   jobs         Job[]
   coupons      Coupon[]
   reminder     VehicleReminder?
@@ -291,17 +316,19 @@ model Job {
   createdAt       DateTime  @default(now()) @map("created_at")
   completedAt     DateTime? @map("completed_at")
 
-  customer    Customer     @relation(fields: [customerId], references: [id])
-  vehicle     Vehicle      @relation(fields: [vehicleId], references: [id])
-  createdBy   User         @relation("JobCreatedBy", fields: [createdByUserId], references: [id])
-  paidBy      User?        @relation("JobPaidBy", fields: [paidByUserId], references: [id])
-  voidedBy    User?        @relation("JobVoidedBy", fields: [voidedByUserId], references: [id])
+  customer    Customer      @relation(fields: [customerId], references: [id])
+  vehicle     Vehicle       @relation(fields: [vehicleId], references: [id])
+  createdBy   User          @relation("JobCreatedBy", fields: [createdByUserId], references: [id])
+  paidBy      User?         @relation("JobPaidBy", fields: [paidByUserId], references: [id])
+  voidedBy    User?         @relation("JobVoidedBy", fields: [voidedByUserId], references: [id])
   jobServices JobService[]
   events      JobEvent[]
   washers     JobWasher[]
   sellers     JobSeller[]
   photos      JobPhoto[]
   rewardGifts RewardGift[]
+  rating      WashRating?
+  problems    WashProblem[]
 
   @@index([shopId, status])
   @@index([shopId, createdAt])
@@ -514,6 +541,137 @@ model JoinRequest {
 
   @@index([shopId, status])
   @@map("join_requests")
+}
+
+/// A named place a branch serves ("Kovur") — the backup when a customer doesn't share a location.
+/// One live area per name — a partial unique index in schema.sql.
+model ServiceArea {
+  id        String   @id @default(uuid())
+  shopId    String   @default("") @map("shop_id")
+  name      String
+  nameKey   String   @map("name_key")
+  pincode   String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  requests ServiceRequest[]
+
+  @@unique([shopId, id])
+  @@index([shopId])
+  @@map("service_areas")
+}
+
+/// A phone number signed in to the MANA Car Wash app. Platform-level: the branches it belongs to
+/// are the listed shops with a customer on this number, worked out on each request.
+model CustomerAccount {
+  id             String    @id @default(uuid())
+  phone          String    @unique
+  /// In every customer token; bumping it signs the app out on every phone.
+  sessionVersion Int       @default(0) @map("session_version")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  lastSeenAt     DateTime? @map("last_seen_at")
+
+  @@map("customer_accounts")
+}
+
+/// "Request service" from the app. One open request per phone — a partial unique index in schema.sql.
+model ServiceRequest {
+  id              String    @id @default(uuid())
+  shopId          String    @default("") @map("shop_id")
+  phone           String
+  name            String
+  latitude        Float?
+  longitude       Float?
+  areaId          String?   @map("area_id")
+  address         String
+  placeKind       String    @map("place_kind") // apartment | house | small_building | office | other
+  placeName       String?   @map("place_name")
+  homeText        String?   @map("home_text")
+  cars            Int       @default(0)
+  bikes           Int       @default(0)
+  preferredTime   String?   @map("preferred_time") // early_morning | morning | evening | any
+  notes           String?
+  status          String    @default("pending") // pending | out_of_area | approved | rejected | cancelled
+  handledByUserId String?   @map("handled_by_user_id")
+  handledAt       DateTime? @map("handled_at")
+  reason          String?
+  customerId      String?   @map("customer_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  area      ServiceArea? @relation(fields: [areaId], references: [id])
+  handledBy User?        @relation("ServiceRequestHandledBy", fields: [handledByUserId], references: [id])
+  customer  Customer?    @relation(fields: [customerId], references: [id])
+
+  @@index([shopId, status, createdAt])
+  @@index([phone, createdAt])
+  @@map("service_requests")
+}
+
+/// "Add my vehicle" from the app. One pending request per plate per branch — a partial unique
+/// index in schema.sql.
+model VehicleRequest {
+  id                 String    @id @default(uuid())
+  shopId             String    @default("") @map("shop_id")
+  customerId         String    @map("customer_id")
+  registrationNumber String    @map("registration_number")
+  vehicleTypeId      String    @map("vehicle_type_id")
+  make               String?
+  model              String?
+  status             String    @default("pending") // pending | approved | rejected | cancelled
+  vehicleId          String?   @map("vehicle_id")
+  handledByUserId    String?   @map("handled_by_user_id")
+  handledAt          DateTime? @map("handled_at")
+  reason             String?
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  customer    Customer    @relation(fields: [customerId], references: [id])
+  vehicleType VehicleType @relation(fields: [vehicleTypeId], references: [id])
+  vehicle     Vehicle?    @relation(fields: [vehicleId], references: [id])
+  handledBy   User?       @relation("VehicleRequestHandledBy", fields: [handledByUserId], references: [id])
+
+  @@index([shopId, status, createdAt])
+  @@index([customerId, createdAt])
+  @@map("vehicle_requests")
+}
+
+/// A customer's rating of one of their paid washes.
+model WashRating {
+  jobId      String   @id @map("job_id")
+  shopId     String   @default("") @map("shop_id")
+  customerId String   @map("customer_id")
+  stars      Int
+  comment    String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @default(now()) @map("updated_at")
+
+  job      Job      @relation(fields: [jobId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@index([shopId, updatedAt])
+  @@map("wash_ratings")
+}
+
+/// A problem a customer reported from the app, about one wash or the branch in general.
+model WashProblem {
+  id               String    @id @default(uuid())
+  shopId           String    @default("") @map("shop_id")
+  customerId       String    @map("customer_id")
+  jobId            String?   @map("job_id")
+  kind             String // not_clean | damage | missed_service | billing | staff | other
+  details          String
+  status           String    @default("open") // open | resolved
+  resolution       String?
+  resolvedByUserId String?   @map("resolved_by_user_id")
+  resolvedAt       DateTime? @map("resolved_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  customer   Customer @relation(fields: [customerId], references: [id])
+  job        Job?     @relation(fields: [jobId], references: [id])
+  resolvedBy User?    @relation("WashProblemResolvedBy", fields: [resolvedByUserId], references: [id])
+
+  @@index([shopId, status, createdAt])
+  @@index([customerId, createdAt])
+  @@map("wash_problems")
 }
 
 /// `shopId` is null for platform errors (e.g. a failed nightly job, a request before sign-in).

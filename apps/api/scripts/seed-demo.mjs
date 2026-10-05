@@ -26,7 +26,7 @@ import { join } from 'node:path';
 import { API, API_DIR, STAGING, TARGET, apiFetch, d1Execute, d1Rows } from './lib/target.mjs';
 
 const PIN = '2580';
-const VEHICLE_ART = join(API_DIR, '..', 'mobile', 'src', 'assets', 'vehicles');
+const VEHICLE_ART = join(API_DIR, '..', 'manager', 'src', 'assets', 'vehicles');
 const TMP = mkdtempSync(join(tmpdir(), 'mana-seed-'));
 const SHOP = 'shop_mana';
 
@@ -960,7 +960,7 @@ await call(tokenOf(kiran), 'POST', '/shop/errors', {
   message: "TypeError: Cannot read property 'total' of undefined",
   stack: 'at JobDetailScreen (JobDetailScreen.tsx:212)\nat renderWithHooks',
   context: 'JobDetail · opening a voided job',
-  appVersion: JSON.parse(readFileSync(join(API_DIR, '../mobile/package.json'), 'utf8')).version,
+  appVersion: JSON.parse(readFileSync(join(API_DIR, '../manager/package.json'), 'utf8')).version,
 });
 
 // ─── Second branch ────────────────────────────────────────────────────────
@@ -973,6 +973,17 @@ runSql([paidPro(SHOP)], 'paid-pro-main');
 const kavali = await call(OWN, 'POST', '/auth/shops', { shopName: 'MANA Car Wash Kavali', city: 'Kavali' });
 runSql([paidPro(kavali.user.shopId)], 'paid-pro-kavali');
 const KAV = kavali.token;
+// Listing a branch in the MANA Car Wash app is Sprixia's switch; the owner sets where it washes.
+runSql([`UPDATE shops SET in_customer_app = 1 WHERE id = '${kavali.user.shopId}';`], 'customer-app-kavali');
+await call(KAV, 'PUT', '/service-area', { latitude: 14.9163, longitude: 79.9945, radiusKm: 6 });
+await call(KAV, 'POST', '/service-area/areas', { name: 'Kavali', pincode: '524201' });
+await call(KAV, 'PUT', '/service-area/contact', {
+  address: 'Trunk Road, opposite RTC Depot, Kavali 524201',
+  phone: '9300000021',
+  opensAt: '08:00',
+  closesAt: '19:30',
+  weeklyOff: 2,
+});
 const kvTypes = {};
 for (const [key, name, category] of [
   ['hatch', 'Hatchback', 'car'],

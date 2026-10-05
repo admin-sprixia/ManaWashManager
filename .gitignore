@@ -10,11 +10,18 @@ dist/
 .dev.vars.*
 !.dev.vars.example
 
-# React Native / iOS — patterns use **/ so they match at any depth (e.g. apps/mobile/ios/...),
+# React Native / iOS — patterns use **/ so they match at any depth (e.g. apps/customer/ios/...),
 # not just a top-level ios/ folder.
 **/ios/Pods/
 **/ios/build/
 **/ios/*.xcworkspace
+**/ios/.xcode.env.local
+**/ios/vendor/
+**/vendor/bundle/
+xcuserdata/
+DerivedData/
+*.ipa
+.metro-health-check*
 
 # React Native / Android — Gradle's own build/cache output, never source.
 **/android/build/

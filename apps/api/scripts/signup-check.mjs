@@ -3,7 +3,7 @@
 //   cd apps/api && npm run db:reset:local && npm run dev      (in one terminal)
 //   cd apps/api && npm run test:signup                        (in another)
 // Uses fresh random numbers each run, so it can be re-run without a reset.
-import { API, apiFetch } from './lib/target.mjs';
+import { API, apiFetch, d1Run } from './lib/target.mjs';
 
 const DEV_CODE = process.env.DEV_CODE ?? '000000';
 const PIN = '2580';
@@ -77,6 +77,7 @@ async function requestIdFor(ownerToken, phone) {
 const ownerPhone = newPhone();
 const start = await call(null, 'POST', '/auth/start', { phone: ownerPhone });
 check('Unknown number → "new" (start or join a shop)', start.body?.next === 'new', show(start));
+check('Local dev: sign-up is open by default', start.body?.signupOpen === true, show(start));
 
 const taken = await call(null, 'POST', '/signup/code', { phone: MANA_OWNER, purpose: 'signup' });
 check(
@@ -379,6 +380,50 @@ check(
 
 const reAdd = await call(manaOwner, 'POST', '/team', { name: 'Ravi', phone: ravi });
 check('MANA can’t add him back while he’s in another shop', reAdd.status === 409, show(reAdd));
+
+// ─── Sign-up closed (as on staging and production) ───────────────────────
+
+const lateFounder = newPhone();
+const lateTicket = await verifiedTicket(lateFounder, 'signup');
+const asha = newPhone();
+d1Run("INSERT OR REPLACE INTO platform_settings (key, value) VALUES ('signup.open', 'false')");
+try {
+  const closedStart = await call(null, 'POST', '/auth/start', { phone: asha });
+  check(
+    'Closed: unknown number → "new", sign-up not offered',
+    closedStart.body?.next === 'new' && closedStart.body?.signupOpen === false,
+    show(closedStart),
+  );
+  const closedCode = await call(null, 'POST', '/signup/code', { phone: asha, purpose: 'signup' });
+  check(
+    'Closed: no sign-up code',
+    closedCode.status === 403 && closedCode.body?.error === 'signup_closed',
+    show(closedCode),
+  );
+  const closedVerify = await call(null, 'POST', '/signup/verify', {
+    phone: asha,
+    purpose: 'signup',
+    code: DEV_CODE,
+  });
+  check('Closed: sign-up codes not checked', closedVerify.status === 403, show(closedVerify));
+  const closedShop = await call(null, 'POST', '/signup/shop', {
+    ticket: lateTicket,
+    pin: PIN,
+    name: 'Late',
+    shopName: 'Late Wash',
+  });
+  check(
+    'Closed: a ticket from before closing can’t make a shop',
+    closedShop.status === 403 && closedShop.body?.error === 'signup_closed',
+    show(closedShop),
+  );
+  const lateStart = await call(null, 'POST', '/auth/start', { phone: lateFounder });
+  check('Closed: no shop or account was made', lateStart.body?.next === 'new', show(lateStart));
+  const ashaToken = await askToJoin(asha, MANA_CODE, 'Asha');
+  check('Closed: staff can still ask to join with the shop ID', typeof ashaToken === 'string');
+} finally {
+  d1Run("DELETE FROM platform_settings WHERE key = 'signup.open'");
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

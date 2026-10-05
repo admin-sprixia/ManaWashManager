@@ -1,0 +1,798 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MANA customer app — all screens, redesigned</title>
+<style>
+  /* ═══ Design tokens: these are the names in packages/ui/src/theme/colors.ts ═══ */
+  :root {
+    --white:#FFFFFF; --surface:#F4F6FF;
+    --indigoPale:#E8ECFF; --indigoMist:#C4CCF0; --indigoSoft:#9BAEF5; --indigoBright:#5468D4;
+    --indigo:#3A4DB0; --indigoMid:#2D3D9E; --indigoDeep:#1B2878;
+    --ink:#0F1743; --night:#080E2B; --slate:#8791B5; --slateDeep:#4A5280; --border:#E2E7FB; --hair:#E9EDFC;
+    --teal:#0D9488; --tealDeep:#0B5F57; --tealPale:#D9F5EE;
+    --amber:#F59E0B; --amberDeep:#9A5B00; --amberPale:#FFF4D6; --amberLight:#FDE68A; --goldInk:#4D2F00;
+    --danger:#DC2626; --dangerPale:#FEE2E2;
+    --g-hero:linear-gradient(160deg,#5468D4 0%,#3A4DB0 46%,#1B2878 100%);
+    --g-primary:linear-gradient(180deg,#5468D4,#3A4DB0);
+    --g-promo:linear-gradient(135deg,#5468D4 0%,#2D3D9E 58%,#1B2878 100%);
+    --g-gold:linear-gradient(160deg,#FDE68A,#F59E0B);
+    --g-tabpill:linear-gradient(160deg,#5468D4,#2D3D9E);
+    --g-tile:linear-gradient(160deg,#EEF1FF,#DDE3FF);
+    --r-sm:12px; --r-md:16px; --r-lg:20px; --r-xl:28px;
+    --sh-md:0 8px 24px rgba(27,40,120,.09);
+  }
+  * { box-sizing:border-box; }
+  html { -webkit-text-size-adjust:100%; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; color:var(--ink); background:#E9EDFB; line-height:1.45; }
+  button { font:inherit; color:inherit; cursor:pointer; }
+
+  /* ═══ Page chrome (not part of the app) ═══ */
+  .page { max-width:1320px; margin:0 auto; padding:30px 28px 90px; }
+  .page h1 { margin:0 0 4px; font-size:28px; letter-spacing:-.4px; }
+  .lead { margin:0 0 20px; color:#4A5280; max-width:820px; }
+  .nav { display:flex; flex-wrap:wrap; gap:6px 26px; margin-bottom:18px; }
+  .nav .grp { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+  .nav .grp > b { font-size:11px; letter-spacing:1.2px; text-transform:uppercase; color:#6B7399; margin-right:4px; }
+  .nav button { border:1px solid #CBD3F5; background:#fff; border-radius:999px; padding:7px 14px; font-size:13px; font-weight:700; color:#2D3D9E; }
+  .nav button[aria-pressed="true"] { background:#1B2878; border-color:#1B2878; color:#fff; }
+  .stage { display:grid; grid-template-columns:minmax(0,430px) 1fr; gap:44px; align-items:start; }
+  .states { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; min-height:34px; }
+  .states button { border:1px solid #CBD3F5; background:#fff; border-radius:999px; padding:6px 13px; font-size:12.5px; font-weight:600; color:#2D3D9E; }
+  .states button[aria-pressed="true"] { background:#3A4DB0; border-color:#3A4DB0; color:#fff; }
+  .notes section { background:#fff; border:1px solid #DDE3FA; border-radius:18px; padding:20px 22px; margin-bottom:18px; }
+  .notes h2 { margin:0 0 8px; font-size:13px; letter-spacing:1.3px; text-transform:uppercase; color:#3A4DB0; }
+  .notes h3 { margin:14px 0 6px; font-size:14px; }
+  .notes p, .notes li { color:#4A5280; font-size:14px; } .notes p { margin:0 0 10px; } .notes ul { margin:0; padding-left:18px; } .notes li { margin:3px 0; }
+  code { font-family:ui-monospace,Menlo,monospace; font-size:12.5px; background:#EEF1FF; padding:1px 6px; border-radius:6px; color:#2D3D9E; }
+  .notes table { width:100%; border-collapse:collapse; font-size:13px; } .notes th, .notes td { text-align:left; padding:7px 8px; border-bottom:1px solid #E7EBFB; vertical-align:top; }
+  .notes td:first-child { width:42%; }
+  .notes th { color:#3A4DB0; font-size:11.5px; letter-spacing:.8px; text-transform:uppercase; }
+  .swatches { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; }
+  .sw { border:1px solid #E2E7FB; border-radius:12px; overflow:hidden; background:#fff; } .sw i { display:block; height:44px; }
+  .sw div { padding:7px 10px 9px; font-size:12px; line-height:1.35; } .sw b { display:block; font-size:12.5px; } .sw span { color:#6B7399; }
+  .gradrow { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:10px; }
+  .gradrow div { height:64px; border-radius:14px; color:#fff; font-size:12px; font-weight:700; padding:9px 11px; display:flex; align-items:flex-end; }
+  .chipdot { display:inline-block; width:12px; height:12px; border-radius:4px; vertical-align:-1px; margin-right:6px; border:1px solid rgba(0,0,0,.08); }
+  .docs { margin-top:10px; }
+
+  /* ═══ The phone ═══ */
+  .phone { width:410px; margin:0 auto; padding:10px; border-radius:54px; background:#0B1020; box-shadow:0 30px 60px rgba(8,14,43,.35), inset 0 0 0 2px #1d2540; position:sticky; top:20px; }
+  .screen { position:relative; width:390px; height:844px; border-radius:44px; overflow:hidden; background:var(--surface); display:flex; flex-direction:column; }
+  .island { position:absolute; z-index:61; top:10px; left:50%; width:104px; height:28px; margin-left:-52px; border-radius:20px; background:#05070f; }
+  .statusbar { position:absolute; z-index:60; top:0; left:0; right:0; height:44px; padding:14px 26px 0; display:flex; justify-content:space-between; font-size:14px; font-weight:700; color:#fff; pointer-events:none; }
+  .scrim { position:absolute; z-index:59; top:0; left:0; right:0; height:50px; pointer-events:none; opacity:0; transition:opacity .2s; background:linear-gradient(180deg,rgba(58,77,176,.97) 0%,rgba(58,77,176,.9) 62%,rgba(58,77,176,0) 100%); }
+  .scrim.on { opacity:1; }
+  .scroll { flex:1; overflow-y:auto; overflow-x:hidden; scrollbar-width:none; position:relative; }
+  .scroll::-webkit-scrollbar { display:none; }
+  .homebar { position:absolute; z-index:70; left:50%; bottom:5px; width:128px; height:5px; margin-left:-64px; border-radius:3px; background:rgba(15,23,67,.55); pointer-events:none; }
+
+  /* ═══ Heroes ═══ */
+  .hero { position:relative; overflow:hidden; background:var(--g-hero); border-radius:0 0 32px 32px; padding:58px 20px 30px; color:#fff; }
+  .hero.home { padding-bottom:72px; } .hero.flush { padding-bottom:28px; }
+  .hero .glow { position:absolute; inset:0; background:radial-gradient(circle at 88% -6%, rgba(155,174,245,.65), transparent 52%), radial-gradient(circle at 0% 105%, rgba(84,104,212,.55), transparent 50%); }
+  .hero svg.deco { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+  .hero .toprow { position:relative; display:flex; align-items:center; justify-content:space-between; }
+  .hero .brand { position:relative; display:flex; align-items:center; gap:8px; font-weight:800; letter-spacing:2.4px; font-size:12px; opacity:.95; }
+  .hero .brand svg { width:22px; height:22px; }
+  .hero.home .brand { font-size:12.5px; } .hero.home .brand svg { width:26px; height:26px; }
+  .hero h2.big { position:relative; margin:18px 0 0; font-size:32px; line-height:36px; font-weight:800; letter-spacing:-.6px; }
+  .hero p.sub { position:relative; margin:4px 0 0; font-size:15px; color:rgba(255,255,255,.85); }
+  .hero.back { padding:52px 16px 26px; }
+  .hero .backrow { position:relative; display:flex; align-items:center; gap:12px; }
+  .hero .backbtn { flex:none; width:40px; height:40px; border-radius:50%; display:grid; place-items:center; background:rgba(255,255,255,.16); border:1.5px solid rgba(255,255,255,.4); }
+  .hero .backrow h2 { flex:1; margin:0; font-size:22px; font-weight:800; letter-spacing:-.4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .avatar { width:40px; height:40px; border-radius:50%; display:grid; place-items:center; font-weight:800; font-size:16px; background:rgba(255,255,255,.16); border:1.5px solid rgba(255,255,255,.4); box-shadow:inset 0 1px 0 rgba(255,255,255,.35); }
+  .hello { position:relative; margin-top:22px; } .hello small { display:block; font-size:15px; font-weight:600; color:rgba(255,255,255,.82); }
+  .hello h2 { margin:2px 0 0; font-size:34px; line-height:38px; font-weight:800; letter-spacing:-.6px; }
+  .chips { position:relative; display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+  .glass { display:inline-flex; align-items:center; gap:6px; padding:6px 12px 6px 9px; border-radius:999px; font-size:13.5px; font-weight:600; background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.26); }
+  .goldpill { display:inline-flex; align-items:center; gap:6px; padding:6px 13px 6px 9px; border-radius:999px; font-size:13.5px; font-weight:800; color:var(--goldInk); background:var(--g-gold); box-shadow:0 6px 16px rgba(245,158,11,.4), inset 0 1px 0 rgba(255,255,255,.55); }
+  .spill { display:inline-flex; align-items:center; gap:6px; padding:5px 12px; border-radius:999px; font-size:11.5px; font-weight:800; letter-spacing:.5px; background:var(--tealPale); color:var(--tealDeep); }
+  .spill.amber { background:var(--amberLight); color:var(--amberDeep); } .spill.water { background:var(--indigoPale); color:var(--indigoMid); } .spill.slate { background:#EEF0FA; color:var(--slateDeep); }
+
+  /* ═══ Section labels, feature cards (Home-style) ═══ */
+  .body { padding:0 16px; }
+  .over { margin-top:-44px; position:relative; z-index:2; }
+  .seclabel { display:flex; justify-content:space-between; align-items:center; margin:26px 4px 10px; }
+  .seclabel h3, .lbl { margin:0; font-size:12px; font-weight:800; letter-spacing:1px; text-transform:uppercase; color:var(--slateDeep); }
+  .lbl { margin:26px 20px 10px; display:flex; justify-content:space-between; align-items:baseline; } .lbl span { font-size:12.5px; font-weight:600; letter-spacing:0; text-transform:none; color:var(--slate); }
+  .link { display:inline-flex; align-items:center; gap:2px; border:0; background:none; padding:0; font-size:13.5px; font-weight:700; color:var(--indigo); }
+  .card { background:var(--white); border:1px solid #E9EDFC; border-radius:var(--r-lg); box-shadow:var(--sh-md); }
+  .card.pad { padding:16px; }
+  .tile { flex:none; width:48px; height:48px; border-radius:15px; display:grid; place-items:center; background:var(--g-tile); box-shadow:inset 0 0 0 1px rgba(84,104,212,.14); }
+  .row { display:flex; align-items:center; gap:14px; }
+  .grow { flex:1; min-width:0; }
+  .t { font-size:16.5px; font-weight:700; color:var(--ink); letter-spacing:-.1px; }
+  .m { font-size:13.5px; color:var(--slateDeep); margin-top:1px; }
+  .amount { font-size:19px; font-weight:800; letter-spacing:-.3px; color:var(--ink); text-align:right; }
+  .chev { flex:none; width:28px; height:28px; border-radius:50%; display:grid; place-items:center; background:var(--surface); }
+  .badges { display:flex; gap:8px; flex-wrap:wrap; margin-top:13px; align-items:center; }
+  .badge { display:inline-flex; align-items:center; gap:5px; padding:4px 11px 4px 9px; border-radius:999px; font-size:12.5px; font-weight:700; }
+  .b-done { background:var(--tealPale); color:var(--tealDeep); } .b-plain { background:var(--surface); color:var(--slateDeep); border:1px solid var(--border); } .b-indigo { background:var(--indigoPale); color:var(--indigoMid); }
+  .plate { display:inline-block; font-size:11.5px; font-weight:800; letter-spacing:.8px; color:var(--slateDeep); background:var(--surface); border:1px solid var(--border); padding:2px 8px; border-radius:7px; }
+
+  .stamp-card { padding:16px 16px 15px; background:linear-gradient(180deg,#fff,#F8F9FF); }
+  .stamp-card.free { background:linear-gradient(160deg,#FFFBEA,#FFF1C7); border-color:#F6DC8B; box-shadow:0 10px 26px rgba(245,158,11,.18); }
+  .stamp-head { display:flex; align-items:center; gap:10px; }
+  .count { margin-left:auto; padding:3px 11px; border-radius:999px; font-size:13px; font-weight:800; background:var(--indigoPale); color:var(--indigoMid); } .free .count { background:var(--amber); color:#fff; }
+  .track { display:flex; align-items:center; gap:9px; margin:15px 0 12px; }
+  .stamp { position:relative; width:36px; height:42px; flex:none; } .stamp > svg { width:100%; height:100%; display:block; }
+  .stamp .ck { position:absolute; left:0; right:0; top:15px; display:grid; place-items:center; }
+  .link-line { flex:1; height:2px; border-radius:2px; background:repeating-linear-gradient(90deg,#C4CCF0 0 4px,transparent 4px 8px); min-width:8px; }
+  .reward { flex:none; width:46px; height:46px; border-radius:15px; display:grid; place-items:center; background:var(--g-gold); box-shadow:0 6px 14px rgba(245,158,11,.38), inset 0 1px 0 rgba(255,255,255,.6); }
+  .free .reward { animation:pop 1.8s ease-in-out infinite; } @keyframes pop { 0%,100%{ transform:scale(1);} 50%{ transform:scale(1.07);} }
+  .meter { height:6px; border-radius:6px; background:var(--indigoPale); overflow:hidden; margin-bottom:11px; } .meter i { display:block; height:100%; border-radius:6px; background:linear-gradient(90deg,#5468D4,#3A4DB0); }
+  .free .meter { background:#FBE3A0; } .free .meter i { background:linear-gradient(90deg,#FBBF24,#F59E0B); }
+  .stamp-msg { font-size:14px; font-weight:600; color:var(--slateDeep); } .stamp-msg b { color:var(--indigo); } .free .stamp-msg { color:var(--amberDeep); font-weight:800; }
+  .warn { display:flex; align-items:center; gap:6px; margin-top:9px; font-size:13px; font-weight:700; color:var(--amberDeep); }
+
+  .ticket { display:flex; position:relative; margin-bottom:12px; }
+  .stub { flex:none; width:92px; border-radius:var(--r-lg) 0 0 var(--r-lg); color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; background:var(--g-promo); }
+  .stub.gold { background:var(--g-gold); color:var(--goldInk); }
+  .stub b { font-size:30px; line-height:1; font-weight:800; letter-spacing:-1px; } .stub em { font-style:normal; font-size:11px; font-weight:800; letter-spacing:1.6px; margin-top:3px; opacity:.9; }
+  .tbody { flex:1; min-width:0; padding:14px 16px 14px 18px; border-left:2px dashed #D3D9F6; border-radius:0 var(--r-lg) var(--r-lg) 0; }
+  .ticket::before, .ticket::after { content:""; position:absolute; left:81px; width:22px; height:22px; border-radius:50%; background:var(--surface); box-shadow:inset 0 0 0 1px #E9EDFC; z-index:2; }
+  .ticket::before { top:-11px; clip-path:inset(50% 0 0 0); } .ticket::after { bottom:-11px; clip-path:inset(0 0 50% 0); }
+  .code { display:flex; align-items:center; gap:8px; margin-top:10px; padding:7px 8px 7px 11px; border:1.5px dashed #B9C4F2; border-radius:11px; background:#F7F8FF; }
+  .code span { font-family:ui-monospace,Menlo,monospace; font-size:12.5px; font-weight:700; letter-spacing:.4px; color:var(--indigoMid); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .code button { border:0; background:var(--indigoPale); color:var(--indigoMid); font-size:12px; font-weight:800; padding:4px 10px; border-radius:8px; }
+
+  .promo { position:relative; overflow:hidden; border-radius:22px; padding:18px; color:#fff; background:var(--g-promo); box-shadow:0 14px 30px rgba(45,61,158,.32); }
+  .promo svg.deco { position:absolute; right:-14px; bottom:-18px; width:150px; height:150px; opacity:.5; }
+  .promo .tile { background:rgba(255,255,255,.16); box-shadow:inset 0 0 0 1px rgba(255,255,255,.25); }
+  .promo h4 { margin:0; font-size:19px; font-weight:800; letter-spacing:-.3px; } .promo p { margin:3px 0 0; font-size:14px; line-height:20px; color:rgba(255,255,255,.86); max-width:250px; }
+  .cta { display:inline-flex; align-items:center; gap:6px; margin-top:14px; padding:9px 16px; border:0; border-radius:999px; font-weight:800; font-size:14px; color:var(--indigoMid); background:#fff; box-shadow:0 6px 14px rgba(8,14,43,.25); }
+  .help { margin-top:12px; padding:14px 16px; }
+
+  .live { position:relative; overflow:hidden; padding:16px 16px 16px 20px; }
+  .live::before { content:""; position:absolute; left:0; top:0; bottom:0; width:5px; background:linear-gradient(180deg,#5468D4,#1B2878); } .live.ready::before { background:linear-gradient(180deg,#FBBF24,#F59E0B); }
+  .stepper { display:flex; align-items:flex-start; margin:18px 4px 16px; }
+  .step { display:flex; flex-direction:column; align-items:center; gap:7px; width:62px; font-size:12px; font-weight:700; color:var(--slate); } .step.done { color:var(--indigoMid); }
+  .sdot { width:22px; height:22px; border-radius:50%; border:2px solid #CBD3F5; background:#fff; display:grid; place-items:center; }
+  .step.done .sdot { background:linear-gradient(160deg,#5468D4,#2D3D9E); border-color:transparent; }
+  .step.cur .sdot { background:#fff; border:2px solid var(--indigoBright); box-shadow:0 0 0 5px rgba(84,104,212,.18); animation:ring 1.6s ease-in-out infinite; } .step.cur .sdot::after { content:""; width:8px; height:8px; border-radius:50%; background:var(--indigoBright); }
+  .live.ready .step.cur .sdot { border-color:var(--amber); box-shadow:0 0 0 5px rgba(245,158,11,.2); animation:none; } .live.ready .step.cur .sdot::after { background:var(--amber); }
+  .live.ready .step.done { color:var(--amberDeep); } .live.ready .step.done .sdot { background:linear-gradient(160deg,#FBBF24,#F59E0B); }
+  @keyframes ring { 0%,100%{ box-shadow:0 0 0 4px rgba(84,104,212,.18);} 50%{ box-shadow:0 0 0 8px rgba(84,104,212,.06);} }
+  .bar { flex:1; height:3px; margin-top:10px; background:#D8DEF7; border-radius:3px; } .bar.on { background:linear-gradient(90deg,#5468D4,#3A4DB0); } .live.ready .bar.on { background:linear-gradient(90deg,#FBBF24,#F59E0B); }
+  .billrow { display:flex; justify-content:space-between; align-items:flex-end; gap:10px; padding-top:12px; border-top:1px solid var(--border); }
+  .topay { font-size:12px; font-weight:800; color:var(--amberDeep); text-align:right; }
+  .actions { display:flex; gap:10px; margin-top:14px; }
+  .chip { flex:1; display:flex; align-items:center; justify-content:center; gap:7px; padding:11px 10px; border-radius:14px; border:1px solid #D3DAF8; background:var(--indigoPale); color:var(--indigoMid); font-weight:700; font-size:14px; }
+
+  .empty { text-align:center; padding:28px 22px 24px; }
+  .empty .mark { width:84px; height:84px; margin:0 auto 14px; border-radius:26px; display:grid; place-items:center; background:linear-gradient(160deg,#F1F3FF,#DCE2FF); box-shadow:inset 0 0 0 1px rgba(84,104,212,.16); }
+  .empty .mark svg { width:56px; height:56px; filter:drop-shadow(0 6px 8px rgba(27,40,120,.28)); }
+  .empty h4 { margin:0 0 4px; font-size:18px; font-weight:800; } .empty p { margin:0; color:var(--slateDeep); font-size:14.5px; }
+  .btn { display:inline-flex; align-items:center; justify-content:center; margin-top:16px; padding:12px 24px; border:0; border-radius:14px; color:#fff; font-weight:800; font-size:15px; background:var(--g-primary); box-shadow:0 8px 18px rgba(58,77,176,.35), inset 0 1px 0 rgba(255,255,255,.28); }
+  .sk { border-radius:8px; background:linear-gradient(90deg,#E9EDFB 25%,#F5F7FF 50%,#E9EDFB 75%); background-size:200% 100%; animation:sh 1.3s linear infinite; } @keyframes sh { to { background-position:-200% 0; } }
+
+  /* ═══ Edge-to-edge lists (the one list style for rows) ═══ */
+  .group { background:var(--white); border-top:1px solid var(--hair); border-bottom:1px solid var(--hair); }
+  .erow { position:relative; display:flex; align-items:center; gap:14px; padding:14px 16px; min-height:64px; background:#fff; border:0; width:100%; text-align:left; }
+  button.erow:active { background:var(--surface); }
+  .erow + .erow::before { content:""; position:absolute; top:0; left:74px; right:0; height:1px; background:var(--hair); }
+  .erow.noicon + .erow::before, .erow + .erow.noicon::before { left:16px; }
+  .etile { flex:none; width:44px; height:44px; border-radius:14px; display:grid; place-items:center; background:var(--g-tile); box-shadow:inset 0 0 0 1px rgba(84,104,212,.14); }
+  .etile.teal { background:var(--tealPale); box-shadow:none; } .etile.amber { background:var(--amberPale); box-shadow:none; } .etile.red { background:var(--dangerPale); box-shadow:none; } .etile.slate { background:#EEF0FA; box-shadow:none; }
+  .ecopy { flex:1; min-width:0; }
+  .et { font-size:16.5px; font-weight:700; letter-spacing:-.1px; color:var(--ink); } .et.danger { color:var(--danger); } .et.muted { color:var(--slate); }
+  .es { font-size:13.5px; color:var(--slateDeep); margin-top:1px; }
+  .echev { flex:none; width:16px; display:grid; place-items:center; }
+  .pl { display:inline-block; padding:3px 10px; border-radius:999px; font-size:11px; font-weight:800; letter-spacing:.4px; border:1px solid; white-space:nowrap; }
+  .pl.water { background:var(--indigoPale); border-color:#DDE3FA; color:var(--indigoMid); } .pl.amber { background:var(--amberPale); border-color:var(--amberLight); color:var(--amberDeep); }
+  .pl.teal { background:var(--tealPale); border-color:#99F6E4; color:var(--tealDeep); } .pl.slate { background:#EEF0FA; border-color:#E2E7FB; color:var(--slateDeep); } .pl.danger { background:var(--dangerPale); border-color:#FECACA; color:var(--danger); }
+  .circbtn { flex:none; width:40px; height:40px; border-radius:50%; display:grid; place-items:center; background:var(--surface); border:1px solid var(--border); }
+  .circbtn.wa { background:#E8F8EE; border-color:#C5EBD3; }
+  .panel { background:#fff; border-top:1px solid var(--hair); border-bottom:1px solid var(--hair); padding:16px; display:grid; gap:14px; }
+  .hint { padding:8px 20px 0; font-size:12.5px; color:var(--slate); }
+  .foot { text-align:center; margin-top:22px; font-size:12.5px; color:var(--slate); }
+  .end { text-align:center; padding:18px 0 4px; color:var(--slate); font-size:12.5px; font-weight:600; }
+  .more { display:flex; align-items:center; justify-content:center; gap:10px; padding:18px 0 4px; color:var(--slateDeep); font-size:13.5px; font-weight:600; }
+  .spin { width:20px; height:20px; border-radius:50%; border:2.5px solid var(--indigoPale); border-top-color:var(--indigoBright); animation:rot .8s linear infinite; } @keyframes rot { to { transform:rotate(360deg); } }
+  .notice { display:flex; gap:10px; align-items:flex-start; margin:16px 16px 0; padding:12px 14px; border-radius:14px; background:#FFFBEB; border:1px solid var(--amberLight); color:var(--amberDeep); font-size:14px; font-weight:500; line-height:20px; }
+  .notice b { display:block; font-weight:800; } .notice.info { background:var(--indigoPale); border-color:#DDE3FA; color:var(--indigoMid); } .notice.danger { background:#FEF2F2; border-color:#FECACA; color:var(--danger); }
+  .notice.flat { margin:0 16px; }
+
+  /* Washes rows */
+  .wrow { align-items:center; padding:14px 14px 14px 16px; }
+  .l1 { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+  .wt { font-size:16.5px; font-weight:700; letter-spacing:-.1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .amt { flex:none; font-size:17px; font-weight:800; letter-spacing:-.3px; }
+  .l2 { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; margin-top:3px; }
+  .wm { font-size:13.5px; color:var(--slateDeep); }
+  .photos { display:inline-flex; align-items:center; gap:4px; font-size:12.5px; font-weight:700; color:var(--slateDeep); }
+  .lp { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:800; }
+  .lp.washing { background:var(--indigoPale); color:var(--indigoMid); } .lp.ready { background:var(--amberLight); color:var(--amberDeep); } .lp.waiting { background:#EEF0FA; color:var(--slateDeep); }
+  .ldot { width:7px; height:7px; border-radius:50%; background:var(--indigoBright); animation:pulse 1.4s ease-in-out infinite; } .lp.ready .ldot { background:var(--amber); animation:none; }
+  @keyframes pulse { 0%,100%{ box-shadow:0 0 0 0 rgba(84,104,212,.45);} 50%{ box-shadow:0 0 0 5px rgba(84,104,212,0);} }
+  .erow.live::after { content:""; position:absolute; left:0; top:0; bottom:0; width:4px; background:linear-gradient(180deg,#5468D4,#1B2878); } .erow.live.ready::after { background:linear-gradient(180deg,#FBBF24,#F59E0B); }
+
+  /* Vehicles */
+  .numplate { display:inline-block; border:1.5px solid var(--ink); border-radius:6px; padding:2px 8px; font-size:16px; font-weight:800; letter-spacing:1.6px; color:var(--ink); background:#fff; }
+  .vgap { margin-top:12px; }
+  .iconbtn { flex:none; width:36px; height:36px; display:grid; place-items:center; border-radius:50%; }
+
+  /* Visit / prices */
+  .seg { display:flex; gap:8px; padding:0 16px 12px; }
+  .segb { padding:8px 18px; border-radius:999px; border:1.5px solid #DDE3FA; background:#fff; font-size:14px; font-weight:700; color:var(--slateDeep); }
+  .segb.on { border-color:transparent; background:var(--g-primary); color:#fff; box-shadow:0 6px 14px rgba(58,77,176,.3); }
+  .prow { padding:14px 16px; display:grid; gap:4px; } .prow + .prow { border-top:1px solid var(--hair); }
+  .ph { display:flex; align-items:baseline; gap:10px; } .pn { flex:1; font-size:16.5px; font-weight:700; } .pp { font-size:15.5px; font-weight:800; color:var(--indigoMid); }
+  .pd { font-size:13px; color:var(--slateDeep); line-height:18px; }
+  .sizes { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
+  .size { display:inline-flex; gap:6px; align-items:center; padding:5px 10px; border-radius:9px; background:var(--surface); border:1px solid var(--border); font-size:13px; color:var(--slateDeep); } .size b { color:var(--ink); font-size:13px; }
+  .pnote { text-align:center; font-size:12.5px; color:var(--slate); padding:10px 20px 0; }
+
+  /* Forms */
+  .field { display:grid; gap:7px; }
+  .field > label { font-size:12px; font-weight:800; letter-spacing:.7px; text-transform:uppercase; color:var(--slateDeep); }
+  .field > label small { text-transform:none; letter-spacing:0; font-weight:600; color:var(--slate); margin-left:4px; }
+  .input { min-height:54px; border:1.5px solid #DDE3FA; border-radius:14px; background:#F7F8FF; padding:0 16px; font-size:16.5px; color:var(--ink); display:flex; align-items:center; }
+  .input.ph { color:var(--slate); } .input.focus { border-color:var(--indigo); background:#fff; box-shadow:0 0 0 4px rgba(84,104,212,.14); } .input.err { border-color:#FCA5A5; background:#FFF8F8; }
+  .input.area { align-items:flex-start; min-height:112px; padding:14px 16px; line-height:23px; }
+  .caret { display:inline-block; width:2px; height:20px; background:var(--indigoBright); margin-left:1px; animation:blink 1s steps(1) infinite; } @keyframes blink { 50%{ opacity:0; } }
+  .fmsg { font-size:13px; } .fmsg.err { color:var(--danger); font-weight:600; } .fmsg.hint { color:var(--slate); }
+  .chipset { display:flex; flex-wrap:wrap; gap:10px; }
+  .chipx { padding:11px 18px; border-radius:999px; border:1.5px solid #DDE3FA; background:#fff; font-size:14.5px; font-weight:600; color:var(--slateDeep); }
+  .chipx.on { border-color:transparent; background:var(--g-primary); color:#fff; box-shadow:0 6px 14px rgba(58,77,176,.3); }
+  .btn-lg { display:flex; align-items:center; justify-content:center; gap:10px; width:100%; height:56px; border:0; border-radius:16px; background:var(--g-primary); color:#fff; font-weight:800; font-size:16.5px; box-shadow:0 8px 18px rgba(58,77,176,.35), inset 0 1px 0 rgba(255,255,255,.28); }
+  .btn-lg.off { opacity:.5; box-shadow:none; }
+  .btn-2 { display:flex; align-items:center; justify-content:center; gap:10px; width:100%; height:52px; border:1.5px solid #CBD3F5; border-radius:16px; background:#fff; color:var(--indigoMid); font-weight:800; font-size:15.5px; }
+  .btn-lg .spin { border-color:rgba(255,255,255,.35); border-top-color:#fff; }
+  .actions-v { padding:18px 16px 0; display:grid; gap:14px; }
+  .fine { text-align:center; font-size:12.5px; color:var(--slate); line-height:17px; }
+  .intro { padding:16px 20px 0; font-size:14.5px; line-height:21px; color:var(--slateDeep); }
+
+  /* Wash detail */
+  .sum { position:relative; background:#fff; border-top:1px solid var(--hair); border-bottom:1px solid var(--hair); padding:18px 18px 18px 22px; }
+  .sum::before { content:""; position:absolute; left:0; top:0; bottom:0; width:5px; background:var(--teal); } .sum.washing::before { background:var(--indigoBright); } .sum.ready::before { background:var(--amber); }
+  .sum .meta { font-size:13.5px; color:var(--slateDeep); } .sum .tot { font-size:36px; font-weight:800; letter-spacing:-.8px; margin-top:2px; }
+  .brow { display:flex; justify-content:space-between; gap:14px; padding:9px 0; font-size:15.5px; } .brow + .brow { border-top:1px solid var(--hair); }
+  .brow.mut { color:var(--slateDeep); font-size:14.5px; } .brow.disc { color:var(--teal); font-size:14.5px; } .brow.total { font-weight:800; font-size:17px; } .brow.total span:last-child { color:var(--indigoMid); font-size:19px; }
+  .pgroup { display:grid; gap:8px; } .ptitle { font-size:12px; font-weight:800; letter-spacing:.7px; text-transform:uppercase; color:var(--slateDeep); }
+  .pgrid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .photo { aspect-ratio:1; border-radius:14px; display:grid; place-items:center; background:linear-gradient(135deg,#CBD5FB,#8FA2EA); position:relative; overflow:hidden; }
+  .photo.b { background:linear-gradient(135deg,#D7DCEE,#98A3C6); } .photo::after { content:""; position:absolute; inset:0; background:linear-gradient(180deg,rgba(255,255,255,.35),rgba(255,255,255,0) 50%); }
+  .stars { display:flex; gap:8px; } .stars svg { width:34px; height:34px; }
+  .rate-q { font-size:14px; color:var(--slateDeep); line-height:20px; }
+  .quote { text-align:center; font-style:italic; color:var(--ink); }
+  .row2 { display:flex; gap:10px; } .row2 > * { flex:1; }
+  .rep { padding:14px 16px; display:grid; gap:4px; background:#fff; } .rep + .rep { border-top:1px solid var(--hair); }
+  .rep .h { display:flex; align-items:center; gap:10px; } .rep .h b { flex:1; font-size:16.5px; }
+  .rep .d { font-size:14px; color:var(--slateDeep); line-height:20px; }
+  .reply { margin-top:4px; padding:9px 12px; border-radius:12px; background:var(--surface); display:grid; gap:2px; } .reply b { font-size:12px; color:var(--indigoMid); } .reply span { font-size:14px; line-height:20px; }
+
+  /* Profile */
+  .avatar-lg { flex:none; width:56px; height:56px; border-radius:50%; display:grid; place-items:center; color:#fff; font-weight:800; font-size:21px; letter-spacing:.3px; background:linear-gradient(160deg,#7F93E6,#3A4DB0 55%,#1B2878); box-shadow:0 8px 16px rgba(58,77,176,.3), inset 0 1px 0 rgba(255,255,255,.4); }
+  .editbtn { flex:none; display:inline-flex; align-items:center; gap:5px; padding:7px 13px; border-radius:999px; border:1px solid var(--border); background:var(--surface); font-size:12.5px; font-weight:700; color:var(--indigoMid); }
+  .step3 { display:flex; gap:14px; align-items:flex-start; } .num { flex:none; width:28px; height:28px; border-radius:50%; display:grid; place-items:center; background:var(--indigoPale); color:var(--indigoMid); font-weight:800; font-size:13px; }
+  .step3 b { font-size:16px; display:block; } .step3 span { font-size:14px; color:var(--slateDeep); line-height:20px; }
+  .msgbox { padding:12px 14px; border-radius:14px; background:var(--surface); border:1px solid var(--border); font-size:15px; line-height:22px; }
+
+  /* Sheet */
+  .dim { position:absolute; inset:0; z-index:50; background:rgba(8,14,43,.5); }
+  .sheet { position:absolute; z-index:51; left:0; right:0; bottom:0; background:#fff; border-radius:28px 28px 0 0; padding:10px 20px 34px; box-shadow:0 -10px 40px rgba(8,14,43,.25); }
+  .grab { width:44px; height:5px; border-radius:3px; background:#DDE3FA; margin:0 auto 14px; }
+  .sheet h3 { margin:0; font-size:22px; font-weight:800; letter-spacing:-.3px; } .sheet .sub { font-size:14.5px; color:var(--slateDeep); margin:2px 0 14px; }
+  .sheet .x { position:absolute; right:20px; top:26px; width:40px; height:40px; border-radius:50%; display:grid; place-items:center; background:var(--surface); border:1px solid var(--border); }
+
+  .notice.m0 { margin:0; }
+  .dialog { position:absolute; z-index:51; left:26px; right:26px; top:50%; transform:translateY(-50%); background:#fff; border-radius:24px; padding:24px 20px 16px; box-shadow:0 24px 60px rgba(8,14,43,.35); }
+  .dialog h3 { margin:0 0 6px; font-size:20px; font-weight:800; letter-spacing:-.3px; } .dialog p { margin:0 0 18px; color:var(--slateDeep); font-size:14.5px; line-height:21px; }
+  .dbtns { display:grid; gap:8px; } .dbtn { height:48px; border-radius:14px; border:1.5px solid #CBD3F5; background:#fff; color:var(--indigoMid); font-weight:800; font-size:15.5px; } .dbtn.red { border-color:transparent; background:var(--danger); color:#fff; }
+
+  /* Floating tab bar */
+  .tabwrap { flex:none; padding:6px 14px 12px; background:var(--surface); }
+  .tabbar { height:72px; display:flex; align-items:center; padding:0 8px; background:#FDFDFF; border:1px solid var(--border); border-radius:28px; box-shadow:0 16px 36px rgba(27,40,120,.20), 0 2px 6px rgba(27,40,120,.08); }
+  .tab { flex:1; border:0; background:none; display:flex; flex-direction:column; align-items:center; gap:3px; padding:2px 0 0; font-size:11px; font-weight:700; color:var(--slate); }
+  .tab .ic { width:52px; height:32px; border-radius:16px; display:grid; place-items:center; }
+  .tab[aria-current="page"] { color:var(--indigoMid); } .tab[aria-current="page"] .ic { background:var(--g-tabpill); box-shadow:0 8px 16px rgba(58,77,176,.38), inset 0 1px 0 rgba(255,255,255,.3); }
+
+  @media (max-width:1000px){ .stage{ grid-template-columns:1fr; } .phone{ position:relative; top:0; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <linearGradient id="gDrop" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7F93E6"/><stop offset=".5" stop-color="#4458CC"/><stop offset="1" stop-color="#1B2878"/></linearGradient>
+</defs></svg>
+
+<div class="page">
+  <h1>MANA customer app — every screen, redesigned</h1>
+  <p class="lead">One file with the whole customer app in the new design: Home, Washes, Vehicles, Visit us and Profile, and the screens they open. Pick a screen, switch its states, scroll the phone and tap the tabs. Under the phone: the design rules, the colours and gradients, the shared components, and for each screen, the file it changes in the code.</p>
+
+  <div class="nav" id="nav"></div>
+
+  <div class="stage">
+    <div>
+      <div class="states" id="states" role="group" aria-label="Screen state"></div>
+      <div class="phone">
+        <div class="screen" id="screen">
+          <div class="scrim" id="scrim"></div>
+          <div class="island"></div>
+          <div class="statusbar"><span id="clock">10:04</span><span>83%</span></div>
+          <div id="pinned"></div>
+          <div class="scroll" id="scroll"></div>
+          <div class="tabwrap" id="tabwrap"><nav class="tabbar" id="tabbar" aria-label="Main"></nav></div>
+          <div id="overlay"></div>
+          <div class="homebar"></div>
+        </div>
+      </div>
+    </div>
+    <div class="notes" id="notes"></div>
+  </div>
+
+  <div class="notes docs" id="docs"></div>
+</div>
+
+<script>
+/* ═══════════════ icons (the exact shapes in packages/ui/src/components/Icons.tsx) ═══════════════ */
+const PATHS = {"wa_glyph": "M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z", "wa_bubble": "M20.464 3.488A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z", "drop": "M128 14C128 14 212 96 212 158A84 84 0 0 1 44 158C44 96 128 14 128 14Z", "rim": "M80.37 80C63.69 104.42 49.04 133.01 49.04 158.12A78.96 78.96 0 0 0 206.96 158.12C206.96 133.01 192.31 104.42 175.63 80L175.63 80C168.96 101.53 189.32 132.46 189.32 158.54A61.32 61.32 0 0 1 66.68 158.54C66.68 132.46 87.04 101.53 80.37 80Z", "line": "M128 56C128 56 118 128 118 166A10 10 0 0 0 138 166C138 128 128 56 128 56Z"};
+const SW = 1.9;
+const ICON = {
+  home:   (c) => `<path d="M3.5 10.5 L12 3.5 L20.5 10.5 M5.5 9 V19.5 A1 1 0 0 0 6.5 20.5 H10 V14.5 H14 V20.5 H17.5 A1 1 0 0 0 18.5 19.5 V9" stroke="${c}" stroke-width="${SW}" stroke-linecap="round" stroke-linejoin="round"/>`,
+  dropO:  (c) => `<path d="M12 3.5 C12 3.5 6.2 10.2 6.2 14.5 A5.8 5.8 0 0 0 17.8 14.5 C17.8 10.2 12 3.5 12 3.5 Z" stroke="${c}" stroke-width="${SW}" stroke-linejoin="round"/>`,
+  car:    (c) => `<path d="M5 16 L7 10 H17 L19 16" stroke="${c}" stroke-width="1.8" stroke-linejoin="round"/><path d="M3 16 H21 M5 16 V18 M19 16 V18" stroke="${c}" stroke-width="1.8" stroke-linecap="round"/><circle cx="7.5" cy="16" r="1.4" fill="${c}"/><circle cx="16.5" cy="16" r="1.4" fill="${c}"/>`,
+  bike:   (c) => `<circle cx="5.5" cy="16" r="3.5" stroke="${c}" stroke-width="1.8"/><circle cx="18.5" cy="16" r="3.5" stroke="${c}" stroke-width="1.8"/><path d="M5.5 16 L9.5 9.5 H14.5 L18.5 16 M12 16 L9.5 9.5 M14.5 9.5 L13.5 6.5 H16" stroke="${c}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`,
+  store:  (c) => `<path d="M4 9.5 L5.5 4.5 H18.5 L20 9.5 M4 9.5 A2.67 2.67 0 0 0 9.33 9.5 A2.67 2.67 0 0 0 14.67 9.5 A2.67 2.67 0 0 0 20 9.5 M4 9.5 H20" stroke="${c}" stroke-width="${SW}" stroke-linejoin="round"/><path d="M5.5 12 V19.5 H18.5 V12 M10 19.5 V15 H14 V19.5" stroke="${c}" stroke-width="${SW}" stroke-linejoin="round"/>`,
+  person: (c) => `<circle cx="12" cy="8" r="3.5" stroke="${c}" stroke-width="1.8"/><path d="M5.5 19.5 C5.5 16.5 8.3 14.5 12 14.5 C15.7 14.5 18.5 16.5 18.5 19.5" stroke="${c}" stroke-width="1.8" stroke-linecap="round"/>`,
+  chev:   (c) => `<path d="M9 6 L15 12 L9 18" stroke="${c}" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/>`,
+  chevL:  (c) => `<path d="M15 6 L9 12 L15 18" stroke="${c}" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/>`,
+  check:  (c) => `<path d="M5 12.5 L10 17.5 L19 7" stroke="${c}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>`,
+  star:   (c, f) => `<path d="M12 3.8 L14.5 9 L20.2 9.7 L16 13.6 L17.1 19.3 L12 16.5 L6.9 19.3 L8 13.6 L3.8 9.7 L9.5 9 Z" fill="${f ? c : 'none'}" stroke="${c}" stroke-width="${SW}" stroke-linejoin="round"/>`,
+  tag:    (c) => `<path d="M3.5 12.2V4.5a1 1 0 0 1 1-1h7.7a1 1 0 0 1 .7.3l7.8 7.8a1 1 0 0 1 0 1.4l-7.7 7.7a1 1 0 0 1-1.4 0l-7.8-7.8a1 1 0 0 1-.3-.7z" stroke="${c}" stroke-width="${SW}" stroke-linejoin="round"/><circle cx="8.5" cy="8.5" r="1.6" fill="${c}"/>`,
+  gift:   (c) => `<rect x="4" y="9" width="16" height="11" rx="1.8" stroke="${c}" stroke-width="${SW}"/><path d="M3 9 H21 M12 9 V20" stroke="${c}" stroke-width="${SW}" stroke-linecap="round"/><path d="M12 9 C12 9 11 4.5 8.3 4.5 A2.2 2.2 0 0 0 8.3 9 M12 9 C12 9 13 4.5 15.7 4.5 A2.2 2.2 0 0 1 15.7 9" stroke="${c}" stroke-width="${SW}" stroke-linecap="round"/>`,
+  userplus:(c) => `<circle cx="10" cy="8" r="3.5" stroke="${c}" stroke-width="${SW}"/><path d="M3.5 19.5 C3.5 15.9 6.4 13.5 10 13.5 C11.6 13.5 13 14 14.1 14.8" stroke="${c}" stroke-width="${SW}" stroke-linecap="round"/><path d="M18 13.5 V19.5 M15 16.5 H21" stroke="${c}" stroke-width="${SW}" stroke-linecap="round"/>`,
+  phone:  (c) => `<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z" stroke="${c}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`,
+  pin:    (c) => `<path d="M12 21 C12 21 5 14.6 5 9.5 A7 7 0 0 1 19 9.5 C19 14.6 12 21 12 21 Z" stroke="${c}" stroke-width="${SW}" stroke-linejoin="round"/><circle cx="12" cy="9.5" r="2.5" stroke="${c}" stroke-width="${SW}"/>`,
+  camera: (c) => `<path d="M4 8.5 A1.5 1.5 0 0 1 5.5 7 H8 L9.5 4.8 H14.5 L16 7 H18.5 A1.5 1.5 0 0 1 20 8.5 V18 A1.5 1.5 0 0 1 18.5 19.5 H5.5 A1.5 1.5 0 0 1 4 18 Z" stroke="${c}" stroke-width="${SW}" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.4" stroke="${c}" stroke-width="${SW}"/>`,
+  alert:  (c) => `<path d="M12 3.5 L21 19.5 H3 Z" stroke="${c}" stroke-width="1.9" stroke-linejoin="round"/><path d="M12 10 V14" stroke="${c}" stroke-width="1.9" stroke-linecap="round"/><circle cx="12" cy="16.8" r="1.1" fill="${c}"/>`,
+  trash:  (c) => `<path d="M4 7 H20" stroke="${c}" stroke-width="2" stroke-linecap="round"/><path d="M9.5 7 V4.5 H14.5 V7" stroke="${c}" stroke-width="2" stroke-linejoin="round"/><path d="M6.5 7 L7.4 19 A1.5 1.5 0 0 0 8.9 20.4 H15.1 A1.5 1.5 0 0 0 16.6 19 L17.5 7" stroke="${c}" stroke-width="2" stroke-linejoin="round"/><path d="M10.2 11 V16.4 M13.8 11 V16.4" stroke="${c}" stroke-width="1.8" stroke-linecap="round"/>`,
+  clock:  (c) => `<circle cx="12" cy="12" r="8.5" stroke="${c}" stroke-width="1.9"/><path d="M12 7.5 V12 L15 14" stroke="${c}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>`,
+  plus:   (c) => `<path d="M12 5 V19" stroke="${c}" stroke-width="2.4" stroke-linecap="round"/><path d="M5 12 H19" stroke="${c}" stroke-width="2.4" stroke-linecap="round"/>`,
+  logout: (c) => `<path d="M14 4 H18 A2 2 0 0 1 20 6 V18 A2 2 0 0 1 18 20 H14" stroke="${c}" stroke-width="1.8" stroke-linecap="round"/><path d="M10 8 L6 12 L10 16" stroke="${c}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 12 H15" stroke="${c}" stroke-width="1.8" stroke-linecap="round"/>`,
+  shield: (c) => `<path d="M12 3 L19.5 6 V11.5 C19.5 16 16.4 19.6 12 21 C7.6 19.6 4.5 16 4.5 11.5 V6 Z" stroke="${c}" stroke-width="1.8" stroke-linejoin="round"/><path d="M8.8 12 L11 14.2 L15.4 9.8" stroke="${c}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`,
+  share:  (c) => `<path d="M12 3.5 V14.5 M7.5 8 L12 3.5 L16.5 8" stroke="${c}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 12.5 V18.5 A2 2 0 0 0 7 20.5 H17 A2 2 0 0 0 19 18.5 V12.5" stroke="${c}" stroke-width="1.9" stroke-linecap="round"/>`,
+  edit:   (c) => `<path d="M4 20 H8 L18.5 9.5 A2.1 2.1 0 0 0 14.5 5.5 L4 16 Z" stroke="${c}" stroke-width="1.8" stroke-linejoin="round"/><path d="M13 7 L17 11" stroke="${c}" stroke-width="1.8"/>`,
+  close:  (c) => `<path d="M6 6 L18 18" stroke="${c}" stroke-width="2.2" stroke-linecap="round"/><path d="M18 6 L6 18" stroke="${c}" stroke-width="2.2" stroke-linecap="round"/>`,
+  wa:     (c, brand) => brand ? `<path d="${PATHS.wa_bubble}" fill="#25D366"/><path d="${PATHS.wa_glyph}" fill="#fff"/>` : `<path d="${PATHS.wa_glyph}" fill="${c}"/>`,
+};
+const ic = (n, s = 20, c = '#3A4DB0', f) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" aria-hidden="true">${ICON[n](c, f)}</svg>`;
+
+/* ═══════════════ brand mark + hero ═══════════════ */
+const mark = (v) => v === 'glass'
+  ? `<svg viewBox="0 0 256 256"><path d="${PATHS.drop}" fill="url(#gDrop)"/><path d="${PATHS.rim}" fill="#fff"/><path d="${PATHS.line}" fill="#fff"/></svg>`
+  : `<svg viewBox="0 0 256 256"><path d="${PATHS.drop}" fill="#fff"/><path d="${PATHS.rim}" fill="#4458CC"/><path d="${PATHS.line}" fill="#4458CC"/></svg>`;
+const STARS = [[40,70,1.6,.6],[96,40,1.1,.5],[160,96,1.3,.4],[250,44,1.8,.7],[318,102,1.2,.5],[356,40,1.4,.6],[210,150,1,.4],[70,170,1.2,.35]];
+const deco = `<div class="glow"></div><svg class="deco" viewBox="0 0 390 230" preserveAspectRatio="xMidYMid slice" aria-hidden="true">${STARS.map(([x, y, r, o]) => `<circle cx="${x}" cy="${y}" r="${r}" fill="#fff" fill-opacity="${o}"/>`).join('')}<g transform="translate(236 40) scale(.78)"><path d="${PATHS.drop}" fill="#fff" fill-opacity=".09"/><path d="${PATHS.rim}" fill="#fff" fill-opacity=".13"/><path d="${PATHS.line}" fill="#fff" fill-opacity=".2"/></g></svg>`;
+
+/** A hero. kind: 'home' (greeting), 'tab' (title + subtitle), 'back' (back button + title + optional right item). */
+function hero(o) {
+  if (o.kind === 'home') {
+    return `<header class="hero home ${o.flush ? 'flush' : ''}">${deco}<div class="toprow"><div class="brand">${mark('onDark')}MANA</div><div class="avatar" data-go="profile">${o.initial || 'R'}</div></div>
+      <div class="hello">${o.name ? `<small>${o.greet}</small>` : ''}<h2>${o.name || o.greet}</h2></div>
+      <div class="chips"><span class="glass">${ic('pin', 15, '#fff')}${o.branch}</span>${o.free ? `<span class="goldpill">${ic('star', 15, '#4D2F00', true)}${o.free}</span>` : ''}</div></header>`;
+  }
+  if (o.kind === 'back') {
+    return `<header class="hero back">${deco}<div class="backrow"><span class="backbtn">${ic('chevL', 22, '#fff')}</span><h2>${o.title}</h2>${o.right || '<span style="width:40px"></span>'}</div></header>`;
+  }
+  return `<header class="hero">${deco}<div class="brand">${mark('onDark')}MANA</div><h2 class="big">${o.title}</h2>${o.sub ? `<p class="sub">${o.sub}</p>` : ''}</header>`;
+}
+
+/* ═══════════════ shared pieces ═══════════════ */
+const lbl = (t, right = '') => `<div class="lbl"><span style="font-size:12px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--slateDeep)">${t}</span>${right ? `<span>${right}</span>` : ''}</div>`;
+const pl = (tone, text) => `<span class="pl ${tone}">${text}</span>`;
+const group = (rows) => `<div class="group">${rows.join('')}</div>`;
+const panel = (inner) => `<div class="panel">${inner}</div>`;
+/** An edge-to-edge list row. */
+function erow(o) {
+  const tag = o.press ? 'button' : 'div';
+  const tile = o.icon ? `<span class="etile ${o.tone || ''}">${o.icon}</span>` : '';
+  return `<${tag} class="erow ${o.icon ? '' : 'noicon'}" ${o.press ? 'type="button"' : ''} ${o.go ? `data-go="${o.go}"` : ''}>${tile}<span class="ecopy"><span class="et ${o.title_cls || ''}" style="display:block">${o.title}</span>${o.sub ? `<span class="es" style="display:block">${o.sub}</span>` : ''}</span>${o.right || ''}${o.chev ? `<span class="echev">${ic('chev', 16, '#B3BAD6')}</span>` : ''}</${tag}>`;
+}
+const notice = (text, kind = '', title = '') => `<div class="notice ${kind}">${ic(kind.includes('info') ? 'clock' : 'alert', 18, kind.includes('info') ? '#2D3D9E' : kind.includes('danger') ? '#DC2626' : '#9A5B00')}<span>${title ? `<b>${title}</b>` : ''}${text}</span></div>`;
+const messageCard = (title, body, action, over) => `<div class="card empty ${over ? 'over' : ''}" style="margin:${over ? '-44px' : '16px'} 16px 0"><div class="mark">${mark('glass')}</div><h4>${title}</h4><p>${body}</p>${action ? `<button class="btn" type="button">${action}</button>` : ''}</div>`;
+const skRow = (tile = true) => `<div class="erow" style="min-height:72px">${tile ? '<span class="etile sk" style="box-shadow:none;background:none"></span>' : ''}<span class="ecopy"><span class="sk" style="display:block;height:15px;width:58%"></span><span class="sk" style="display:block;height:12px;width:36%;margin-top:9px"></span></span><span class="sk" style="width:46px;height:15px"></span></div>`;
+const skLabel = (w = 110) => `<div class="lbl"><span class="sk" style="display:block;height:12px;width:${w}px;border-radius:6px"></span></div>`;
+const field = (label, value, o = {}) => `<div class="field"><label>${label}${o.opt ? '<small>(optional)</small>' : ''}</label><div class="input ${value ? '' : 'ph'} ${o.focus ? 'focus' : ''} ${o.err ? 'err' : ''} ${o.area ? 'area' : ''}">${value || o.ph || ''}${o.focus ? '<i class="caret"></i>' : ''}</div>${o.err ? `<div class="fmsg err">${o.err}</div>` : o.hint ? `<div class="fmsg hint">${o.hint}</div>` : ''}</div>`;
+const chipset = (label, opts, on, err) => `<div class="field"><label>${label}</label><div class="chipset">${opts.map((x) => `<span class="chipx ${x === on ? 'on' : ''}">${x}</span>`).join('')}</div>${err ? `<div class="fmsg err">${err}</div>` : ''}</div>`;
+const plate = (p) => `<span class="plate">${p}</span>`;
+
+/* ═══════════════ Home pieces (see the Home screen below) ═══════════════ */
+const seeAll = `<button class="link">See all ${ic('chev', 16, '#3A4DB0')}</button>`;
+function latestCard(w, over = true) {
+  return `<article class="card pad ${over ? 'over' : ''}" data-go="washDetail" style="${over ? '' : 'margin:16px 16px 0'}"><div class="seclabel" style="margin:0 2px 12px"><h3>Latest wash</h3>${seeAll}</div>
+    <div class="row"><div class="tile">${ic('car', 24, '#3A4DB0')}</div><div class="grow"><div class="t">${w.title}</div><div class="m">${w.when}</div></div><div class="amount">${w.total}</div><div class="chev">${ic('chev', 16, '#8791B5')}</div></div>
+    <div class="badges"><span class="badge b-done">${ic('check', 13, '#0B5F57')}Done</span>${plate(w.plate)}${w.photos ? `<span class="badge b-plain">${ic('camera', 14, '#4A5280')}${w.photos} photos</span>` : ''}</div></article>`;
+}
+function stampCard(c) {
+  const free = c.free > 0;
+  const slots = Array.from({ length: c.every }, (_, i) => { const on = i < c.stamps;
+    return `<span class="stamp" aria-hidden="true"><svg viewBox="0 0 36 42"><path d="M18 2 C18 2 4 17 4 27 A14 14 0 0 0 32 27 C32 17 18 2 18 2 Z" ${on ? 'fill="url(#gDrop)"' : 'fill="#F4F6FF" stroke="#C4CCF0" stroke-width="2" stroke-dasharray="3.5 3.5"'}/></svg>${on ? `<span class="ck">${ic('check', 15, '#fff')}</span>` : ''}</span>`; }).join('');
+  const left = c.every - c.stamps;
+  const msg = free ? (c.free === 1 ? 'A free wash is ready. Ask for it on your next visit.' : `${c.free} free washes are ready.`) : `<b>${left} more ${left === 1 ? 'wash' : 'washes'}</b> and the next one is free.`;
+  return `<article class="card stamp-card ${free ? 'free' : ''}" style="margin:0 16px"><div class="stamp-head"><div class="tile" style="width:40px;height:40px;border-radius:13px;${free ? 'background:var(--g-gold);box-shadow:0 6px 14px rgba(245,158,11,.35)' : ''}">${ic('star', 19, free ? '#4D2F00' : '#3A4DB0', free)}</div>
+    <div class="t">${c.name}</div>${c.plate ? `<span class="plate">${c.plate}</span>` : ''}<span class="count">${c.stamps}/${c.every}</span></div>
+    <div class="track">${slots}<span class="link-line"></span><span class="reward">${ic('gift', 24, '#4D2F00')}</span></div>
+    <div class="meter"><i style="width:${free ? 100 : (c.stamps / c.every) * 100}%"></i></div><div class="stamp-msg">${msg}</div>
+    ${c.warn ? `<div class="warn">${ic('alert', 14, '#9A5B00')}${c.warn}</div>` : ''}</article>`;
+}
+const offerTicket = (o) => `<article class="card ticket" style="margin:0 16px 12px"><div class="stub"><b>${o.percent}%</b><em>OFF</em></div><div class="tbody"><div class="t">${o.percent}% off your next wash</div>
+  <div class="badges" style="margin-top:8px">${plate(o.plate)}<span class="badge b-indigo" style="padding:2px 9px">Till ${o.till}</span></div><div class="code"><span>${o.code}</span><button type="button">Copy</button></div></div></article>`;
+const giftTicket = (g) => `<article class="card ticket" style="margin:0 16px 12px"><div class="stub gold">${ic('gift', 30, '#4D2F00')}<em style="color:#4D2F00">GIFT</em></div><div class="tbody"><div class="t">A gift for ${g.plate}</div><div class="m" style="margin-top:5px">${g.item} · collect it on your next visit</div></div></article>`;
+const promo = () => `<article class="promo" style="margin:0 16px"><svg class="deco" viewBox="0 0 150 150" aria-hidden="true" style="inset:auto;right:-14px;bottom:-18px"><path d="M105 26 C105 26 72 62 72 86 A33 33 0 0 0 138 86 C138 62 105 26 105 26Z" fill="#fff" fill-opacity=".1"/><path d="M52 78 C52 78 34 98 34 112 A18 18 0 0 0 70 112 C70 98 52 78 52 78Z" fill="#fff" fill-opacity=".14"/></svg>
+  <div class="row" style="align-items:flex-start;position:relative"><div class="tile">${ic('userplus', 24, '#fff')}</div><div class="grow"><h4>Invite a friend</h4><p>They get 5–10% off their first wash, and so do you.</p><button class="cta" type="button" data-go="invite">Share your invite ${ic('chev', 15, '#2D3D9E')}</button></div></div></article>`;
+const helpCard = () => `<article class="card help" data-go="help" style="margin:12px 16px 0"><div class="row"><div class="tile">${ic('phone', 22, '#3A4DB0')}</div><div class="grow"><div class="t">Help &amp; support</div><div class="m">Call the branch or report a problem</div></div><div class="chev">${ic('chev', 16, '#8791B5')}</div></div></article>`;
+const moreFromMana = () => `<div class="seclabel" style="margin:26px 20px 10px"><h3>More from MANA</h3></div>${promo()}${helpCard()}`;
+function liveCard(l) {
+  const order = ['waiting', 'washing', 'ready'], labels = ['In queue', 'Washing', 'Ready'], at = order.indexOf(l.status), ready = l.status === 'ready';
+  const steps = order.map((s, i) => `${i ? `<span class="bar ${i <= at ? 'on' : ''}"></span>` : ''}<div class="step ${i <= at ? 'done' : ''} ${i === at ? 'cur' : ''}"><span class="sdot">${i < at ? ic('check', 11, '#fff') : ''}</span>${labels[i]}</div>`).join('');
+  return `<article class="card live ${ready ? 'ready' : ''} over"><div class="row" style="align-items:flex-start"><div class="grow"><div class="t" style="font-size:19px;font-weight:800;color:${ready ? '#9A5B00' : '#1B2878'}">${l.title}</div><div class="m">${l.body}</div></div>${plate(l.plate)}</div>
+    <div class="stepper">${steps}</div><div class="billrow"><div class="m" style="margin:0">${l.services}</div><div><div class="amount">${l.total}</div>${ready ? '<div class="topay">to pay</div>' : ''}</div></div>
+    ${ready ? `<div class="actions"><div class="chip">${ic('phone', 17, '#2D3D9E')}Call the branch</div><div class="chip">${ic('pin', 17, '#2D3D9E')}Directions</div></div>` : ''}</article>`;
+}
+const homeSkeleton = () => `<div class="card pad over"><div class="row"><div class="sk" style="width:48px;height:48px;border-radius:15px"></div><div class="grow"><div class="sk" style="height:16px;width:62%"></div><div class="sk" style="height:12px;width:80%;margin-top:9px"></div></div></div></div>
+  <div class="seclabel" style="margin:26px 20px 10px"><span class="sk" style="display:block;height:12px;width:110px"></span></div><div class="card pad" style="margin:0 16px"><div class="sk" style="height:16px;width:46%"></div><div class="row" style="margin-top:16px">${'<div class="sk" style="width:36px;height:42px"></div>'.repeat(5)}</div><div class="sk" style="height:12px;width:70%;margin-top:16px"></div></div>
+  <div class="seclabel" style="margin:26px 20px 10px"><span class="sk" style="display:block;height:12px;width:110px"></span></div><div class="sk" style="height:128px;border-radius:22px;margin:0 16px"></div>`;
+</script>
+<script>
+/* ═══════════════ the screen registry ═══════════════ */
+const SCREENS = {};
+const ORDER = { tabs: ['home', 'washes', 'vehicles', 'visit', 'profile'], stack: ['washDetail', 'addVehicle', 'invite', 'help', 'report'] };
+const def = (id, o) => { SCREENS[id] = o; };
+const ul = (items) => `<ul>${items.map((i) => `<li>${i}</li>`).join('')}</ul>`;
+const table = (head, rows) => `<table><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</table>`;
+const info = (what, states, files) => `<section><h2>On this screen</h2>${ul(what)}</section><section><h2>States</h2>${ul(states)}</section><section><h2>In the code</h2>${table(['File', 'Change'], files)}</section>`;
+
+/* ───────────────────────── HOME ───────────────────────── */
+const HOME = { initial: 'R', greet: 'Good morning', name: 'Rohit', branch: 'MANA Car Wash · Nellore' };
+const LATEST = { title: 'Exterior Wash', plate: 'AP39GB7534', when: '28 Sept · 1:25 pm', total: '₹250', photos: 3 };
+const OFFER = { percent: 6, plate: 'AP39GB7534', code: 'MANA-7534-ZVKTRE', till: '19 Oct' };
+const CARD4 = { name: 'Complete Car Wash', stamps: 4, every: 5, free: 0 };
+const homeBody = (h, rest) => hero(h) + `<div class="body" style="padding:0">${rest}</div>`;
+def('home', {
+  label: 'Home', group: 'tabs', tab: 'Home', scrim: true,
+  states: {
+    default: { label: 'Default', html: () => homeBody({ kind: 'home', ...HOME }, `${latestCard(LATEST)}<div class="seclabel" style="margin:26px 20px 10px"><h3>Free-wash cards</h3></div>${stampCard(CARD4)}<div class="seclabel" style="margin:26px 20px 10px"><h3>Waiting for you</h3></div>${offerTicket(OFFER)}${moreFromMana()}`) },
+    washing: { label: 'Wash in progress', html: () => homeBody({ kind: 'home', ...HOME }, `${liveCard({ status: 'washing', title: 'Being washed', body: 'Our team is working on your vehicle now.', plate: 'AP39GB7534', services: 'Exterior Wash', total: '₹250' })}<div class="seclabel" style="margin:26px 20px 10px"><h3>Free-wash cards</h3></div>${stampCard(CARD4)}${moreFromMana()}`) },
+    ready: { label: 'Ready + free wash', html: () => homeBody({ kind: 'home', ...HOME, free: 'You have a free wash' }, `${liveCard({ status: 'ready', title: 'Ready for pickup', body: 'Your vehicle is clean and waiting for you.', plate: 'AP39GB7534', services: 'Complete Car Wash', total: '₹450' })}<div class="seclabel" style="margin:26px 20px 10px"><h3>Free-wash cards</h3></div>${stampCard({ ...CARD4, stamps: 5, free: 1, warn: 'Use it before it expires in 6 days' })}<div class="seclabel" style="margin:26px 20px 10px"><h3>Waiting for you</h3></div>${offerTicket(OFFER)}${giftTicket({ plate: 'AP39GB7534', item: 'Car perfume' })}${moreFromMana()}`) },
+    fresh: { label: 'New customer', html: () => homeBody({ kind: 'home', ...HOME, name: 'Asha', initial: 'A' }, `${messageCard('No washes yet', 'Your washes and their photos will show here after your first visit.', '', true)}${moreFromMana()}`) },
+    loading: { label: 'Loading', html: () => homeBody({ kind: 'home', ...HOME }, homeSkeleton()) },
+    error: { label: 'Couldn’t load', html: () => homeBody({ kind: 'home', ...HOME }, messageCard('Couldn’t load your washes', 'Check your connection and try again.', 'Try again', true)) },
+    offline: { label: 'Connection lost', html: () => homeBody({ kind: 'home', ...HOME, flush: true }, `${notice('No connection. Check your internet and try again.')}${latestCard(LATEST, false)}<div class="seclabel" style="margin:26px 20px 10px"><h3>Free-wash cards</h3></div>${stampCard(CARD4)}<div class="seclabel" style="margin:26px 20px 10px"><h3>Waiting for you</h3></div>${offerTicket(OFFER)}${moreFromMana()}`) },
+  },
+  notes: info(
+    ['An indigo hero with the logo, the profile avatar, the greeting, the branch, and a gold pill when a free wash is ready. The first card overlaps the hero by 44.', 'Today’s wash, live, with the In queue → Washing → Ready stepper. It replaces the latest-wash card while it is on the board.', 'The latest wash, free-wash cards (each stamp is a water drop leading to the gold reward), offer and gift tickets, the invite card and the help card.', 'The status-bar fade appears once content scrolls under it, so the clock stays readable.'],
+    ['Default, Wash in progress, Ready + free wash, New customer, Loading, Couldn’t load.', 'Connection lost: the amber notice replaces the overlap, and the hero’s bottom space shrinks so there is no empty gradient.'],
+    [['<code>screens/HomeScreen.tsx</code>', 'Loads the data and handles navigation.'], ['<code>screens/HomeView.tsx</code>', 'The layout for all the states above.'], ['<code>components/HomeHero</code>, <code>LatestWashCard</code>, <code>FreeWashCard</code>, <code>OfferTicket</code>, <code>InvitePromo</code>, <code>LiveWashCard</code>, <code>MessageCard</code>, <code>HomeSkeleton</code>', 'The pieces. Already built.']]),
+});
+
+/* ───────────────────────── WASHES ───────────────────────── */
+const W = (title, date, total, month, plt, o = {}) => ({ title, date, total, month, plate: plt, status: 'paid', photos: 0, kind: 'car', ...o });
+const HISTORY = [
+  W('Exterior Wash', '28 Sept · 1:25 pm', '₹250', 'September 2026', 'AP39GB7534', { photos: 3 }),
+  W('Bike Wash', '19 Sept · 9:40 am', '₹120', 'September 2026', 'AP26CU5678', { kind: 'bike', photos: 2 }),
+  W('MANA Combo', '11 Sept · 5:28 pm', '₹500', 'September 2026', 'AP39GB7534'),
+  W('Complete Car Wash, Wax', '25 Aug · 11:38 am', '₹450', 'August 2026', 'AP39GB7534', { photos: 4 }),
+  W('Complete Car Wash', '7 Aug · 11:16 am', '₹400', 'August 2026', 'AP39GB7534'),
+  W('Bike Wash', '2 Aug · 6:02 pm', '₹120', 'August 2026', 'AP26CU5678', { kind: 'bike' }),
+  W('Complete Car Wash', '23 Jul · 11:05 am', '₹400', 'July 2026', 'AP39GB7534', { photos: 1 }),
+  W('Exterior Wash', '9 Jul · 4:12 pm', '₹250', 'July 2026', 'AP39GB7534'),
+];
+const LIVE_W = [W('Complete Car Wash', '10:48 am', '₹450', 'now', 'AP39GB7534', { status: 'washing' })];
+const STATUS_LABEL = { waiting: 'In the queue', washing: 'Washing now', ready: 'Ready to collect' };
+function wrow(w, showPlate) {
+  const live = w.status !== 'paid', l2 = [];
+  if (live) l2.push(`<span class="lp ${w.status}"><i class="ldot"></i>${STATUS_LABEL[w.status]}</span>`); else l2.push(`<span class="wm">${w.date}</span>`);
+  if (showPlate) l2.push(plate(w.plate));
+  if (w.photos) l2.push(`<span class="photos">${ic('camera', 14, '#4A5280')}${w.photos}</span>`);
+  return `<button class="erow wrow ${live ? 'live ' + w.status : ''}" type="button" data-go="washDetail"><span class="etile">${ic(w.kind, 22, '#3A4DB0')}</span><span class="ecopy"><span class="l1"><span class="wt">${w.title}</span><span class="amt">${w.total}</span></span><span class="l2">${l2.join('')}</span></span><span class="echev">${ic('chev', 16, '#B3BAD6')}</span></button>`;
+}
+const byMonth = (items, showPlate) => [...new Set(items.map((i) => i.month))].map((m) => { const rows = items.filter((i) => i.month === m); return lbl(m, `${rows.length} ${rows.length === 1 ? 'wash' : 'washes'}`) + group(rows.map((r) => wrow(r, showPlate))); }).join('');
+const washesHero = () => hero({ kind: 'tab', title: 'My washes', sub: 'Every visit, with its bill and photos.' });
+const ONE_VEH = HISTORY.filter((w) => w.plate === 'AP39GB7534');
+def('washes', {
+  label: 'Washes', group: 'tabs', tab: 'Washes',
+  states: {
+    default: { label: 'Default (2 vehicles)', html: () => washesHero() + byMonth(HISTORY, true) + `<div class="end">That’s all your washes</div><div style="height:12px"></div>` },
+    one: { label: 'One vehicle', html: () => washesHero() + byMonth(ONE_VEH, false) + `<div class="end">That’s all your washes</div><div style="height:12px"></div>` },
+    live: { label: 'Wash in progress', html: () => washesHero() + lbl('Today', '1 in progress') + group(LIVE_W.map((w) => wrow(w, true))) + byMonth(HISTORY, true) + `<div class="end">That’s all your washes</div><div style="height:12px"></div>` },
+    more: { label: 'Loading more', html: () => washesHero() + byMonth(HISTORY, true) + `<div class="more"><i class="spin"></i>Loading more…</div><div style="height:12px"></div>` },
+    loading: { label: 'Loading', html: () => washesHero() + skLabel(120) + group([skRow(), skRow(), skRow(), skRow()]) + skLabel(100) + group([skRow(), skRow(), skRow()]) },
+    empty: { label: 'No washes yet', html: () => washesHero() + messageCard('No washes yet', 'Each wash at MANA shows here, with its photos.') },
+    error: { label: 'Couldn’t load', html: () => washesHero() + messageCard('Couldn’t load your washes', 'No connection. Check your internet and try again.', 'Try again') },
+    offline: { label: 'Connection lost', html: () => washesHero() + notice('No connection. Check your internet and try again.') + byMonth(HISTORY.slice(0, 5), true) },
+  },
+  notes: info(
+    ['One continuous list from the left edge to the right, with no gap and no separate cards. A hairline sits between rows, starting under the text.', 'Washes are grouped by month, with how many each month had.', 'Each row: the icon tile (car or bike), title, amount, then the date, the plate (only if the customer has more than one vehicle) and the photo count on one line. A row is about 78 px tall.', 'No “Done” badge: almost every wash is done. A status pill with a pulsing dot shows only while a wash is in progress, and those rows come first with an accent on the left.'],
+    ['Default (2 vehicles), One vehicle (no plate chips), Wash in progress, Loading more, Loading, No washes yet, Couldn’t load, Connection lost.'],
+    [['<code>components/WashRow.tsx</code>', 'Becomes this edge-to-edge row (no card shell). Keeps <code>WASH_STATUS_LABEL</code> and <code>washTitle</code>.'], ['<code>screens/WashesScreen.tsx</code>', '<code>FlatList</code> becomes a <code>SectionList</code> grouped by month, same paging and refresh. Plates show when the loaded washes cover more than one vehicle.']]),
+});
+
+/* ───────────────────────── WASH DETAIL ───────────────────────── */
+const starsRow = (n) => `<div class="stars">${[1, 2, 3, 4, 5].map((i) => ic('star', 34, i <= n ? '#F59E0B' : '#C4CCF0', i <= n)).join('')}</div>`;
+const photoGrid = (n, cls = '') => `<div class="pgrid">${Array.from({ length: n }, () => `<span class="photo ${cls}">${ic('camera', 22, 'rgba(255,255,255,.85)')}</span>`).join('')}</div>`;
+const detailHero = (statusLabel, tone) => hero({ kind: 'back', title: 'AP39GB7534', right: `<span class="spill ${tone}">${statusLabel}</span>` });
+const detailTop = (meta, total, cls) => `<div style="height:20px"></div><div class="sum ${cls}"><div class="meta">${meta}</div><div class="tot">${total}</div></div>${lbl('Branch')}${group([erow({ icon: ic('store', 19, '#3A4DB0'), title: 'MANA Car Wash', sub: 'Nellore' })])}`;
+const bill = (rows, disc, total) => lbl('Services') + panel(`<div>${rows.map((r) => `<div class="brow"><span>${r}</span></div>`).join('')}${disc ? `<div class="brow mut"><span>Subtotal</span><span>${disc.sub}</span></div><div class="brow disc"><span>Discount</span><span>− ${disc.off}</span></div>` : ''}<div class="brow total"><span>Total</span><span>${disc ? disc.total : total}</span></div></div>`);
+const needHelp = lbl('Need help?') + group([erow({ icon: ic('alert', 18, '#9A5B00'), tone: 'amber', title: 'Report a problem with this wash', sub: 'The branch team sees it and replies here', chev: true, press: true, go: 'report' })]);
+const reports = lbl('Your reports') + group([`<div class="rep"><div class="h"><b>Billing</b>${pl('teal', 'RESOLVED')}</div><div class="m" style="margin:0">11 Sept · 6:10 pm</div><div class="d">I was charged for wax I didn’t ask for.</div><div class="reply"><b>Reply from the team</b><span>Sorry about that. We’ve refunded ₹100 to your UPI.</span></div></div>`]);
+const ratePanelSaved = () => lbl('Your rating') + panel(`${starsRow(5)}<div class="quote">“Spotless, thank you!”</div><div style="display:grid;gap:10px"><div class="rate-q" style="text-align:center">Glad you liked it! A Google review helps MANA Car Wash a lot.</div><button class="btn-lg" type="button">Review us on Google</button></div><button class="btn-2" type="button">Change rating</button>`);
+const rateForm = (n) => lbl('How was this wash?') + panel(`<div class="rate-q">Only the MANA Car Wash team sees this. You can change it for 7 days.</div>${starsRow(n)}${n ? field(n >= 4 ? 'Anything to add?' : 'What went wrong?', '', { opt: true, area: true, ph: n >= 4 ? 'What did you like?' : 'Tell the team what to do better' }) : ''}<button class="btn-lg ${n ? '' : 'off'}" type="button">Send rating</button>`);
+def('washDetail', {
+  label: 'Wash detail', group: 'stack', parent: 'washes',
+  states: {
+    paid: { label: 'Paid, rated', html: () => detailHero('DONE', '') + detailTop('Exterior Wash · 28 Sept · 1:25 pm', '₹250', '') + bill(['Exterior Wash'], null, '₹250') + lbl('Payment') + group([erow({ icon: ic('check', 18, '#0D9488'), tone: 'teal', title: 'Cash · ₹250', sub: 'Paid, thank you' })]) + lbl('Photos') + panel(`<div class="pgroup"><div class="ptitle">Before</div>${photoGrid(3, 'b')}</div><div class="pgroup"><div class="ptitle">After</div>${photoGrid(3)}</div>`) + ratePanelSaved() + reports + needHelp + '<div style="height:24px"></div>' },
+    unrated: { label: 'Not rated yet', html: () => detailHero('DONE', '') + detailTop('MANA Combo · 11 Sept · 5:28 pm', '₹450', '') + bill(['MANA Combo', 'Dashboard Dressing'], { sub: '₹500', off: '₹50', total: '₹450' }) + lbl('Payment') + group([erow({ icon: ic('check', 18, '#0D9488'), tone: 'teal', title: 'UPI · ₹450', sub: 'Paid, thank you' })]) + lbl('Photos') + group([erow({ icon: ic('camera', 18, '#4A5280'), tone: 'slate', title: 'No photos for this wash', title_cls: 'muted' })]) + rateForm(4) + needHelp + '<div style="height:24px"></div>' },
+    washing: { label: 'Wash in progress', html: () => detailHero('WASHING NOW', 'water') + detailTop('Complete Car Wash · Today · 10:48 am', '₹450', 'washing') + bill(['Complete Car Wash'], null, '₹450') + lbl('Photos') + group([erow({ icon: ic('camera', 18, '#4A5280'), tone: 'slate', title: 'No photos for this wash', title_cls: 'muted' })]) + needHelp + '<div style="height:24px"></div>' },
+    loading: { label: 'Loading', html: () => detailHero('', '').replace(/<span class="spill[^>]*><\/span>/, '') + `<div style="height:20px"></div><div class="sum"><div class="sk" style="height:13px;width:60%"></div><div class="sk" style="height:34px;width:40%;margin-top:12px"></div></div>${skLabel(70)}${group([skRow()])}${skLabel(90)}${group([skRow(), skRow()])}` },
+    error: { label: 'Couldn’t open', html: () => hero({ kind: 'back', title: 'Wash' }) + messageCard('Couldn’t open this wash', 'No connection. Check your internet and try again.', 'Try again') },
+  },
+  notes: info(
+    ['A hero with the back button, the plate and a status pill.', 'A summary block with the big total and a coloured edge (teal when paid, indigo while washing, amber when ready).', 'Branch, the services bill (with subtotal and discount when there is one), payment, the Before and After photos, the rating, your reports and “report a problem”.', 'All of it as edge-to-edge blocks, the same list style as the rest of the app.'],
+    ['Paid and rated (with the Google review prompt for 4 stars and up), Not rated yet (stars, comment box, Send rating), Wash in progress, Loading, Couldn’t open.'],
+    [['<code>screens/WashDetailScreen.tsx</code>', 'Already uses the new header and list components. The summary, bill and rating blocks become edge-to-edge (not cards).'], ['<code>components/RateWashCard.tsx</code>', 'Star size 34 in amber, comment field and buttons as shown.']]),
+});
+</script>
+<script>
+/* ───────────────────────── VEHICLES ───────────────────────── */
+const vHero = () => hero({ kind: 'tab', title: 'My vehicles', sub: 'Cards, offers and gifts for each one.' });
+const vehicleHead = (p, model, visits, kind = 'car') => group([`<div class="erow"><span class="etile">${ic(kind, 24, '#3A4DB0')}</span><span class="ecopy"><span class="numplate">${p}</span><span class="es" style="display:block;margin-top:4px">${model} · ${visits}</span></span><span class="iconbtn">${ic('trash', 18, '#8791B5')}</span></div>`]);
+const addRow = () => lbl('Another vehicle?') + group([erow({ icon: ic('plus', 19, '#3A4DB0'), title: 'Add a vehicle', sub: 'The team confirms it before it shows here', chev: true, press: true, go: 'addVehicle' })]);
+const waitRow = (p, model, kind, state) => erow({ icon: ic(kind, 19, state === 'pending' ? '#9A5B00' : '#DC2626'), tone: state === 'pending' ? 'amber' : 'red', title: p, sub: state === 'pending' ? `${model} · tap to cancel` : `${model} · “Not a MANA vehicle”`, right: pl(state === 'pending' ? 'amber' : 'danger', state === 'pending' ? 'WAITING' : 'NOT ADDED'), press: state === 'pending' });
+const vBlock = (label, p, model, visits, kind, extras) => lbl(label) + vehicleHead(p, model, visits, kind) + extras;
+const veh1 = () => vBlock('Hatchback', 'AP39GB7534', 'Hyundai i20', '5 washes · last 28 sept', 'car', `<div class="vgap">${stampCard(CARD4)}</div><div class="vgap">${offerTicket(OFFER)}</div>`);
+const veh2 = () => vBlock('Bike · Nellore', 'AP26CU5678', 'Honda Activa', '2 washes · last 19 sept', 'bike', `<div class="vgap">${stampCard({ name: 'Bike Wash', stamps: 2, every: 5, free: 0 })}</div>`);
+def('vehicles', {
+  label: 'Vehicles', group: 'tabs', tab: 'Vehicles',
+  states: {
+    default: { label: 'Default', html: () => vHero() + lbl('Waiting for the team') + group([waitRow('AP39XY4321', 'Honda Activa', 'bike', 'pending')]) + veh1() + addRow() + '<div style="height:12px"></div>' },
+    two: { label: 'Two vehicles', html: () => vHero() + veh1() + veh2() + addRow() + '<div style="height:12px"></div>' },
+    rejected: { label: 'Request not added', html: () => vHero() + lbl('Waiting for the team') + group([waitRow('AP39XY4321', 'Honda Activa', 'bike', 'rejected')]) + veh1() + addRow() },
+    none: { label: 'No vehicles yet', html: () => vHero() + messageCard('No vehicles yet', 'Your car or bike shows here after its first wash at MANA, or add it below.') + addRow() },
+    loading: { label: 'Loading', html: () => vHero() + skLabel(90) + group([skRow()]) + `<div class="vgap"><div class="card pad" style="margin:12px 16px 0"><div class="sk" style="height:16px;width:46%"></div><div class="row" style="margin-top:16px">${'<div class="sk" style="width:36px;height:42px"></div>'.repeat(5)}</div></div></div>` },
+    error: { label: 'Couldn’t load', html: () => vHero() + messageCard('Couldn’t load your vehicles', 'No connection. Check your internet and try again.', 'Try again') },
+    offline: { label: 'Connection lost', html: () => vHero() + notice('No connection. Check your internet and try again.') + veh1() + addRow() },
+  },
+  notes: info(
+    ['A vehicle is a row (number plate, model, visit count, remove) followed by its free-wash cards and offer or gift tickets as their own cards, the same ones as on Home.', '“Waiting for the team” lists vehicle requests: amber while waiting (tap to cancel), red with the reason when not added.', '“Add a vehicle” is a row at the end.'],
+    ['Default, Two vehicles (car and bike, each with the branch city), Request not added, No vehicles yet, Loading, Couldn’t load, Connection lost.'],
+    [['<code>components/VehicleCard.tsx</code>', 'Already built this way (head row, then <code>FreeWashCard</code> and tickets).'], ['<code>screens/VehiclesScreen.tsx</code>', 'Pinned hero and the new list rows. Already done.']]),
+});
+
+/* ───────────────────────── ADD A VEHICLE ───────────────────────── */
+const TYPES = ['Hatchback', 'Sedan', 'Mini SUV', 'Large SUV / XUV', 'Bike', 'Scooter'];
+const avHero = () => hero({ kind: 'back', title: 'Add a vehicle' });
+const avIntro = '<div class="intro">The team checks the number before it shows here, usually on your next visit or call.</div>';
+const avForm = (o = {}) => lbl('Vehicle') + panel(`${o.multi ? chipset('Branch you visit', ['Nellore', 'Kavali'], o.branch) : ''}${chipset('Type', TYPES, o.type, o.typeErr)}${field('Registration number', o.plate, { ph: 'AP39AB1234', focus: o.focus === 'plate', err: o.plateErr })}${field('Make', o.make, { opt: true, ph: 'Maruti, Honda…' })}${field('Model', o.model, { opt: true, ph: 'Swift, Activa…' })}`);
+const avAction = (o = {}) => `<div class="actions-v">${o.error ? notice(o.error, 'danger m0') : ''}<button class="btn-lg ${o.busy ? '' : ''}" type="button">${o.busy ? '<i class="spin"></i>' : 'Send to the team'}</button></div>`;
+def('addVehicle', {
+  label: 'Add a vehicle', group: 'stack', parent: 'vehicles',
+  states: {
+    empty: { label: 'Empty', html: () => avHero() + avIntro + avForm() + avAction() },
+    filled: { label: 'Filling in', html: () => avHero() + avIntro + avForm({ type: 'Hatchback', plate: 'AP39AB1234', focus: 'plate', make: 'Hyundai', model: 'i20' }) + avAction() },
+    errors: { label: 'Needs fixing', html: () => avHero() + avIntro + avForm({ plate: 'AP39', typeErr: 'Pick the vehicle type', plateErr: 'Enter the registration number, e.g. AP39AB1234' }) + avAction() },
+    multi: { label: 'Two branches', html: () => avHero() + avIntro + avForm({ multi: true, branch: 'Nellore', type: 'Sedan' }) + avAction() },
+    busy: { label: 'Sending', html: () => avHero() + avIntro + avForm({ type: 'Hatchback', plate: 'AP39AB1234' }) + avAction({ busy: true }) },
+    fail: { label: 'Couldn’t send', html: () => avHero() + avIntro + avForm({ type: 'Hatchback', plate: 'AP39AB1234' }) + avAction({ error: 'No connection. Check your internet and try again.' }) },
+  },
+  notes: info(
+    ['A hero with the back button, a line saying the team checks the number, and one edge-to-edge form block.', 'Fields: Type (chips), Registration number, Make and Model (optional). With more than one branch, a “Branch you visit” chooser comes first.', 'Chips: pill with a 1.5 border; the selected one is the indigo gradient with white text. Inputs: 54 high, radius 14, a pale fill; the focused one gets an indigo border and a soft ring; errors show a red border and a message under the field.', 'One large gradient button, “Send to the team”, which shows a spinner while sending.'],
+    ['Empty, Filling in (with the focus ring), Needs fixing (both error messages), Two branches, Sending, Couldn’t send.'],
+    [['<code>screens/AddVehicleScreen.tsx</code>', 'Already uses the hero header and panel. Chips, inputs and button come from <code>@mana/ui</code> Form and Button, restyled to this spec.'], ['<code>packages/ui/src/components/Form.tsx</code>', 'Selected chip becomes the gradient; focus ring; error border. (Shared with the manager app, so this is a deliberate change there too.)']]),
+});
+
+/* ───────────────────────── VISIT US ───────────────────────── */
+const visitHero = () => hero({ kind: 'tab', title: 'Visit us', sub: 'Hours, directions and prices.' });
+const branch = (o) => group([
+  erow({ icon: ic('store', 20, '#3A4DB0'), title: o.name, sub: o.open, right: pl(o.closed ? 'amber' : 'teal', o.closed ? 'CLOSED' : 'OPEN') }),
+  erow({ icon: ic('pin', 19, '#0B5F57'), tone: 'teal', title: o.address, sub: 'Tap for directions', chev: true, press: true }),
+  erow({ icon: ic('clock', 19, '#9A5B00'), tone: 'amber', title: o.hours, sub: 'Opening hours' }),
+  erow({ icon: ic('phone', 18, '#3A4DB0'), title: o.phone, sub: 'Call or WhatsApp us', right: `<span class="circbtn">${ic('phone', 17, '#3A4DB0')}</span><span class="circbtn wa">${ic('wa', 19, '#fff', true)}</span>` }),
+]);
+const SIZES = ['Hatchback', 'Sedan', 'Mini SUV', 'Large SUV / XUV'];
+const price = (name, from, desc, sizes, inc) => `<div class="prow"><div class="ph"><span class="pn">${name}</span><span class="pp">${from}</span></div>${desc ? `<div class="pd">${desc}</div>` : ''}${inc ? `<div class="pd">Includes ${inc}</div>` : ''}${sizes ? `<div class="sizes">${sizes.map(([n, p]) => `<span class="size">${n} <b>${p}</b></span>`).join('')}</div>` : ''}</div>`;
+const carPrices = () => `<div class="group">${price('Complete Car Wash', 'from ₹400', 'Exterior foam wash + interior vacuum + tyres + glass', [['Hatchback', '₹400'], ['Sedan', '₹500'], ['Mini SUV', '₹600'], ['Large SUV / XUV', '₹700']])}${price('Exterior Wash', 'from ₹250', 'Exterior foam wash + wheels + tyres + glass', [['Hatchback', '₹250'], ['Sedan', '₹300'], ['Mini SUV', '₹350'], ['Large SUV / XUV', '₹400']])}${price('MANA Combo', 'from ₹500', 'Complete Car Wash + tyre and dashboard dressing', [['Hatchback', '₹500'], ['Sedan', '₹600'], ['Mini SUV', '₹700'], ['Large SUV / XUV', '₹800']], 'Complete Car Wash, Dashboard Dressing, Tyre Dressing')}${price('AC &amp; Cabin Hygiene', '₹2,500', 'AC vent and cabin refresh treatment')}${price('Tyre Dressing', '₹50', 'Add-on')}${price('Car Fragrance', '₹50', 'Add-on')}</div>`;
+const bikePrices = () => `<div class="group">${price('Bike Wash', 'from ₹120', 'Foam wash + chain clean + polish', [['Bike', '₹120'], ['Scooter', '₹100']])}${price('Chain Lube', '₹40', 'Add-on')}</div>`;
+const seg = (on) => `<div class="seg"><span class="segb ${on === 'car' ? 'on' : ''}">Cars</span><span class="segb ${on === 'bike' ? 'on' : ''}">Bikes</span></div>`;
+const NELLORE = { name: 'MANA Car Wash', open: 'Open now · till 8 pm', address: 'Main Road, near Bus Stand, Kovur, Nellore 524137', hours: '7 am – 8 pm · every day', phone: '+91 98886 26111' };
+const KAVALI = { name: 'MANA Car Wash Kavali', open: 'Open now · till 7:30 pm', address: 'Trunk Road, opposite RTC Depot, Kavali 524201', hours: '8 am – 7:30 pm · closed Tuesdays', phone: '+91 93000 00021' };
+def('visit', {
+  label: 'Visit us', group: 'tabs', tab: 'Visit',
+  states: {
+    default: { label: 'Two branches', html: () => visitHero() + lbl('Nellore') + branch(NELLORE) + lbl('Prices at Nellore') + seg('car') + carPrices() + `<div class="pnote">Prices can change; the team confirms before washing.</div>` + lbl('Kavali') + branch(KAVALI) },
+    one: { label: 'One branch', html: () => visitHero() + lbl('Branch') + branch(NELLORE) + lbl('Prices') + seg('car') + carPrices() + `<div class="pnote">Prices can change; the team confirms before washing.</div><div style="height:12px"></div>` },
+    bikes: { label: 'Bikes tab', html: () => visitHero() + lbl('Branch') + branch(NELLORE) + lbl('Prices') + seg('bike') + bikePrices() + `<div class="pnote">Prices can change; the team confirms before washing.</div>` },
+    closed: { label: 'Closed now', html: () => visitHero() + lbl('Branch') + branch({ ...NELLORE, open: 'Closed · opens at 7 am', closed: true }) },
+    loading: { label: 'Loading', html: () => visitHero() + skLabel(90) + group([skRow(), skRow(), skRow(), skRow()]) },
+    error: { label: 'Couldn’t load', html: () => visitHero() + messageCard('Couldn’t load our branches', 'No connection. Check your internet and try again.', 'Try again') },
+    offline: { label: 'Connection lost', html: () => visitHero() + notice('No connection. Check your internet and try again.') + lbl('Branch') + branch(NELLORE) },
+  },
+  notes: info(
+    ['Each branch is one edge-to-edge block of four rows: the branch with an OPEN or CLOSED pill, the address (tap for directions), the opening hours, and the phone with round Call and WhatsApp buttons.', 'Prices follow in their own block: a Cars and Bikes switch, then each service with its “from” price, a line of description, what it includes, and a price for each vehicle size.', 'With more than one branch, the customer’s own branches come first, labelled by city.'],
+    ['Two branches, One branch, Bikes tab, Closed now, Loading, Couldn’t load, Connection lost.'],
+    [['<code>screens/VisitScreen.tsx</code>', 'Pinned hero and new list rows. Already done.'], ['<code>components/BranchCard.tsx</code>, <code>PriceList.tsx</code>', 'Rows as shown; the Cars/Bikes switch becomes the gradient pill.']]),
+});
+
+/* ───────────────────────── PROFILE ───────────────────────── */
+const profHero = () => hero({ kind: 'tab', title: 'Profile' });
+const profile = (o = {}) => `<div style="height:20px"></div>` + group([`<button class="erow" type="button" style="min-height:90px"><span class="avatar-lg">${o.ini || 'RY'}</span><span class="ecopy"><span class="et" style="display:block;font-size:19px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${o.name || 'Rohit Yadav'}</span><span class="es" style="display:block;margin-top:3px">+91 91393 65230</span></span><span class="editbtn">${ic('edit', 15, '#2D3D9E')}Edit</span></button>`])
+  + lbl('MANA Car Wash') + group([erow({ icon: ic('userplus', 19, '#0B5F57'), tone: 'teal', title: 'Invite friends', sub: 'They get 5–10% off their first wash', chev: true, press: true, go: 'invite' }), erow({ icon: ic('phone', 18, '#3A4DB0'), title: 'Help &amp; support', sub: 'Call the branch or report a problem', chev: true, press: true, go: 'help' })])
+  + lbl(o.two ? 'Your branches' : 'Your branch') + group([erow({ icon: ic('store', 19, '#3A4DB0'), title: 'MANA Car Wash', sub: 'Nellore', chev: true, press: true }), ...(o.two ? [erow({ icon: ic('store', 19, '#3A4DB0'), title: 'MANA Car Wash Kavali', sub: 'Kavali', chev: true, press: true })] : [])])
+  + lbl('Account') + group([erow({ icon: ic('logout', 18, '#3A4DB0'), title: 'Sign out', chev: true, press: true }), erow({ icon: ic('shield', 18, '#3A4DB0'), title: 'Sign out on all phones', sub: 'If you lost a phone or shared your code', chev: true, press: true }), erow({ icon: ic('trash', 18, '#DC2626'), tone: 'red', title: 'Delete app account', title_cls: 'danger', sub: 'Your washes stay with the car wash', chev: true, press: true })])
+  + `<div class="foot">MANA Car Wash 0.5.1 · support@sprixia.com</div><div style="height:16px"></div>`;
+const dim = (inner) => `<div class="dim"></div>${inner}`;
+def('profile', {
+  label: 'Profile', group: 'tabs', tab: 'Profile',
+  states: {
+    default: { label: 'Default', html: () => profHero() + profile() },
+    noname: { label: 'No name yet', html: () => profHero() + profile({ name: 'Add your name', ini: 'M' }) },
+    two: { label: 'Two branches', html: () => profHero() + profile({ two: true }) },
+    sheet: { label: 'Edit your name', html: () => profHero() + profile(), overlay: () => dim(`<div class="sheet"><div class="grab"></div><span class="x">${ic('close', 18, '#4A5280')}</span><h3>Your name</h3><div class="sub">The car wash team sees this on your washes.</div>${field('Name', 'Rohit Yadav', { focus: true })}<div style="height:16px"></div><button class="btn-lg" type="button">Save</button></div>`) },
+    signout: { label: 'Sign out?', html: () => profHero() + profile(), overlay: () => dim(`<div class="dialog"><h3>Sign out?</h3><p>You can sign in again any time with your number.</p><div class="dbtns"><button class="dbtn red" type="button">Sign out</button><button class="dbtn" type="button">Stay signed in</button></div></div>`) },
+    delete: { label: 'Delete account?', html: () => profHero() + profile(), overlay: () => dim(`<div class="dialog"><h3>Delete your app account?</h3><p>You’ll be signed out everywhere. Your washes stay with the car wash, as their records. Sign in again any time to see them.</p><div class="dbtns"><button class="dbtn red" type="button">Delete</button><button class="dbtn" type="button">Keep my account</button></div></div>`) },
+  },
+  notes: info(
+    ['The customer card at the top: a gradient avatar with initials, the full name, the number and an Edit button. It opens the Your name sheet. The CUSTOMER pill is gone (it only cut the name short).', 'Edge-to-edge lists for MANA Car Wash (Invite friends, Help &amp; support), Your branch, and Account (sign out, sign out on all phones, delete in red).', 'Sheets and dialogs: a bottom sheet for the name (a handle, a close button, the focused field and a Save button), and centred dialogs for sign out and delete, with the destructive button in red.'],
+    ['Default, No name yet, Two branches, Edit your name (sheet), Sign out? (dialog), Delete account? (dialog).'],
+    [['<code>screens/ProfileScreen.tsx</code>', 'Pinned hero and the new list rows. Already done. The avatar becomes the indigo gradient (a customer-only version of <code>Avatar</code>).'], ['<code>components/EditNameSheet.tsx</code>, <code>packages/ui BottomSheet</code>, <code>AppAlert</code>', 'The sheet and dialogs as shown. <code>AppAlert</code> and <code>BottomSheet</code> are shared with the manager app.']]),
+});
+
+/* ───────────────────────── INVITE FRIENDS ───────────────────────── */
+const invHero = () => hero({ kind: 'back', title: 'Invite friends' });
+const invPromo = () => `<div style="height:20px"></div><article class="promo" style="margin:0 16px"><div class="row"><div class="tile">${ic('gift', 26, '#fff')}</div><div class="grow"><h4>Wash together, save together</h4><p style="max-width:none">Your friend gets 5–10% off their first wash, and you get 5–10% off your next one.</p></div></div></article>`;
+const invShare = () => lbl('Your invite') + panel(`<div class="msgbox">Give my number +91 91393 65230 at the counter on your first visit to MANA Car Wash, Nellore, and you get 5–10% off your wash.</div><button class="btn-lg" type="button">${ic('wa', 22, '#fff')}Share on WhatsApp</button><button class="btn-2" type="button">${ic('share', 18, '#3A4DB0')}Share another way</button>`);
+const invSteps = () => lbl('How it works') + panel([['Share your number', 'Send your friend a message with your number from here.'], ['They visit MANA', 'They give your number at the counter and get 5–10% off their first wash.'], ['You get a coupon', 'Once they’ve paid, you get 5–10% off your next wash.']].map(([t, b], i) => `<div class="step3"><span class="num">${i + 1}</span><div><b>${t}</b><span>${b}</span></div></div>`).join('') + `<div class="fine" style="text-align:left">Only for friends visiting MANA for the first time.</div>`);
+const invFriends = () => lbl('Friends you invited') + group([erow({ icon: ic('userplus', 19, '#3A4DB0'), title: 'Suresh K', sub: '28 Sept', right: pl('teal', 'VISITED') }), erow({ icon: ic('userplus', 19, '#3A4DB0'), title: 'A friend', sub: '2 Oct', right: pl('amber', 'NOT PAID YET') })]);
+def('invite', {
+  label: 'Invite friends', group: 'stack', parent: 'profile',
+  states: {
+    can: { label: 'Can invite', html: () => invHero() + invPromo() + invShare() + invSteps() + invFriends() + '<div style="height:20px"></div>' },
+    nofriends: { label: 'No friends yet', html: () => invHero() + invPromo() + invShare() + invSteps() + '<div style="height:20px"></div>' },
+    first: { label: 'After first wash', html: () => invHero() + invPromo() + lbl('Your invite') + notice('You can invite friends once you’ve had a paid wash at MANA.', 'info flat', 'After your first wash') + invSteps() },
+    loading: { label: 'Loading', html: () => invHero() + invPromo() + lbl('Your invite') + `<div style="display:grid;place-items:center;padding:24px"><i class="spin"></i></div>` + invSteps() },
+    offline: { label: 'Connection lost', html: () => invHero() + invPromo() + lbl('Your invite') + notice('No connection. Check your internet and try again.', 'flat') + invSteps() },
+  },
+  notes: info(
+    ['A hero with the back button, then the gradient promo card for the offer.', 'Your invite: the message that will be sent, a large “Share on WhatsApp” button and “Share another way”. Customers who have not had a paid wash yet see an info notice instead.', 'How it works as three numbered steps, and the friends already invited with a VISITED or NOT PAID YET pill.'],
+    ['Can invite, No friends yet, After first wash, Loading, Connection lost.'],
+    [['<code>screens/ReferScreen.tsx</code>', 'Already built this way (promo card, panels, rows).']]),
+});
+
+/* ───────────────────────── HELP & SUPPORT ───────────────────────── */
+const helpHero = () => hero({ kind: 'back', title: 'Help &amp; support' });
+const reportsList = () => group([
+  `<div class="rep"><div class="h"><b>Billing</b>${pl('amber', 'TEAM IS LOOKING')}</div><div class="m" style="margin:0">AP39GB7534, wash of 28 Sept · 3 Oct · 9:12 am</div><div class="d">The total on the bill was ₹300 but I paid ₹250.</div></div>`,
+  `<div class="rep"><div class="h"><b>Staff</b>${pl('teal', 'RESOLVED')}</div><div class="m" style="margin:0">11 Sept · 6:10 pm</div><div class="d">Waited 40 minutes with no update.</div><div class="reply"><b>Reply from the team</b><span>Sorry about that. We’ve added a staff member to the evening shift.</span></div></div>`]);
+const helpTop = () => lbl('Talk to your branch') + branch(NELLORE) + lbl('Something not right?') + group([erow({ icon: ic('alert', 18, '#9A5B00'), tone: 'amber', title: 'Report a problem', sub: 'About a bill, the staff or anything else', chev: true, press: true, go: 'report' })]) + `<div class="hint">About a particular wash? Open it from Washes and report from there.</div>`;
+def('help', {
+  label: 'Help & support', group: 'stack', parent: 'profile',
+  states: {
+    reports: { label: 'With reports', html: () => helpHero() + helpTop() + lbl('Your reports') + reportsList() + '<div style="height:20px"></div>' },
+    none: { label: 'No reports', html: () => helpHero() + helpTop() + lbl('Your reports') + panel(`<div style="font-size:15px;color:var(--slateDeep)">No reports. We hope it stays that way!</div>`) },
+    loading: { label: 'Loading reports', html: () => helpHero() + helpTop() + lbl('Your reports') + `<div style="display:grid;place-items:center;padding:24px"><i class="spin"></i></div>` },
+    offline: { label: 'Connection lost', html: () => helpHero() + helpTop() + lbl('Your reports') + notice('No connection. Check your internet and try again.', 'flat') },
+  },
+  notes: info(
+    ['A hero with the back button, the branch block (open or closed, address, hours, call and WhatsApp), “Report a problem”, and a hint about reporting from a wash.', 'Your reports: each report shows what it was about, a TEAM IS LOOKING or RESOLVED pill, when, what was said, and the team’s reply in a soft box.'],
+    ['With reports, No reports, Loading reports, Connection lost.'],
+    [['<code>screens/HelpScreen.tsx</code>, <code>components/ProblemSummary.tsx</code>, <code>BranchCard.tsx</code>', 'Already use the new header and list rows. Reports show inside one edge-to-edge block, divided by hairlines.']]),
+});
+
+/* ───────────────────────── REPORT A PROBLEM ───────────────────────── */
+const KINDS = ['Damage to my vehicle', 'Staff', 'Billing', 'Something else'];
+const repHero = () => hero({ kind: 'back', title: 'Report a problem' });
+const repAbout = () => lbl('About this wash') + group([erow({ icon: ic('dropO', 20, '#3A4DB0'), title: 'AP39GB7534 · 28 Sept · 1:25 pm' })]);
+const repForm = (o = {}) => lbl('Your report') + panel(`${chipset('What’s it about?', o.kinds || KINDS, o.kind, o.kindErr)}${field('What happened?', o.text, { area: true, ph: 'A few words help the team sort it quickly', focus: o.focus, err: o.textErr, hint: `${(o.text || '').length}/500` })}`);
+const repActions = (o = {}) => `<div class="actions-v">${o.error ? notice(o.error, 'danger m0') : ''}<button class="btn-lg" type="button">${o.busy ? '<i class="spin"></i>' : 'Send to the team'}</button><div class="fine">The branch team sees this with your name and number, and replies here. For anything urgent, please call the branch.</div></div>`;
+def('report', {
+  label: 'Report a problem', group: 'stack', parent: 'help',
+  states: {
+    wash: { label: 'About a wash', html: () => repHero() + repAbout() + repForm({ kind: 'Billing', text: 'The total on the bill was ₹300 but I paid ₹250.', focus: true }) + repActions() },
+    general: { label: 'In general', html: () => repHero() + repForm({ kinds: ['Staff', 'Billing', 'Something else'] }) + repActions() },
+    errors: { label: 'Needs fixing', html: () => repHero() + repForm({ kinds: ['Staff', 'Billing', 'Something else'], text: 'Slow', kindErr: 'Pick what it’s about', textErr: 'Tell us a little more, so the team can help' }) + repActions() },
+    busy: { label: 'Sending', html: () => repHero() + repForm({ kinds: ['Staff', 'Billing', 'Something else'], kind: 'Staff', text: 'Waited 40 minutes with no update.' }) + repActions({ busy: true }) },
+    fail: { label: 'Couldn’t send', html: () => repHero() + repForm({ kinds: ['Staff', 'Billing', 'Something else'], kind: 'Staff', text: 'Waited 40 minutes with no update.' }) + repActions({ error: 'No connection. Check your internet and try again.' }) },
+  },
+  notes: info(
+    ['A hero with the back button, the wash it is about (when opened from a wash), and one edge-to-edge form block: what it is about (chips), and what happened (a larger text box with a character counter).', 'A large gradient “Send to the team” button and a small note that the team sees it and replies in the app.', 'From a wash, all kinds are offered; in general only Staff, Billing and Something else.'],
+    ['About a wash, In general, Needs fixing, Sending, Couldn’t send.'],
+    [['<code>screens/ReportProblemScreen.tsx</code>', 'Already uses the hero header and panel. Chips, text area and button come from the restyled Form.']]),
+});
+</script>
+<script>
+/* ═══════════════ the app shell: pick a screen, a state, tap around ═══════════════ */
+const PARENT = { washDetail: 'washes', addVehicle: 'vehicles', invite: 'profile', help: 'profile', report: 'help' };
+const TAB_SCREEN = { Home: 'home', Washes: 'washes', Vehicles: 'vehicles', 'Visit us': 'visit', Profile: 'profile' };
+const TABS = [['Home', 'home'], ['Washes', 'dropO'], ['Vehicles', 'car'], ['Visit us', 'store'], ['Profile', 'person']];
+const cur = { screen: 'home', key: 'default' };
+const $ = (id) => document.getElementById(id);
+
+function renderNav() {
+  const btn = (id) => `<button type="button" data-s="${id}" aria-pressed="${id === cur.screen}">${SCREENS[id].label}</button>`;
+  $('nav').innerHTML = `<div class="grp"><b>Tabs</b>${ORDER.tabs.map(btn).join('')}</div><div class="grp"><b>Opened from tabs</b>${ORDER.stack.map(btn).join('')}</div>`;
+  $('nav').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => go(b.dataset.s)));
+}
+function renderStates() {
+  const s = SCREENS[cur.screen];
+  $('states').innerHTML = Object.entries(s.states).map(([k, v]) => `<button type="button" data-k="${k}" aria-pressed="${k === cur.key}">${v.label}</button>`).join('');
+  $('states').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { cur.key = b.dataset.k; renderStates(); renderScreen(); }));
+}
+function renderTabs() {
+  const s = SCREENS[cur.screen];
+  const isTab = s.group === 'tabs';
+  $('tabwrap').style.display = isTab ? '' : 'none';
+  if (!isTab) return;
+  $('tabbar').innerHTML = TABS.map(([n, i]) => { const on = n === s.tab; return `<button class="tab" ${on ? 'aria-current="page"' : ''} data-t="${n}"><span class="ic">${ic(i, 22, on ? '#fff' : '#8791B5')}</span>${n}</button>`; }).join('');
+  $('tabbar').querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => go(TAB_SCREEN[b.dataset.t])));
+}
+function renderScreen() {
+  const s = SCREENS[cur.screen], st = s.states[cur.key];
+  let html = st.html();
+  const pinned = $('pinned');
+  // Only Home scrolls its hero away; every other screen keeps its header pinned (as in the app).
+  const m = cur.screen !== 'home' && html.match(/^<header class="hero[\s\S]*?<\/header>/);
+  pinned.innerHTML = m ? m[0] : '';
+  if (m) html = html.slice(m[0].length);
+  $('scroll').innerHTML = html;
+  $('scroll').scrollTop = 0;
+  $('overlay').innerHTML = st.overlay ? st.overlay() : '';
+  $('scrim').classList.remove('on');
+  $('notes').innerHTML = s.notes;
+}
+function go(id) { cur.screen = id; cur.key = Object.keys(SCREENS[id].states)[0]; renderNav(); renderStates(); renderTabs(); renderScreen(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+$('scroll').addEventListener('scroll', (e) => $('scrim').classList.toggle('on', cur.screen === 'home' && e.target.scrollTop > 24));
+document.getElementById('screen').addEventListener('click', (e) => {
+  const to = e.target.closest('[data-go]');
+  if (to) return go(to.dataset.go);
+  if (e.target.closest('.backbtn') && PARENT[cur.screen]) return go(PARENT[cur.screen]);
+  if (e.target.closest('.dim')) { cur.key = Object.keys(SCREENS[cur.screen].states)[0]; renderStates(); renderScreen(); }
+});
+
+/* ═══════════════ the shared documentation ═══════════════ */
+const SWATCHES = [
+  ['indigoDeep', '#1B2878', 'Gradient end, deep accents'], ['indigoMid', '#2D3D9E', 'Pressed states, strong text on pale'], ['indigo', '#3A4DB0', 'Primary: links, buttons, active'], ['indigoBright', '#5468D4', 'Gradient start, highlights'],
+  ['indigoSoft', '#9BAEF5', 'Glows, soft accents'], ['indigoMist', '#C4CCF0', 'Dashed outlines'], ['indigoPale', '#E8ECFF', 'Tinted fills, chips'], ['surface', '#F4F6FF', 'Screen background'],
+  ['white', '#FFFFFF', 'Lists and cards'], ['ink', '#0F1743', 'Primary text'], ['slateDeep', '#4A5280', 'Secondary text'], ['slate', '#8791B5', 'Inactive, hints'],
+  ['border / hair', '#E2E7FB / #E9EDFC', 'Hairlines'], ['teal / tealDeep', '#0D9488 / #0B5F57', 'Done, paid, open'], ['amber / amberDeep', '#F59E0B / #9A5B00', 'Reward, ready, waiting'], ['danger', '#DC2626', 'Errors, delete'],
+];
+const GRADS = [
+  ['hero', 'linear-gradient(160deg,#5468D4,#3A4DB0 46%,#1B2878)', '160° · #5468D4 → #3A4DB0 → #1B2878, plus a glow'], ['primary', 'linear-gradient(180deg,#5468D4,#3A4DB0)', 'Buttons, the selected chip'],
+  ['promo', 'linear-gradient(135deg,#5468D4,#2D3D9E 58%,#1B2878)', 'Invite card, offer stub'], ['tabPill', 'linear-gradient(160deg,#5468D4,#2D3D9E)', 'The active tab'],
+  ['gold', 'linear-gradient(160deg,#FDE68A,#F59E0B)', 'Rewards only'], ['stamp', 'linear-gradient(135deg,#7F93E6,#4458CC 50%,#1B2878)', 'A collected stamp'],
+];
+const COMPONENTS = [
+  ['Hero (home / tab / back)', 'Every screen', '<code>packages/ui GradientHero</code>, <code>HomeHero</code>, <code>TabTitle</code>, <code>ScreenHeader</code>'],
+  ['Floating tab bar', 'The five tabs', '<code>components/FloatingTabBar</code>'],
+  ['Edge-to-edge list (<code>EdgeGroup</code>, <code>EdgeRow</code>, <code>SectionLabel</code>)', 'Washes, Vehicles, Visit, Profile, Help, Invite, forms', '<code>components/CardList</code> (to become edge-to-edge)'],
+  ['Feature cards (Latest wash, Free-wash, Ticket, Promo, Live wash, Message)', 'Home, Vehicles', '<code>LatestWashCard</code>, <code>FreeWashCard</code>, <code>OfferTicket</code>, <code>InvitePromo</code>, <code>LiveWashCard</code>, <code>MessageCard</code>'],
+  ['Pills', 'Status and counts', '<code>Pill</code> (water, amber, teal, slate, danger)'],
+  ['Form: chips, fields, buttons', 'Add vehicle, Report problem, Rating, Edit name', '<code>packages/ui Form</code>, <code>Button</code>'],
+  ['Sheet and dialog', 'Edit name, sign out, delete', '<code>BottomSheet</code>, <code>AppAlert</code>'],
+  ['Notice and skeleton', 'Connection lost, Loading', '<code>Notice</code>, <code>HomeSkeleton</code>'],
+];
+$('docs').innerHTML = `
+<section><h2>Design rules</h2>${ul([
+  '<b>Two surfaces, used on purpose.</b> Anything that is a list of rows (washes, branches, settings, reports, forms) is an edge-to-edge white block: no gaps between rows, hairlines between them, a section title above. Rich, one-off content (the latest wash, free-wash card, offer ticket, invite card, live wash, empty states) is a rounded card with a soft shadow.',
+  '<b>Heroes.</b> Home’s hero (greeting) scrolls away, with a fading scrim behind the status bar. Every other screen’s hero (a tab title, or a back button and title) stays pinned. All use the same gradient, glow, stars and logo watermark.',
+  '<b>The tab bar</b> floats, with the active icon on an indigo pill. It shows on the five tabs only; screens opened from a tab cover it, as in the app.',
+  '<b>Spacing.</b> Section title: 26 above, 10 below, 20 in from the edge. List rows are at least 64 tall, with 16 side padding. Cards have a 16 margin. Fields are 54 tall, large buttons 56, secondary buttons 52.',
+  '<b>Colour is meaning.</b> Indigo is the brand and the primary action, teal is done, paid and open, amber is waiting, ready and rewards, and red is for errors and delete only.',
+  '<b>Every screen has its three failure states:</b> Loading (shimmering shapes in the real layout), Couldn’t load (a card with a Try again button) and Connection lost (an amber notice above the content that is already on screen).',
+  '<b>Touch targets</b> are at least 44 px. Text on the indigo hero is white on #3A4DB0 or darker.'])}</section>
+<section><h2>Colour tokens</h2><p>The names in <code>packages/ui/src/theme/colors.ts</code>. Neutrals are tinted indigo, so greys never look flat against the brand.</p><div class="swatches">${SWATCHES.map(([n, h, u]) => `<div class="sw"><i style="background:${h.split(' ')[0]}"></i><div><b>${n}</b>${h}<br><span>${u}</span></div></div>`).join('')}</div></section>
+<section><h2>Gradients</h2><div class="gradrow">${GRADS.map(([n, g, u]) => `<div style="background:${g}${n === 'gold' ? ';color:#4D2F00' : ''}"><span>${n}<br><small style="font-weight:500;opacity:.85">${u}</small></span></div>`).join('')}</div></section>
+<section><h2>Type, radius, elevation</h2>${table(['Role', 'Spec'], [
+  ['Hero title', '32 / 800, −0.6 tracking; Home’s name is 34; back-header title 22 / 800.'], ['Row title', '16.5 / 700 ink. Second line 13.5 slateDeep.'], ['Amount', '17–19 / 800, −0.3 tracking.'],
+  ['Section title', '12 / 800, uppercase, 1.0 tracking, slateDeep.'], ['Field label', '12 / 800, uppercase, 0.7 tracking.'], ['Pill', '11 / 800, 0.4 tracking, 1 px border.'], ['Tab label', '11 / 700.'],
+  ['Radius', 'tile 14–15 · card 20 · promo 22 · sheet 28 · hero bottom 32 · pill 999'], ['Elevation', 'Cards: 0 8 24 @9%. Tab bar: 0 16 36 @20%. Sheet: 0 −10 40 @25%. All indigo (#1B2878) shadows.']])}</section>
+<section><h2>Shared components</h2>${table(['Component', 'Used on', 'In the code'], COMPONENTS)}</section>
+<section><h2>What this file does not cover yet</h2>${ul(['<b>Signed-out screens:</b> sign in (number, then the code) and “Request service”. They already use the new hero and the logo mark, but have no prototype here.', '<b>The full-screen photo viewer</b> (black, with the photos paged).', 'A dark theme.'])}</section>`;
+
+/* ═══════════════ start ═══════════════ */
+renderNav(); renderStates(); renderTabs(); renderScreen();
+</script>
+</body>
+</html>

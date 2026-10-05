@@ -1,7 +1,10 @@
 import type { DbClient } from '../client';
 
-/** signup / join: a number without an account. phone: moving an account to this new number. */
-export type SignupPurpose = 'signup' | 'join' | 'phone';
+/**
+ * signup / join: a number without an account. phone: moving an account to this new number.
+ * customer: signing in to the MANA Car Wash app.
+ */
+export type SignupPurpose = 'signup' | 'join' | 'phone' | 'customer';
 
 /** Codes sent to numbers that don't belong to the account (yet). Always used with the platform client. */
 export const signupCodeRepo = {

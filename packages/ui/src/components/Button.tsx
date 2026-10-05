@@ -1,0 +1,175 @@
+import React, { type ReactNode, useRef } from 'react';
+import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import LinearGradient from 'react-native-linear-gradient';
+import { colors, gradients, shadow, spacing, typography } from '../theme';
+
+interface ButtonProps {
+  label: string;
+  onPress: () => void;
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
+  size?: 'md' | 'lg';
+  disabled?: boolean;
+  loading?: boolean;
+  /** Optional leading icon (SVG). Kept outside the label so icons stay crisp. */
+  icon?: ReactNode;
+}
+
+/** Shared button. Primary wraps the gradient inside a clipped shell so Android elevation
+ * never paints the classic “white box” over the fill. */
+export function Button({
+  label,
+  onPress,
+  variant = 'primary',
+  size = 'md',
+  disabled,
+  loading,
+  icon,
+}: ButtonProps) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const isDisabled = disabled || loading;
+  const height = size === 'lg' ? 56 : 48;
+
+  const pressIn = () => {
+    if (isDisabled) return;
+    Animated.spring(scale, { toValue: 0.98, useNativeDriver: true, speed: 50, bounciness: 0 }).start();
+  };
+  const pressOut = () => {
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 40, bounciness: 4 }).start();
+  };
+
+  const spinnerColor =
+    variant === 'primary' ? colors.white : variant === 'danger' ? colors.danger : colors.water;
+
+  const content = loading ? (
+    <ActivityIndicator color={spinnerColor} />
+  ) : (
+    <View style={styles.contentRow}>
+      {icon ? <View style={styles.iconSlot}>{icon}</View> : null}
+      <Text
+        style={[
+          styles.label,
+          size === 'lg' && styles.labelLg,
+          variant === 'primary' ? styles.primaryLabel : styles.secondaryLabel,
+          variant === 'ghost' && styles.ghostLabel,
+          variant === 'danger' && styles.dangerLabel,
+        ]}
+      >
+        {label}
+      </Text>
+    </View>
+  );
+
+  if (variant === 'primary') {
+    return (
+      <Animated.View
+        style={[
+          styles.shell,
+          shadow('sm'),
+          { transform: [{ scale }], opacity: isDisabled ? 0.45 : 1 },
+        ]}
+      >
+        <Pressable
+          onPress={onPress}
+          onPressIn={pressIn}
+          onPressOut={pressOut}
+          disabled={isDisabled}
+          android_ripple={{ color: 'rgba(255,255,255,0.2)' }}
+          style={styles.pressFill}
+          accessibilityRole="button"
+        >
+          <LinearGradient
+            colors={gradients.primaryButton as unknown as string[]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[styles.base, { height }]}
+          >
+            {content}
+          </LinearGradient>
+        </Pressable>
+      </Animated.View>
+    );
+  }
+
+  return (
+    <Animated.View style={{ transform: [{ scale }], opacity: isDisabled ? 0.45 : 1 }}>
+      <Pressable
+        onPress={onPress}
+        onPressIn={pressIn}
+        onPressOut={pressOut}
+        disabled={isDisabled}
+        android_ripple={{
+          color: variant === 'danger' ? 'rgba(220,38,38,0.12)' : colors.waterPale,
+        }}
+        style={[
+          styles.base,
+          { height },
+          variant === 'secondary' && styles.secondary,
+          variant === 'ghost' && styles.ghost,
+          variant === 'danger' && styles.danger,
+        ]}
+        accessibilityRole="button"
+      >
+        {content}
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+const styles = StyleSheet.create({
+  shell: {
+    borderRadius: 16,
+    backgroundColor: colors.waterDeep,
+    overflow: 'hidden',
+  },
+  pressFill: {
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  base: {
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  contentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  iconSlot: {
+    marginTop: 1,
+  },
+  secondary: {
+    backgroundColor: colors.white,
+    borderWidth: 1.5,
+    borderColor: '#CBD3F5',
+  },
+  ghost: {
+    backgroundColor: 'transparent',
+  },
+  danger: {
+    backgroundColor: colors.white,
+    borderWidth: 1.5,
+    borderColor: '#FECACA',
+  },
+  label: {
+    ...typography.bodyStrong,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  labelLg: {
+    fontSize: 16.5,
+  },
+  primaryLabel: {
+    color: colors.white,
+  },
+  secondaryLabel: {
+    color: colors.indigoMid,
+  },
+  ghostLabel: {
+    color: colors.waterDeep,
+  },
+  dangerLabel: {
+    color: colors.danger,
+  },
+});

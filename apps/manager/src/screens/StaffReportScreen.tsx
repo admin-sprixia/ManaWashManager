@@ -47,6 +47,7 @@ interface StaffRow {
   voids: number;
   corrections: number;
   washesDone: number;
+  communityWashes: number;
   servicesSold: number;
   commission: number;
   attendance: { present: number; half: number; absent: number; daysWorked: number };
@@ -343,6 +344,12 @@ export function StaffReportScreen({ navigation }: Props) {
                         />
                       </View>
 
+                      {r.communityWashes > 0 ? (
+                        <Text style={styles.communityLine}>
+                          {r.communityWashes} {r.communityWashes === 1 ? 'car' : 'cars'} washed at communities
+                        </Text>
+                      ) : null}
+
                       {flags > 0 ? (
                         <Pressable
                           onPress={() => setTab('audit')}
@@ -370,7 +377,7 @@ export function StaffReportScreen({ navigation }: Props) {
                 • Started — washes each person created.{'\n'}• Collected — money they marked paid, for washes started in
                 this period.{'\n'}• Commission — only on services that have one (like rust coating), for whoever got the
                 customer to take it, once paid. Split equally when several people helped.{'\n'}• Days worked — a half day
-                counts as 0.5.
+                counts as 0.5.{'\n'}• Communities — plan cars each person marked washed on a community wash day.
               </Text>
             </View>
           </>
@@ -600,6 +607,7 @@ const styles = StyleSheet.create({
   metricValue: { ...typography.bodyStrong, fontSize: 16, color: colors.waterInk, fontWeight: '800' },
   metricLabel: { ...typography.caption, fontSize: 11, color: colors.slate, letterSpacing: 0 },
   flagLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  communityLine: { ...typography.caption, fontSize: 12.5, color: colors.tealDeep, fontWeight: '700', letterSpacing: 0 },
   flagText: { ...typography.caption, fontSize: 12.5, color: colors.amberDeep, fontWeight: '700', letterSpacing: 0, flex: 1 },
   flagLink: { ...typography.caption, fontSize: 12.5, color: colors.amberDeep, fontWeight: '700', letterSpacing: 0 },
   howTo: { paddingHorizontal: spacing.md, gap: 6 },

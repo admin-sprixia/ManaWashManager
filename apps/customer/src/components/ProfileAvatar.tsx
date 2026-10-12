@@ -1,9 +1,9 @@
 import React from 'react';
 import { StyleSheet, Text } from 'react-native';
-import { Gradient, colors, initials } from '@mana/ui';
+import { Gradient, IconPerson, colors, initials } from '@mana/ui';
 
-/** The customer's initials on an indigo gradient disc. */
-export function ProfileAvatar({ name, size = 56 }: { name: string; size?: number }) {
+/** The customer's initials (or a person, before they add a name) on an indigo gradient disc. */
+export function ProfileAvatar({ name, size = 56 }: { name: string | null; size?: number }) {
   return (
     <Gradient
       spec={{
@@ -14,7 +14,11 @@ export function ProfileAvatar({ name, size = 56 }: { name: string; size?: number
       }}
       style={[styles.disc, { width: size, height: size, borderRadius: size / 2 }]}
     >
-      <Text style={[styles.text, { fontSize: size * 0.38 }]}>{initials(name)}</Text>
+      {name?.trim() ? (
+        <Text style={[styles.text, { fontSize: size * 0.38 }]}>{initials(name)}</Text>
+      ) : (
+        <IconPerson size={size * 0.42} color={colors.white} />
+      )}
     </Gradient>
   );
 }

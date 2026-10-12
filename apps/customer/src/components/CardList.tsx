@@ -1,6 +1,7 @@
 import React, { type PropsWithChildren, type ReactElement, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { Gradient, IconChevronRight, brandGradients, colors, radius, shadow } from '@mana/ui';
+import { useIsTablet } from '../layout/Layout';
 
 export { Pill, RowIconButton } from '@mana/ui';
 
@@ -32,15 +33,26 @@ export function SectionLabel({
 }
 
 /** A full-width white block; every row after the first gets a hairline above it. */
-export function EdgeGroup({ children, style }: PropsWithChildren<{ style?: StyleProp<ViewStyle> }>) {
+export function EdgeGroup({
+  children,
+  style,
+}: PropsWithChildren<{ style?: StyleProp<ViewStyle> }>) {
   const rows = React.Children.toArray(children).filter(Boolean);
+  const tablet = useIsTablet();
   return (
-    <View style={[styles.group, style]}>
+    <View style={[styles.group, tablet && styles.inset, style]}>
       {rows.map((child, i) => {
-        const hasIcon = React.isValidElement(child) && child.type === EdgeRow && Boolean((child as ReactElement<EdgeRowProps>).props.icon);
+        const hasIcon =
+          React.isValidElement(child) &&
+          child.type === EdgeRow &&
+          Boolean((child as ReactElement<EdgeRowProps>).props.icon);
         return (
           <View key={i}>
-            {i > 0 ? <View style={[styles.divider, { left: hasIcon ? DIVIDER_UNDER_TEXT : DIVIDER_PLAIN }]} /> : null}
+            {i > 0 ? (
+              <View
+                style={[styles.divider, { left: hasIcon ? DIVIDER_UNDER_TEXT : DIVIDER_PLAIN }]}
+              />
+            ) : null}
             {child}
           </View>
         );
@@ -50,8 +62,14 @@ export function EdgeGroup({ children, style }: PropsWithChildren<{ style?: Style
 }
 
 /** A full-width white block with padding, for content that isn't rows: forms, bills, photos. */
-export function EdgePanel({ children, style }: PropsWithChildren<{ style?: StyleProp<ViewStyle> }>) {
-  return <View style={[styles.group, styles.panel, style]}>{children}</View>;
+export function EdgePanel({
+  children,
+  style,
+}: PropsWithChildren<{ style?: StyleProp<ViewStyle> }>) {
+  const tablet = useIsTablet();
+  return (
+    <View style={[styles.group, tablet && styles.inset, styles.panel, style]}>{children}</View>
+  );
 }
 
 export interface EdgeRowProps {
@@ -94,7 +112,11 @@ export function EdgeRow({
       ) : null}
       <View style={styles.copy}>
         <Text
-          style={[styles.title, tone === 'danger' && styles.titleDanger, tone === 'muted' && styles.titleMuted]}
+          style={[
+            styles.title,
+            tone === 'danger' && styles.titleDanger,
+            tone === 'muted' && styles.titleMuted,
+          ]}
           numberOfLines={titleLines}
         >
           {title}
@@ -131,6 +153,14 @@ export const CHEVRON = '#B3BAD6';
 /** The hairline colour between rows and around blocks. */
 export const HAIRLINE = '#E9EDFC';
 
+/** On tablets a full-width block sits inside the page column as a rounded card, lined up with cardShell. */
+export const TABLET_INSET = {
+  marginHorizontal: 16,
+  borderWidth: 1,
+  borderRadius: radius.lg,
+  overflow: 'hidden',
+} as const;
+
 /** The rounded shadowed card shell, for the rich one-off items (not for lists of rows). */
 export const cardShell = {
   marginHorizontal: 16,
@@ -150,7 +180,13 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     marginHorizontal: 20,
   },
-  label: { fontSize: 12, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase', color: colors.slateDeep },
+  label: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: colors.slateDeep,
+  },
   labelRight: { fontSize: 12.5, fontWeight: '600', color: colors.slate },
   group: {
     backgroundColor: colors.white,
@@ -158,8 +194,16 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: HAIRLINE,
   },
+  inset: TABLET_INSET,
   panel: { paddingHorizontal: 16, paddingVertical: 16, gap: 14 },
-  divider: { position: 'absolute', top: 0, right: 0, height: 1, backgroundColor: HAIRLINE, zIndex: 1 },
+  divider: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: HAIRLINE,
+    zIndex: 1,
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

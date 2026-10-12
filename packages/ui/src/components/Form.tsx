@@ -5,9 +5,14 @@ import { brandGradients, colors, radius, spacing, typography } from '../theme';
 import { Gradient } from './Gradient';
 import { IconMinus, IconPlus } from './Icons';
 
-/** Small uppercase caption above a field or a group of choices. */
-export function FieldLabel({ children }: { children: string }) {
-  return <Text style={styles.label}>{children}</Text>;
+/** Small uppercase caption above a field or a group of choices; a red * marks a must-fill field. */
+export function FieldLabel({ children, required }: { children: string; required?: boolean }) {
+  return (
+    <Text style={styles.label}>
+      {children}
+      {required ? <Text style={styles.required}> *</Text> : null}
+    </Text>
+  );
 }
 
 /** Error in red, else a grey hint, under a field. Keeps its height so the layout doesn't jump. */
@@ -80,17 +85,19 @@ interface TextFieldProps extends Omit<TextInputProps, 'style'> {
   hint?: string;
   /** Marks a field the form can go without. */
   optional?: boolean;
+  /** Marks a field the form can't go without (a red *). */
+  required?: boolean;
 }
 
 /** Labelled single- or multi-line text box with focus and error states. */
 export const TextField = forwardRef<TextInput, TextFieldProps>(function TextField(
-  { label, error, hint, optional, multiline, onFocus, onBlur, ...input },
+  { label, error, hint, optional, required, multiline, onFocus, onBlur, ...input },
   ref,
 ) {
   const [focused, setFocused] = useState(false);
   return (
     <View style={styles.group}>
-      <FieldLabel>{optional ? `${label} (optional)` : label}</FieldLabel>
+      <FieldLabel required={required}>{optional ? `${label} (optional)` : label}</FieldLabel>
       <View style={[styles.ring, focused && styles.ringOn]}>
       <TextInput
         ref={ref}
@@ -127,13 +134,14 @@ interface ChoiceChipsProps<T extends string> {
   value: T | null;
   onChange: (value: T) => void;
   error?: string | null;
+  required?: boolean;
 }
 
 /** One answer from a few, as wrapping pills. */
-export function ChoiceChips<T extends string>({ label, options, value, onChange, error }: ChoiceChipsProps<T>) {
+export function ChoiceChips<T extends string>({ label, options, value, onChange, error, required }: ChoiceChipsProps<T>) {
   return (
     <View style={styles.group}>
-      {label ? <FieldLabel>{label}</FieldLabel> : null}
+      {label ? <FieldLabel required={required}>{label}</FieldLabel> : null}
       <View style={styles.chips} accessibilityRole="radiogroup">
         {options.map((o) => {
           const selected = o.value === value;
@@ -211,6 +219,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.7,
     textTransform: 'uppercase',
   },
+  required: { color: colors.danger },
   hint: { ...typography.caption, color: colors.slate, letterSpacing: 0, lineHeight: 17 },
   error: { ...typography.label, color: colors.danger, lineHeight: 19 },
   focused: { borderColor: colors.indigo, backgroundColor: colors.white },

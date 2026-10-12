@@ -1,6 +1,17 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { BrandMark, Gradient, GradientHero, IconMapPin, IconStar, brandGradients, colors, radius } from '@mana/ui';
+import {
+  BrandMark,
+  Gradient,
+  GradientHero,
+  IconMapPin,
+  IconPerson,
+  IconStar,
+  brandGradients,
+  colors,
+  radius,
+} from '@mana/ui';
+import { Page } from '../layout/Layout';
 
 interface HomeHeroProps {
   /** "Good morning" and so on. */
@@ -17,46 +28,55 @@ interface HomeHeroProps {
 }
 
 /** The top of Home: the logo and profile avatar, a greeting, the branch, and a gold pill for a free wash. */
-export function HomeHero({ greeting, name, branch, freeText, onProfile, overlap = true }: HomeHeroProps) {
+export function HomeHero({
+  greeting,
+  name,
+  branch,
+  freeText,
+  onProfile,
+  overlap = true,
+}: HomeHeroProps) {
   const initial = name?.trim().charAt(0).toUpperCase();
   return (
     <GradientHero>
-      <View style={[styles.content, !overlap && styles.contentFlush]}>
-        <View style={styles.topRow}>
-          <View style={styles.brand} accessible accessibilityLabel="MANA">
-            <BrandMark size={26} variant="onDark" />
-            <Text style={styles.brandText}>MANA</Text>
-          </View>
-          <Pressable
-            onPress={onProfile}
-            style={({ pressed }) => [styles.avatar, pressed && styles.avatarPressed]}
-            accessibilityRole="button"
-            accessibilityLabel="Your profile"
-          >
-            <Text style={styles.avatarText}>{initial || 'M'}</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.hello} accessible accessibilityRole="header">
-          {name ? <Text style={styles.small}>{greeting}</Text> : null}
-          <Text style={styles.title}>{name ?? greeting}</Text>
-        </View>
-
-        <View style={styles.chips}>
-          <View style={styles.glass}>
-            <IconMapPin size={15} color={colors.white} />
-            <Text style={styles.glassText}>{branch}</Text>
-          </View>
-          {freeText ? (
-            <View style={styles.goldShell}>
-              <Gradient spec={brandGradients.gold} style={styles.gold}>
-                <IconStar size={15} color={colors.goldInk} filled />
-                <Text style={styles.goldText}>{freeText}</Text>
-              </Gradient>
+      <Page>
+        <View style={[styles.content, !overlap && styles.contentFlush]}>
+          <View style={styles.topRow}>
+            <View style={styles.brand} accessible accessibilityLabel="MANA">
+              <BrandMark size={26} variant="onDark" />
+              <Text style={styles.brandText}>MANA</Text>
             </View>
-          ) : null}
+            <Pressable
+              onPress={onProfile}
+              style={({ pressed }) => [styles.avatar, pressed && styles.avatarPressed]}
+              accessibilityRole="button"
+              accessibilityLabel="Your profile"
+            >
+              {initial ? <Text style={styles.avatarText}>{initial}</Text> : <IconPerson size={18} color={colors.white} />}
+            </Pressable>
+          </View>
+
+          <View style={styles.hello} accessible accessibilityRole="header">
+            {name ? <Text style={styles.small}>{greeting}</Text> : null}
+            <Text style={styles.title}>{name ?? greeting}</Text>
+          </View>
+
+          <View style={styles.chips}>
+            <View style={styles.glass}>
+              <IconMapPin size={15} color={colors.white} />
+              <Text style={styles.glassText}>{branch}</Text>
+            </View>
+            {freeText ? (
+              <View style={styles.goldShell}>
+                <Gradient spec={brandGradients.gold} style={styles.gold}>
+                  <IconStar size={15} color={colors.goldInk} filled />
+                  <Text style={styles.goldText}>{freeText}</Text>
+                </Gradient>
+              </View>
+            ) : null}
+          </View>
         </View>
-      </View>
+      </Page>
     </GradientHero>
   );
 }
@@ -67,7 +87,12 @@ const styles = StyleSheet.create({
   contentFlush: { paddingBottom: 28 },
   topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   brand: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  brandText: { color: 'rgba(255,255,255,0.95)', fontSize: 12.5, fontWeight: '800', letterSpacing: 2.4 },
+  brandText: {
+    color: 'rgba(255,255,255,0.95)',
+    fontSize: 12.5,
+    fontWeight: '800',
+    letterSpacing: 2.4,
+  },
   avatar: {
     width: 40,
     height: 40,
@@ -82,7 +107,14 @@ const styles = StyleSheet.create({
   avatarText: { color: colors.white, fontSize: 16, fontWeight: '800' },
   hello: { marginTop: 22 },
   small: { color: 'rgba(255,255,255,0.82)', fontSize: 15, fontWeight: '600' },
-  title: { color: colors.white, fontSize: 34, lineHeight: 38, fontWeight: '800', letterSpacing: -0.6, marginTop: 2 },
+  title: {
+    color: colors.white,
+    fontSize: 34,
+    lineHeight: 38,
+    fontWeight: '800',
+    letterSpacing: -0.6,
+    marginTop: 2,
+  },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
   glass: {
     flexDirection: 'row',

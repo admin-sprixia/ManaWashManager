@@ -1,12 +1,13 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { ActivityIndicator, StatusBar, StyleSheet, View } from 'react-native';
 import { DefaultTheme, NavigationContainer, type Theme } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AlertHost, ToastHost, colors } from '@mana/ui';
 import { AuthProvider, useAuth } from './src/auth/AuthProvider';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
-import { MainNavigator } from './src/navigation/MainNavigator';
-import { RequestNavigator } from './src/navigation/RequestNavigator';
+import { holdIncomingLinks } from './src/navigation/linking';
+import { MainNavigator, mainLinking } from './src/navigation/MainNavigator';
+import { RequestNavigator, requestLinking } from './src/navigation/RequestNavigator';
 import { SignInScreen } from './src/screens/SignInScreen';
 
 const theme: Theme = {
@@ -23,6 +24,8 @@ const theme: Theme = {
 
 function Body() {
   const { state } = useAuth();
+  const navigable = state.kind === 'requesting' || state.kind === 'signed_in';
+  useEffect(() => (navigable ? undefined : holdIncomingLinks()), [navigable]);
   switch (state.kind) {
     case 'checking':
       return (
@@ -34,13 +37,13 @@ function Body() {
       return <SignInScreen notice={state.notice} />;
     case 'requesting':
       return (
-        <NavigationContainer theme={theme} key={`request:${state.pass.phone}`}>
+        <NavigationContainer theme={theme} linking={requestLinking} key={`request:${state.pass.phone}`}>
           <RequestNavigator pass={state.pass} />
         </NavigationContainer>
       );
     case 'signed_in':
       return (
-        <NavigationContainer theme={theme} key={`customer:${state.account.phone}`}>
+        <NavigationContainer theme={theme} linking={mainLinking} key={`customer:${state.account.phone}`}>
           <MainNavigator />
         </NavigationContainer>
       );

@@ -334,7 +334,7 @@ cd apps/api && npm run db:check   # schema.sql matches the migrations
 ```
 
 **CI** — `.github/workflows/ci.yml` runs all of the above on every push to `main` and every pull request, then
-builds a fresh local database, starts the API and runs the isolation and sign-up tests below.
+builds a fresh local database, starts the API and runs every API end-to-end test below.
 Don't merge a red build.
 
 **Shop isolation test** — the platform runs many car washes on one database (see
@@ -345,7 +345,16 @@ cd apps/api && npm run test:isolation   # adds a second shop and proves neither 
 cd apps/api && npm run test:signup      # new shop sign-up, join requests (approve/reject/cancel), remove from team
 cd apps/api && npm run test:plans       # Free limits (staff seats, 300 washes, 7-day reports, Pro-only features), trial, grace, webhook signature
 cd apps/api && npm run test:rewards     # stamp cards, free washes, welcome gifts and owed gifts, including voids and retries
+cd apps/api && npm run test:races       # double taps and parallel requests can't double-count
+cd apps/api && npm run test:customer-app  # the MANA Car Wash app: sign-in, branches, vehicles, washes, requests
+cd apps/api && npm run test:catalog     # business price list, vehicle sizes, branches and service points
+cd apps/api && npm run test:places      # places, joining (flows A–E), plans, payments, receipts, refunds, nightly
 ```
+
+These expect a fresh local database: run `npm run db:reset:local` first, and `npm run db:seed:demo`
+afterwards to get the demo data back. `test:places` checks the signed payment webhook when
+`RAZORPAY_WEBHOOK_SECRET` is set in the shell, the same way as `test:plans` below. Places, plans and
+payments are described in `MANA-Registration-and-Plans.md`.
 
 `test:plans` checks a correctly signed webhook too when `RAZORPAY_WEBHOOK_SECRET` is set in the
 shell to the same value the local API uses (CI does this). It also runs a stand-in Razorpay on

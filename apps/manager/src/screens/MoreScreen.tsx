@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -7,6 +7,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   ScreenContainer,
@@ -18,6 +19,7 @@ import {
   IconBox,
   IconBug,
   IconCalendarCheck,
+  IconCar,
   IconChart,
   IconCheck,
   IconCloudOff,
@@ -25,6 +27,7 @@ import {
   IconEdit,
   IconGift,
   IconStar,
+  IconUpi,
   IconLock,
   IconPerson,
   IconPlus,
@@ -48,6 +51,7 @@ import { EdgeGroup, EdgeRow, Pill, SectionLabel } from '../components/EdgeList';
 import { SetPinSheet } from '../components/SetPinSheet';
 import { EditProfileSheet } from '../components/EditProfileSheet';
 import { ReviewLinkSheet } from '../components/ReviewLinkSheet';
+import { UpiSheet } from '../components/UpiSheet';
 import { ShopDetailsSheet } from '../components/ShopDetailsSheet';
 import { ShopSwitcherSheet } from '../components/ShopSwitcherSheet';
 import { EarningsCard } from '../components/EarningsCard';
@@ -99,10 +103,12 @@ export function MoreScreen({ navigation }: Props) {
   const [pinOpen, setPinOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [upiOpen, setUpiOpen] = useState(false);
   const [shopOpen, setShopOpen] = useState(false);
   const [branches, setBranches] = useState<'list' | 'add' | null>(null);
   const {
     googleReviewUrl,
+    upiId,
     unseenErrors,
     joinRequests,
     info: shop,
@@ -115,6 +121,23 @@ export function MoreScreen({ navigation }: Props) {
     customerApp,
   } = useShop();
   const giftsOwed = rewards?.giftsOwed ?? 0;
+  const [businessAdmin, setBusinessAdmin] = useState(false);
+  // Whether this person runs the business price list; quietly left off when offline.
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      api.services.network
+        .$get()
+        .then((res) => (res.ok ? res.json() : null))
+        .then((network) => {
+          if (alive && network) setBusinessAdmin(network.isBusinessAdmin);
+        })
+        .catch(() => undefined);
+      return () => {
+        alive = false;
+      };
+    }, []),
+  );
   const { plan, isPro, washesUsed } = usePlan();
   const proPill = useProPill();
 
@@ -199,7 +222,9 @@ export function MoreScreen({ navigation }: Props) {
           }
         : {
             title: 'All synced',
-            subtitle: `Last sync ${timeAgo(lastSyncedAt).toLowerCase()}`,
+            subtitle: lastSyncedAt
+              ? `Last sync ${timeAgo(lastSyncedAt).toLowerCase()}`
+              : 'Nothing waiting to send',
             tone: 'teal' as const,
           };
 
@@ -415,27 +440,25 @@ export function MoreScreen({ navigation }: Props) {
           />
         </EdgeGroup>
 
-        {customerApp.listed || isOwner ? (
+        {customerApp.listed ? (
           <>
-            <SectionLabel>MANA Car Wash app</SectionLabel>
+            <SectionLabel>Customers</SectionLabel>
             <EdgeGroup>
-              {customerApp.listed ? (
-                <EdgeRow
-                  icon={<IconUserPlus size={19} color={colors.waterDeep} />}
-                  title="Service requests"
-                  subtitle={
-                    customerApp.openRequests > 0
-                      ? `${customerApp.openRequests} waiting for a call`
-                      : 'People asking for doorstep washing'
-                  }
-                  right={
-                    customerApp.openRequests > 0 ? (
-                      <Pill label={String(customerApp.openRequests)} tone="danger" />
-                    ) : undefined
-                  }
-                  onPress={() => navigation.navigate('ServiceRequests')}
-                />
-              ) : null}
+              <EdgeRow
+                icon={<IconUserPlus size={19} color={colors.waterDeep} />}
+                title="People asking"
+                subtitle={
+                  customerApp.openRequests > 0
+                    ? `${customerApp.openRequests} waiting for a call`
+                    : 'People who want us in their area'
+                }
+                right={
+                  customerApp.openRequests > 0 ? (
+                    <Pill label={String(customerApp.openRequests)} tone="danger" />
+                  ) : undefined
+                }
+                onPress={() => navigation.navigate('ServiceRequests')}
+              />
               {customerApp.listed ? (
                 <EdgeRow
                   icon={<IconStar size={19} color={colors.amberDeep} />}
@@ -457,15 +480,21 @@ export function MoreScreen({ navigation }: Props) {
                   }
                 />
               ) : null}
-              {isOwner ? (
-                <EdgeRow
-                  icon={<IconMapPin size={19} color={colors.tealDeep} />}
-                  iconBg="#CCFBF1"
-                  title="Branch in the app"
-                  subtitle="Address, hours, and where you wash"
-                  onPress={() => navigation.navigate('ServiceArea')}
-                />
-              ) : null}
+            </EdgeGroup>
+          </>
+        ) : null}
+
+        {businessAdmin ? (
+          <>
+            <SectionLabel>Business</SectionLabel>
+            <EdgeGroup>
+              <EdgeRow
+                icon={<IconSparkle size={19} color={colors.tealDeep} />}
+                iconBg="#CCFBF1"
+                title="Business price list"
+                subtitle="Services, prices and rules for every branch"
+                onPress={() => navigation.navigate('Business')}
+              />
             </EdgeGroup>
           </>
         ) : null}
@@ -518,6 +547,19 @@ export function MoreScreen({ navigation }: Props) {
                 onPress={() => navigation.navigate('Settings')}
               />
               <EdgeRow
+                icon={<IconCar size={19} color={colors.waterDeep} />}
+                title="How this branch washes"
+                subtitle="The shop, the community team, and which vehicles"
+                onPress={() => navigation.navigate('ServicePoints')}
+              />
+              <EdgeRow
+                icon={<IconMapPin size={19} color={colors.tealDeep} />}
+                iconBg="#CCFBF1"
+                title="Branch in the app"
+                subtitle="Address, hours and area shown to customers"
+                onPress={() => navigation.navigate('ServiceArea')}
+              />
+              <EdgeRow
                 icon={<IconStar size={19} color={colors.amberDeep} />}
                 iconBg="#FEF3C7"
                 title="Google review link"
@@ -528,6 +570,13 @@ export function MoreScreen({ navigation }: Props) {
                 }
                 right={!googleReviewUrl ? <Pill label="Set up" tone="amber" /> : undefined}
                 onPress={() => setReviewOpen(true)}
+              />
+              <EdgeRow
+                icon={<IconUpi size={19} color={colors.waterDeep} />}
+                title="UPI QR code"
+                subtitle={upiId ? `Shown when a customer pays by UPI · ${upiId}` : 'Not set — add your UPI ID to show a QR'}
+                right={!upiId ? <Pill label="Set up" tone="amber" /> : undefined}
+                onPress={() => setUpiOpen(true)}
               />
               <EdgeRow
                 icon={<IconBug size={19} color={colors.slateDeep} />}
@@ -578,6 +627,7 @@ export function MoreScreen({ navigation }: Props) {
 
       <EditProfileSheet visible={profileOpen} onClose={() => setProfileOpen(false)} />
       <ReviewLinkSheet visible={reviewOpen} onClose={() => setReviewOpen(false)} />
+      <UpiSheet visible={upiOpen} onClose={() => setUpiOpen(false)} />
       <ShopDetailsSheet visible={shopOpen} onClose={() => setShopOpen(false)} />
       <ShopSwitcherSheet
         visible={branches != null}

@@ -2,14 +2,15 @@ import React from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import Svg, { Defs, Line, LinearGradient, Path, Stop } from 'react-native-svg';
 import { stampsToGo } from '@mana/domain';
-import { Gradient, IconAlert, IconCheck, IconGift, IconStar, brandGradients, colors, radius, shadow } from '@mana/ui';
+import { BRAND_MARK, Gradient, IconAlert, IconGift, IconStar, brandGradients, colors, radius, shadow } from '@mana/ui';
 import { warning, type Card } from './StampCard';
 
 /** Cards up to this size draw one drop per stamp; bigger ones draw only the meter. */
 const MAX_DROPS = 12;
 const REWARD = 46;
 const LINE_MIN = 18;
-const DROP_PATH = 'M18 2 C18 2 4 17 4 27 A14 14 0 0 0 32 27 C32 17 18 2 18 2 Z';
+/** The logo's drop, with a little room for the dashed outline, cut out of its 256 box. */
+const STAMP_BOX = { x: 40, y: 10, w: 176, h: 236 };
 
 interface FreeWashCardProps {
   card: Card;
@@ -18,32 +19,29 @@ interface FreeWashCardProps {
   vehicle?: string;
 }
 
-/** One stamp, as a water drop: filled and checked when collected, a dashed outline when not. */
+/** One stamp, as the MANA logo: the full mark when collected, the drop's dashed outline when not. */
 function Stamp({ on, width, id }: { on: boolean; width: number; id: string }) {
-  const height = (width * 42) / 36;
+  const height = (width * STAMP_BOX.h) / STAMP_BOX.w;
   return (
     <View style={{ width, height }} accessible={false}>
-      <Svg width={width} height={height} viewBox="0 0 36 42">
+      <Svg width={width} height={height} viewBox={`${STAMP_BOX.x} ${STAMP_BOX.y} ${STAMP_BOX.w} ${STAMP_BOX.h}`}>
         {on ? (
           <>
             <Defs>
-              <LinearGradient id={id} x1="0" y1="0" x2="1" y2="1">
-                <Stop offset="0" stopColor="#7F93E6" />
-                <Stop offset="0.5" stopColor="#4458CC" />
+              <LinearGradient id={id} x1="0.2" y1="0" x2="0.8" y2="1">
+                <Stop offset="0" stopColor="#9BAEF5" />
+                <Stop offset="0.45" stopColor="#4458CC" />
                 <Stop offset="1" stopColor={colors.indigoDeep} />
               </LinearGradient>
             </Defs>
-            <Path d={DROP_PATH} fill={`url(#${id})`} />
+            <Path d={BRAND_MARK.drop} fill={`url(#${id})`} />
+            <Path d={BRAND_MARK.arms} fill={colors.white} />
+            <Path d={BRAND_MARK.centre} fill={colors.white} />
           </>
         ) : (
-          <Path d={DROP_PATH} fill={colors.surface} stroke={colors.indigoMist} strokeWidth={2} strokeDasharray="3.5 3.5" />
+          <Path d={BRAND_MARK.drop} fill={colors.surface} stroke={colors.indigoMist} strokeWidth={11} strokeDasharray="20 20" />
         )}
       </Svg>
-      {on ? (
-        <View style={[styles.check, { top: (15 / 42) * height }]}>
-          <IconCheck size={Math.round((15 / 36) * width)} color={colors.white} />
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -199,7 +197,6 @@ const styles = StyleSheet.create({
   countTextFree: { color: colors.white },
   track: { flexDirection: 'row', alignItems: 'center', marginTop: 15, marginBottom: 12 },
   trackSpacer: { height: 12 },
-  check: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
   linkLine: { flex: 1, minWidth: LINE_MIN, height: 2 },
   rewardShell: {
     width: REWARD,

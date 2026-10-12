@@ -6,9 +6,11 @@ import {
   customerRepo,
   expenseRepo,
   jobRepo,
+  placeOrderRepo,
   referralRepo,
   rewardRepo,
   serviceRepo,
+  type D1Database,
   type DbClient,
 } from '@mana/db';
 import {
@@ -51,14 +53,15 @@ const MAX_SERVICES_PER_JOB = 30;
 
 /**
  * A voided wash hands back its coupon, cancels its referral and takes back its welcome gift
- * (stock returns to the shelf). Its free washes come back by themselves: a claim only counts
- * while its job isn't voided. Safe to run more than once.
+ * (stock returns to the shelf), and gives back the plan wash it used. Its free washes come back
+ * by themselves: a claim only counts while its job isn't voided. Safe to run more than once.
  */
-async function undoVoidedJobExtras(db: DbClient, jobId: string, userId: string) {
+async function undoVoidedJobExtras(db: DbClient, d1: D1Database, jobId: string, userId: string) {
   const now = new Date();
   await couponRepo.restoreForVoidedJob(db, jobId, now);
   await cancelReferralForVoidedJob(db, jobId);
   await rewardRepo.returnForVoidedJob(db, jobId, { userId, now });
+  await placeOrderRepo.releaseShopWash(d1, db.$shopId(), jobId);
 }
 
 /** Client-generated ids (offline queue) — opaque, URL-safe, bounded. */
@@ -92,6 +95,8 @@ const pricingFields = {
     .refine((lines) => lines.every((l) => l.quantity <= MAX_SERVICE_QUANTITY), `At most ${MAX_SERVICE_QUANTITY} of one service`),
   discount: z.number().int().min(0).default(0),
   discountReason: z.string().trim().max(200).optional(),
+  /** Washed at the hub or at the customer's door: doorstep washes use the doorstep prices. */
+  mode: z.enum(['hub', 'doorstep']).default('hub'),
 };
 
 // V1.0's own feature table: "discounts require a reason" — enforced here too, not just in
@@ -145,10 +150,16 @@ const startJobSchema = z
       .max(MAX_SERVICES_PER_JOB)
       .transform((ids) => [...new Set(ids)])
       .optional(),
+    /** A community plan pays for this wash: its service is free and one plan wash is used. */
+    planOrderId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/).optional(),
     ...pricingFields,
     sellerIds: sellerIdsSchema.optional(),
   })
   .refine(discountNeedsReason, discountReasonIssue)
+  .refine((d) => !d.planOrderId || (d.discount === 0 && !d.couponCode && !d.referralToken && !d.rewardServiceIds), {
+    message: 'A plan wash can’t be combined with another discount',
+    path: ['planOrderId'],
+  })
   .refine((d) => !d.rewardServiceIds || (d.discount === 0 && !d.couponCode && !d.referralToken), {
     message: 'A free wash can’t be combined with another discount',
     path: ['rewardServiceIds'],
@@ -217,9 +228,12 @@ async function priceJob(
   }
 
   const [prices, commissionRates] = await Promise.all([
-    serviceRepo.listPrices(db, body.vehicleTypeId),
+    serviceRepo.listPrices(db, body.vehicleTypeId, body.mode),
     serviceRepo.listCommissionRates(db, body.vehicleTypeId),
   ]);
+  if (prices.length === 0 && body.mode === 'doorstep') {
+    return { error: 'mode_not_offered' as const, message: 'This branch doesn’t do doorstep washes for this vehicle.' };
+  }
   const commissionFor = new Map(commissionRates.map((r) => [r.serviceId, r.amount]));
   let breakdown: ReturnType<typeof calculatePrice>;
   try {
@@ -361,6 +375,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       createdAt,
       lineItems: priced.lineItems,
       sellerIds: await resolveSellers(db, priced.lineItems, undefined, session.sub),
+      deliveryMode: body.mode,
     });
     return c.json(job, 201);
   })
@@ -453,20 +468,38 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       freeWash = check;
     }
 
+    // A community plan member at the shop: the plan's wash is free, and uses one of its washes.
+    const planInvalid = (message: string) => c.json({ error: 'plan_wash_invalid' as const, message }, 409);
+    let planWash: { discount: number; reason: string } | null = null;
+    if (body.planOrderId) {
+      if (body.ownership) return planInvalid('A plan wash can’t be used while the vehicle’s owner is being changed.');
+      const plans = await placeOrderRepo.shopPlans(c.env.DB, session.shopId, body.customer.phone, now);
+      const found = plans.find((p) => p.orderId === body.planOrderId);
+      if (!found) return planInvalid('This plan isn’t running for this customer any more.');
+      if (found.problem) return planInvalid(found.problem);
+      const line = priced.lineItems.find((l) => l.serviceId === found.service?.id);
+      if (!line) return planInvalid(`Add ${found.service?.name ?? 'the plan’s wash'} to the bill to use the plan.`);
+      planWash = { discount: line.priceAtTime, reason: `Plan wash · ${found.planName} · ${found.placeName}`.slice(0, 200) };
+    }
+
     const percentOff = coupon?.percent ?? referral?.percent ?? null;
     const discount = freeWash
       ? freeWash.discount
-      : percentOff != null
-        ? couponDiscount(priced.subtotal, percentOff)
-        : body.discount;
+      : planWash
+        ? planWash.discount
+        : percentOff != null
+          ? couponDiscount(priced.subtotal, percentOff)
+          : body.discount;
     const discountReason = freeWash
       ? freeWash.reason
-      : coupon
+      : planWash
+        ? planWash.reason
+        : coupon
         ? `Coupon ${coupon.code} · ${coupon.percent}% off`
         : referral
           ? `Referred by ${referral.referrerName?.trim() || referral.referrerPhone} · ${referral.percent}% off`
           : body.discountReason;
-    const total = freeWash || percentOff != null ? priced.subtotal - discount : priced.total;
+    const total = freeWash || planWash || percentOff != null ? priced.subtotal - discount : priced.total;
 
     const ensured = await customerRepo.ensureWithVehicle(db, {
       phone: body.customer.phone,
@@ -485,6 +518,21 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       );
     }
     const { customer, vehicle } = ensured;
+
+    if (planWash && body.planOrderId) {
+      const used = await placeOrderRepo.useAtShop(c.env.DB, session.shopId, {
+        orderId: body.planOrderId,
+        jobId: body.id,
+        phone: body.customer.phone,
+        byUserId: session.sub,
+        now,
+      });
+      if (!used.ok) {
+        const winner = await jobRepo.findBoardRow(db, body.id);
+        if (winner) return c.json(winner, 200);
+        return planInvalid(used.message);
+      }
+    }
 
     if (freeWash && body.rewardServiceIds) {
       for (const serviceId of body.rewardServiceIds) {
@@ -566,6 +614,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
         createdAt,
         lineItems: priced.lineItems,
         sellerIds: await resolveSellers(db, priced.lineItems, body.sellerIds, session.sub),
+        deliveryMode: body.mode,
       });
       return c.json(job, 201);
     } catch (e) {
@@ -576,6 +625,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       if (coupon) await couponRepo.release(db, { couponId: coupon.id, jobId: body.id });
       if (referral) await referralRepo.removeForJob(db, body.id);
       if (freeWash) await rewardRepo.releaseClaims(db, body.id);
+      if (planWash) await placeOrderRepo.releaseShopWash(c.env.DB, session.shopId, body.id);
       throw e;
     }
   })
@@ -593,17 +643,20 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     const tooFarBack = reportWindowProblem(c.get('plan'), window.from);
     if (tooFarBack) return c.json(tooFarBack, 402);
 
-    const [stats, pendingNow, expenses] = await Promise.all([
+    const [stats, pendingNow, expenses, plans] = await Promise.all([
       jobRepo.getStats(db, window.from, window.to),
       jobRepo.countPending(db),
       expenseRepo.total(db, window.from, window.to),
+      placeOrderRepo.income(db, window.from, window.to),
     ]);
 
     return c.json({
       ...stats,
       pendingNow,
       expenses,
-      net: stats.revenue - expenses,
+      planIncome: plans.amount,
+      planPayments: plans.count,
+      net: stats.revenue + plans.amount - expenses,
       ...windowMeta(query, window),
     });
   })
@@ -614,17 +667,25 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     const window = resolveReportWindow(query);
     if ('error' in window) return c.json({ error: window.error }, 400);
 
-    const [stats, pendingNow, expenses, jobs] = await Promise.all([
+    const [stats, pendingNow, expenses, jobs, plans] = await Promise.all([
       jobRepo.getStats(db, window.from, window.to),
       jobRepo.countPending(db),
       expenseRepo.total(db, window.from, window.to),
       jobRepo.listForReport(db, window.from, window.to),
+      placeOrderRepo.income(db, window.from, window.to),
     ]);
 
     return c.json({
       generatedAt: new Date().toISOString(),
       ...windowMeta(query, window),
-      stats: { ...stats, pendingNow, expenses, net: stats.revenue - expenses },
+      stats: {
+        ...stats,
+        pendingNow,
+        expenses,
+        planIncome: plans.amount,
+        planPayments: plans.count,
+        net: stats.revenue + plans.amount - expenses,
+      },
       jobs: jobs.map((job) => ({
         id: job.id,
         createdAt: job.createdAt.toISOString(),
@@ -848,7 +909,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     const from = job.status as JobStatus;
     if (from === 'void') {
       // A retry after a crash between voiding and the undo steps: finish them (safe to repeat).
-      await undoVoidedJobExtras(db, id, session.sub);
+      await undoVoidedJobExtras(db, c.env.DB, id, session.sub);
       return c.json(await jobRepo.findBoardRow(db, id), 200);
     }
     if (!canVoidJob(from, session.role)) {
@@ -869,7 +930,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       // and only the owner may void it now.
       const now = await jobRepo.findBoardRow(db, id);
       if (now?.status === 'void') {
-        await undoVoidedJobExtras(db, id, session.sub);
+        await undoVoidedJobExtras(db, c.env.DB, id, session.sub);
         return c.json(now, 200);
       }
       return c.json(
@@ -877,7 +938,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
         409,
       );
     }
-    await undoVoidedJobExtras(db, id, session.sub);
+    await undoVoidedJobExtras(db, c.env.DB, id, session.sub);
     return c.json(voided, 200);
   })
   // Owner correction: the job was paid by UPI but recorded as cash (or vice versa).

@@ -140,3 +140,108 @@ INSERT INTO users (id, shop_id, name, phone, role) VALUES
 -- Team screen) before go-live; real staff are added by the owner from the app.
 INSERT INTO users (id, shop_id, name, phone, role) VALUES
   ('user_staff_seed', 'shop_mana', 'Staff Demo', '9100000001', 'staff');
+
+-- ─── Seed: the business catalog (service network) ───────────────────────────
+
+-- MANA Car Wash runs every branch from one catalog. The branch's services above are adopted by
+-- the catalog services of the same name on the first menu build, so their ids, commissions and
+-- rewards stay; their prices come from the price book below from then on. The rest of the
+-- default classes, sizes and body types are filled in by the API on first use.
+INSERT INTO businesses (id, name) VALUES ('biz_mana', 'MANA Car Wash');
+UPDATE shops SET business_id = 'biz_mana' WHERE id = 'shop_mana';
+INSERT INTO business_admins (business_id, phone) VALUES ('biz_mana', '9100000000');
+
+INSERT INTO vehicle_classes (id, business_id, key, name, sort_order) VALUES
+  ('vc_biz_mana_twoWheeler', 'biz_mana', 'twoWheeler', 'Two-wheeler', 0),
+  ('vc_biz_mana_car',        'biz_mana', 'car',        'Car',         1);
+INSERT INTO vehicle_sizes (id, business_id, class_id, key, name, sort_order) VALUES
+  ('vs_biz_mana_twoWheeler_S', 'biz_mana', 'vc_biz_mana_twoWheeler', 'S',  'Small',       0),
+  ('vs_biz_mana_twoWheeler_M', 'biz_mana', 'vc_biz_mana_twoWheeler', 'M',  'Medium',      1),
+  ('vs_biz_mana_twoWheeler_L', 'biz_mana', 'vc_biz_mana_twoWheeler', 'L',  'Large',       2),
+  ('vs_biz_mana_car_S',        'biz_mana', 'vc_biz_mana_car',        'S',  'Small',       0),
+  ('vs_biz_mana_car_M',        'biz_mana', 'vc_biz_mana_car',        'M',  'Medium',      1),
+  ('vs_biz_mana_car_L',        'biz_mana', 'vc_biz_mana_car',        'L',  'Large',       2),
+  ('vs_biz_mana_car_XL',       'biz_mana', 'vc_biz_mana_car',        'XL', 'Extra large', 3);
+-- MANA prices a compact SUV a size up from a sedan, and a full SUV as extra large.
+INSERT INTO body_types (id, business_id, key, name, class_id, size_id, sort_order) VALUES
+  ('bt_biz_mana_hatch',    'biz_mana', 'hatch',    'Hatchback',   'vc_biz_mana_car',        'vs_biz_mana_car_S',        0),
+  ('bt_biz_mana_sedan',    'biz_mana', 'sedan',    'Sedan',       'vc_biz_mana_car',        'vs_biz_mana_car_M',        1),
+  ('bt_biz_mana_suvMini',  'biz_mana', 'suvMini',  'Compact SUV', 'vc_biz_mana_car',        'vs_biz_mana_car_L',        2),
+  ('bt_biz_mana_suvLarge', 'biz_mana', 'suvLarge', 'SUV',         'vc_biz_mana_car',        'vs_biz_mana_car_XL',       3),
+  ('bt_biz_mana_scooter',  'biz_mana', 'scooter',  'Scooter',     'vc_biz_mana_twoWheeler', 'vs_biz_mana_twoWheeler_S', 25),
+  ('bt_biz_mana_bike',     'biz_mana', 'bike',     'Bike',        'vc_biz_mana_twoWheeler', 'vs_biz_mana_twoWheeler_M', 27);
+UPDATE vehicle_types SET body_type_id = 'bt_biz_mana_hatch'    WHERE id = 'vt_hatchback';
+UPDATE vehicle_types SET body_type_id = 'bt_biz_mana_sedan'    WHERE id = 'vt_sedan';
+UPDATE vehicle_types SET body_type_id = 'bt_biz_mana_suvMini'  WHERE id = 'vt_mini_suv';
+UPDATE vehicle_types SET body_type_id = 'bt_biz_mana_suvLarge' WHERE id = 'vt_large_suv';
+UPDATE vehicle_types SET body_type_id = 'bt_biz_mana_bike'     WHERE id = 'vt_bike';
+UPDATE vehicle_types SET body_type_id = 'bt_biz_mana_scooter'  WHERE id = 'vt_scooter';
+
+INSERT INTO catalog_services (id, business_id, name, description, modes, sort_order)
+SELECT column1, 'biz_mana', column2, column3, column4, column5 FROM (VALUES
+  ('cs_complete_wash',      'Complete Car Wash',    'Exterior foam wash + interior vacuum + tyres + glass', 'both', 0),
+  ('cs_exterior_wash',      'Exterior Wash',        'Exterior foam wash + wheels + tyres + glass',          'both', 1),
+  ('cs_interior_cleaning',  'Interior Cleaning',    'Vacuum + mats + dashboard wipe + interior glass',      'both', 2),
+  ('cs_mana_combo',         'MANA Combo',           'Complete Car Wash + tyre and dashboard dressing',      'both', 3),
+  ('cs_ac_hygiene',         'AC & Cabin Hygiene',   'AC vent and cabin refresh treatment',                  'both', 4),
+  -- Needs the hub's ramp.
+  ('cs_underbody',          'Underbody Cleaning',   'Underbody wash and mud removal',                       'hub',  5),
+  ('cs_tyre_dressing',      'Tyre Dressing',        'Add-on',                                               'both', 6),
+  ('cs_dashboard_dressing', 'Dashboard Dressing',   'Add-on',                                               'both', 7),
+  ('cs_fragrance',          'Car Fragrance',        'Add-on',                                               'both', 8),
+  ('cs_bike_complete',      'Complete Bike Wash',   'Foam wash + chain area wipe + dry',                    'both', 100),
+  ('cs_bike_exterior',      'Bike Foam Wash',       'Exterior foam wash + wheels + dry',                    'both', 101),
+  ('cs_bike_chain',         'Chain Clean & Lube',   'Chain degrease, clean, and lube',                      'both', 102),
+  ('cs_bike_engine',        'Engine Degrease',      'Engine bay degrease and wipe',                         'both', 103),
+  ('cs_bike_polish',        'Bike Polish',          'Body polish and shine',                                'both', 104),
+  ('cs_bike_tyre',          'Bike Tyre Dressing',   'Add-on',                                               'both', 105),
+  ('cs_bike_seat',          'Seat Clean & Protect', 'Seat wipe and protectant',                             'both', 106));
+
+INSERT INTO catalog_service_classes (business_id, service_id, class_id)
+SELECT 'biz_mana', id, CASE WHEN sort_order >= 100 THEN 'vc_biz_mana_twoWheeler' ELSE 'vc_biz_mana_car' END
+FROM catalog_services WHERE business_id = 'biz_mana';
+
+INSERT INTO catalog_combo_items (business_id, combo_id, service_id) VALUES
+  ('biz_mana', 'cs_mana_combo', 'cs_complete_wash'),
+  ('biz_mana', 'cs_mana_combo', 'cs_tyre_dressing'),
+  ('biz_mana', 'cs_mana_combo', 'cs_dashboard_dressing');
+-- The branch's combo bundles the same services (adoption keeps the branch's combo items).
+INSERT INTO service_combo_items (shop_id, combo_id, service_id) VALUES
+  ('shop_mana', 'svc_mana_combo', 'svc_complete_wash'),
+  ('shop_mana', 'svc_mana_combo', 'svc_tyre_dressing'),
+  ('shop_mana', 'svc_mana_combo', 'svc_dashboard_dressing');
+
+INSERT INTO price_books (id, business_id, name, is_default) VALUES ('pb_biz_mana_default', 'biz_mana', 'Standard', 1);
+
+-- Base prices (paise) by size: car S / M / L / XL, two-wheeler S / M — the same as the branch's.
+INSERT INTO price_book_entries (business_id, price_book_id, service_id, size_id, price)
+SELECT 'biz_mana', 'pb_biz_mana_default', column1, 'vs_biz_mana_' || column2, column3 FROM (VALUES
+  ('cs_complete_wash', 'car_S', 40000), ('cs_complete_wash', 'car_M', 50000), ('cs_complete_wash', 'car_L', 60000), ('cs_complete_wash', 'car_XL', 70000),
+  ('cs_exterior_wash', 'car_S', 25000), ('cs_exterior_wash', 'car_M', 30000), ('cs_exterior_wash', 'car_L', 35000), ('cs_exterior_wash', 'car_XL', 40000),
+  ('cs_interior_cleaning', 'car_S', 25000), ('cs_interior_cleaning', 'car_M', 30000), ('cs_interior_cleaning', 'car_L', 35000), ('cs_interior_cleaning', 'car_XL', 40000),
+  ('cs_mana_combo', 'car_S', 50000), ('cs_mana_combo', 'car_M', 60000), ('cs_mana_combo', 'car_L', 70000), ('cs_mana_combo', 'car_XL', 80000),
+  ('cs_ac_hygiene', 'car_S', 250000), ('cs_ac_hygiene', 'car_M', 250000), ('cs_ac_hygiene', 'car_L', 250000), ('cs_ac_hygiene', 'car_XL', 250000),
+  ('cs_underbody', 'car_S', 50000), ('cs_underbody', 'car_M', 50000), ('cs_underbody', 'car_L', 50000), ('cs_underbody', 'car_XL', 50000),
+  ('cs_tyre_dressing', 'car_S', 5000), ('cs_tyre_dressing', 'car_M', 5000), ('cs_tyre_dressing', 'car_L', 5000), ('cs_tyre_dressing', 'car_XL', 5000),
+  ('cs_dashboard_dressing', 'car_S', 10000), ('cs_dashboard_dressing', 'car_M', 10000), ('cs_dashboard_dressing', 'car_L', 10000), ('cs_dashboard_dressing', 'car_XL', 10000),
+  ('cs_fragrance', 'car_S', 5000), ('cs_fragrance', 'car_M', 5000), ('cs_fragrance', 'car_L', 5000), ('cs_fragrance', 'car_XL', 5000),
+  ('cs_bike_complete', 'twoWheeler_S', 20000), ('cs_bike_complete', 'twoWheeler_M', 25000),
+  ('cs_bike_exterior', 'twoWheeler_S', 12000), ('cs_bike_exterior', 'twoWheeler_M', 15000),
+  ('cs_bike_chain', 'twoWheeler_S', 10000), ('cs_bike_chain', 'twoWheeler_M', 10000),
+  ('cs_bike_engine', 'twoWheeler_S', 15000), ('cs_bike_engine', 'twoWheeler_M', 15000),
+  ('cs_bike_polish', 'twoWheeler_S', 20000), ('cs_bike_polish', 'twoWheeler_M', 25000),
+  ('cs_bike_tyre', 'twoWheeler_S', 5000), ('cs_bike_tyre', 'twoWheeler_M', 5000),
+  ('cs_bike_seat', 'twoWheeler_S', 8000), ('cs_bike_seat', 'twoWheeler_M', 8000));
+
+-- Doorstep washes cost 15% more (travel and water), at least ₹50.
+INSERT INTO mode_adjustments (id, business_id, mode, class_id, percent_bp, fixed_paise, min_extra_paise)
+VALUES ('ma_biz_mana_doorstep_all', 'biz_mana', 'doorstep', NULL, 1500, 0, 5000);
+
+-- Community plans (buildings, colonies, streets): priced from the community (doorstep) price of
+-- their catalog service, washes × price less the discount. Weekly is once a week outside, Regular
+-- twice, Premium three times with the inside done too; Premium can be paid in parts.
+INSERT INTO wash_plans (id, business_id, name, washes, months, catalog_service_id, discount_bp, allow_parts, popular, sort_order) VALUES
+  ('wp_mana_weekly',       'biz_mana', 'Weekly',       4,  1, 'cs_exterior_wash', 0,    0, 0, 0),
+  ('wp_mana_regular',      'biz_mana', 'Regular',      8,  1, 'cs_exterior_wash', 1500, 0, 1, 1),
+  ('wp_mana_premium',      'biz_mana', 'Premium',      12, 1, 'cs_complete_wash', 2000, 1, 0, 2),
+  ('wp_mana_bike_monthly', 'biz_mana', 'Bike Monthly', 4,  1, 'cs_bike_complete', 0,    0, 0, 3);

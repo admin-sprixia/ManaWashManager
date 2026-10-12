@@ -78,9 +78,13 @@ jobs:
       - run: npm run test:races
       - run: npm run test:rewards
       - run: npm run test:customer-app
+      - run: npm run test:catalog
       - name: Plan limits and billing webhook
         run: |
           RAZORPAY_WEBHOOK_SECRET="$(grep '^RAZORPAY_WEBHOOK_SECRET=' .dev.vars | cut -d= -f2-)" npm run test:plans
+      - name: Places, plans and payments
+        run: |
+          RAZORPAY_WEBHOOK_SECRET="$(grep '^RAZORPAY_WEBHOOK_SECRET=' .dev.vars | cut -d= -f2-)" npm run test:places
       - name: API log
         if: failure()
         run: cat wrangler.log

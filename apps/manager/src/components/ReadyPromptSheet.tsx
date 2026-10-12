@@ -1,10 +1,11 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { colors, radius, spacing, typography, BottomSheet, Button, IconWhatsApp } from '@mana/ui';
 import type { BoardJob } from '../offline/types';
 import { buildReadyMessage } from '../utils/messages';
 import { customerLine } from '../utils/jobs';
 import { openWhatsApp } from '../utils/whatsapp';
+import { WhatsAppText } from './WhatsAppText';
 
 /** Shown right after a job moves to Ready: one tap tells the customer to come back. */
 export function ReadyPromptSheet({ job, onClose }: { job: BoardJob | null; onClose: () => void }) {
@@ -39,7 +40,7 @@ export function ReadyPromptSheet({ job, onClose }: { job: BoardJob | null; onClo
       }
     >
       <View style={styles.preview}>
-        <Text style={styles.previewText}>{message}</Text>
+        <WhatsAppText style={styles.previewText}>{message}</WhatsAppText>
       </View>
     </BottomSheet>
   );

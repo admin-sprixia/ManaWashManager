@@ -16,6 +16,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ScreenContainer,
+  IconBuilding,
   IconChevronDown,
   IconChevronLeft,
   IconClock,
@@ -44,6 +45,7 @@ import type { RootStackParamList } from '../navigation/RootNavigator';
 import { usePlan } from '../offline/PlanProvider';
 import { showUpgrade } from '../components/UpgradeSheet';
 import { CustomerRewards } from '../components/rewards/CustomerRewards';
+import { CustomerCommunities, type CustomerCommunity } from '../components/CustomerCommunities';
 import type { JobStatus } from '@mana/domain';
 
 type CustomerProfileScreenProps = NativeStackScreenProps<RootStackParamList, 'CustomerProfile'>;
@@ -81,6 +83,8 @@ interface ProfileData {
   /** The newest page of jobs; older pages are appended by "Load older visits". */
   history: HistoryJob[];
   hasMoreHistory: boolean;
+  /** Where they live with us and their plans there; only on the first page. */
+  communities?: CustomerCommunity[];
   visitCount: number;
   lifetimeSpend: number;
   paidCount: number;
@@ -98,6 +102,8 @@ const SOURCE_LABEL: Record<string, string> = {
   board: 'Saw our board',
   instagram: 'Found on Instagram',
   app: 'Asked in the MANA Car Wash app',
+  community: 'Added by the team at a community',
+  community_app: 'Joined a community in the app',
   other: 'Other source',
 };
 
@@ -284,6 +290,9 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
   }
 
   const { customer, vehicles, history } = data;
+  const planPaid = (data.communities ?? [])
+    .flatMap((m) => m.orders.flatMap((o) => o.receipts))
+    .reduce((sum, r) => sum + r.amount - r.refunded, 0);
   const firstName = customer.name?.trim().split(/\s+/)[0] ?? null;
   const displayName = customer.name?.trim() || formatPhoneIntl(customer.phone);
   const initials = customerInitials(customer.name);
@@ -442,6 +451,12 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
                 text={SOURCE_LABEL[customer.source] ?? customer.source}
               />
             ) : null}
+            {planPaid > 0 ? (
+              <InsightLine
+                icon={<IconBuilding size={14} color={colors.waterDeep} />}
+                text={`Paid ${formatRupees(planPaid)} for community plans`}
+              />
+            ) : null}
           </View>
           {insights.openCount > 0 ? (
             <View style={styles.pendingStrip}>
@@ -506,6 +521,16 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
             })}
           </View>
         )}
+
+        {data.communities?.length ? (
+          <>
+            <SectionHeader title="Communities" count={data.communities.length} />
+            <CustomerCommunities
+              communities={data.communities}
+              onOpenPlace={(placeId) => navigation.navigate('Place', { placeId })}
+            />
+          </>
+        ) : null}
 
         {isPro && rewardsOn ? <CustomerRewards customerId={customerId} /> : null}
 

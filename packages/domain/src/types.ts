@@ -47,6 +47,8 @@ export interface ServicePrice {
   serviceId: ServiceId;
   vehicleTypeId: VehicleTypeId;
   price: number;
+  /** How the wash is delivered ('hub' | 'doorstep'); copies saved before doorstep pricing have none and mean the hub. */
+  mode?: string;
 }
 
 export type JobStatus = 'waiting' | 'washing' | 'ready' | 'paid' | 'void';

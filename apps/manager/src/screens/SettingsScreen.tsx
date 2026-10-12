@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import type { InferResponseType } from 'hono/client';
 import {
   ScreenContainer,
   ScreenHeader,
@@ -25,6 +26,7 @@ import {
   IconSearch,
   IconSparkle,
   IconTrash,
+  Notice,
   colors,
   radius,
   shadow,
@@ -42,9 +44,11 @@ import { api, apiErrorMessage } from '../api/client';
 import { NetworkError } from '../api/network';
 import { formatRupees } from '../utils/format';
 import {
+  overrideRange,
   parseServiceAppliesTo,
   parseVehicleCategory,
   serviceAppliesToCategory,
+  type DeliveryMode,
   type Service,
   type ServicePrice,
   type VehicleCategory,
@@ -61,6 +65,11 @@ function animate() {
   LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
 }
 
+/** A branch service; `catalogServiceId` is set when it comes from the business price list. */
+type BranchService = Service & { catalogServiceId: string | null };
+type PriceRow = ServicePrice & { id?: string; source?: string; listPrice?: number | null };
+type Network = InferResponseType<(typeof api)['services']['network']['$get'], 200>;
+
 function normalizeServices(
   rows: Array<{
     id: string;
@@ -70,8 +79,9 @@ function normalizeServices(
     sortOrder: number;
     appliesTo: string;
     includes?: string[];
+    catalogServiceId: string | null;
   }>,
-): Service[] {
+): BranchService[] {
   return rows.map((s) => ({
     ...s,
     appliesTo: parseServiceAppliesTo(s.appliesTo),
@@ -79,6 +89,7 @@ function normalizeServices(
 }
 
 const isCombo = (s: Service) => (s.includes?.length ?? 0) > 0;
+const fromCatalog = (s: BranchService) => s.catalogServiceId != null;
 
 function normalizeVehicleTypes(
   rows: Array<{ id: string; name: string; sortOrder: number; category: string }>,
@@ -107,11 +118,18 @@ const CATEGORIES: { id: VehicleCategory; label: string }[] = [
   { id: 'bike', label: 'Two-wheelers' },
 ];
 
+const MODES: { id: DeliveryMode; label: string }[] = [
+  { id: 'hub', label: 'At the shop' },
+  { id: 'doorstep', label: 'Doorstep' },
+];
+
 export function SettingsScreen({ navigation }: SettingsScreenProps) {
   const { isPro } = usePlan();
-  const [services, setServices] = useState<Service[]>([]);
+  const [services, setServices] = useState<BranchService[]>([]);
   const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
-  const [prices, setPrices] = useState<(ServicePrice & { id?: string })[]>([]);
+  const [prices, setPrices] = useState<PriceRow[]>([]);
+  const [network, setNetwork] = useState<Network | null>(null);
+  const [mode, setMode] = useState<DeliveryMode>('hub');
   const [prompt, setPrompt] = useState<Prompt | null>(null);
   // Separate from `prompt` so the picker can open over New service without closing it.
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -123,17 +141,24 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
   const [commissions, setCommissions] = useState<{ serviceId: string; vehicleTypeId: string; amount: number }[]>([]);
   const load = useCallback(async () => {
     try {
-      const [servicesRes, vehicleTypesRes, pricesRes, commissionsRes] = await Promise.all([
-        api.services.$get({ query: {} }),
+      // Services first: reading the menu rebuilds it when the business price list changed.
+      const servicesRes = await api.services.$get({ query: {} });
+      const [vehicleTypesRes, pricesRes, commissionsRes, networkRes] = await Promise.all([
         api.services['vehicle-types'].$get({ query: {} }),
         api.services.prices.$get({ query: {} }),
         api.services.commissions.$get(),
+        api.services.network.$get(),
       ]);
       if (!servicesRes.ok || !vehicleTypesRes.ok || !pricesRes.ok) throw new Error('load_failed');
       setServices(normalizeServices(await servicesRes.json()));
       setVehicleTypes(normalizeVehicleTypes(await vehicleTypesRes.json()));
       setPrices(await pricesRes.json());
       if (commissionsRes.ok) setCommissions(await commissionsRes.json());
+      if (networkRes.ok) {
+        const next = await networkRes.json();
+        setNetwork(next);
+        setMode((m) => (next.modes.includes(m) ? m : (next.modes[0] ?? 'hub')));
+      }
       setError(null);
     } catch (e) {
       setError(
@@ -183,13 +208,19 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
     return servicesForCategory.filter((s) => s.name.toLowerCase().includes(q));
   }, [servicesForCategory, serviceQuery]);
 
-  const priceFor = useCallback(
-    (serviceId: string, vehicleTypeId: string): number | null => {
-      const match = prices.find((p) => p.serviceId === serviceId && p.vehicleTypeId === vehicleTypeId);
-      return match ? match.price : null;
-    },
-    [prices],
+  const rowFor = useCallback(
+    (serviceId: string, vehicleTypeId: string): PriceRow | null =>
+      prices.find(
+        (p) => p.serviceId === serviceId && p.vehicleTypeId === vehicleTypeId && (p.mode ?? 'hub') === mode,
+      ) ?? null,
+    [prices, mode],
   );
+  const priceFor = useCallback(
+    (serviceId: string, vehicleTypeId: string): number | null => rowFor(serviceId, vehicleTypeId)?.price ?? null,
+    [rowFor],
+  );
+  const policy = network?.policy ?? null;
+  const hasCatalog = services.some(fromCatalog);
 
   const closePrompt = () => setPrompt(null);
 
@@ -216,7 +247,7 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
           name: input.name,
           description: input.description || undefined,
           includes: input.includes.length ? input.includes : undefined,
-          vehicles: input.vehicles,
+          vehicles: input.vehicles.map((v) => ({ ...v, mode })),
         },
       });
       if (!res.ok) return apiErrorMessage(res, 'Could not add this service.');
@@ -229,11 +260,12 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
     }
   };
 
+  // For a business price this clears the branch's own price; otherwise it stops offering it.
   const removePrice = async (): Promise<string | null> => {
     if (prompt?.kind !== 'editPrice') return null;
     try {
       const res = await api.services.prices.$delete({
-        json: { serviceId: prompt.serviceId, vehicleTypeId: prompt.vehicleTypeId },
+        json: { serviceId: prompt.serviceId, vehicleTypeId: prompt.vehicleTypeId, mode },
       });
       if (!res.ok) return apiErrorMessage(res, 'Could not update this service.');
       closePrompt();
@@ -266,14 +298,17 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
     }
   };
 
-  const deleteService = (service: Service) => {
+  const deleteService = (service: BranchService) => {
+    const catalog = fromCatalog(service);
     showAlert(
-      `Delete ${service.name}?`,
-      'It disappears from New Wash. Past washes and reports keep it.',
+      catalog ? `Stop offering ${service.name} here?` : `Delete ${service.name}?`,
+      catalog
+        ? 'It disappears from New Wash at this branch. Other branches keep it, and you can bring it back any time.'
+        : 'It disappears from New Wash. Past washes and reports keep it.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete',
+          text: catalog ? 'Stop offering' : 'Delete',
           style: 'destructive',
           onPress: () => {
             void (async () => {
@@ -297,12 +332,33 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
     );
   };
 
+  const bringBack = async (serviceId: string) => {
+    try {
+      const res = await api.services[':id'].hidden.$put({ param: { id: serviceId }, json: { hidden: false } });
+      if (!res.ok) {
+        setError(await apiErrorMessage(res, 'Could not bring this service back.'));
+        return;
+      }
+      animate();
+      await load();
+    } catch (e) {
+      setError(e instanceof NetworkError ? 'This needs a connection.' : 'Something went wrong.');
+    }
+  };
+
   const savePrice = async (price: number, commission: number | null): Promise<string | null> => {
     if (prompt?.kind !== 'editPrice') return null;
     const key = { serviceId: prompt.serviceId, vehicleTypeId: prompt.vehicleTypeId };
+    const row = rowFor(key.serviceId, key.vehicleTypeId);
+    const catalogPrice = row?.listPrice != null && services.find((s) => s.id === key.serviceId)?.catalogServiceId;
     try {
       if (price !== prompt.price) {
-        const res = await api.services.prices.$put({ json: { ...key, price } });
+        // Setting a business price back to the list price drops the branch price, so later list
+        // changes reach this branch again.
+        const res =
+          catalogPrice && price === row?.listPrice
+            ? await api.services.prices.$delete({ json: { ...key, mode } })
+            : await api.services.prices.$put({ json: { ...key, mode, price } });
         if (!res.ok) return apiErrorMessage(res, 'Could not save price.');
       }
       if (commission !== commissionFor(key.serviceId, key.vehicleTypeId)) {
@@ -317,6 +373,12 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
     }
   };
 
+  const switchMode = (next: DeliveryMode) => {
+    if (next === mode) return;
+    animate();
+    setMode(next);
+  };
+
   const switchCategory = (next: VehicleCategory) => {
     if (next === category) return;
     animate();
@@ -329,6 +391,19 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
     animate();
     setExpandedServiceId((current) => (current === serviceId ? null : serviceId));
   };
+
+  const promptRow = prompt?.kind === 'editPrice' ? rowFor(prompt.serviceId, prompt.vehicleTypeId) : null;
+  const promptBusiness =
+    prompt?.kind === 'editPrice' &&
+    promptRow?.listPrice != null &&
+    services.find((s) => s.id === prompt.serviceId)?.catalogServiceId &&
+    policy
+      ? {
+          listPrice: promptRow.listPrice,
+          range: policy.branchOverrides ? overrideRange(promptRow.listPrice, policy) : null,
+          overridden: promptRow.source === 'override',
+        }
+      : undefined;
 
   const familyWord = category === 'bike' ? 'two-wheeler' : 'vehicle';
   const openPicker = () => setPickerOpen(true);
@@ -356,6 +431,38 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
             );
           })}
         </View>
+
+        {(network?.modes.length ?? 0) > 1 ? (
+          <View style={styles.segment}>
+            {MODES.map((m) => {
+              const on = mode === m.id;
+              return (
+                <Pressable
+                  key={m.id}
+                  onPress={() => switchMode(m.id)}
+                  style={[styles.segmentBtn, on && styles.segmentBtnOn]}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: on }}
+                >
+                  <Text style={[styles.segmentLabel, on && styles.segmentLabelOn]}>{m.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+
+        {hasCatalog && policy ? (
+          <View style={styles.banner}>
+            <Notice tone="info" title="Prices from the business price list">
+              {policy.branchOverrides
+                ? `Services marked PRICE LIST come from the business. You can charge up to ${policy.maxDecreasePct}% less or ${policy.maxIncreasePct}% more at this branch.`
+                : 'Services marked PRICE LIST come from the business, at the business’s prices.'}
+            </Notice>
+            {network?.isBusinessAdmin ? (
+              <Button label="Edit the business price list" variant="secondary" onPress={() => navigation.navigate('Business')} />
+            ) : null}
+          </View>
+        ) : null}
 
         {/* Vehicles: one compact card, the full grid lives in the picker */}
         <Pressable
@@ -444,6 +551,7 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
                 low == null ? null : low === high ? formatRupees(low) : `${formatRupees(low)}–${formatRupees(high!)}`;
               const last = index === visibleServices.length - 1;
               const combo = isCombo(service);
+              const catalog = fromCatalog(service);
               const includedNames = (service.includes ?? [])
                 .map(serviceName)
                 .filter((n): n is string => n != null);
@@ -470,6 +578,11 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
                         {combo ? (
                           <View style={styles.comboTag}>
                             <Text style={styles.comboTagText}>COMBO</Text>
+                          </View>
+                        ) : null}
+                        {catalog ? (
+                          <View style={styles.listTag}>
+                            <Text style={styles.listTagText}>PRICE LIST</Text>
                           </View>
                         ) : null}
                         <Text style={styles.serviceName} numberOfLines={1}>
@@ -512,6 +625,8 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
                       {offered.length > 0 ? <Text style={styles.priceGroupLabel}>Offered for</Text> : null}
                       {offered.map((vt) => {
                         const commission = commissionFor(service.id, vt.id);
+                        const row = rowFor(service.id, vt.id);
+                        const own = row?.source === 'override' && row.listPrice != null;
                         return (
                           <Pressable
                             key={vt.id}
@@ -525,6 +640,9 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
                               <Text style={styles.priceVehicle} numberOfLines={1}>
                                 {vt.name}
                               </Text>
+                              {own ? (
+                                <Text style={styles.priceOwn}>Branch price · list {formatRupees(row.listPrice!)}</Text>
+                              ) : null}
                               {commission != null ? (
                                 <Text style={styles.priceCommission}>Staff gets {formatRupees(commission)}</Text>
                               ) : null}
@@ -534,10 +652,16 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
                           </Pressable>
                         );
                       })}
-                      {notOffered.length > 0 ? (
+                      {catalog && notOffered.length > 0 ? (
+                        <Text style={styles.catalogNote}>
+                          {notOffered.map((vt) => vt.name).join(', ')}: not in the business price list
+                          {mode === 'doorstep' ? ' for doorstep washes' : ''}.
+                        </Text>
+                      ) : null}
+                      {!catalog && notOffered.length > 0 ? (
                         <Text style={styles.priceGroupLabel}>Not offered</Text>
                       ) : null}
-                      {notOffered.map((vt) => (
+                      {(catalog ? [] : notOffered).map((vt) => (
                         <Pressable
                           key={vt.id}
                           onPress={() => openPrice(vt)}
@@ -562,22 +686,26 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
                         </Pressable>
                       ))}
                       <View style={styles.actionsRow}>
-                        <Pressable
-                          onPress={() => setEditingId(service.id)}
-                          style={({ pressed }) => [styles.editRow, pressed && styles.cardPressed]}
-                          accessibilityRole="button"
-                        >
-                          <IconEdit size={16} color={colors.waterDeep} />
-                          <Text style={styles.editText}>Edit details</Text>
-                        </Pressable>
-                        <Pressable
-                          onPress={() => deleteService(service)}
-                          style={({ pressed }) => [styles.deleteRow, pressed && styles.cardPressed]}
-                          accessibilityRole="button"
-                        >
-                          <IconTrash size={16} color={colors.danger} />
-                          <Text style={styles.deleteText}>Delete</Text>
-                        </Pressable>
+                        {!catalog ? (
+                          <Pressable
+                            onPress={() => setEditingId(service.id)}
+                            style={({ pressed }) => [styles.editRow, pressed && styles.cardPressed]}
+                            accessibilityRole="button"
+                          >
+                            <IconEdit size={16} color={colors.waterDeep} />
+                            <Text style={styles.editText}>Edit details</Text>
+                          </Pressable>
+                        ) : null}
+                        {!catalog || policy?.branchCanHideServices ? (
+                          <Pressable
+                            onPress={() => deleteService(service)}
+                            style={({ pressed }) => [styles.deleteRow, pressed && styles.cardPressed]}
+                            accessibilityRole="button"
+                          >
+                            <IconTrash size={16} color={colors.danger} />
+                            <Text style={styles.deleteText}>{catalog ? 'Stop offering here' : 'Delete'}</Text>
+                          </Pressable>
+                        ) : null}
                       </View>
                     </View>
                   )}
@@ -586,6 +714,30 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
             })}
           </View>
         )}
+
+        {network && network.hidden.length > 0 ? (
+          <View style={styles.hiddenBlock}>
+            <Text style={styles.sectionTitle}>Not offered at this branch</Text>
+            <View style={styles.edgeList}>
+              {network.hidden.map((h, i) => (
+                <View key={h.id} style={[styles.hiddenRow, i < network.hidden.length - 1 && styles.rowDivider]}>
+                  <Text style={styles.hiddenName} numberOfLines={1}>
+                    {h.name}
+                  </Text>
+                  <Pressable
+                    onPress={() => void bringBack(h.id)}
+                    style={({ pressed }) => [styles.offerPill, pressed && styles.cardPressed]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Offer ${h.name} again`}
+                  >
+                    <IconPlus size={12} color={colors.waterDeep} />
+                    <Text style={styles.offerPillText}>Offer again</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          </View>
+        ) : null}
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <View style={styles.bottomPad} />
@@ -621,13 +773,19 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
       />
       <PriceSheet
         visible={prompt?.kind === 'editPrice'}
-        title={prompt?.kind === 'editPrice' ? `${prompt.serviceName} · ${prompt.vehicleTypeName}` : ''}
+        title={
+          prompt?.kind === 'editPrice'
+            ? `${prompt.serviceName} · ${prompt.vehicleTypeName}${mode === 'doorstep' ? ' · Doorstep' : ''}`
+            : ''
+        }
         price={prompt?.kind === 'editPrice' ? prompt.price : null}
         commission={prompt?.kind === 'editPrice' ? commissionFor(prompt.serviceId, prompt.vehicleTypeId) : null}
         commissionLocked={!isPro}
+        business={promptBusiness}
         onClose={closePrompt}
         onSave={savePrice}
-        onRemove={prompt?.kind === 'editPrice' && prompt.price != null ? removePrice : undefined}
+        onReset={promptBusiness ? removePrice : undefined}
+        onRemove={prompt?.kind === 'editPrice' && prompt.price != null && !promptBusiness ? removePrice : undefined}
       />
     </ScreenContainer>
   );
@@ -855,6 +1013,32 @@ const styles = StyleSheet.create({
     backgroundColor: '#EDE9FE',
   },
   comboTagText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.8, color: '#5B21B6' },
+  listTag: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: '#CCFBF1',
+  },
+  listTagText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.8, color: colors.tealDeep },
+  banner: { gap: spacing.sm, marginBottom: spacing.md },
+  priceOwn: { ...typography.caption, color: colors.amberDeep, letterSpacing: 0 },
+  catalogNote: {
+    ...typography.caption,
+    color: colors.slateDeep,
+    letterSpacing: 0,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+  },
+  hiddenBlock: { marginTop: spacing.lg, gap: spacing.sm + 2 },
+  hiddenRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingHorizontal: spacing.md,
+    minHeight: 56,
+    backgroundColor: colors.white,
+  },
+  hiddenName: { ...typography.body, fontSize: 15, color: colors.slateDeep, flex: 1 },
   includesText: { ...typography.label, fontWeight: '600', color: '#5B21B6' },
   descText: { ...typography.label, fontWeight: '400', color: colors.slateDeep, lineHeight: 18 },
   actionsRow: {

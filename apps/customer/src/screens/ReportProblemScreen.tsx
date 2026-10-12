@@ -25,6 +25,7 @@ import { ScreenHeader } from '../components/ScreenHeader';
 import { api, send } from '../api/client';
 import { errorMessage } from '../api/errors';
 import { useAccount } from '../auth/AuthProvider';
+import { usePageStyle } from '../layout/Layout';
 import type { MainStackParams } from '../navigation/types';
 
 type Props = NativeStackScreenProps<MainStackParams, 'ReportProblem'>;
@@ -36,12 +37,15 @@ type Errors = Partial<Record<'kind' | 'branch' | 'details', string>>;
 
 /** Tell the branch something went wrong — about one wash, or in general. The team replies in the app. */
 export function ReportProblemScreen({ navigation, route }: Props) {
+  const pageStyle = usePageStyle();
   const washId = route.params?.washId;
   const account = useAccount();
   const kinds = washId ? PROBLEM_KINDS : GENERAL_KINDS;
 
   const [kind, setKind] = useState<ProblemKind | null>(null);
-  const [branchId, setBranchId] = useState<string | null>(account.branches.length === 1 ? account.branches[0]!.id : null);
+  const [branchId, setBranchId] = useState<string | null>(
+    account.branches.length === 1 ? account.branches[0]!.id : null,
+  );
   const [details, setDetails] = useState('');
   const [errors, setErrors] = useState<Errors>({});
   const [submitting, setSubmitting] = useState(false);
@@ -53,7 +57,8 @@ export function ReportProblemScreen({ navigation, route }: Props) {
     const next: Errors = {};
     if (!kind) next.kind = 'Pick what it’s about';
     if (askBranch && !branchId) next.branch = 'Pick the branch';
-    if (details.trim().length < PROBLEM_DETAILS_MIN) next.details = 'Tell us a little more, so the team can help';
+    if (details.trim().length < PROBLEM_DETAILS_MIN)
+      next.details = 'Tell us a little more, so the team can help';
     setErrors(next);
     if (Object.keys(next).length > 0 || !kind) return;
 
@@ -62,7 +67,12 @@ export function ReportProblemScreen({ navigation, route }: Props) {
     try {
       await send(
         api.problems.$post({
-          json: { washId: washId ?? null, branchId: washId ? null : branchId, kind, details: details.trim() },
+          json: {
+            washId: washId ?? null,
+            branchId: washId ? null : branchId,
+            kind,
+            details: details.trim(),
+          },
         }),
       );
       showToast('Sent. The team will look into it.', 'success');
@@ -77,8 +87,14 @@ export function ReportProblemScreen({ navigation, route }: Props) {
   return (
     <SafeAreaView style={styles.screen} edges={['bottom']}>
       <ScreenHeader title="Report a problem" onBack={() => navigation.goBack()} />
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={[styles.scroll, pageStyle]}
+          keyboardShouldPersistTaps="handled"
+        >
           {route.params?.label ? (
             <>
               <SectionLabel>About this wash</SectionLabel>
@@ -105,7 +121,10 @@ export function ReportProblemScreen({ navigation, route }: Props) {
             {askBranch ? (
               <ChoiceChips
                 label="Which branch?"
-                options={account.branches.map((b) => ({ value: b.id, label: b.city ? `${b.name}, ${b.city}` : b.name }))}
+                options={account.branches.map((b) => ({
+                  value: b.id,
+                  label: b.city ? `${b.name}, ${b.city}` : b.name,
+                }))}
                 value={branchId}
                 onChange={(v) => {
                   setBranchId(v);
@@ -130,10 +149,15 @@ export function ReportProblemScreen({ navigation, route }: Props) {
           </EdgePanel>
           <View style={styles.actions}>
             {submitError ? <Notice tone="danger">{submitError}</Notice> : null}
-            <Button label="Send to the team" size="lg" loading={submitting} onPress={() => void submit()} />
+            <Button
+              label="Send to the team"
+              size="lg"
+              loading={submitting}
+              onPress={() => void submit()}
+            />
             <Text style={styles.footnote}>
-              The branch team sees this with your name and number, and replies here. For anything urgent, please call
-              the branch.
+              The branch team sees this with your name and number, and replies here. For anything
+              urgent, please call the branch.
             </Text>
           </View>
         </ScrollView>
@@ -149,5 +173,11 @@ const styles = StyleSheet.create({
   scroll: { paddingBottom: spacing.xl },
   section: { gap: spacing.md },
   actions: { padding: spacing.md, gap: spacing.md },
-  footnote: { ...typography.caption, color: colors.slate, letterSpacing: 0, textAlign: 'center', lineHeight: 17 },
+  footnote: {
+    ...typography.caption,
+    color: colors.slate,
+    letterSpacing: 0,
+    textAlign: 'center',
+    lineHeight: 17,
+  },
 });

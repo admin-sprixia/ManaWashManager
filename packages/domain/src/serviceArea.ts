@@ -16,6 +16,14 @@ export interface ServiceBranch {
   radiusKm: number | null;
   /** Active service areas of this branch. */
   areaIds: string[];
+  /** Doorstep teams' bases and how far each goes; they extend the hub's reach. */
+  reach?: { center: GeoPoint; radiusKm: number }[];
+}
+
+/** Every circle a branch washes within: the hub's radius and its doorstep teams'. */
+function circlesOf(b: ServiceBranch): { center: GeoPoint; radiusKm: number }[] {
+  const out = b.hub && b.radiusKm != null ? [{ center: b.hub, radiusKm: b.radiusKm }] : [];
+  return [...out, ...(b.reach ?? [])];
 }
 
 export type BranchMatch =
@@ -50,7 +58,7 @@ export function isValidPoint(p: GeoPoint): boolean {
 
 /**
  * The branch that serves a place:
- * 1. with a map point, the nearest branch whose radius contains it;
+ * 1. with a map point, the nearest branch whose radius (hub or doorstep team) contains it;
  * 2. otherwise (or when no radius contains it), the branch listing the picked area;
  * 3. otherwise none — out of area.
  * Ties on distance go to the lower shop id, so the answer never depends on list order.
@@ -62,11 +70,12 @@ export function branchFor(
   if (place.point && isValidPoint(place.point)) {
     let best: { shopId: string; distanceKm: number } | null = null;
     for (const b of branches) {
-      if (!b.hub || b.radiusKm == null) continue;
-      const d = distanceKm(place.point, b.hub);
-      if (d > b.radiusKm) continue;
-      if (!best || d < best.distanceKm || (d === best.distanceKm && b.shopId < best.shopId)) {
-        best = { shopId: b.shopId, distanceKm: d };
+      for (const circle of circlesOf(b)) {
+        const d = distanceKm(place.point, circle.center);
+        if (d > circle.radiusKm) continue;
+        if (!best || d < best.distanceKm || (d === best.distanceKm && b.shopId < best.shopId)) {
+          best = { shopId: b.shopId, distanceKm: d };
+        }
       }
     }
     if (best) return { shopId: best.shopId, via: 'radius', distanceKm: best.distanceKm };
@@ -89,9 +98,11 @@ export function nearestBranch(point: GeoPoint | null | undefined, branches: Serv
   if (point && isValidPoint(point)) {
     let best: { shopId: string; d: number } | null = null;
     for (const b of sorted) {
-      if (!b.hub) continue;
-      const d = distanceKm(point, b.hub);
-      if (!best || d < best.d) best = { shopId: b.shopId, d };
+      const centers = [...(b.hub ? [b.hub] : []), ...(b.reach ?? []).map((r) => r.center)];
+      for (const center of centers) {
+        const d = distanceKm(point, center);
+        if (!best || d < best.d) best = { shopId: b.shopId, d };
+      }
     }
     if (best) return best.shopId;
   }

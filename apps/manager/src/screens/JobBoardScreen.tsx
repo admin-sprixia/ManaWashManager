@@ -31,6 +31,7 @@ import { ReadyPromptSheet } from '../components/ReadyPromptSheet';
 import { ShopSwitcherSheet } from '../components/ShopSwitcherSheet';
 import { Fab } from '../components/Fab';
 import { BoardCompactBar, BoardHero, type BoardStats } from '../components/board/BoardHeader';
+import { CommunityTodayCard, useCommunityToday } from '../components/board/CommunityTodayCard';
 import { JobRow } from '../components/board/JobRow';
 import { useAuth } from '../api/auth';
 import { useBoardJobs } from '../offline/useBoardJobs';
@@ -195,6 +196,9 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
   );
 
   const goReports = useCallback(() => navigation.navigate('Reports'), [navigation]);
+  const goCommunities = useCallback(() => navigation.navigate('Communities'), [navigation]);
+  const communities = useCommunityToday();
+  const communityCount = isOwner ? communities.review : 0;
   const goMore = useCallback(() => navigation.navigate('More'), [navigation]);
   const goReminders = useCallback(
     () => (isPro ? navigation.navigate('Reminders') : showUpgrade({ kind: 'feature', feature: 'reminders' })),
@@ -239,12 +243,15 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
                 onMore={goMore}
                 onReminders={goReminders}
                 reminderCount={reminderCount}
+                onCommunities={goCommunities}
+                communityCount={communityCount}
                 moreAlert={moreAlert}
                 onLayout={(e) => setHeroHeight(e.nativeEvent.layout.height)}
               />
               <View style={styles.bannerWrap}>
                 <SyncBanner onReview={goMore} />
                 <PlanBanner onOpenPlan={goPlan} />
+                <CommunityTodayCard places={communities.places} onPress={goCommunities} />
               </View>
             </>
           }
@@ -299,6 +306,8 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
           onMore={goMore}
           onReminders={goReminders}
           reminderCount={reminderCount}
+          onCommunities={goCommunities}
+          communityCount={communityCount}
           moreAlert={moreAlert}
         />
 

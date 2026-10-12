@@ -803,6 +803,22 @@ export function IconMapPin({ size = 20, color = '#0369A1' }: IconProps) {
   );
 }
 
+/** Buildings — communities (apartments, colonies). */
+export function IconBuilding({ size = 20, color = '#FFFFFF' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M3.5 20.5 H20.5 M5.5 20.5 V5 A1.5 1.5 0 0 1 7 3.5 H13 A1.5 1.5 0 0 1 14.5 5 V20.5 M14.5 9.5 H17 A1.5 1.5 0 0 1 18.5 11 V20.5"
+        stroke={color}
+        strokeWidth={1.9}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Path d="M8.5 7.5 H11.5 M8.5 11 H11.5 M8.5 14.5 H11.5" stroke={color} strokeWidth={1.9} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
 /** Two-wheeler — bikes and scooters. */
 export function IconBike({ size = 20, color = '#0369A1' }: IconProps) {
   return (

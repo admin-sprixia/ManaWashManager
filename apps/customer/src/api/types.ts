@@ -18,3 +18,18 @@ export type Branch = InferResponseType<typeof api.branches.$get, 200>['branches'
 export type LiveWash = InferResponseType<typeof api.live.$get, 200>['washes'][number];
 export type Problem = InferResponseType<typeof api.problems.$get, 200>['problems'][number];
 export type Referrals = InferResponseType<typeof api.referrals.$get, 200>;
+
+// Places and plans
+export type NearbyPlace = InferResponseType<typeof api.places.near.$get, 200>['places'][number];
+export type PlaceInfo = Ok<InferResponseType<(typeof api.places)[':id']['$get'], 200>>;
+export type PlaceMenu = PlaceInfo['menu'];
+export type MenuPlan = PlaceMenu['plans'][number];
+export type MenuService = PlaceMenu['services'][number];
+export type MenuVehicleType = PlaceMenu['vehicleTypes'][number];
+export type PlaceUnit = PlaceInfo['units'][number];
+export type JoinResult = Ok<InferResponseType<(typeof api.places)[':id']['join']['$post'], 201>>;
+export type Membership = InferResponseType<typeof api.home.places.$get, 200>['memberships'][number];
+export type PlaceOrder = Ok<InferResponseType<(typeof api.orders)[':id']['$get'], 200>>['order'];
+export type OrderReceipt = Ok<InferResponseType<(typeof api.orders)[':id']['$get'], 200>>['receipts'][number];
+export type PaymentState = Ok<InferResponseType<(typeof api.payments)[':id']['$get'], 200>>['payment'];
+export type Receipt = Ok<InferResponseType<(typeof api.receipts)[':id']['$get'], 200>>['receipt'];

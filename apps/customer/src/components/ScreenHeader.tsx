@@ -1,6 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { GradientHero, IconChevronLeft, colors } from '@mana/ui';
+import { Page } from '../layout/Layout';
 import { LightStatusBar } from './TabTitle';
 
 interface ScreenHeaderProps {
@@ -15,27 +16,36 @@ export function ScreenHeader({ title, onBack, right }: ScreenHeaderProps) {
   return (
     <GradientHero>
       <LightStatusBar />
-      <View style={styles.row}>
-        <Pressable
-          onPress={onBack}
-          hitSlop={12}
-          style={({ pressed }) => [styles.back, pressed && styles.backPressed]}
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-        >
-          <IconChevronLeft size={22} color={colors.white} />
-        </Pressable>
-        <Text style={styles.title} numberOfLines={1} accessibilityRole="header">
-          {title}
-        </Text>
-        <View style={styles.right}>{right ?? <View style={styles.spacer} />}</View>
-      </View>
+      <Page>
+        <View style={styles.row}>
+          <Pressable
+            onPress={onBack}
+            hitSlop={12}
+            style={({ pressed }) => [styles.back, pressed && styles.backPressed]}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
+            <IconChevronLeft size={22} color={colors.white} />
+          </Pressable>
+          <Text style={styles.title} numberOfLines={1} accessibilityRole="header">
+            {title}
+          </Text>
+          <View style={styles.right}>{right ?? <View style={styles.spacer} />}</View>
+        </View>
+      </Page>
     </GradientHero>
   );
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 26 },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 26,
+  },
   back: {
     width: 40,
     height: 40,

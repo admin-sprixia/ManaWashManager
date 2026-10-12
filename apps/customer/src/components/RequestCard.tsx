@@ -43,7 +43,10 @@ function Line({ icon, text }: { icon: React.ReactNode; text: string }) {
 /** One service request: its status and what was asked for. */
 export function RequestCard({ request }: { request: ServiceRequest }) {
   const status = STATUS[request.status];
-  const place = [request.homeText, request.placeName, request.address].filter(Boolean).join(', ');
+  const place =
+    [request.homeText, request.placeName, request.address].filter(Boolean).join(', ') ||
+    request.area?.name ||
+    (request.location ? 'Location shared' : '');
   return (
     <View style={styles.card}>
       <View style={styles.head}>
@@ -56,7 +59,7 @@ export function RequestCard({ request }: { request: ServiceRequest }) {
           {request.branch.city ? ` · ${request.branch.city}` : ''}
         </Text>
       ) : null}
-      <Line icon={<IconMapPin size={16} color={colors.slateDeep} />} text={place} />
+      {place ? <Line icon={<IconMapPin size={16} color={colors.slateDeep} />} text={place} /> : null}
       <Line
         icon={<IconCar size={16} color={colors.slateDeep} />}
         text={`${vehicleSummary(request.cars, request.bikes)} · ${PLACE_KIND_LABELS[request.placeKind as PlaceKind] ?? 'Other'}`}

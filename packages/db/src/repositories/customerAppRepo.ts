@@ -1,4 +1,12 @@
-import { canRateWash, LIVE_WASH_HOURS, type ProblemKind } from '@mana/domain';
+import {
+  canRateWash,
+  DELIVERY_MODES,
+  LIVE_WASH_HOURS,
+  parseServiceModes,
+  WASH_PLAN_RULE_KEYS,
+  type DeliveryMode,
+  type ProblemKind,
+} from '@mana/domain';
 import type { DbClient } from '../client';
 import { rewardRepo } from './rewardRepo';
 
@@ -99,6 +107,7 @@ export const customerAppRepo = {
         registrationNumber: true,
         make: true,
         model: true,
+        vehicleTypeId: true,
         vehicleType: { select: { name: true, category: true } },
       },
     });
@@ -124,7 +133,7 @@ export const customerAppRepo = {
       registrationNumber: v.registrationNumber,
       make: v.make,
       model: v.model,
-      type: { name: v.vehicleType.name, category: v.vehicleType.category as 'car' | 'bike' },
+      type: { id: v.vehicleTypeId, name: v.vehicleType.name, category: v.vehicleType.category as 'car' | 'bike' },
       branch: branchOf(link),
       lastWashAt: visitBy.get(v.id)?._max.createdAt?.toISOString() ?? null,
       washes: visitBy.get(v.id)?._count._all ?? 0,
@@ -267,15 +276,17 @@ export const customerAppRepo = {
         weeklyOff: true,
         latitude: true,
         longitude: true,
+        businessId: true,
       },
     });
     if (shops.length === 0) return [];
     const shopIds = shops.map((s) => s.id);
-    const [types, services, reviewLinks] = await Promise.all([
+    const businessIds = [...new Set(shops.map((s) => s.businessId).filter((id): id is string => !!id))];
+    const [types, services, reviewLinks, points, homeWash] = await Promise.all([
       platform.vehicleType.findMany({
         where: { shopId: { in: shopIds }, active: true },
         orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-        select: { id: true, shopId: true, name: true, category: true },
+        select: { id: true, shopId: true, name: true, category: true, bodyTypeId: true },
       }),
       platform.service.findMany({
         where: { shopId: { in: shopIds }, active: true },
@@ -285,7 +296,8 @@ export const customerAppRepo = {
           shopId: true,
           name: true,
           description: true,
-          prices: { where: { price: { gt: 0 } }, select: { vehicleTypeId: true, price: true } },
+          modes: true,
+          prices: { where: { price: { gt: 0 } }, select: { vehicleTypeId: true, price: true, mode: true } },
           comboItems: { select: { service: { select: { name: true, active: true } } } },
         },
       }),
@@ -293,10 +305,29 @@ export const customerAppRepo = {
         where: { shopId: { in: shopIds }, key: 'google_review_url' },
         select: { shopId: true, value: true },
       }),
+      platform.servicePoint.findMany({
+        where: { shopId: { in: shopIds }, active: true },
+        select: { shopId: true, kind: true },
+      }),
+      platform.businessSetting.findMany({
+        where: { businessId: { in: businessIds }, key: WASH_PLAN_RULE_KEYS.homeWash, value: 'true' },
+        select: { businessId: true },
+      }),
     ]);
+    const washesAtHome = new Set(homeWash.map((h) => h.businessId));
+    const bodyIds = [...new Set(types.map((t) => t.bodyTypeId).filter((id): id is string => !!id))];
+    const bodies = bodyIds.length
+      ? await platform.bodyType.findMany({ where: { id: { in: bodyIds } }, select: { id: true, key: true } })
+      : [];
+    const bodyKey = new Map(bodies.map((b) => [b.id, b.key]));
     return shops.map((s) => {
       const shopTypes = types.filter((t) => t.shopId === s.id);
       const typeIds = new Set(shopTypes.map((t) => t.id));
+      const kinds = new Set(points.filter((p) => p.shopId === s.id).map((p) => p.kind));
+      // Doorstep teams that only go to communities aren't a way to book a wash at home.
+      if (!(s.businessId && washesAtHome.has(s.businessId))) kinds.delete('doorstep');
+      // No hub or home washing: a plain hub, as before the service network.
+      const modes = DELIVERY_MODES.filter((m) => (kinds.size ? kinds.has(m) : m === 'hub'));
       return {
         id: s.id,
         name: s.name,
@@ -306,17 +337,34 @@ export const customerAppRepo = {
         location: s.latitude != null && s.longitude != null ? { latitude: s.latitude, longitude: s.longitude } : null,
         hours: { opensAt: s.opensAt, closesAt: s.closesAt, weeklyOff: s.weeklyOff },
         reviewUrl: reviewLinks.find((r) => r.shopId === s.id)?.value ?? null,
-        vehicleTypes: shopTypes.map((t) => ({ id: t.id, name: t.name, category: t.category as 'car' | 'bike' })),
+        /** Ways this branch washes: at its hub, at the customer's door, or both. */
+        modes,
+        vehicleTypes: shopTypes.map((t) => ({
+          id: t.id,
+          name: t.name,
+          category: t.category as 'car' | 'bike',
+          /** The catalog body type (e.g. "suvLarge"), for its picture; null for a hand-made type. */
+          bodyKey: (t.bodyTypeId && bodyKey.get(t.bodyTypeId)) || null,
+        })),
         services: services
           .filter((sv) => sv.shopId === s.id)
-          .map((sv) => ({
-            id: sv.id,
-            name: sv.name,
-            description: sv.description,
-            includes: sv.comboItems.filter((c) => c.service.active).map((c) => c.service.name),
-            prices: sv.prices.filter((p) => typeIds.has(p.vehicleTypeId)),
-          }))
-          .filter((sv) => sv.prices.length > 0),
+          .map((sv) => {
+            const priced = sv.prices.filter((p) => typeIds.has(p.vehicleTypeId) && modes.includes(p.mode as DeliveryMode));
+            const of = (mode: DeliveryMode) =>
+              priced.filter((p) => p.mode === mode).map((p) => ({ vehicleTypeId: p.vehicleTypeId, price: p.price }));
+            return {
+              id: sv.id,
+              name: sv.name,
+              description: sv.description,
+              includes: sv.comboItems.filter((c) => c.service.active).map((c) => c.service.name),
+              modes: parseServiceModes(sv.modes),
+              /** Prices at the hub. */
+              prices: of('hub'),
+              /** Prices at the customer's door (usually a little more). */
+              doorstepPrices: of('doorstep'),
+            };
+          })
+          .filter((sv) => sv.prices.length > 0 || sv.doorstepPrices.length > 0),
       };
     });
   },

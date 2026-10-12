@@ -31,7 +31,12 @@ export function HomeScreen({ navigation }: Props) {
   const { byId } = useBranches();
   const focused = useIsFocused();
   const home = useRemote(() =>
-    Promise.all([send(api.washes.$get({ query: { limit: '1' } })), send(api.vehicles.$get())]),
+    Promise.all([
+      send(api.washes.$get({ query: { limit: '1' } })),
+      send(api.vehicles.$get()),
+      // Places are extra: Home still shows washes when they can't load.
+      send(api.home.places.$get()).catch(() => ({ memberships: [] })),
+    ]),
   );
   const [liveActive, setLiveActive] = React.useState(false);
   const live = useRemote(() => send(api.live.$get()), { pollMs: liveActive ? LIVE_POLL_MS : null });
@@ -48,6 +53,7 @@ export function HomeScreen({ navigation }: Props) {
       now={now}
       latest={home.data?.[0].washes[0] ?? null}
       vehicles={home.data?.[1].vehicles ?? []}
+      memberships={home.data?.[2].memberships ?? []}
       liveWashes={liveWashes}
       branchOf={byId}
       loading={home.loading}
@@ -62,6 +68,8 @@ export function HomeScreen({ navigation }: Props) {
       onSeeAllWashes={() => navigation.navigate('Washes')}
       onInvite={() => navigation.navigate('Refer')}
       onHelp={() => navigation.navigate('Help')}
+      onOpenPlace={(memberId) => navigation.navigate('MyPlace', { memberId })}
+      onFindPlace={() => navigation.navigate('FindPlace')}
     />
   );
 }

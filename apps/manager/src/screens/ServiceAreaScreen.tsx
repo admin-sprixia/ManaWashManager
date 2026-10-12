@@ -230,7 +230,7 @@ export function ServiceAreaScreen({ navigation }: Props) {
             <View style={styles.pad}>
               {settings.inCustomerApp ? (
                 <Notice tone="success" title="Listed in the MANA Car Wash app">
-                  People nearby can find this branch, see your starting prices and ask for doorstep washing.
+                  People nearby can find this branch, see your starting prices, join a community near them or ask you to start one.
                 </Notice>
               ) : (
                 <Notice tone="info" title="Not listed in the app yet">

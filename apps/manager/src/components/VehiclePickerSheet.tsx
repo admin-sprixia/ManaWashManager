@@ -22,8 +22,10 @@ import {
   IconClose,
   IconPlus,
   IconSearch,
+  VEHICLE_CATALOG,
+  catalogGroups,
+  catalogVehicleFor,
 } from '@mana/ui';
-import { catalogGroups, catalogVehicleFor, VEHICLE_CATALOG } from '../config/vehicleCatalog';
 import { VehicleStack } from './VehicleStack';
 import { VehicleTile } from './VehicleTile';
 import { vehicleImageFor } from './VehicleTypeIcon';
@@ -47,7 +49,14 @@ const ALL = 'All';
  * Photo grid of every vehicle a shop might wash, grouped (Cars, Vans & buses, Trucks…). Tap a
  * tile to select it, tap again to remove it; anything missing can still be typed by hand.
  */
-export function VehiclePickerSheet({ visible, category, existing, onClose, onAdd, onRemove }: VehiclePickerSheetProps) {
+export function VehiclePickerSheet({
+  visible,
+  category,
+  existing,
+  onClose,
+  onAdd,
+  onRemove,
+}: VehiclePickerSheetProps) {
   const { width } = useWindowDimensions();
   const tileWidth = Math.floor((width - spacing.lg * 2 - spacing.sm * (COLUMNS - 1)) / COLUMNS);
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -77,7 +86,9 @@ export function VehiclePickerSheet({ visible, category, existing, onClose, onAdd
     .map(({ group, vehicles }) => ({
       group,
       vehicles: q
-        ? vehicles.filter((v) => v.label.toLowerCase().includes(q) || v.hint.toLowerCase().includes(q))
+        ? vehicles.filter(
+            (v) => v.label.toLowerCase().includes(q) || v.hint.toLowerCase().includes(q),
+          )
         : vehicles,
     }))
     .filter((g) => g.vehicles.length > 0);
@@ -127,7 +138,9 @@ export function VehiclePickerSheet({ visible, category, existing, onClose, onAdd
               <VehicleStack names={existing.map((e) => e.name)} size={26} max={5} />
             ) : null}
             <Text style={[styles.summaryText, count > 0 && styles.summaryTextOn]}>
-              {count === 0 ? 'Nothing selected yet' : `${count} vehicle${count === 1 ? '' : 's'} in your shop`}
+              {count === 0
+                ? 'Nothing selected yet'
+                : `${count} vehicle${count === 1 ? '' : 's'} in your shop`}
             </Text>
           </View>
           <Button label="Done" size="lg" onPress={onClose} disabled={!!busyKey} />
@@ -141,7 +154,9 @@ export function VehiclePickerSheet({ visible, category, existing, onClose, onAdd
           style={styles.searchInput}
           value={query}
           onChangeText={setQuery}
-          placeholder={category === 'bike' ? 'Search, e.g. Activa or Bullet' : 'Search, e.g. Innova or Bus'}
+          placeholder={
+            category === 'bike' ? 'Search, e.g. Activa or Bullet' : 'Search, e.g. Innova or Bus'
+          }
           placeholderTextColor={colors.slate}
           returnKeyType="search"
         />
@@ -163,19 +178,29 @@ export function VehiclePickerSheet({ visible, category, existing, onClose, onAdd
           {[ALL, ...groups.map((g) => g.group)].map((g) => {
             const on = g === groupFilter;
             const picked =
-              g === ALL ? count : (groups.find((x) => x.group === g)?.vehicles ?? []).filter((v) => isPicked(v.label)).length;
+              g === ALL
+                ? count
+                : (groups.find((x) => x.group === g)?.vehicles ?? []).filter((v) =>
+                    isPicked(v.label),
+                  ).length;
             return (
               <Pressable
                 key={g}
                 onPress={() => setGroupFilter(g)}
-                style={({ pressed }) => [styles.filterChip, on && styles.filterChipOn, pressed && styles.pressed]}
+                style={({ pressed }) => [
+                  styles.filterChip,
+                  on && styles.filterChipOn,
+                  pressed && styles.pressed,
+                ]}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: on }}
               >
                 <Text style={[styles.filterText, on && styles.filterTextOn]}>{g}</Text>
                 {picked > 0 ? (
                   <View style={[styles.filterCount, on && styles.filterCountOn]}>
-                    <Text style={[styles.filterCountText, on && styles.filterCountTextOn]}>{picked}</Text>
+                    <Text style={[styles.filterCountText, on && styles.filterCountTextOn]}>
+                      {picked}
+                    </Text>
                   </View>
                 ) : null}
               </Pressable>
@@ -368,7 +393,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   filterCountOn: { backgroundColor: 'rgba(255,255,255,0.2)' },
-  filterCountText: { ...typography.caption, fontSize: 11, fontWeight: '800', color: colors.waterDeep, letterSpacing: 0 },
+  filterCountText: {
+    ...typography.caption,
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.waterDeep,
+    letterSpacing: 0,
+  },
   filterCountTextOn: { color: colors.white },
   group: { gap: spacing.sm + 4, marginTop: spacing.xs },
   groupHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
@@ -384,7 +415,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  selectAllText: { ...typography.caption, fontSize: 12.5, color: colors.waterDeep, fontWeight: '700', letterSpacing: 0 },
+  selectAllText: {
+    ...typography.caption,
+    fontSize: 12.5,
+    color: colors.waterDeep,
+    fontWeight: '700',
+    letterSpacing: 0,
+  },
   allSet: {
     paddingHorizontal: 12,
     height: 30,
@@ -392,9 +429,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#CCFBF1',
     justifyContent: 'center',
   },
-  allSetText: { ...typography.caption, fontSize: 12.5, color: colors.tealDeep, fontWeight: '700', letterSpacing: 0 },
+  allSetText: {
+    ...typography.caption,
+    fontSize: 12.5,
+    color: colors.tealDeep,
+    fontWeight: '700',
+    letterSpacing: 0,
+  },
   grid: { flexDirection: 'row', flexWrap: 'wrap', columnGap: spacing.sm, rowGap: spacing.md },
-  noMatch: { ...typography.body, fontSize: 14, color: colors.slateDeep, textAlign: 'center', paddingVertical: spacing.md },
+  noMatch: {
+    ...typography.body,
+    fontSize: 14,
+    color: colors.slateDeep,
+    textAlign: 'center',
+    paddingVertical: spacing.md,
+  },
   customCard: {
     gap: spacing.sm + 4,
     padding: spacing.md,
@@ -441,7 +490,12 @@ const styles = StyleSheet.create({
   customAddText: { ...typography.label, fontSize: 15, color: colors.white, fontWeight: '700' },
   customHint: { ...typography.caption, color: colors.slateDeep, letterSpacing: 0 },
   customHintWarn: { color: colors.amberDeep },
-  summary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
+  summary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
   summaryText: { ...typography.caption, fontSize: 13, color: colors.slateDeep, letterSpacing: 0 },
   summaryTextOn: { color: colors.waterInk, fontWeight: '700' },
   error: {

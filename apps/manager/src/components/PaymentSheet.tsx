@@ -13,6 +13,8 @@ import {
   IconWallet,
 } from '@mana/ui';
 import { formatRupees } from '../utils/format';
+import { useShop } from '../offline/ShopProvider';
+import { UpiQr } from './UpiQr';
 
 const METHODS: { key: PaymentMethod; hint: string; Icon: typeof IconCash; accent: string; tint: string }[] = [
   { key: 'cash', hint: 'Notes & coins', Icon: IconCash, accent: colors.teal, tint: '#CCFBF1' },
@@ -33,6 +35,7 @@ interface PaymentSheetProps {
 /** "How did they pay?" — three big tiles, then one confirm. Also used for owner corrections. */
 export function PaymentSheet({ visible, amount, subtitle, onClose, onConfirm, currentMethod }: PaymentSheetProps) {
   const correcting = currentMethod !== undefined;
+  const { upiId, info } = useShop();
   const [method, setMethod] = useState<PaymentMethod>('cash');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -114,6 +117,16 @@ export function PaymentSheet({ visible, amount, subtitle, onClose, onConfirm, cu
         })}
       </View>
 
+      {!correcting && method === 'upi' && amount > 0 ? (
+        upiId ? (
+          <UpiQr upiId={upiId} payee={info?.name ?? 'Car wash'} amount={amount} note={subtitle} />
+        ) : (
+          <Text style={styles.qrHint}>
+            Add your shop’s UPI ID in More → UPI QR code to show a QR the customer can scan here.
+          </Text>
+        )
+      ) : null}
+
       {correcting ? (
         <View style={styles.reasonBlock}>
           <Text style={styles.reasonLabel}>Reason (saved in the audit log)</Text>
@@ -167,6 +180,7 @@ const styles = StyleSheet.create({
   tileLabel: { ...typography.bodyStrong, color: colors.waterInk, fontSize: 17 },
   tileHint: { ...typography.caption, color: colors.slate, letterSpacing: 0, fontSize: 11 },
   reasonBlock: { gap: 6 },
+  qrHint: { ...typography.caption, color: colors.slateDeep, textAlign: 'center', letterSpacing: 0, lineHeight: 17 },
   reasonLabel: { ...typography.caption, color: colors.slateDeep },
   reasonInput: {
     borderWidth: 1.5,

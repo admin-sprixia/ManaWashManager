@@ -31,6 +31,8 @@ export function RequestHomeScreen({ navigation, pass }: Props) {
   const requests = mine.data?.requests ?? [];
   const open = requests.find((r) => isOpenRequest(r.status));
   const latestHandled = open ? null : requests.find((r) => r.status !== 'cancelled');
+  const invitedPlaceId = open?.invitedPlaceId ?? null;
+  const joinInvited = () => invitedPlaceId && navigation.navigate('JoinPlace', { placeId: invitedPlaceId, location: open?.location ?? null });
 
   const cancel = (id: string) =>
     showAlert('Cancel your request?', 'The MANA team won’t call you about it. You can ask again any time.', [
@@ -61,10 +63,10 @@ export function RequestHomeScreen({ navigation, pass }: Props) {
   return (
     <HeroSheet
       hero={{
-        title: open ? 'Your request' : 'Get your car washed',
+        title: open ? 'You’re on the list' : 'Car wash where you live',
         subtitle: open
-          ? 'We’ll call you to agree a time and price.'
-          : 'Tell us where you are. The MANA team will call you to set it up.',
+          ? 'We start at a new place when enough neighbours ask.'
+          : 'Washed where you park, on your place’s wash day. Join in a minute.',
         phoneChip: { label: `+91 ${formatPhone(pass.phone)}`, onPress: useAnotherNumber },
       }}
       refreshControl={<RefreshControl refreshing={mine.refreshing} onRefresh={() => void mine.reload()} />}
@@ -85,13 +87,21 @@ export function RequestHomeScreen({ navigation, pass }: Props) {
         </>
       ) : open ? (
         <>
-          {open.status === 'out_of_area' ? (
-            <Notice tone="warning" title="We’re not in your area yet">
-              We’ve saved your request. We’ll let you know when MANA starts washing near you.
+          {invitedPlaceId ? (
+            <>
+              <Notice tone="success" title="We now wash at a place near you">
+                Join it in a minute: pick your home and a plan.
+              </Notice>
+              <Button label="Join now" size="lg" onPress={joinInvited} />
+            </>
+          ) : open.status === 'out_of_area' ? (
+            <Notice tone="warning" title="We don’t come to your area yet">
+              We’ve saved your request. We’ll start when enough neighbours join, and let you know on this number.
             </Notice>
           ) : (
-            <Notice tone="info" title="Request sent">
-              Someone from MANA will call you on this number soon.
+            <Notice tone="info" title="We don’t come to your place yet">
+              We’ll start when enough neighbours join. Tell them about MANA to get there sooner. Someone from MANA may call
+              you on this number.
             </Notice>
           )}
           <RequestCard request={open} />
@@ -107,9 +117,9 @@ export function RequestHomeScreen({ navigation, pass }: Props) {
           ) : null}
           <View style={styles.steps}>
             {[
-              'Share your location or pick your area',
-              'Tell us your address and how many vehicles',
-              'We call you to agree a time and price',
+              'Find your apartment or colony',
+              'Pick a plan for each vehicle',
+              'Pay online before the first wash',
             ].map((text, i) => (
               <View key={text} style={styles.step}>
                 <View style={styles.stepDot}>
@@ -119,11 +129,13 @@ export function RequestHomeScreen({ navigation, pass }: Props) {
               </View>
             ))}
           </View>
+          <Button label="Find my place" size="lg" onPress={() => navigation.navigate('FindPlace')} />
           <Button
-            label="Request service"
-            size="lg"
+            label="Ask MANA to come here"
+            variant="secondary"
             onPress={() => navigation.navigate('RequestForm', latestHandled ? { from: latestHandled } : undefined)}
           />
+          <Text style={styles.hint}>Place not listed? Tell us where you live. We start when enough neighbours ask.</Text>
         </>
       )}
       <Text style={styles.footer} onPress={useAnotherNumber} accessibilityRole="button">
@@ -147,5 +159,6 @@ const styles = StyleSheet.create({
   },
   stepNumber: { ...typography.label, color: colors.waterDeep },
   stepText: { ...typography.body, color: colors.waterInk, flex: 1 },
+  hint: { ...typography.caption, color: colors.slate, textAlign: 'center' },
   footer: { ...typography.label, color: colors.water, textAlign: 'center', paddingVertical: spacing.md },
 });

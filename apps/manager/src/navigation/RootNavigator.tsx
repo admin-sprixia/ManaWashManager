@@ -25,6 +25,21 @@ import { RewardsScreen } from '../screens/RewardsScreen';
 import { AppFeedbackScreen } from '../screens/AppFeedbackScreen';
 import { ServiceAreaScreen } from '../screens/ServiceAreaScreen';
 import { ServiceRequestsScreen } from '../screens/ServiceRequestsScreen';
+import { ServicePointsScreen } from '../screens/ServicePointsScreen';
+import { BusinessScreen } from '../screens/business/BusinessScreen';
+import { CatalogServicesScreen } from '../screens/business/CatalogServicesScreen';
+import { PriceListScreen } from '../screens/business/PriceListScreen';
+import { PricingRulesScreen } from '../screens/business/PricingRulesScreen';
+import { VehicleSizesScreen } from '../screens/business/VehicleSizesScreen';
+import { BranchesScreen } from '../screens/business/BranchesScreen';
+import { WashPlansScreen } from '../screens/business/WashPlansScreen';
+import { AddMemberScreen } from '../screens/places/AddMemberScreen';
+import { CommunitiesScreen } from '../screens/places/CommunitiesScreen';
+import { CommunitySetupScreen } from '../screens/places/CommunitySetupScreen';
+import { PlaceDayScreen } from '../screens/places/PlaceDayScreen';
+import { PlaceDemandScreen } from '../screens/places/PlaceDemandScreen';
+import { PlaceFormScreen } from '../screens/places/PlaceFormScreen';
+import { PlaceScreen } from '../screens/places/PlaceScreen';
 import { setOpenPlans, UpgradeHost } from '../components/UpgradeSheet';
 import { useAuth } from '../api/auth';
 import { colors } from '@mana/ui';
@@ -50,6 +65,23 @@ export type RootStackParamList = {
   ServiceRequests: undefined;
   ServiceArea: undefined;
   AppFeedback: { tab?: 'problems' | 'vehicles' | 'ratings' } | undefined;
+  ServicePoints: undefined;
+  Business: undefined;
+  BusinessServices: undefined;
+  BusinessPrices: undefined;
+  BusinessRules: undefined;
+  BusinessVehicles: undefined;
+  BusinessBranches: undefined;
+  WashPlans: undefined;
+  Communities: undefined;
+  Place: { placeId: string };
+  /** A new community, or a draft/live one's inspection. `at`/`label`: prefilled from where people are asking. */
+  CommunitySetup: { placeId?: string; at?: { latitude: number; longitude: number }; label?: string; name?: string } | undefined;
+  /** The owner reviews a draft and makes it live, or changes a live community's wash settings. */
+  PlaceForm: { placeId: string };
+  PlaceDay: { placeId: string; day?: string };
+  AddMember: { placeId: string };
+  PlaceDemand: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -96,6 +128,21 @@ export function RootNavigator() {
         <Stack.Screen name="Rewards" component={RewardsScreen} options={slide} />
         <Stack.Screen name="ServiceRequests" component={ServiceRequestsScreen} options={slide} />
         <Stack.Screen name="AppFeedback" component={AppFeedbackScreen} options={slide} />
+        {/* Business admins are picked by phone, so the API decides who may use these. */}
+        <Stack.Screen name="Business" component={BusinessScreen} options={slide} />
+        <Stack.Screen name="BusinessServices" component={CatalogServicesScreen} options={slide} />
+        <Stack.Screen name="BusinessPrices" component={PriceListScreen} options={slide} />
+        <Stack.Screen name="BusinessRules" component={PricingRulesScreen} options={slide} />
+        <Stack.Screen name="BusinessVehicles" component={VehicleSizesScreen} options={slide} />
+        <Stack.Screen name="BusinessBranches" component={BranchesScreen} options={slide} />
+        <Stack.Screen name="WashPlans" component={WashPlansScreen} options={slide} />
+        {/* Anyone can inspect and draft a community and work its wash days; the owner approves. */}
+        <Stack.Screen name="Communities" component={CommunitiesScreen} options={slide} />
+        <Stack.Screen name="CommunitySetup" component={CommunitySetupScreen} options={slide} />
+        <Stack.Screen name="Place" component={PlaceScreen} options={slide} />
+        <Stack.Screen name="PlaceDay" component={PlaceDayScreen} options={slide} />
+        <Stack.Screen name="AddMember" component={AddMemberScreen} options={slide} />
+        <Stack.Screen name="PlaceDemand" component={PlaceDemandScreen} options={slide} />
         {/* Owner-only screens aren't even registered for staff — the API enforces the same
             rules, this just keeps them out of reach in the UI. */}
         {isOwner ? (
@@ -108,6 +155,8 @@ export function RootNavigator() {
             <Stack.Screen name="ErrorLog" component={ErrorLogScreen} options={slide} />
             <Stack.Screen name="Plan" component={PlanScreen} options={slide} />
             <Stack.Screen name="ServiceArea" component={ServiceAreaScreen} options={slide} />
+            <Stack.Screen name="ServicePoints" component={ServicePointsScreen} options={slide} />
+            <Stack.Screen name="PlaceForm" component={PlaceFormScreen} options={slide} />
           </>
         ) : null}
       </Stack.Navigator>

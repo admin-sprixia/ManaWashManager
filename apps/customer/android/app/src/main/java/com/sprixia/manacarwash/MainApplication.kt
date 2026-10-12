@@ -1,6 +1,7 @@
 package com.sprixia.manacarwash
 
 import android.app.Application
+import android.content.res.Configuration
 import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
 import com.facebook.react.ReactHost
@@ -34,10 +35,16 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onCreate() {
     super.onCreate()
+    TabletScale.apply(resources)
     SoLoader.init(this, false)
     if (BuildConfig.IS_NEW_ARCHITECTURE_ENABLED) {
       // If you opted-in for the New Architecture, we load the native entry point for this app.
       load()
     }
+  }
+
+  override fun onConfigurationChanged(newConfig: Configuration) {
+    super.onConfigurationChanged(newConfig)
+    TabletScale.apply(resources)
   }
 }

@@ -1,4 +1,12 @@
-import type { ExpenseCategory, ExpenseUnit, JobStatus, PaymentMethod, StockUnit, VehicleCategory } from '@mana/domain';
+import type {
+  DeliveryMode,
+  ExpenseCategory,
+  ExpenseUnit,
+  JobStatus,
+  PaymentMethod,
+  StockUnit,
+  VehicleCategory,
+} from '@mana/domain';
 
 /** One car's stamp card for one service (API `RewardCardView`, dates as ISO strings). */
 export interface RewardCard {
@@ -47,6 +55,8 @@ export interface BoardJob {
   discountReason?: string | null;
   total: number;
   createdAt: string;
+  /** Where the car is washed; rows saved before doorstep washing have none (the hub). */
+  deliveryMode?: string;
   paymentMethod: PaymentMethod | null;
   customer: { id: string; name: string | null; phone: string };
   vehicle: { registrationNumber: string; vehicleType: { name: string; category?: string } };
@@ -81,6 +91,8 @@ export interface StartJobPayload {
   ownership?: 'new_owner' | 'same_person';
   vehicleTypeId: string;
   services: { serviceId: string; quantity: number }[];
+  /** Washed at the customer's place instead of the hub; priced from the doorstep menu. */
+  mode?: DeliveryMode;
   discount: number;
   discountReason?: string;
   /** Comeback coupon; the server works out the discount. Never queued offline. */
@@ -89,6 +101,8 @@ export interface StartJobPayload {
   referralToken?: string;
   /** Free washes from the car's stamp cards; the server re-checks every one. Never queued offline. */
   rewardServiceIds?: string[];
+  /** A community plan pays for this wash; the server re-checks it and uses one wash. Never queued offline. */
+  planOrderId?: string;
   /** Who got this service, when a picked service pays commission. Defaults to whoever enters it. */
   sellerIds?: string[];
 }

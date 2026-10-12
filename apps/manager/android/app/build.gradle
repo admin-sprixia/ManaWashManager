@@ -74,6 +74,21 @@ def enableProguardInReleaseBuilds = true
  */
 def jscFlavor = 'org.webkit:android-jsc:+'
 
+/**
+ * Google Maps key for the community location pin, from -PMAPS_API_KEY or MAPS_API_KEY in
+ * android/local.properties (never committed). Without it the app still works: the pin screen
+ * falls back to "Use my location" and an Open in Google Maps link.
+ */
+def mapsApiKey = {
+    def fromProperty = findProperty("MAPS_API_KEY")
+    if (fromProperty) return fromProperty.toString().trim()
+    def local = rootProject.file("local.properties")
+    if (!local.exists()) return ""
+    def props = new Properties()
+    local.withInputStream { props.load(it) }
+    return (props.getProperty("MAPS_API_KEY") ?: "").trim()
+}()
+
 android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
@@ -86,6 +101,8 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 501
         versionName "0.5.1"
+        manifestPlaceholders = [mapsApiKey: mapsApiKey]
+        buildConfigField "boolean", "MAPS_ENABLED", mapsApiKey ? "true" : "false"
         // React Native's prebuilt libraries ship every ABI; keep only the ones gradle.properties
         // (or run-android's active-arch flag) asks for, so emulator-only x86 code isn't shipped.
         ndk {

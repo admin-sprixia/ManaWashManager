@@ -255,6 +255,16 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     [commit, flush],
   );
 
+  // A manual sync with nothing waiting still counts: screens refetch and the time updates.
+  const syncNow = useCallback(async () => {
+    await flush();
+    const me = userRef.current;
+    if (!me || !isOnline()) return;
+    if (itemsRef.current.some((i) => i.userId === me.id && i.state === 'pending')) return;
+    setLastSyncedAt(Date.now());
+    setVersion((v) => v + 1);
+  }, [flush]);
+
   const retry = useCallback(
     async (itemId: string) => {
       await commit(
@@ -320,7 +330,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       failedCount,
       version,
       submit,
-      syncNow: flush,
+      syncNow,
       retry,
       discard,
     }),
@@ -334,7 +344,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       failedCount,
       version,
       submit,
-      flush,
+      syncNow,
       retry,
       discard,
     ],

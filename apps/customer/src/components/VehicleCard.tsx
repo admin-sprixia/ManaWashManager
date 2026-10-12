@@ -24,7 +24,7 @@ export function VehicleCard({ vehicle, now, onRemove }: { vehicle: Vehicle; now:
     vehicle.washes === 0
       ? 'No washes yet'
       : `${vehicle.washes} ${vehicle.washes === 1 ? 'wash' : 'washes'}${
-          vehicle.lastWashAt ? ` · last ${formatRelativeDate(vehicle.lastWashAt).toLowerCase()}` : ''
+          vehicle.lastWashAt ? ` · last ${formatRelativeDate(vehicle.lastWashAt).replace(/^(Today|Yesterday)$/, (w) => w.toLowerCase())}` : ''
         }`;
   return (
     <View>

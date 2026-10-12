@@ -2,7 +2,17 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Gradient, IconCarSide, IconDropletOutline, IconHome, IconPerson, IconStore, brandGradients, colors } from '@mana/ui';
+import {
+  Gradient,
+  IconCarSide,
+  IconDropletOutline,
+  IconHome,
+  IconPerson,
+  IconStore,
+  brandGradients,
+  colors,
+} from '@mana/ui';
+import { useIsTablet } from '../layout/Layout';
 import type { TabParams } from '../navigation/types';
 
 const ICONS: Record<keyof TabParams, typeof IconHome> = {
@@ -16,9 +26,10 @@ const ICONS: Record<keyof TabParams, typeof IconHome> = {
 /** The bottom bar: a floating white rounded bar, with the active tab's icon on an indigo pill. */
 export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  const tablet = useIsTablet();
   return (
     <View style={[styles.wrap, { paddingBottom: insets.bottom + 12 }]}>
-      <View style={styles.bar} accessibilityRole="tablist">
+      <View style={[styles.bar, tablet && styles.barTablet]} accessibilityRole="tablist">
         {state.routes.map((route, index) => {
           const { options } = descriptors[route.key]!;
           const label = typeof options.title === 'string' ? options.title : route.name;
@@ -26,7 +37,11 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
           const Icon = ICONS[route.name as keyof TabParams];
 
           const onPress = () => {
-            const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
+            const event = navigation.emit({
+              type: 'tabPress',
+              target: route.key,
+              canPreventDefault: true,
+            });
             if (!focused && !event.defaultPrevented) navigation.navigate(route.name, route.params);
           };
           const onLongPress = () => navigation.emit({ type: 'tabLongPress', target: route.key });
@@ -42,7 +57,9 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
               accessibilityLabel={label}
             >
               <View style={[styles.iconSlot, focused && styles.iconSlotOn]}>
-                {focused ? <Gradient spec={brandGradients.tabPill} style={StyleSheet.absoluteFill} /> : null}
+                {focused ? (
+                  <Gradient spec={brandGradients.tabPill} style={StyleSheet.absoluteFill} />
+                ) : null}
                 <Icon size={22} color={focused ? colors.white : colors.slate} />
               </View>
               <Text style={[styles.label, focused && styles.labelOn]} numberOfLines={1}>
@@ -74,6 +91,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 12 },
     elevation: 12,
   },
+  barTablet: { width: '100%', maxWidth: 600, alignSelf: 'center' },
   tab: { flex: 1, alignItems: 'center', gap: 3, paddingTop: 2 },
   iconSlot: {
     width: 52,

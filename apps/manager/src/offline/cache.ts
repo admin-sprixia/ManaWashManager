@@ -7,7 +7,8 @@ const PREFIX = 'mana.cache.';
  * working with no signal. Always overwritten by the next successful fetch.
  */
 export const CacheKeys = {
-  catalog: 'catalog.v2',
+  /** v3: prices carry how the wash is delivered, plus the ways this branch delivers. */
+  catalog: 'catalog.v3',
   jobsToday: 'jobs.today.v2',
   /** Chunked: `directory.v2.meta` + `directory.v2.part.N`. */
   directory: 'directory.v2',

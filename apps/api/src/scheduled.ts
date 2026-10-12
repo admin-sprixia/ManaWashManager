@@ -1,7 +1,8 @@
-import { billingRepo, createPlatformDb, opsRepo } from '@mana/db';
+import { billingRepo, createPlatformDb, menuRepo, opsRepo, placeOrderRepo } from '@mana/db';
 import { addDays, PHOTO_RETENTION_DAYS } from '@mana/domain';
 import { reportError } from './lib/alerts';
 import { syncShopSubscription } from './lib/billing';
+import { reconcilePayments, retryRefunds } from './lib/placePayments';
 import { billingConfigured } from './lib/razorpay';
 import { formatIstDateOnly } from './lib/istDate';
 import { pruneRateLimits } from './lib/rateLimit';
@@ -143,6 +144,27 @@ async function reconcileBilling(env: Env, now: Date) {
 }
 
 /** Runs across every shop, so it uses the platform client. */
+/** Branch menus a catalog change didn't reach (a background rebuild failed or was cut short). */
+async function rebuildStaleMenus(env: Env) {
+  const failed: string[] = [];
+  await menuRepo.publishStale(env.DB, (shopId, e) => {
+    console.error(e);
+    failed.push(shopId);
+  });
+  if (failed.length) throw new Error(`Menus not rebuilt for ${failed.length} branch(es): ${failed.join(', ')}`);
+}
+
+/**
+ * Places and plans: payments whose webhook went missing are checked first (a payment made today
+ * must count before unpaid first washes move on), then unpaid first washes move to the next wash
+ * day, old unpaid orders close, the waiting list gets wash days, and failed refunds are retried.
+ */
+async function placesNightly(env: Env, now: Date) {
+  await reconcilePayments(env, now);
+  await placeOrderRepo.rollForward(env.DB, now);
+  await retryRefunds(env);
+}
+
 export async function runNightly(env: Env, now = new Date()) {
   const db = createPlatformDb(env.DB);
   const jobs: [string, Promise<unknown>][] = [
@@ -151,6 +173,8 @@ export async function runNightly(env: Env, now = new Date()) {
     ['error log prune', opsRepo.pruneErrors(db, addDays(now, -ERROR_KEEP_DAYS))],
     ['rate limit prune', pruneRateLimits(env)],
     ['billing sync', reconcileBilling(env, now)],
+    ['menu rebuild', rebuildStaleMenus(env)],
+    ['places', placesNightly(env, now)],
   ];
   const results = await Promise.allSettled(jobs.map(([, p]) => p));
   for (const [i, r] of results.entries()) {

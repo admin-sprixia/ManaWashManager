@@ -40,6 +40,8 @@ export interface MyShop {
 interface ShopSnapshot {
   info: ShopInfo | null;
   googleReviewUrl: string | null;
+  /** Shown as a QR code when a customer pays by UPI; cached so it works offline. */
+  upiId?: string | null;
   roster: RosterMember[];
   myShops: MyShop[];
   canAddShop: boolean;
@@ -48,6 +50,7 @@ interface ShopSnapshot {
 const EMPTY: ShopSnapshot = {
   info: null,
   googleReviewUrl: null,
+  upiId: null,
   roster: [],
   myShops: [],
   canAddShop: false,
@@ -125,6 +128,7 @@ interface ShopContextValue extends ShopSnapshot {
   refresh: () => Promise<void>;
   /** Applies a saved change immediately instead of waiting for the next pull. */
   setGoogleReviewUrl: (url: string | null) => void;
+  setUpiId: (upiId: string | null) => void;
   /** Owner only: errors logged since the error log was last opened. */
   unseenErrors: number;
   markErrorsSeen: () => void;
@@ -311,6 +315,7 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
       commit({
         info: 'code' in info ? { name: info.name, city: info.city, code: info.code } : null,
         googleReviewUrl: settings.googleReviewUrl ?? null,
+        upiId: settings.upiId ?? null,
         roster,
         myShops: shops?.shops ?? [],
         canAddShop: shops?.canAdd ?? false,
@@ -347,6 +352,10 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
     (url: string | null) => commit({ ...snapshot, googleReviewUrl: url }),
     [snapshot, commit],
   );
+  const setUpiId = useCallback(
+    (upiId: string | null) => commit({ ...snapshot, upiId }),
+    [snapshot, commit],
+  );
 
   const stock = useMemo(() => withPendingMoves(serverStock, outbox), [serverStock, outbox]);
   const lowStock = useMemo(() => stock.filter((s) => s.level !== 'ok').length, [stock]);
@@ -357,6 +366,7 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
       ...snapshot,
       refresh,
       setGoogleReviewUrl,
+      setUpiId,
       unseenErrors,
       markErrorsSeen,
       joinRequests,
@@ -373,6 +383,7 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
       snapshot,
       refresh,
       setGoogleReviewUrl,
+      setUpiId,
       unseenErrors,
       markErrorsSeen,
       joinRequests,

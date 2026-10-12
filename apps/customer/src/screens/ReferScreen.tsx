@@ -1,28 +1,41 @@
 import React from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { REFERRAL_OFFER_TEXT, referralShareMessage } from '@mana/domain';
 import {
   Button,
-  Gradient,
   IconGift,
   IconShare,
   IconUserPlus,
   IconWhatsApp,
   Notice,
-  brandGradients,
   colors,
   formatPhone,
   radius,
   spacing,
   typography,
 } from '@mana/ui';
-import { EdgeGroup, EdgePanel, EdgeRow, Pill, SectionLabel, cardShell } from '../components/CardList';
+import {
+  EdgeGroup,
+  EdgePanel,
+  EdgeRow,
+  Pill,
+  SectionLabel,
+  cardShell,
+} from '../components/CardList';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { api, send } from '../api/client';
 import { useAccount } from '../auth/AuthProvider';
 import { useRemote } from '../hooks/useRemote';
+import { usePageStyle } from '../layout/Layout';
 import type { MainStackParams } from '../navigation/types';
 import { shareOnWhatsApp, shareText } from '../utils/contact';
 
@@ -30,14 +43,22 @@ type Props = NativeStackScreenProps<MainStackParams, 'Refer'>;
 
 const STEPS = [
   { title: 'Share your number', body: 'Send your friend a message with your number from here.' },
-  { title: 'They visit MANA', body: `They give your number at the counter and get ${REFERRAL_OFFER_TEXT} their first wash.` },
-  { title: 'You get a coupon', body: `Once they've paid, you get ${REFERRAL_OFFER_TEXT} your next wash.` },
+  {
+    title: 'They visit MANA',
+    body: `They give your number at the counter and get ${REFERRAL_OFFER_TEXT} their first wash.`,
+  },
+  {
+    title: 'You get a coupon',
+    body: `Once they've paid, you get ${REFERRAL_OFFER_TEXT} your next wash.`,
+  },
 ];
 
-const shortDate = (iso: string) => new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+const shortDate = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 
 /** Invite a friend: the share message, how the reward works, and friends who already came. */
 export function ReferScreen({ navigation }: Props) {
+  const pageStyle = usePageStyle();
   const account = useAccount();
   const referrals = useRemote(() => send(api.referrals.$get()));
   const message = referralShareMessage({
@@ -51,21 +72,25 @@ export function ReferScreen({ navigation }: Props) {
     <SafeAreaView style={styles.screen} edges={['bottom']}>
       <ScreenHeader title="Invite friends" onBack={() => navigation.goBack()} />
       <ScrollView
-        contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={referrals.refreshing} onRefresh={() => void referrals.reload()} />}
+        contentContainerStyle={[styles.content, pageStyle]}
+        refreshControl={
+          <RefreshControl
+            refreshing={referrals.refreshing}
+            onRefresh={() => void referrals.reload()}
+          />
+        }
       >
-        <View style={styles.heroShell}>
-          <Gradient spec={brandGradients.promo} style={styles.hero}>
-            <View style={styles.heroIcon}>
-              <IconGift size={26} color={colors.white} />
-            </View>
-            <View style={styles.flex}>
-              <Text style={styles.heroTitle}>Wash together, save together</Text>
-              <Text style={styles.heroBody}>
-                Your friend gets {REFERRAL_OFFER_TEXT} their first wash, and you get {REFERRAL_OFFER_TEXT} your next one.
-              </Text>
-            </View>
-          </Gradient>
+        <View style={styles.hero}>
+          <View style={styles.heroIcon}>
+            <IconGift size={24} color={colors.tealDeep} />
+          </View>
+          <View style={styles.flex}>
+            <Text style={styles.heroTitle}>Wash together, save together</Text>
+            <Text style={styles.heroBody}>
+              Your friend gets {REFERRAL_OFFER_TEXT} their first wash, and you get{' '}
+              {REFERRAL_OFFER_TEXT} your next one.
+            </Text>
+          </View>
         </View>
 
         <SectionLabel>Your invite</SectionLabel>
@@ -148,30 +173,24 @@ const styles = StyleSheet.create({
   content: { paddingBottom: spacing.xl },
   pad: { paddingHorizontal: spacing.md },
   flex: { flex: 1, gap: 2 },
-  heroShell: {
+  hero: {
     ...cardShell,
     marginTop: 20,
-    backgroundColor: colors.indigoMid,
-    borderWidth: 0,
-    shadowColor: colors.indigoMid,
-    shadowOpacity: 0.32,
-    shadowRadius: 15,
-    shadowOffset: { width: 0, height: 14 },
-    elevation: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    padding: 16,
   },
-  hero: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 18, borderRadius: radius.lg },
   heroIcon: {
     width: 48,
     height: 48,
     borderRadius: 15,
-    backgroundColor: 'rgba(255,255,255,0.16)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.25)',
+    backgroundColor: colors.tealPale,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  heroTitle: { fontSize: 19, fontWeight: '800', letterSpacing: -0.3, color: colors.white },
-  heroBody: { fontSize: 14, lineHeight: 20, color: 'rgba(255,255,255,0.86)' },
+  heroTitle: { fontSize: 16.5, fontWeight: '700', letterSpacing: -0.1, color: colors.ink },
+  heroBody: { fontSize: 13.5, lineHeight: 19, color: colors.slateDeep },
   message: {
     backgroundColor: colors.surface,
     borderWidth: StyleSheet.hairlineWidth,

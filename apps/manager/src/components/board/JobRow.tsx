@@ -150,6 +150,7 @@ export const JobRow = memo(function JobRow({ job, busy, first, onOpen, onAction,
         </View>
 
         <Text style={styles.meta} numberOfLines={1}>
+          {job.deliveryMode === 'doorstep' ? <Text style={styles.doorstep}>{'Doorstep  ·  '}</Text> : null}
           {headline.meta}
           <Text style={styles.dot}>  ·  </Text>
           {customerLine(job)}
@@ -259,6 +260,7 @@ const styles = StyleSheet.create({
   viaTextOther: { color: colors.slateDeep },
   meta: { ...typography.body, color: colors.slateDeep, fontSize: 14 },
   dot: { color: colors.slate },
+  doorstep: { color: colors.tealDeep, fontWeight: '700' },
   bottomLine: {
     flexDirection: 'row',
     alignItems: 'center',

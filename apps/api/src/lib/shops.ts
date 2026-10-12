@@ -1,4 +1,4 @@
-import { createPlatformDb, createShopDb, platformSettingsRepo, shopRepo, userRepo } from '@mana/db';
+import { createPlatformDb, createShopDb, menuRepo, platformSettingsRepo, shopRepo, userRepo } from '@mana/db';
 import { SHOP_CODE_LENGTH, SHOP_TRIAL_DAYS } from '@mana/domain';
 import { randomDigits } from './random';
 import { isDevMode } from './recovery';
@@ -37,7 +37,8 @@ async function newShopCode(env: Env): Promise<string> {
 
 /**
  * A new shop with its owner, made together: if the owner can't be created the empty shop is
- * deleted again. Sign-up starts on the free trial; an owner's extra branch starts on Free.
+ * deleted again. Sign-up starts on the free trial; an owner's extra branch starts on Free and
+ * joins the business it was opened from, getting that business's menu straight away.
  */
 export async function createShopWithOwner(
   env: Env,
@@ -48,6 +49,7 @@ export async function createShopWithOwner(
     phone: string;
     pinHash: string;
     trial: boolean;
+    businessId?: string | null;
   },
 ) {
   const platform = createPlatformDb(env.DB);
@@ -55,12 +57,14 @@ export async function createShopWithOwner(
     code: await newShopCode(env),
     name: data.shopName,
     city: data.city,
+    businessId: data.businessId ?? null,
     ...(data.trial
       ? { plan: 'trial', trialEndsAt: new Date(Date.now() + SHOP_TRIAL_DAYS * DAY_MS) }
       : { plan: 'free', trialEndsAt: null }),
   });
+  let owner;
   try {
-    return await userRepo.createWithPin(createShopDb(env.DB, shop.id), {
+    owner = await userRepo.createWithPin(createShopDb(env.DB, shop.id), {
       name: data.ownerName,
       phone: data.phone,
       role: 'owner',
@@ -70,4 +74,7 @@ export async function createShopWithOwner(
     await shopRepo.deleteEmpty(platform, shop.id);
     throw e;
   }
+  // A failed first build is retried by the branch's first menu read or the nightly run.
+  if (data.businessId) await menuRepo.publish(env.DB, shop.id).catch((e) => console.error(e));
+  return owner;
 }

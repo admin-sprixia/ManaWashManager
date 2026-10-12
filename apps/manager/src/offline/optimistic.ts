@@ -23,6 +23,7 @@ export function applyOutbox(jobs: BoardJob[], items: OutboxItem[]): BoardJob[] {
         discountReason: op.payload.discountReason ?? null,
         total: op.meta.total,
         createdAt: op.payload.occurredAt,
+        deliveryMode: op.payload.mode ?? 'hub',
         paymentMethod: null,
         customer: { id: '', name: op.payload.customer.name, phone: op.payload.customer.phone },
         vehicle: {

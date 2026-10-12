@@ -19,7 +19,7 @@ export function SectionLabel({
       <Text style={styles.label} accessibilityRole="header">
         {children}
       </Text>
-      {right}
+      {typeof right === 'string' || typeof right === 'number' ? <Text style={styles.labelRight}>{right}</Text> : right}
     </View>
   );
 }
@@ -165,6 +165,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     fontSize: 12,
   },
+  labelRight: { ...typography.caption, fontWeight: '600', color: colors.slate },
   group: {
     backgroundColor: colors.white,
     borderTopWidth: StyleSheet.hairlineWidth,

@@ -24,8 +24,24 @@ const settingsSchema = z.object({
       (u) => u === '' || /^https:\/\/\S+$/i.test(u),
       'Paste the full link, starting with https://',
     )
-    .nullable(),
+    .nullable()
+    .optional(),
+  /** Where customers pay by UPI at the counter, shown as a QR code: "name@bank". */
+  upiId: z
+    .string()
+    .trim()
+    .max(100)
+    .refine((u) => u === '' || /^[a-zA-Z0-9._-]{2,256}@[a-zA-Z][a-zA-Z0-9.-]{1,63}$/.test(u), 'Enter a UPI ID like shopname@okaxis')
+    .nullable()
+    .optional(),
 });
+
+/** Saves a setting, or clears it when empty; leaves it alone when it wasn't sent. */
+async function applySetting(db: Parameters<typeof settingsRepo.set>[0], key: 'google_review_url' | 'upi_id', value: string | null | undefined, userId: string) {
+  if (value === undefined) return;
+  if (value) await settingsRepo.set(db, key, value, userId);
+  else await settingsRepo.remove(db, key);
+}
 
 const shopInfoSchema = z.object({
   name: z.string().trim().min(2, 'Shop name is too short').max(60),
@@ -70,17 +86,16 @@ export const shopRoutes = new Hono<{ Bindings: Env }>()
   .get('/settings', async (c) => {
     const db = c.get('db');
     const settings = await settingsRepo.listPublic(db);
-    return c.json({ googleReviewUrl: settings.google_review_url });
+    return c.json({ googleReviewUrl: settings.google_review_url, upiId: settings.upi_id });
   })
   .put('/settings', requireRole('owner'), zValidator('json', settingsSchema), async (c) => {
-    const { googleReviewUrl } = c.req.valid('json');
+    const { googleReviewUrl, upiId } = c.req.valid('json');
     const db = c.get('db');
-    if (googleReviewUrl) {
-      await settingsRepo.set(db, 'google_review_url', googleReviewUrl, c.get('session').sub);
-    } else {
-      await settingsRepo.remove(db, 'google_review_url');
-    }
-    return c.json({ googleReviewUrl: googleReviewUrl || null });
+    const userId = c.get('session').sub;
+    await applySetting(db, 'google_review_url', googleReviewUrl, userId);
+    await applySetting(db, 'upi_id', upiId?.toLowerCase(), userId);
+    const settings = await settingsRepo.listPublic(db);
+    return c.json({ googleReviewUrl: settings.google_review_url, upiId: settings.upi_id });
   })
   // Active team members, for picking who washed a car. Names only — no phones, no PINs.
   .get('/roster', async (c) => {

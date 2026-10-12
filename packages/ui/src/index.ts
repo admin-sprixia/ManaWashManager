@@ -1,5 +1,6 @@
 export * from './theme';
 export * from './format';
+export * from './vehicleCatalog';
 export * from './components/Icons';
 export { AlertHost, showAlert, type AlertButton, type AlertOptions } from './components/AppAlert';
 export { AuthHero } from './components/AuthHero';
@@ -20,7 +21,14 @@ export {
   type PillTone,
 } from './components/EdgeList';
 export { EmptyState } from './components/EmptyState';
-export { ChoiceChips, Counter, FieldLabel, FieldMessage, PhoneField, TextField } from './components/Form';
+export {
+  ChoiceChips,
+  Counter,
+  FieldLabel,
+  FieldMessage,
+  PhoneField,
+  TextField,
+} from './components/Form';
 export { Notice } from './components/Notice';
 export { GradientHero } from './components/GradientHero';
 export { ScreenContainer } from './components/ScreenContainer';

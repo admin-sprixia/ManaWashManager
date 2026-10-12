@@ -113,10 +113,17 @@ export const serviceAreaRepo = {
       select: { id: true, name: true, city: true, latitude: true, longitude: true, serviceRadiusKm: true },
     });
     if (shops.length === 0) return [];
-    const areas = await platform.serviceArea.findMany({
-      where: { shopId: { in: shops.map((s) => s.id) }, active: true },
-      select: { id: true, shopId: true },
-    });
+    const shopIds = shops.map((s) => s.id);
+    const [areas, teams] = await Promise.all([
+      platform.serviceArea.findMany({
+        where: { shopId: { in: shopIds }, active: true },
+        select: { id: true, shopId: true },
+      }),
+      platform.servicePoint.findMany({
+        where: { shopId: { in: shopIds }, active: true, kind: 'doorstep', latitude: { not: null }, radiusKm: { not: null } },
+        select: { shopId: true, latitude: true, longitude: true, radiusKm: true },
+      }),
+    ]);
     return shops.map((s) => ({
       shopId: s.id,
       name: s.name,
@@ -124,6 +131,9 @@ export const serviceAreaRepo = {
       hub: s.latitude != null && s.longitude != null ? { latitude: s.latitude, longitude: s.longitude } : null,
       radiusKm: s.serviceRadiusKm,
       areaIds: areas.filter((a) => a.shopId === s.id).map((a) => a.id),
+      reach: teams
+        .filter((t) => t.shopId === s.id && t.latitude != null && t.longitude != null && t.radiusKm != null)
+        .map((t) => ({ center: { latitude: t.latitude!, longitude: t.longitude! }, radiusKm: t.radiusKm! })),
     }));
   },
 

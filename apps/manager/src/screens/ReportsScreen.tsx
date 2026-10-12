@@ -62,6 +62,9 @@ interface Stats {
   pendingNow: number;
   discounts: number;
   expenses: number;
+  /** Paid for community plans in the period, less refunds. */
+  planIncome?: number;
+  planPayments?: number;
   net: number;
   label?: string;
   from?: string;
@@ -412,6 +415,9 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
                 {stats.carsWashed} wash{stats.carsWashed === 1 ? '' : 'es'}
                 {stats.carsWashed > 0 ? `  ·  ${formatRupees(avgTicket)} per vehicle` : ''}
               </Text>
+              {stats.planIncome ? (
+                <Text style={styles.heroMeta}>+ {formatRupees(stats.planIncome)} from community plans</Text>
+              ) : null}
               <View style={styles.heroSplit}>
                 <Pressable
                   onPress={openExpenses}
@@ -496,7 +502,14 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
             <View style={[styles.card]}>
               <Text style={styles.cardTitle}>Profit</Text>
               <View>
-                <LineRow label="Revenue" hint="Collected from paid washes" value={formatRupees(stats.revenue)} />
+                <LineRow label="Revenue" hint="Washes paid in this period" value={formatRupees(stats.revenue)} />
+                {stats.planIncome ? (
+                  <LineRow
+                    label="Community plans"
+                    hint={`${stats.planPayments ?? 0} ${stats.planPayments === 1 ? 'payment' : 'payments'} for plans, less refunds`}
+                    value={`+ ${formatRupees(stats.planIncome)}`}
+                  />
+                ) : null}
                 <LineRow
                   label="Expenses"
                   hint="Tap to see every entry"
@@ -509,7 +522,9 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
               <View style={[styles.netRow, stats.net < 0 && styles.netRowNegative]}>
                 <View style={styles.flex}>
                   <Text style={styles.netLabel}>Net</Text>
-                  <Text style={styles.netHint}>Revenue minus expenses</Text>
+                  <Text style={styles.netHint}>
+                    {stats.planIncome ? 'Revenue and plans, minus expenses' : 'Revenue minus expenses'}
+                  </Text>
                 </View>
                 <Text style={[styles.netValue, stats.net < 0 && styles.minus]}>{formatRupees(stats.net)}</Text>
               </View>

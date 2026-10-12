@@ -102,6 +102,38 @@ export async function uploadPhoto(photo: PhotoUpload): Promise<Response> {
   );
 }
 
+async function uploadFile(path: string, photo: { uri: string; contentType: string }, fields: Record<string, string> = {}) {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(fields)) form.append(key, value);
+  form.append('file', {
+    uri: photo.uri,
+    type: photo.contentType,
+    name: `photo.${photo.contentType === 'image/png' ? 'png' : 'jpg'}`,
+  } as unknown as Blob);
+  const token = await getSessionToken();
+  return trackedFetch(
+    `${API_BASE_URL}${path}`,
+    { method: 'POST', body: form, headers: token ? { Authorization: `Bearer ${token}` } : {} },
+    UPLOAD_TIMEOUT_MS,
+  );
+}
+
+/** A photo from a community's inspection (gate, parking, water point…); the first is its cover. */
+export function uploadPlacePhoto(placeId: string, kind: string, photo: { uri: string; contentType: string }): Promise<Response> {
+  return uploadFile(`/places/${placeId}/photos`, photo, { kind });
+}
+
+/** The "after" photo of a vehicle washed at a community. */
+export function uploadVisitPhoto(placeId: string, visitId: string, photo: { uri: string; contentType: string }): Promise<Response> {
+  return uploadFile(`/places/${placeId}/visits/${visitId}/photo`, photo);
+}
+
+/** Image source for a team-only file under the API (a community photo, a wash's after photo). */
+export async function privateImage(path: string): Promise<{ uri: string; headers: Record<string, string> }> {
+  const token = await getSessionToken();
+  return { uri: `${API_BASE_URL}${path}`, headers: token ? { Authorization: `Bearer ${token}` } : {} };
+}
+
 /** An expense with its bill and item photos, sent as one multipart request. */
 export async function uploadExpense(expense: ExpensePayload): Promise<Response> {
   const { billPhoto, itemPhoto, ...data } = expense;

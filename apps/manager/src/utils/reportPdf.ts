@@ -35,6 +35,8 @@ export interface ReportExportPayload {
     pendingNow: number;
     discounts: number;
     expenses: number;
+    /** Paid for community plans, less refunds; older servers leave it out. */
+    planIncome?: number;
     net: number;
   };
   jobs: ReportExportJob[];
@@ -158,8 +160,9 @@ export async function buildReportPdf(data: ReportExportPayload): Promise<Uint8Ar
   const avg = stats.carsWashed > 0 ? Math.round(stats.revenue / stats.carsWashed) : 0;
   const summaryRows: [string, string][] = [
     ['Revenue', money(stats.revenue)],
+    ...(stats.planIncome ? ([['Community plans', money(stats.planIncome)]] as [string, string][]) : []),
     ['Expenses', money(stats.expenses)],
-    ['Net (revenue - expenses)', money(stats.net)],
+    [stats.planIncome ? 'Net (revenue + plans - expenses)' : 'Net (revenue - expenses)', money(stats.net)],
     ['Discounts given', money(stats.discounts)],
     ['Cars washed', String(stats.carsWashed)],
     ['Average per car', stats.carsWashed > 0 ? money(avg) : '—'],

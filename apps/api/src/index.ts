@@ -28,6 +28,12 @@ import { serviceRequestRoutes } from './routes/serviceRequest';
 import { serviceAreaRoutes } from './routes/serviceArea';
 import { customerAppRoutes } from './routes/customerApp';
 import { appFeedbackRoutes } from './routes/appFeedback';
+import { businessRoutes } from './routes/business';
+import { branchRoutes } from './routes/branch';
+import { placeRoutes } from './routes/places';
+import { customerPlaceRoutes } from './routes/customerPlaces';
+import { payRoutes } from './routes/pay';
+import { placeLinkRoutes } from './routes/placeLinks';
 import type { Env } from './types';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -51,6 +57,10 @@ app.use('/c/*', (c, next) =>
     : next(),
 );
 app.use('/c/service-area/check', rateLimit('c-area', 60, TEN_MIN));
+app.use('/c/join', rateLimit('c-join', 20, TEN_MIN));
+app.use('/c/places/near', rateLimit('c-near', 120, TEN_MIN));
+app.use('/places/:id/members/code', rateLimit('place-code', 30, TEN_MIN));
+app.use('/pay/test/*', rateLimit('pay-test', 60, TEN_MIN));
 
 // Requests are read into memory, so cap their size before anything parses them. Uploads carry
 // photos (one per request, two for an expense); everything else is small JSON.
@@ -58,10 +68,13 @@ const tooLarge = (c: Context) =>
   c.json({ error: 'too_large' as const, message: 'That upload is too large.' }, 413);
 app.use('/photos', bodyLimit({ maxSize: MAX_PHOTO_BYTES + 64 * 1024, onError: tooLarge }));
 app.use('/expenses', bodyLimit({ maxSize: 2 * MAX_PHOTO_BYTES + 64 * 1024, onError: tooLarge }));
+const photoLimit = bodyLimit({ maxSize: MAX_PHOTO_BYTES + 64 * 1024, onError: tooLarge });
+app.use('/places/:id/photos', photoLimit);
+app.use('/places/:id/visits/:visitId/photo', photoLimit);
 const jsonLimit: MiddlewareHandler<{ Bindings: Env }> = bodyLimit({ maxSize: 256 * 1024, onError: tooLarge });
-app.use('*', async (c, next) =>
-  c.req.path === '/photos' || c.req.path === '/expenses' ? next() : jsonLimit(c as Context<{ Bindings: Env }, string>, next),
-);
+const PLACE_UPLOAD = /^\/places\/[^/]+\/(photos|visits\/[^/]+\/photo)$/;
+const isUpload = (path: string) => path === '/photos' || path === '/expenses' || PLACE_UPLOAD.test(path);
+app.use('*', async (c, next) => (isUpload(c.req.path) ? next() : jsonLimit(c as Context<{ Bindings: Env }, string>, next)));
 
 app.get('/health', (c) => c.json({ ok: true }));
 
@@ -116,7 +129,13 @@ const routes = app
   .route('/service-requests', serviceRequestRoutes)
   .route('/service-area', serviceAreaRoutes)
   .route('/app-feedback', appFeedbackRoutes)
-  .route('/c', customerAppRoutes);
+  .route('/business', businessRoutes)
+  .route('/branch', branchRoutes)
+  .route('/places', placeRoutes)
+  .route('/c', customerAppRoutes)
+  .route('/c', customerPlaceRoutes)
+  .route('/pay', payRoutes)
+  .route('/p', placeLinkRoutes);
 
 // Hono RPC: both apps import this type (via hc<AppType>) to get a fully typed API client with
 // zero codegen — this is what "tRPC or Hono RPC" in the build plan resolved to. The customer app

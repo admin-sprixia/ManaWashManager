@@ -3,7 +3,7 @@ import { Animated, RefreshControl, StatusBar, StyleSheet, Text, View } from 'rea
 import LinearGradient from 'react-native-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Notice, colors } from '@mana/ui';
-import type { Branch, LiveWash, Vehicle, Wash } from '../api/types';
+import type { Branch, LiveWash, Membership, Vehicle, Wash } from '../api/types';
 import { FreeWashCard } from '../components/FreeWashCard';
 import { HomeHero } from '../components/HomeHero';
 import { HomeSkeleton } from '../components/HomeSkeleton';
@@ -12,8 +12,11 @@ import { LatestWashCard } from '../components/LatestWashCard';
 import { LiveWashCard } from '../components/LiveWashCard';
 import { MessageCard } from '../components/MessageCard';
 import { GiftTicket, OfferTicket } from '../components/OfferTicket';
+import { MyPlaceCard, WashAtHomePromo } from '../components/places/MyPlaceCard';
+import { Page } from '../layout/Layout';
 
-const shortDate = (iso: string) => new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+const shortDate = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 
 /** The small uppercase title above a group of cards. */
 function SectionTitle({ children }: { children: string }) {
@@ -33,6 +36,8 @@ export interface HomeViewProps {
   /** The latest wash, or null when there is none yet. */
   latest: Wash | null;
   vehicles: Vehicle[];
+  /** The places the customer is on (washed at home). */
+  memberships: Membership[];
   liveWashes: LiveWash[];
   branchOf: (id: string) => Branch | undefined;
   loading: boolean;
@@ -49,6 +54,8 @@ export interface HomeViewProps {
   onSeeAllWashes: () => void;
   onInvite: () => void;
   onHelp: () => void;
+  onOpenPlace: (memberId: string) => void;
+  onFindPlace: () => void;
 }
 
 /** Home as pure layout: the hero, today's wash, the latest wash, free-wash cards, offers and the invite card. */
@@ -57,10 +64,16 @@ export function HomeView(p: HomeViewProps) {
   const liveWashes = p.liveWashes;
   const latestIsLive = p.latest != null && liveWashes.some((l) => l.id === p.latest!.id);
   const cards = p.vehicles.flatMap((v) =>
-    v.cards.filter((c) => c.stamps > 0 || c.free > 0).map((c) => ({ card: c, plate: v.registrationNumber })),
+    v.cards
+      .filter((c) => c.stamps > 0 || c.free > 0)
+      .map((c) => ({ card: c, plate: v.registrationNumber })),
   );
-  const offers = p.vehicles.flatMap((v) => v.offers.map((o) => ({ ...o, plate: v.registrationNumber })));
-  const gifts = p.vehicles.flatMap((v) => v.giftsOwed.map((g) => ({ ...g, plate: v.registrationNumber })));
+  const offers = p.vehicles.flatMap((v) =>
+    v.offers.map((o) => ({ ...o, plate: v.registrationNumber })),
+  );
+  const gifts = p.vehicles.flatMap((v) =>
+    v.giftsOwed.map((g) => ({ ...g, plate: v.registrationNumber })),
+  );
   const freeReady = cards.reduce((n, c) => n + c.card.free, 0);
 
   // Only the first card under the hero overlaps it.
@@ -70,7 +83,11 @@ export function HomeView(p: HomeViewProps) {
 
   // A scrim behind the status bar fades in once content scrolls under it, so the clock stays readable.
   const scrollY = React.useRef(new Animated.Value(0)).current;
-  const scrimOpacity = scrollY.interpolate({ inputRange: [0, 24, 56], outputRange: [0, 0, 1], extrapolate: 'clamp' });
+  const scrimOpacity = scrollY.interpolate({
+    inputRange: [0, 24, 56],
+    outputRange: [0, 0, 1],
+    extrapolate: 'clamp',
+  });
 
   return (
     <View style={styles.screen}>
@@ -79,7 +96,9 @@ export function HomeView(p: HomeViewProps) {
         style={styles.screen}
         contentContainerStyle={styles.content}
         scrollEventThrottle={16}
-        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+          useNativeDriver: true,
+        })}
         refreshControl={
           <RefreshControl
             refreshing={p.refreshing}
@@ -94,97 +113,125 @@ export function HomeView(p: HomeViewProps) {
           greeting={p.greeting}
           name={p.firstName}
           branch={p.branchLine}
-          freeText={freeReady > 0 ? (freeReady === 1 ? 'You have a free wash' : `You have ${freeReady} free washes`) : undefined}
+          freeText={
+            freeReady > 0
+              ? freeReady === 1
+                ? 'You have a free wash'
+                : `You have ${freeReady} free washes`
+              : undefined
+          }
           onProfile={p.onProfile}
           overlap={!staleNotice}
         />
 
-        {hasLive ? (
-          <View style={styles.live}>
-            {liveWashes.map((w, i) => (
-              <LiveWashCard
-                key={w.id}
-                wash={w}
-                branch={p.branchOf(w.branch.id)}
-                overlap={i === 0}
-                onPress={() => p.onOpenWash(w.id)}
-              />
-            ))}
-          </View>
-        ) : null}
+        <Page>
+          {hasLive ? (
+            <View style={styles.live}>
+              {liveWashes.map((w, i) => (
+                <LiveWashCard
+                  key={w.id}
+                  wash={w}
+                  branch={p.branchOf(w.branch.id)}
+                  overlap={i === 0}
+                  onPress={() => p.onOpenWash(w.id)}
+                />
+              ))}
+            </View>
+          ) : null}
 
-        {p.loading ? (
-          <HomeSkeleton overlap={overlapNext} />
-        ) : p.error && !p.hasData ? (
-          <MessageCard
-            overlap={overlapNext}
-            title="Couldn’t load your washes"
-            body={p.error}
-            action={{ label: 'Try again', onPress: p.onRetry }}
-          />
-        ) : (
-          <>
-            {staleNotice ? (
-              <View style={styles.notice}>
-                <Notice tone="warning">{p.error!}</Notice>
-              </View>
-            ) : null}
+          {p.loading ? (
+            <HomeSkeleton overlap={overlapNext} />
+          ) : p.error && !p.hasData ? (
+            <MessageCard
+              overlap={overlapNext}
+              title="Couldn’t load your washes"
+              body={p.error}
+              action={{ label: 'Try again', onPress: p.onRetry }}
+            />
+          ) : (
+            <>
+              {staleNotice ? (
+                <View style={styles.notice}>
+                  <Notice tone="warning">{p.error!}</Notice>
+                </View>
+              ) : null}
 
-            {p.latest && !latestIsLive ? (
-              <LatestWashCard
-                wash={p.latest}
-                overlap={overlapNext}
-                onPress={() => p.onOpenWash(p.latest!.id)}
-                onSeeAll={p.onSeeAllWashes}
-              />
-            ) : !p.latest ? (
-              <MessageCard
-                overlap={overlapNext}
-                title="No washes yet"
-                body="Your washes and their photos will show here after your first visit."
-              />
-            ) : null}
+              {p.latest && !latestIsLive ? (
+                <LatestWashCard
+                  wash={p.latest}
+                  overlap={overlapNext}
+                  onPress={() => p.onOpenWash(p.latest!.id)}
+                  onSeeAll={p.onSeeAllWashes}
+                />
+              ) : !p.latest && !p.memberships.length ? (
+                <MessageCard
+                  overlap={overlapNext}
+                  title="No washes yet"
+                  body="Your washes and their photos will show here after your first visit."
+                />
+              ) : null}
 
-            {cards.length > 0 ? (
-              <>
-                <SectionTitle>Free-wash cards</SectionTitle>
-                <View style={styles.stack}>
-                  {cards.map(({ card, plate }) => (
-                    <FreeWashCard
-                      key={`${plate}:${card.serviceName}`}
-                      card={card}
-                      now={p.now}
-                      vehicle={p.vehicles.length > 1 ? plate : undefined}
+              {p.memberships.length > 0 ? (
+                <>
+                  {p.latest ? <SectionTitle>{p.memberships.length > 1 ? 'My places' : 'My place'}</SectionTitle> : null}
+                  <View style={[styles.stack, !p.latest && overlapNext && styles.overlapTop]}>
+                    {p.memberships.map((m) => (
+                      <MyPlaceCard key={m.id} membership={m} onPress={() => p.onOpenPlace(m.id)} />
+                    ))}
+                  </View>
+                </>
+              ) : null}
+
+              {cards.length > 0 ? (
+                <>
+                  <SectionTitle>Free-wash cards</SectionTitle>
+                  <View style={styles.stack}>
+                    {cards.map(({ card, plate }) => (
+                      <FreeWashCard
+                        key={`${plate}:${card.serviceName}`}
+                        card={card}
+                        now={p.now}
+                        vehicle={p.vehicles.length > 1 ? plate : undefined}
+                      />
+                    ))}
+                  </View>
+                </>
+              ) : null}
+
+              {offers.length > 0 || gifts.length > 0 ? (
+                <>
+                  <SectionTitle>Waiting for you</SectionTitle>
+                  {offers.map((o) => (
+                    <OfferTicket
+                      key={o.code}
+                      percent={o.percent}
+                      plate={o.plate}
+                      code={o.code}
+                      till={shortDate(o.expiresAt)}
                     />
                   ))}
-                </View>
-              </>
-            ) : null}
-
-            {offers.length > 0 || gifts.length > 0 ? (
-              <>
-                <SectionTitle>Waiting for you</SectionTitle>
-                {offers.map((o) => (
-                  <OfferTicket key={o.code} percent={o.percent} plate={o.plate} code={o.code} till={shortDate(o.expiresAt)} />
-                ))}
-                {gifts.map((g, i) => (
-                  <GiftTicket
-                    key={`${g.plate}:${g.itemName}:${i}`}
-                    plate={g.plate}
-                    item={g.quantity > 1 ? `${g.itemName} × ${g.quantity}` : g.itemName}
-                  />
-                ))}
-              </>
-            ) : null}
-
-            <SectionTitle>More from MANA</SectionTitle>
-            <InvitePromo offer={p.referralOffer} onPress={p.onInvite} />
-            <HelpCard onPress={p.onHelp} />
-          </>
-        )}
+                  {gifts.map((g, i) => (
+                    <GiftTicket
+                      key={`${g.plate}:${g.itemName}:${i}`}
+                      plate={g.plate}
+                      item={g.quantity > 1 ? `${g.itemName} × ${g.quantity}` : g.itemName}
+                    />
+                  ))}
+                </>
+              ) : null}
+              <SectionTitle>More from MANA</SectionTitle>
+              {p.memberships.length === 0 ? <WashAtHomePromo onPress={p.onFindPlace} /> : null}
+              <InvitePromo offer={p.referralOffer} onPress={p.onInvite} />
+              <HelpCard onPress={p.onHelp} />
+            </>
+          )}
+        </Page>
       </Animated.ScrollView>
 
-      <Animated.View pointerEvents="none" style={[styles.scrim, { height: insets.top + 8, opacity: scrimOpacity }]}>
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.scrim, { height: insets.top + 8, opacity: scrimOpacity }]}
+      >
         <LinearGradient
           colors={['rgba(58,77,176,0.97)', 'rgba(58,77,176,0.9)', 'rgba(58,77,176,0)']}
           locations={[0, 0.62, 1]}
@@ -200,6 +247,7 @@ const styles = StyleSheet.create({
   content: { paddingBottom: 32 },
   live: { gap: 12 },
   stack: { gap: 12 },
+  overlapTop: { marginTop: -44 },
   notice: { paddingHorizontal: 16, paddingTop: 16 },
   sectionTitle: {
     marginTop: 26,

@@ -30,6 +30,7 @@ const BASE: HomeViewProps = {
   loading: false, refreshing: false, error: null, hasData: true, focused: true,
   onRefresh: () => undefined, onRetry: () => undefined, onProfile: () => undefined, onOpenWash: () => undefined,
   onSeeAllWashes: () => undefined, onInvite: () => undefined, onHelp: () => undefined,
+  memberships: [], onOpenPlace: () => undefined, onFindPlace: () => undefined,
 };
 const card = (stamps: number, free = 0, extra: object = {}) => ({ serviceName: 'Complete Car Wash', stamps, every: 5, free, expiresAt: null, ...extra });
 

@@ -60,9 +60,11 @@ const STATUS: Record<Request['status'], { label: string; fg: string; bg: string 
 
 const DECLINE_REASONS = [
   'Too far from our branch',
-  'We can’t take more doorstep washes now',
+  'We can’t take more washes in your area now',
   'Couldn’t reach them on the phone',
 ];
+
+const whoOf = (r: Request) => r.name || `+91 ${formatPhone(r.phone)}`;
 
 function Line({ icon, children }: { icon: React.ReactNode; children: string }) {
   return (
@@ -89,6 +91,8 @@ function RequestItem({
   const status = STATUS[request.status];
   const open = request.status === 'pending' || request.status === 'out_of_area';
   const place = [request.homeText, request.placeName, request.address].filter(Boolean).join(', ');
+  const where = [place, request.area?.name].filter(Boolean).join(' · ') || (request.location ? 'Location shared' : '');
+  const kind = PLACE_KIND_LABELS[request.placeKind as PlaceKind];
   const call = () => void Linking.openURL(`tel:+91${request.phone}`).catch(() => undefined);
   const openMap = () => {
     if (!request.location) return;
@@ -102,7 +106,7 @@ function RequestItem({
     <View style={styles.item}>
       <View style={styles.itemHead}>
         <View style={styles.who}>
-          <Text style={styles.name}>{request.name}</Text>
+          {request.name ? <Text style={styles.name}>{request.name}</Text> : null}
           <Text style={styles.phone}>+91 {formatPhone(request.phone)}</Text>
         </View>
         <View style={[styles.badge, { backgroundColor: status.bg }]}>
@@ -110,11 +114,9 @@ function RequestItem({
         </View>
       </View>
 
-      <Line icon={<IconMapPin size={16} color={colors.slateDeep} />}>
-        {request.area ? `${place} · ${request.area.name}` : place}
-      </Line>
+      {where ? <Line icon={<IconMapPin size={16} color={colors.slateDeep} />}>{where}</Line> : null}
       <Line icon={<IconCar size={16} color={colors.slateDeep} />}>
-        {`${vehicleSummary(request.cars, request.bikes)} · ${PLACE_KIND_LABELS[request.placeKind as PlaceKind] ?? 'Other'}`}
+        {kind ? `${vehicleSummary(request.cars, request.bikes)} · ${kind}` : vehicleSummary(request.cars, request.bikes)}
       </Line>
       {request.preferredTime ? (
         <Line icon={<IconClock size={16} color={colors.slateDeep} />}>
@@ -155,8 +157,8 @@ function RequestItem({
 }
 
 /**
- * Requests from the MANA Car Wash app: people who aren't customers yet asking for doorstep
- * washing. Everyone can see them (to call); the owner approves, which makes them a customer here
+ * Requests from the MANA Car Wash app: people who aren't customers yet asking us to wash where
+ * they live. Everyone can see them (to call); the owner approves, which makes them a customer here
  * so they can sign in, or declines with a reason they'll see.
  */
 export function ServiceRequestsScreen({ navigation }: Props) {
@@ -205,7 +207,7 @@ export function ServiceRequestsScreen({ navigation }: Props) {
 
   const approve = (r: Request) =>
     showAlert(
-      `Approve ${r.name}?`,
+      `Approve ${whoOf(r)}?`,
       'They become a customer of this branch and can sign in to the MANA Car Wash app. Call them first to agree a time and price.',
       [
         { text: 'Not yet', style: 'cancel' },
@@ -217,7 +219,7 @@ export function ServiceRequestsScreen({ navigation }: Props) {
               try {
                 const res = await api['service-requests'][':id'].approve.$post({ param: { id: r.id }, json: {} });
                 if (!res.ok) throw new Error(await apiErrorMessage(res));
-                await afterDecision(`${r.name} is now a customer`);
+                await afterDecision(`${whoOf(r)} is now a customer`);
               } catch (err) {
                 showToast(err instanceof NetworkError ? 'No connection. Try again.' : (err as Error).message, 'error');
               } finally {
@@ -286,7 +288,7 @@ export function ServiceRequestsScreen({ navigation }: Props) {
               title={filter === 'open' ? 'No new requests' : 'Nothing handled yet'}
               body={
                 filter === 'open'
-                  ? 'When someone asks for doorstep washing in the MANA Car Wash app, it shows here.'
+                  ? 'When someone asks you to wash where they live in the MANA Car Wash app, it shows here.'
                   : 'Approved and declined requests show here.'
               }
             />
@@ -296,7 +298,7 @@ export function ServiceRequestsScreen({ navigation }: Props) {
       />
       <ReasonSheet
         visible={declining != null}
-        title={`Decline ${declining?.name ?? ''}?`}
+        title={declining ? `Decline ${whoOf(declining)}?` : ''}
         subtitle="They’ll see this reason in the app."
         confirmLabel="Decline request"
         quickReasons={DECLINE_REASONS}

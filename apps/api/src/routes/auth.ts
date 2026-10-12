@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import {
+  catalogRepo,
   createPlatformDb,
   createShopDb,
   loginCodeRepo,
@@ -678,6 +679,8 @@ export const authRoutes = new Hono<{ Bindings: Env }>()
           phone: me.phone,
           pinHash,
           trial: false,
+          // A branch opened from a branch joins its business, and gets the business's menu.
+          businessId: await catalogRepo.ensureBusinessForShop(c.env.DB, session.shopId),
         });
       });
       if (owner === null) return c.json(phoneBusy, 409);

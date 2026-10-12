@@ -3,6 +3,7 @@ import type { DbClient } from '../client';
 import {
   jobCommission,
   splitCommission,
+  type DeliveryMode,
   type JobEventAction,
   type JobStatus,
   type PaymentMethod,
@@ -23,6 +24,9 @@ export interface CreateJobInput {
   lineItems: { serviceId: string; priceAtTime: number; commissionAtTime: number; quantity: number }[];
   /** Who got the customer to take the commission services; empty when there are none. */
   sellerIds?: string[];
+  /** Washed at the hub (default) or at the customer's door, and by which service point. */
+  deliveryMode?: DeliveryMode;
+  servicePointId?: string | null;
 }
 
 const personSelect = { select: { id: true, name: true } } as const;
@@ -217,6 +221,8 @@ export const jobRepo = {
         discountReason: data.discountReason,
         total: data.total,
         createdAt: at,
+        deliveryMode: data.deliveryMode ?? 'hub',
+        servicePointId: data.servicePointId ?? null,
         jobServices: { create: data.lineItems },
         ...(data.sellerIds?.length
           ? {
@@ -535,10 +541,15 @@ export const jobRepo = {
    */
   async getStats(db: DbClient, from: Date, to: Date) {
     const notVoid = { status: { not: 'void' } };
-    const [jobs, firstVisits] = await Promise.all([
+    const [jobs, paid, firstVisits] = await Promise.all([
       db.job.findMany({
         where: { createdAt: { gte: from, lt: to } },
-        select: { status: true, total: true, discount: true, paymentMethod: true, customerId: true },
+        select: { status: true, customerId: true },
+      }),
+      // Money counts on the day it came in, like the cash drawer: yesterday's wash paid today is today's.
+      db.job.findMany({
+        where: { status: 'paid', completedAt: { gte: from, lt: to } },
+        select: { total: true, discount: true, paymentMethod: true },
       }),
       // First visit of every customer seen in the window, fetched alongside rather than after.
       db.job.groupBy({
@@ -549,7 +560,6 @@ export const jobRepo = {
     ]);
 
     const real = jobs.filter((j) => j.status !== 'void');
-    const paid = jobs.filter((j) => j.status === 'paid');
     const sumWhere = (pred: (j: (typeof paid)[number]) => boolean) =>
       paid.filter(pred).reduce((sum, j) => sum + j.total, 0);
 
@@ -589,7 +599,7 @@ export const jobRepo = {
   async getStaffStats(db: DbClient, from: Date, to: Date) {
     const inWindow = { createdAt: { gte: from, lt: to } };
     const byJobThenUser = [{ jobId: 'asc' as const }, { userId: 'asc' as const }];
-    const [users, jobRows, lines, washers, sellers, events] = await Promise.all([
+    const [users, jobRows, lines, washers, sellers, events, visits] = await Promise.all([
       db.user.findMany({ select: { id: true, name: true, role: true, active: true } }),
       db.job.findMany({
         where: inWindow,
@@ -614,6 +624,10 @@ export const jobRepo = {
         where: { ...inWindow, action: 'payment_method_changed' },
         select: { userId: true },
       }),
+      db.placeVisit.findMany({
+        where: { ...inWindow, outcome: 'done', byUserId: { not: null } },
+        select: { byUserId: true },
+      }),
     ]);
     const linesByJob = groupByJob(lines);
     const washersByJob = groupByJob(washers);
@@ -635,6 +649,8 @@ export const jobRepo = {
           active: u.active,
           washesStarted: 0,
           washesDone: 0,
+          /** Cars washed at communities (plan visits marked done). */
+          communityWashes: 0,
           /** Paid jobs whose commission services this person got the customer to take. */
           servicesSold: 0,
           commission: 0,
@@ -692,12 +708,23 @@ export const jobRepo = {
       const row = rows.get(e.userId);
       if (row) row.corrections += 1;
     }
+    for (const v of visits) {
+      const row = v.byUserId ? rows.get(v.byUserId) : undefined;
+      if (row) row.communityWashes += 1;
+    }
 
     return [...rows.values()]
       .filter(
         (r) =>
           r.active ||
-          r.washesStarted + r.washesDone + r.servicesSold + r.jobsCollected + r.voids + r.corrections > 0,
+          r.washesStarted +
+            r.washesDone +
+            r.communityWashes +
+            r.servicesSold +
+            r.jobsCollected +
+            r.voids +
+            r.corrections >
+            0,
       )
       .sort((a, b) => b.collected - a.collected || b.washesStarted - a.washesStarted);
   },

@@ -160,6 +160,9 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
     maxHeight: '90%',
+    width: '100%',
+    maxWidth: 600,
+    alignSelf: 'center',
   },
   handleZone: { alignItems: 'center', paddingTop: spacing.sm, paddingBottom: 2 },
   handle: {

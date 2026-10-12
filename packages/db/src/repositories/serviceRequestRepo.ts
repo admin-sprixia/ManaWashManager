@@ -27,6 +27,7 @@ const requestSelect = {
   status: true,
   reason: true,
   customerId: true,
+  invitedPlaceId: true,
   createdAt: true,
   handledAt: true,
   area: { select: { id: true, name: true } },
@@ -35,12 +36,12 @@ const requestSelect = {
 
 export interface NewServiceRequest {
   phone: string;
-  name: string;
+  name: string | null;
   latitude: number | null;
   longitude: number | null;
   areaId: string | null;
-  address: string;
-  placeKind: PlaceKind;
+  address: string | null;
+  placeKind: PlaceKind | null;
   placeName: string | null;
   homeText: string | null;
   cars: number;

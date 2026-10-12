@@ -16,6 +16,8 @@
     "test:races": "node scripts/race-check.mjs",
     "test:rewards": "node scripts/rewards-check.mjs",
     "test:customer-app": "node scripts/customer-app-check.mjs",
+    "test:catalog": "node scripts/catalog-check.mjs",
+    "test:places": "node scripts/places-check.mjs",
     "perf:trips": "node scripts/trips-check.mjs",
     "perf:report": "node scripts/perf-report.mjs",
     "db:check": "node --no-warnings scripts/db-check.mjs",
@@ -35,6 +37,7 @@
     "@mana/domain": "*",
     "hono": "^4.4.0",
     "jose": "^5.2.4",
+    "qrcode-generator": "^1.5.2",
     "zod": "^3.23.0"
   },
   "devDependencies": {

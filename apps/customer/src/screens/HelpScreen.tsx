@@ -1,14 +1,15 @@
 import React from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import {
-  IconAlert,
-  Notice,
-  colors,
-  spacing,
-  typography,
-} from '@mana/ui';
+import { IconAlert, Notice, colors, spacing, typography } from '@mana/ui';
 import { EdgeGroup, EdgePanel, EdgeRow, SectionLabel } from '../components/CardList';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { api, send } from '../api/client';
@@ -17,14 +18,17 @@ import { useBranches } from '../branches/BranchesProvider';
 import { BranchCard } from '../components/BranchCard';
 import { ProblemSummary } from '../components/ProblemSummary';
 import { useRemote } from '../hooks/useRemote';
+import { usePageStyle } from '../layout/Layout';
 import type { MainStackParams } from '../navigation/types';
 
 type Props = NativeStackScreenProps<MainStackParams, 'Help'>;
 
-const shortDate = (iso: string) => new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+const shortDate = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 
 /** Reach the branch, report a problem, and follow up on earlier reports. */
 export function HelpScreen({ navigation }: Props) {
+  const pageStyle = usePageStyle();
   const account = useAccount();
   const { byId } = useBranches();
   const problems = useRemote(() => send(api.problems.$get()));
@@ -36,12 +40,19 @@ export function HelpScreen({ navigation }: Props) {
     <SafeAreaView style={styles.screen} edges={['bottom']}>
       <ScreenHeader title="Help & support" onBack={() => navigation.goBack()} />
       <ScrollView
-        contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={problems.refreshing} onRefresh={() => void problems.reload()} />}
+        contentContainerStyle={[styles.content, pageStyle]}
+        refreshControl={
+          <RefreshControl
+            refreshing={problems.refreshing}
+            onRefresh={() => void problems.reload()}
+          />
+        }
       >
         {mine.map((b) => (
           <View key={b.id}>
-            <SectionLabel>{mine.length > 1 ? (b.city ?? b.name) : 'Talk to your branch'}</SectionLabel>
+            <SectionLabel>
+              {mine.length > 1 ? (b.city ?? b.name) : 'Talk to your branch'}
+            </SectionLabel>
             <BranchCard branch={b} now={now} />
           </View>
         ))}
@@ -56,7 +67,9 @@ export function HelpScreen({ navigation }: Props) {
             onPress={() => navigation.navigate('ReportProblem')}
           />
         </EdgeGroup>
-        <Text style={styles.hint}>About a particular wash? Open it from Washes and report from there.</Text>
+        <Text style={styles.hint}>
+          About a particular wash? Open it from Washes and report from there.
+        </Text>
 
         <SectionLabel>Your reports</SectionLabel>
         {problems.loading ? (

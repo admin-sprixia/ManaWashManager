@@ -15,13 +15,29 @@ interface AuthHeroProps {
   phoneChip?: { label: string; onPress: () => void };
   /** The first screen gets more air above the title. */
   tall?: boolean;
+  /** Keeps the copy in a centred column on wide screens, lined up with the form below. */
+  maxWidth?: number;
 }
 
 /** Sign-in header: brand row, then the step's large title on the water gradient. */
-export function AuthHero({ product, title, subtitle, onBack, phoneChip, tall }: AuthHeroProps) {
+export function AuthHero({
+  product,
+  title,
+  subtitle,
+  onBack,
+  phoneChip,
+  tall,
+  maxWidth,
+}: AuthHeroProps) {
   return (
     <GradientHero>
-      <View style={[styles.content, tall && styles.contentTall]}>
+      <View
+        style={[
+          styles.content,
+          tall && styles.contentTall,
+          maxWidth != null && [styles.column, { maxWidth }],
+        ]}
+      >
         <View style={styles.topRow}>
           {onBack ? (
             <Pressable
@@ -90,6 +106,7 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.lg + radius.xl,
   },
   contentTall: { paddingBottom: spacing.xl + radius.xl },
+  column: { width: '100%', alignSelf: 'center' },
   topRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm + 4, minHeight: 42 },
   back: {
     ...glass,

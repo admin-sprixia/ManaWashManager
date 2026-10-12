@@ -54,6 +54,16 @@ describe('branchFor', () => {
     expect(branchFor({ point: HYDERABAD, areaId: 'a_kovur' }, [kovurBranch])).toEqual({ shopId: 'b_kovur', via: 'area' });
   });
 
+  it('counts a doorstep team’s reach as well as the hub’s', () => {
+    const farAway = north(KOVUR, 30);
+    const withTeam: ServiceBranch = { ...kovurBranch, reach: [{ center: north(KOVUR, 28), radiusKm: 5 }] };
+    expect(branchFor({ point: farAway }, [kovurBranch])).toBeNull();
+    expect(branchFor({ point: farAway }, [withTeam, nelloreBranch])).toMatchObject({ shopId: 'b_kovur', via: 'radius' });
+    const doorstepOnly: ServiceBranch = { shopId: 'b_door', hub: null, radiusKm: null, areaIds: [], reach: [{ center: CHENNAI, radiusKm: 10 }] };
+    expect(branchFor({ point: CHENNAI }, [kovurBranch, doorstepOnly])?.shopId).toBe('b_door');
+    expect(nearestBranch(north(CHENNAI, 20), [kovurBranch, doorstepOnly])).toBe('b_door');
+  });
+
   it('is out of area when nothing matches', () => {
     expect(branchFor({ point: HYDERABAD }, [kovurBranch, nelloreBranch, areasOnly])).toBeNull();
     expect(branchFor({ areaId: 'a_unknown' }, [kovurBranch])).toBeNull();

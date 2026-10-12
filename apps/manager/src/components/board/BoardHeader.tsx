@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   GradientHero,
   IconBell,
+  IconBuilding,
   IconChart,
   IconChevronDown,
   IconGrid,
@@ -28,8 +29,11 @@ interface HeaderActionsProps {
   onReports: () => void;
   onMore: () => void;
   onReminders: () => void;
+  onCommunities: () => void;
   /** Vehicles nobody has followed up on yet — shown as a badge on the bell. */
   reminderCount: number;
+  /** Communities waiting on this person (the owner's approvals) — a badge on the buildings. */
+  communityCount?: number;
   /** What in More needs a look (e.g. "stock running low") — a dot on its button, read out by screen readers. */
   moreAlert?: string;
   compact?: boolean;
@@ -51,7 +55,9 @@ function HeaderActions({
   onReports,
   onMore,
   onReminders,
+  onCommunities,
   reminderCount,
+  communityCount = 0,
   moreAlert,
   compact,
 }: HeaderActionsProps) {
@@ -59,6 +65,20 @@ function HeaderActions({
   const btn = [styles.iconBtn, { width: size, height: size, borderRadius: size / 2 }];
   return (
     <View style={styles.actions}>
+      <Pressable
+        onPress={onCommunities}
+        style={({ pressed }) => [btn, pressed && styles.iconBtnPressed]}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel={communityCount > 0 ? `Communities, ${communityCount} waiting for you` : 'Communities'}
+      >
+        <IconBuilding size={19} color={colors.white} />
+        {communityCount > 0 ? (
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>{communityCount > 99 ? '99+' : communityCount}</Text>
+          </View>
+        ) : null}
+      </Pressable>
       <Pressable
         onPress={onReminders}
         style={({ pressed }) => [btn, pressed && styles.iconBtnPressed]}

@@ -19,6 +19,13 @@ interface PriceSheetProps {
   onRemove?: () => Promise<string | null>;
   /** Free plan: commission is shown as a Pro feature instead of an input, and left unchanged. */
   commissionLocked?: boolean;
+  /**
+   * A business price list price: the branch may charge its own price within `range`, or none
+   * at all when `range` is null (the business switched branch prices off).
+   */
+  business?: { listPrice: number; range: { min: number; max: number } | null; overridden: boolean };
+  /** Goes back to the business price. Shown only when given. */
+  onReset?: () => Promise<string | null>;
 }
 
 const TOO_LARGE = `That price looks too large (over ${formatRupees(MAX_SERVICE_PRICE_PAISE)}). Check for extra zeros.`;
@@ -37,6 +44,8 @@ export function PriceSheet({
   onSave,
   onRemove,
   commissionLocked,
+  business,
+  onReset,
 }: PriceSheetProps) {
   const [priceText, setPriceText] = useState('');
   const [commissionText, setCommissionText] = useState('');
@@ -52,9 +61,11 @@ export function PriceSheet({
     setBusy(false);
   }, [visible, price, commission]);
 
-  const p = parseRupees(priceText);
+  const priceLocked = business != null && business.range == null;
+  const p = priceLocked ? price : parseRupees(priceText);
   const c = commissionLocked ? commission : parseRupees(commissionText);
-  const priceOk = p != null && !Number.isNaN(p);
+  const inRange = !business?.range || (p != null && p >= business.range.min && p <= business.range.max);
+  const priceOk = p != null && !Number.isNaN(p) && inRange;
   const commissionOk = commissionLocked || c == null || (!Number.isNaN(c) && priceOk && c <= p);
 
   const save = async () => {
@@ -70,11 +81,11 @@ export function PriceSheet({
     if (message) setError(message);
   };
 
-  const remove = async () => {
-    if (!onRemove) return;
+  const runAction = async (action: (() => Promise<string | null>) | undefined) => {
+    if (!action) return;
     setBusy(true);
     setError(null);
-    const message = await onRemove();
+    const message = await action();
     setBusy(false);
     if (message) setError(message);
   };
@@ -88,15 +99,23 @@ export function PriceSheet({
       footer={
         <View style={styles.footer}>
           <Button label="Save" size="lg" loading={busy} disabled={!priceOk || !commissionOk} onPress={() => void save()} />
+          {onReset && business?.overridden ? (
+            <Button
+              label={`Use the business price (${formatRupees(business.listPrice)})`}
+              variant="ghost"
+              disabled={busy}
+              onPress={() => void runAction(onReset)}
+            />
+          ) : null}
           {onRemove ? (
-            <Button label="Not offered for this vehicle" variant="ghost" disabled={busy} onPress={() => void remove()} />
+            <Button label="Not offered for this vehicle" variant="ghost" disabled={busy} onPress={() => void runAction(onRemove)} />
           ) : null}
         </View>
       }
     >
       <View style={styles.field}>
         <Text style={styles.label}>Customer price</Text>
-        <View style={styles.inputRow}>
+        <View style={[styles.inputRow, priceLocked && styles.inputLocked, !inRange && styles.inputError]}>
           <Text style={styles.rupee}>₹</Text>
           <TextInput
             style={styles.input}
@@ -105,10 +124,18 @@ export function PriceSheet({
             keyboardType="numeric"
             placeholder="400"
             placeholderTextColor={colors.slate}
-            autoFocus
+            autoFocus={!priceLocked}
+            editable={!priceLocked}
             maxLength={7}
           />
         </View>
+        {business ? (
+          <Text style={[styles.helper, !inRange && styles.helperError]}>
+            {business.range
+              ? `Business price ${formatRupees(business.listPrice)}. This branch can charge ${formatRupees(business.range.min)} to ${formatRupees(business.range.max)}.`
+              : `The business sets this price (${formatRupees(business.listPrice)}). Ask a business admin to change it.`}
+          </Text>
+        ) : null}
       </View>
       {commissionLocked ? (
         <Pressable
@@ -170,6 +197,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
   },
   inputError: { borderColor: '#FCA5A5' },
+  inputLocked: { opacity: 0.6 },
   rupee: { ...typography.heading, color: colors.slateDeep, marginRight: spacing.xs },
   input: {
     flex: 1,

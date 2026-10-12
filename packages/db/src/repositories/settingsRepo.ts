@@ -2,7 +2,7 @@ import type { DbClient } from '../client';
 import { retryOnClash } from '../retryOnClash';
 
 /** Keys the app reads and the owner edits. Internal keys (e.g. recovery bookkeeping) stay server-side. */
-export const PUBLIC_SETTING_KEYS = ['google_review_url'] as const;
+export const PUBLIC_SETTING_KEYS = ['google_review_url', 'upi_id'] as const;
 export type PublicSettingKey = (typeof PUBLIC_SETTING_KEYS)[number];
 
 export const settingsRepo = {

@@ -366,9 +366,11 @@ check(
 // ─── Vehicles: add, remove, restore ───────────────────────────────────────
 
 const newPlate = `AP39NV${Math.floor(1000 + Math.random() * 8999)}`;
-const vehicleBody = { branchId: 'shop_mana', registrationNumber: newPlate.toLowerCase(), vehicleTypeId: 'vt_sedan', make: 'Maruti' };
+const vehicleBody = { branchId: 'shop_mana', registrationNumber: newPlate.toLowerCase(), vehicleTypeId: 'vt_sedan', make: 'Maruti Suzuki', model: 'Dzire' };
 r = await call(T, 'POST', '/c/vehicles', { ...vehicleBody, registrationNumber: 'A/1' });
 check('Bad plate → 400', r.status === 400, show(r));
+r = await call(T, 'POST', '/c/vehicles', { ...vehicleBody, model: ' ' });
+check('No model → 400', r.status === 400, show(r));
 r = await call(T, 'POST', '/c/vehicles', { ...vehicleBody, branchId: 'shop_test_c', vehicleTypeId: 'vt_c_sedan' });
 check('Can’t add a vehicle at a branch I’m not with', r.status === 404, show(r));
 r = await call(T, 'POST', '/c/vehicles', vehicleBody);

@@ -1,5 +1,7 @@
 package com.sprixia.manacarwash
 
+import android.content.res.Configuration
+import android.os.Bundle
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
@@ -19,4 +21,16 @@ class MainActivity : ReactActivity() {
    */
   override fun createReactActivityDelegate(): ReactActivityDelegate =
       DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled)
+
+  override fun onCreate(savedInstanceState: Bundle?) {
+    TabletScale.apply(resources)
+    TabletScale.apply(application.resources)
+    super.onCreate(savedInstanceState)
+  }
+
+  override fun onConfigurationChanged(newConfig: Configuration) {
+    TabletScale.apply(resources)
+    TabletScale.apply(application.resources)
+    super.onConfigurationChanged(newConfig)
+  }
 }

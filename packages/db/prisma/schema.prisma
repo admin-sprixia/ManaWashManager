@@ -9,8 +9,8 @@
 //   - Columns: snake_case via @map, with `_id` for foreign keys and `_at` for timestamps.
 //   - Money: stored as an Int in paise (1 rupee = 100 paise) to avoid float rounding.
 //
-// Multi-shop: every model except Shop, PlatformSetting, SignupCode, RateLimit, BillingEvent and
-// CustomerAccount has `shopId`. Queries never set it by
+// Multi-shop: every model except Shop, PlatformSetting, SignupCode, RateLimit, BillingEvent,
+// CustomerAccount and the business-level service network models (bottom of this file) has `shopId`. Queries never set it by
 // hand — the shop-scoped client (src/client.ts) adds it to every read and write. Its
 // `@default("")` only exists so create inputs don't demand it; the database has no default, so
 // a row that somehow skipped the scoped client fails to insert instead of landing shopless.
@@ -60,8 +60,16 @@ model Shop {
   closesAt         String?   @map("closes_at")
   /// Day of the week the branch is closed: Sunday = 0 … Saturday = 6.
   weeklyOff        Int?      @map("weekly_off")
+  /// The business this branch belongs to (service network), and how it is priced: its price book
+  /// (null = the business's default) and zone (null = none).
+  businessId       String?   @map("business_id")
+  priceBookId      String?   @map("price_book_id")
+  priceZoneId      String?   @map("price_zone_id")
+  /// The business catalog_version this branch's menu was last generated from.
+  menuVersion      Int       @default(0) @map("menu_version")
 
   @@index([subscriptionId])
+  @@index([businessId])
   @@map("shops")
 }
 
@@ -162,41 +170,53 @@ model User {
 }
 
 model VehicleType {
-  id        String  @id @default(uuid())
-  shopId    String  @default("") @map("shop_id")
-  name      String
+  id         String  @id @default(uuid())
+  shopId     String  @default("") @map("shop_id")
+  name       String
   /// "car" | "bike" — drives which services appear on New Wash / Settings.
-  category  String  @default("car")
-  sortOrder Int     @default(0) @map("sort_order")
+  category   String  @default("car")
+  sortOrder  Int     @default(0) @map("sort_order")
   /// false = the owner deselected it. Kept (with its prices) because customers' vehicles use it.
-  active    Boolean @default(true)
+  active     Boolean @default(true)
+  /// The business body type it stands for (prices come from that body type's class and size).
+  /// A plain id, not a relation: body types are business-level, outside the shop scope.
+  bodyTypeId String? @map("body_type_id")
 
   servicePrices   ServicePrice[]
   commissionRates CommissionRate[]
   vehicles        Vehicle[]
   vehicleRequests VehicleRequest[]
+  priceOverrides  BranchPriceOverride[]
+  memberVehicles  MemberVehicle[]
 
   @@index([shopId])
   @@map("vehicle_types")
 }
 
 model Service {
-  id          String  @id @default(uuid())
-  shopId      String  @default("") @map("shop_id")
-  name        String
-  description String?
-  active      Boolean @default(true)
+  id               String  @id @default(uuid())
+  shopId           String  @default("") @map("shop_id")
+  name             String
+  description      String?
+  active           Boolean @default(true)
   /// "car" | "bike" | "both" — which vehicle categories this service is offered for.
-  appliesTo   String  @default("car") @map("applies_to")
-  sortOrder   Int     @default(0) @map("sort_order")
+  appliesTo        String  @default("car") @map("applies_to")
+  sortOrder        Int     @default(0) @map("sort_order")
+  /// Generated from this business catalog service; null = made by hand at the branch.
+  catalogServiceId String? @map("catalog_service_id")
+  /// "hub" | "doorstep" | "both" — how it can be delivered.
+  modes            String  @default("both")
+  /// The branch stopped offering this catalog service (when the pricing policy allows it).
+  branchHidden     Boolean @default(false) @map("branch_hidden")
 
   prices          ServicePrice[]
   commissionRates CommissionRate[]
   jobServices     JobService[]
-  comboItems      ServiceComboItem[] @relation("ComboItems")
-  inCombos        ServiceComboItem[] @relation("InCombos")
+  comboItems      ServiceComboItem[]    @relation("ComboItems")
+  inCombos        ServiceComboItem[]    @relation("InCombos")
   rewardRule      RewardRule?
   rewardClaims    RewardClaim[]
+  priceOverrides  BranchPriceOverride[]
 
   @@index([shopId])
   @@map("services")
@@ -236,13 +256,72 @@ model ServicePrice {
   serviceId     String @map("service_id")
   vehicleTypeId String @map("vehicle_type_id")
   price         Int // paise
+  /// "hub" | "doorstep" — the same service can cost more at the doorstep.
+  mode          String @default("hub")
+  /// "manual" (typed at the branch) | "template" (from the catalog) | "override" (branch price).
+  source        String @default("manual")
+  /// The catalog price, for template and override rows.
+  listPrice     Int?   @map("list_price")
 
   service     Service     @relation(fields: [serviceId], references: [id])
   vehicleType VehicleType @relation(fields: [vehicleTypeId], references: [id])
 
-  @@unique([serviceId, vehicleTypeId])
+  @@unique([serviceId, vehicleTypeId, mode])
   @@index([serviceId])
+  @@index([shopId, vehicleTypeId])
   @@map("service_prices")
+}
+
+/// A branch's own price for a catalog service, within the business pricing policy. Kept even
+/// when the policy stops applying it, so switching the policy back restores it.
+model BranchPriceOverride {
+  shopId          String   @default("") @map("shop_id")
+  serviceId       String   @map("service_id")
+  vehicleTypeId   String   @map("vehicle_type_id")
+  mode            String // "hub" | "doorstep"
+  price           Int
+  updatedByUserId String   @map("updated_by_user_id")
+  updatedAt       DateTime @default(now()) @map("updated_at")
+
+  service     Service     @relation(fields: [serviceId], references: [id])
+  vehicleType VehicleType @relation(fields: [vehicleTypeId], references: [id])
+
+  @@id([serviceId, vehicleTypeId, mode])
+  @@index([shopId])
+  @@map("branch_price_overrides")
+}
+
+/// How a branch delivers: its hub, and each doorstep team with its base and reach.
+model ServicePoint {
+  id        String   @id @default(uuid())
+  shopId    String   @default("") @map("shop_id")
+  kind      String // "hub" | "doorstep"
+  name      String
+  latitude  Float?
+  longitude Float?
+  radiusKm  Float?   @map("radius_km")
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  classes ServicePointClass[]
+
+  @@unique([shopId, id])
+  @@index([shopId, sortOrder])
+  @@map("service_points")
+}
+
+/// The vehicle classes a service point washes. classId is a business-level vehicle class id.
+model ServicePointClass {
+  shopId  String @default("") @map("shop_id")
+  pointId String @map("point_id")
+  classId String @map("class_id")
+
+  point ServicePoint @relation(fields: [pointId], references: [id])
+
+  @@id([pointId, classId])
+  @@map("service_point_classes")
 }
 
 model Customer {
@@ -262,8 +341,11 @@ model Customer {
   vehicleRequests VehicleRequest[]
   washRatings     WashRating[]
   problems        WashProblem[]
-  referredBy      Referral?        @relation("ReferralReferred")
-  referrals       Referral[]       @relation("ReferralReferrer")
+  referredBy      Referral?         @relation("ReferralReferred")
+  referrals       Referral[]        @relation("ReferralReferrer")
+  placeMembers    PlaceMember[]
+  placeOrders     PlaceOrder[]
+  payments        CustomerPayment[]
 
   @@unique([shopId, phone])
   @@map("customers")
@@ -282,14 +364,15 @@ model Vehicle {
   /// The customer removed it from their list in the MANA Car Wash app. Only hides it there.
   appHiddenAt        DateTime? @map("app_hidden_at")
 
-  customer     Customer         @relation(fields: [customerId], references: [id])
-  vehicleType  VehicleType      @relation(fields: [vehicleTypeId], references: [id])
-  requests     VehicleRequest[]
-  jobs         Job[]
-  coupons      Coupon[]
-  reminder     VehicleReminder?
-  rewardClaims RewardClaim[]
-  rewardGifts  RewardGift[]
+  customer       Customer         @relation(fields: [customerId], references: [id])
+  vehicleType    VehicleType      @relation(fields: [vehicleTypeId], references: [id])
+  requests       VehicleRequest[]
+  jobs           Job[]
+  coupons        Coupon[]
+  reminder       VehicleReminder?
+  rewardClaims   RewardClaim[]
+  rewardGifts    RewardGift[]
+  memberVehicles MemberVehicle[]
 
   @@unique([shopId, registrationNumber])
   @@index([shopId, updatedAt, id])
@@ -315,6 +398,10 @@ model Job {
   voidReason      String?   @map("void_reason")
   createdAt       DateTime  @default(now()) @map("created_at")
   completedAt     DateTime? @map("completed_at")
+  /// "hub" | "doorstep" — priced with that way's prices.
+  deliveryMode    String    @default("hub") @map("delivery_mode")
+  /// The hub or doorstep team that did it, when known.
+  servicePointId  String?   @map("service_point_id")
 
   customer    Customer      @relation(fields: [customerId], references: [id])
   vehicle     Vehicle       @relation(fields: [vehicleId], references: [id])
@@ -579,12 +666,13 @@ model ServiceRequest {
   id              String    @id @default(uuid())
   shopId          String    @default("") @map("shop_id")
   phone           String
-  name            String
+  name            String?
   latitude        Float?
   longitude       Float?
   areaId          String?   @map("area_id")
-  address         String
-  placeKind       String    @map("place_kind") // apartment | house | small_building | office | other
+  /// Landmark or address line, as typed (optional).
+  address         String?
+  placeKind       String?   @map("place_kind") // apartment | house | small_building | office | other
   placeName       String?   @map("place_name")
   homeText        String?   @map("home_text")
   cars            Int       @default(0)
@@ -596,6 +684,8 @@ model ServiceRequest {
   handledAt       DateTime? @map("handled_at")
   reason          String?
   customerId      String?   @map("customer_id")
+  /// A place started near this request: the person can join it in one tap.
+  invitedPlaceId  String?   @map("invited_place_id")
   createdAt       DateTime  @default(now()) @map("created_at")
 
   area      ServiceArea? @relation(fields: [areaId], references: [id])
@@ -945,4 +1035,550 @@ model RateLimit {
 
   @@index([windowStart])
   @@map("rate_limits")
+}
+
+// ─── Service network (business-level, not shop-scoped) ───────────────────────
+// A business owns one catalog; each branch's services and service_prices are generated from it
+// (src/repositories/catalogRepo.ts). These models carry businessId instead of shopId and are in
+// PLATFORM_MODELS (src/client.ts): read and write them only through catalogRepo, which always
+// filters by business.
+
+model Business {
+  id             String   @id
+  name           String
+  /// Bumped on every catalog change; branches whose menuVersion is behind get rebuilt.
+  catalogVersion Int      @default(1) @map("catalog_version")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  admins     BusinessAdmin[]
+  settings   BusinessSetting[]
+  classes    VehicleClass[]
+  sizes      VehicleSize[]
+  bodyTypes  BodyType[]
+  services   CatalogService[]
+  priceBooks PriceBook[]
+  zones      PriceZone[]
+
+  @@map("businesses")
+}
+
+/// Who runs the business catalog, by phone (an owner has one user row per branch, same number).
+model BusinessAdmin {
+  businessId String   @map("business_id")
+  phone      String
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@id([businessId, phone])
+  @@index([phone])
+  @@map("business_admins")
+}
+
+model BusinessSetting {
+  businessId     String   @map("business_id")
+  key            String
+  value          String
+  updatedByPhone String?  @map("updated_by_phone")
+  updatedAt      DateTime @default(now()) @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@id([businessId, key])
+  @@map("business_settings")
+}
+
+/// Two-wheeler, Car, Farm & machines… Keys are fixed (packages/domain vehicleCatalog.ts).
+model VehicleClass {
+  id         String @id
+  businessId String @map("business_id")
+  key        String
+  name       String
+  sortOrder  Int    @default(0) @map("sort_order")
+
+  business  Business              @relation(fields: [businessId], references: [id])
+  sizes     VehicleSize[]
+  bodyTypes BodyType[]
+  services  CatalogServiceClass[]
+
+  @@unique([businessId, key])
+  @@unique([businessId, id])
+  @@map("vehicle_classes")
+}
+
+model VehicleSize {
+  id         String @id
+  businessId String @map("business_id")
+  classId    String @map("class_id")
+  key        String // S | M | L | XL
+  name       String
+  sortOrder  Int    @default(0) @map("sort_order")
+
+  business  Business         @relation(fields: [businessId], references: [id])
+  class     VehicleClass     @relation(fields: [classId], references: [id])
+  bodyTypes BodyType[]
+  prices    PriceBookEntry[]
+
+  @@unique([classId, key])
+  @@unique([businessId, id])
+  @@unique([classId, id])
+  @@map("vehicle_sizes")
+}
+
+/// Sedan, Tractor…: what a branch vehicle type stands for; its size can be moved.
+model BodyType {
+  id         String  @id
+  businessId String  @map("business_id")
+  key        String
+  name       String
+  classId    String  @map("class_id")
+  sizeId     String  @map("size_id")
+  sortOrder  Int     @default(0) @map("sort_order")
+  active     Boolean @default(true)
+
+  business Business     @relation(fields: [businessId], references: [id])
+  class    VehicleClass @relation(fields: [classId], references: [id])
+  size     VehicleSize  @relation(fields: [sizeId], references: [id])
+
+  @@unique([businessId, key])
+  @@unique([businessId, id])
+  @@map("body_types")
+}
+
+model CatalogService {
+  id          String   @id
+  businessId  String   @map("business_id")
+  name        String
+  description String?
+  /// "hub" | "doorstep" | "both" — where it can be done.
+  modes       String   @default("both")
+  sortOrder   Int      @default(0) @map("sort_order")
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  business   Business              @relation(fields: [businessId], references: [id])
+  classes    CatalogServiceClass[]
+  comboItems CatalogComboItem[]    @relation("CatalogComboItems")
+  inCombos   CatalogComboItem[]    @relation("CatalogInCombos")
+  prices     PriceBookEntry[]
+
+  @@unique([businessId, id])
+  @@index([businessId, sortOrder])
+  @@map("catalog_services")
+}
+
+model CatalogServiceClass {
+  businessId String @map("business_id")
+  serviceId  String @map("service_id")
+  classId    String @map("class_id")
+
+  service CatalogService @relation(fields: [serviceId], references: [id])
+  class   VehicleClass   @relation(fields: [classId], references: [id])
+
+  @@id([serviceId, classId])
+  @@map("catalog_service_classes")
+}
+
+model CatalogComboItem {
+  businessId String @map("business_id")
+  comboId    String @map("combo_id")
+  serviceId  String @map("service_id")
+
+  combo   CatalogService @relation("CatalogComboItems", fields: [comboId], references: [id])
+  service CatalogService @relation("CatalogInCombos", fields: [serviceId], references: [id])
+
+  @@id([comboId, serviceId])
+  @@map("catalog_combo_items")
+}
+
+/// A price table; one default per business (partial unique index in schema.sql).
+model PriceBook {
+  id         String   @id
+  businessId String   @map("business_id")
+  name       String
+  isDefault  Boolean  @default(false) @map("is_default")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  business Business         @relation(fields: [businessId], references: [id])
+  entries  PriceBookEntry[]
+
+  @@unique([businessId, id])
+  @@map("price_books")
+}
+
+/// Base price (paise) of a catalog service for one vehicle size.
+model PriceBookEntry {
+  businessId  String   @map("business_id")
+  priceBookId String   @map("price_book_id")
+  serviceId   String   @map("service_id")
+  sizeId      String   @map("size_id")
+  price       Int
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  priceBook PriceBook      @relation(fields: [priceBookId], references: [id])
+  service   CatalogService @relation(fields: [serviceId], references: [id])
+  size      VehicleSize    @relation(fields: [sizeId], references: [id])
+
+  @@id([priceBookId, serviceId, sizeId])
+  @@map("price_book_entries")
+}
+
+/// Extra for a way of delivering (doorstep). classId null = every class.
+model ModeAdjustment {
+  id            String   @id
+  businessId    String   @map("business_id")
+  mode          String
+  classId       String?  @map("class_id")
+  percentBp     Int      @default(0) @map("percent_bp")
+  fixedPaise    Int      @default(0) @map("fixed_paise")
+  minExtraPaise Int      @default(0) @map("min_extra_paise")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@index([businessId])
+  @@map("mode_adjustments")
+}
+
+model PriceZone {
+  id         String   @id
+  businessId String   @map("business_id")
+  name       String
+  percentBp  Int      @default(0) @map("percent_bp")
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@unique([businessId, id])
+  @@map("price_zones")
+}
+
+// ─── Places and plans ───────────────────────────────────────────────────────
+
+/// A building, gated colony or street a branch's team washes at on fixed days.
+model Place {
+  id              String   @id @default(uuid())
+  shopId          String   @default("") @map("shop_id")
+  /// On the QR poster and in invite links (7 unambiguous characters).
+  code            String   @unique
+  type            String // building | colony | street
+  name            String?
+  label           String
+  latitude        Float
+  longitude       Float
+  photoKey        String?  @map("photo_key")
+  /// Weekdays, Sunday = 0: "2" or "2,5".
+  washDays        String   @map("wash_days")
+  /// "HH:MM" IST.
+  washTime        String   @map("wash_time")
+  needsApproval   Boolean  @default(false) @map("needs_approval")
+  /// Vehicles per wash day; null = no limit.
+  capacity        Int?
+  status          String   @default("active") // active | paused | closed
+  createdByUserId String?  @map("created_by_user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at")
+  /// Setup: draft (being inspected) | review (sent to the owner) | live.
+  stage            String    @default("live")
+  /// JSON (packages/domain communities.ts).
+  inspection       String?
+  contactName      String?   @map("contact_name")
+  contactPhone     String?   @map("contact_phone")
+  notes            String?
+  /// JSON: [{"days":[3,5,0],"time":"06:30"}], best first.
+  proposedSlots    String?   @map("proposed_slots")
+  /// User ids, comma separated.
+  teamUserIds      String?   @map("team_user_ids")
+  reviewNote       String?   @map("review_note")
+  submittedAt      DateTime? @map("submitted_at")
+  reviewedByUserId String?   @map("reviewed_by_user_id")
+  reviewedAt       DateTime? @map("reviewed_at")
+
+  units   PlaceUnit[]
+  members PlaceMember[]
+  visits  PlaceVisit[]
+  photos  PlacePhoto[]
+
+  @@unique([shopId, id])
+  @@index([shopId, status])
+  @@map("places")
+}
+
+model PlacePhoto {
+  id              String   @id @default(uuid())
+  shopId          String   @default("") @map("shop_id")
+  placeId         String   @map("place_id")
+  photoKey        String   @map("photo_key")
+  kind            String // gate | parking | water | building | other
+  createdByUserId String?  @map("created_by_user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  place Place @relation(fields: [placeId], references: [id])
+
+  @@unique([shopId, id])
+  @@index([placeId, createdAt])
+  @@map("place_photos")
+}
+
+model PlaceUnit {
+  id         String    @id @default(uuid())
+  shopId     String    @default("") @map("shop_id")
+  placeId    String    @map("place_id")
+  block      String?
+  number     String
+  archivedAt DateTime? @map("archived_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  place   Place         @relation(fields: [placeId], references: [id])
+  members PlaceMember[]
+
+  @@unique([shopId, id])
+  @@map("place_units")
+}
+
+/// A customer living at a place. One live (pending or active) membership per place — a partial
+/// unique index in schema.sql.
+model PlaceMember {
+  id              String    @id @default(uuid())
+  shopId          String    @default("") @map("shop_id")
+  placeId         String    @map("place_id")
+  customerId      String    @map("customer_id")
+  unitId          String?   @map("unit_id")
+  unitText        String?   @map("unit_text")
+  status          String // pending | active | left | removed
+  joinedVia       String    @map("joined_via") // qr | link | app | staff
+  distanceM       Int?      @map("distance_m")
+  /// far_away, needs_approval, unit_taken, not_found (comma list).
+  checks          String?
+  parkingNote     String?   @map("parking_note")
+  addedByUserId   String?   @map("added_by_user_id")
+  handledByUserId String?   @map("handled_by_user_id")
+  handledAt       DateTime? @map("handled_at")
+  endedAt         DateTime? @map("ended_at")
+  endReason       String?   @map("end_reason")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  place    Place           @relation(fields: [placeId], references: [id])
+  customer Customer        @relation(fields: [customerId], references: [id])
+  unit     PlaceUnit?      @relation(fields: [unitId], references: [id])
+  vehicles MemberVehicle[]
+  orders   PlaceOrder[]
+
+  @@unique([shopId, id])
+  @@index([shopId, placeId, status])
+  @@index([customerId, status])
+  @@map("place_members")
+}
+
+model MemberVehicle {
+  id            String   @id @default(uuid())
+  shopId        String   @default("") @map("shop_id")
+  memberId      String   @map("member_id")
+  customerId    String   @map("customer_id")
+  vehicleTypeId String   @map("vehicle_type_id")
+  /// The branch's vehicle, once the plate is known.
+  vehicleId     String?  @map("vehicle_id")
+  status        String   @default("active") // active | removed
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  member      PlaceMember  @relation(fields: [memberId], references: [id])
+  vehicleType VehicleType  @relation(fields: [vehicleTypeId], references: [id])
+  vehicle     Vehicle?     @relation(fields: [vehicleId], references: [id])
+  orders      PlaceOrder[]
+  visits      PlaceVisit[]
+
+  @@unique([shopId, id])
+  @@index([memberId, status])
+  @@map("member_vehicles")
+}
+
+/// Monthly, quarterly, yearly… set up once for the business. Business-level (not shop-scoped).
+model WashPlan {
+  id               String   @id
+  businessId       String   @map("business_id")
+  name             String
+  washes           Int
+  months           Int
+  catalogServiceId String   @map("catalog_service_id")
+  discountBp       Int      @default(0) @map("discount_bp")
+  allowParts       Boolean  @default(false) @map("allow_parts")
+  popular          Boolean  @default(false)
+  active           Boolean  @default(true)
+  sortOrder        Int      @default(0) @map("sort_order")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([businessId, id])
+  @@index([businessId, sortOrder])
+  @@map("wash_plans")
+}
+
+/// A plan or one-time wash for one member vehicle.
+model PlaceOrder {
+  id              String    @id @default(uuid())
+  shopId          String    @default("") @map("shop_id")
+  customerId      String    @map("customer_id")
+  memberId        String    @map("member_id")
+  memberVehicleId String    @map("member_vehicle_id")
+  kind            String // plan | single
+  planId          String?   @map("plan_id")
+  title           String
+  /// JSON: what was sold (items, prices, rules) at the time.
+  snapshot        String
+  washesTotal     Int       @map("washes_total")
+  washesUsed      Int       @default(0) @map("washes_used")
+  months          Int       @default(1)
+  perWeek         Int       @default(1) @map("per_week")
+  singlePrice     Int       @map("single_price")
+  total           Int
+  payMode         String    @default("full") @map("pay_mode") // full | parts
+  status          String // waitlist | awaiting_payment | active | ended | cancelled
+  firstWashOn     String?   @map("first_wash_on")
+  renewalOf       String?   @map("renewal_of")
+  cancelledAt     DateTime? @map("cancelled_at")
+  cancelReason    String?   @map("cancel_reason")
+  cancelledBy     String?   @map("cancelled_by") // customer | staff | system
+  refundDue       Int       @default(0) @map("refund_due")
+  endedAt         DateTime? @map("ended_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  customer      Customer           @relation(fields: [customerId], references: [id])
+  member        PlaceMember        @relation(fields: [memberId], references: [id])
+  memberVehicle MemberVehicle      @relation(fields: [memberVehicleId], references: [id])
+  installments  OrderInstallment[]
+  pauses        OrderPause[]
+  visits        PlaceVisit[]
+  payments      CustomerPayment[]
+
+  @@unique([shopId, id])
+  @@index([memberId, status])
+  @@index([memberVehicleId, status])
+  @@index([customerId, createdAt])
+  @@index([shopId, status, firstWashOn])
+  @@map("place_orders")
+}
+
+model OrderInstallment {
+  id        String    @id @default(uuid())
+  shopId    String    @default("") @map("shop_id")
+  orderId   String    @map("order_id")
+  seq       Int
+  amount    Int
+  dueOn     String    @map("due_on")
+  status    String    @default("due") // due | paid | cancelled
+  paymentId String?   @map("payment_id")
+  paidAt    DateTime? @map("paid_at")
+
+  order    PlaceOrder        @relation(fields: [orderId], references: [id])
+  payments CustomerPayment[]
+
+  @@unique([orderId, seq])
+  @@unique([shopId, id])
+  @@index([shopId, status, dueOn])
+  @@map("order_installments")
+}
+
+model OrderPause {
+  id          String    @id @default(uuid())
+  shopId      String    @default("") @map("shop_id")
+  orderId     String    @map("order_id")
+  fromOn      String    @map("from_on")
+  toOn        String    @map("to_on")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  cancelledAt DateTime? @map("cancelled_at")
+
+  order PlaceOrder @relation(fields: [orderId], references: [id])
+
+  @@unique([shopId, id])
+  @@index([orderId])
+  @@map("order_pauses")
+}
+
+model PlaceVisit {
+  id              String   @id @default(uuid())
+  shopId          String   @default("") @map("shop_id")
+  placeId         String   @map("place_id")
+  orderId         String   @map("order_id")
+  memberVehicleId String   @map("member_vehicle_id")
+  date            String
+  outcome         String // done | skipped | not_found | missed
+  byUserId        String?  @map("by_user_id")
+  byCustomer      Boolean  @default(false) @map("by_customer")
+  note            String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  photoKey        String?  @map("photo_key")
+  /// How far from the place the washer recorded it.
+  distanceM       Int?     @map("distance_m")
+  /// A plan wash used at the shop: the shop wash it paid for.
+  jobId           String?  @map("job_id")
+
+  place         Place         @relation(fields: [placeId], references: [id])
+  order         PlaceOrder    @relation(fields: [orderId], references: [id])
+  memberVehicle MemberVehicle @relation(fields: [memberVehicleId], references: [id])
+
+  @@unique([orderId, date])
+  @@unique([shopId, id])
+  @@index([placeId, date])
+  @@map("place_visits")
+}
+
+/// One attempt to pay one installment through Razorpay (or the local test checkout).
+model CustomerPayment {
+  id                String    @id @default(uuid())
+  shopId            String    @default("") @map("shop_id")
+  customerId        String    @map("customer_id")
+  orderId           String    @map("order_id")
+  installmentId     String    @map("installment_id")
+  amount            Int
+  status            String    @default("created") // created | paid | failed | expired
+  provider          String // razorpay | test
+  linkId            String?   @unique @map("link_id")
+  linkUrl           String?   @map("link_url")
+  providerPaymentId String?   @map("provider_payment_id")
+  method            String?
+  refunded          Int       @default(0)
+  receiptNo         String?   @unique @map("receipt_no")
+  gstRateBp         Int       @default(0) @map("gst_rate_bp")
+  createdBy         String    @map("created_by") // customer | staff
+  expiresAt         DateTime  @map("expires_at")
+  paidAt            DateTime? @map("paid_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  customer    Customer         @relation(fields: [customerId], references: [id])
+  order       PlaceOrder       @relation(fields: [orderId], references: [id])
+  installment OrderInstallment @relation(fields: [installmentId], references: [id])
+  refunds     CustomerRefund[]
+
+  @@unique([shopId, id])
+  @@index([orderId, createdAt])
+  @@map("customer_payments")
+}
+
+model CustomerRefund {
+  id               String    @id @default(uuid())
+  shopId           String    @default("") @map("shop_id")
+  paymentId        String    @map("payment_id")
+  orderId          String    @map("order_id")
+  amount           Int
+  status           String    @default("pending") // pending | processed | failed
+  providerRefundId String?   @map("provider_refund_id")
+  reason           String?
+  createdAt        DateTime  @default(now()) @map("created_at")
+  processedAt      DateTime? @map("processed_at")
+
+  payment CustomerPayment @relation(fields: [paymentId], references: [id])
+
+  @@unique([shopId, id])
+  @@index([paymentId])
+  @@map("customer_refunds")
+}
+
+model ReceiptSeries {
+  shopId        String @map("shop_id")
+  financialYear String @map("financial_year")
+  lastNumber    Int    @default(0) @map("last_number")
+
+  @@id([shopId, financialYear])
+  @@map("receipt_series")
 }

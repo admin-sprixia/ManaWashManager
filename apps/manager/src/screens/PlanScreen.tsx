@@ -84,8 +84,12 @@ function heroCopy(b: Billing): { title: string; subtitle: string } {
   };
 }
 
+/** In every plan; listed with Pro too so owners see the whole of what they pay for. */
+const EVERY_PLAN = ['Communities & monthly wash plans', 'Online plan payments with GST receipts'];
+
 /** What Free keeps for good — shown next to the Pro list so trial owners know what stays. */
 const FREE_FOREVER = [
+  ...EVERY_PLAN,
   'Job board & new wash',
   'Cash & UPI payments',
   'Customer history',
@@ -463,6 +467,9 @@ export function PlanScreen({ navigation }: Props) {
               {PRO_HIGHLIGHTS.map((f) => (
                 <FeatureItem key={f} label={PRO_FEATURE_LABEL[f]} />
               ))}
+              {data.tier === 'pro' && data.state !== 'trial'
+                ? EVERY_PLAN.map((label) => <FeatureItem key={label} label={label} />)
+                : null}
             </View>
             {data.state === 'trial' || data.tier !== 'pro' ? (
               <>

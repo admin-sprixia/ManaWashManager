@@ -19,7 +19,7 @@ export const customerRepo = {
     return db.customer.findUnique({ where: { id } });
   },
 
-  async create(db: DbClient, data: { phone: string; name: string; source?: string }) {
+  async create(db: DbClient, data: { phone: string; name: string | null; source?: string }) {
     return db.customer.create({ data });
   },
 

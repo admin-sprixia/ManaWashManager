@@ -9,8 +9,7 @@ import {
   type ImageSourcePropType,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import { colors, radius, spacing, typography } from '@mana/ui';
-import { catalogVehicleFor, VEHICLE_CATALOG } from '../config/vehicleCatalog';
+import { VEHICLE_CATALOG, catalogVehicleFor, colors, radius, spacing, typography } from '@mana/ui';
 
 const FALLBACK_IMAGE = VEHICLE_CATALOG.find((v) => v.key === 'sedan')!.image;
 
@@ -19,10 +18,21 @@ export function vehicleImageFor(name: string): ImageSourcePropType {
 }
 
 /** @deprecated Prefer VehicleTypeCard */
-export function VehicleTypeIcon({ name, size = 72 }: { name: string; selected?: boolean; size?: number }) {
+export function VehicleTypeIcon({
+  name,
+  size = 72,
+}: {
+  name: string;
+  selected?: boolean;
+  size?: number;
+}) {
   return (
     <View style={[styles.thumbShell, { width: size, height: size }]}>
-      <Image source={vehicleImageFor(name)} style={{ width: size, height: size }} resizeMode="cover" />
+      <Image
+        source={vehicleImageFor(name)}
+        style={{ width: size, height: size }}
+        resizeMode="cover"
+      />
     </View>
   );
 }
@@ -41,7 +51,12 @@ export const VEHICLE_CARD_COMPACT_WIDTH = 142;
  * Gallery-style vehicle picker tile — cinematic photo, glass caption, soft selection glow.
  * Unselected cards dim slightly so the active one feels like the hero.
  */
-export function VehicleTypeCard({ name, selected, onPress, compact = false }: VehicleTypeCardProps) {
+export function VehicleTypeCard({
+  name,
+  selected,
+  onPress,
+  compact = false,
+}: VehicleTypeCardProps) {
   const scale = useRef(new Animated.Value(selected ? 1 : 0.94)).current;
 
   useEffect(() => {

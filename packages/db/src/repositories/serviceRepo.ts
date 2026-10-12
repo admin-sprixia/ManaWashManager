@@ -1,6 +1,6 @@
 import type { DbClient } from '../client';
 import { retryOnClash } from '../retryOnClash';
-import type { ServiceAppliesTo, VehicleCategory } from '@mana/domain';
+import type { DeliveryMode, ServiceAppliesTo, VehicleCategory } from '@mana/domain';
 
 export const serviceRepo = {
   /** Active services; `includes` lists the services a combo bundles (empty for a plain service). */
@@ -55,28 +55,32 @@ export const serviceRepo = {
     return db.service.findUnique({ where: { id } });
   },
 
-  /** The full price matrix, or just one vehicle type's column when building a New Wash screen. */
-  async listPrices(db: DbClient, vehicleTypeId?: string) {
+  /**
+   * The full price matrix, or one vehicle type's column when pricing a wash; `mode` narrows it
+   * to hub or doorstep prices.
+   */
+  async listPrices(db: DbClient, vehicleTypeId?: string, mode?: DeliveryMode) {
     return db.servicePrice.findMany({
-      where: vehicleTypeId ? { vehicleTypeId } : undefined,
+      where: { ...(vehicleTypeId ? { vehicleTypeId } : {}), ...(mode ? { mode } : {}) },
     });
   },
 
-  /** Owner settings screen: add or change a price without touching code (see V0.1 feature table). */
+  /** Owner settings: a branch's own price for a service it made by hand. */
   async upsertPrice(
     db: DbClient,
-    data: { serviceId: string; vehicleTypeId: string; price: number },
+    data: { serviceId: string; vehicleTypeId: string; mode: DeliveryMode; price: number },
   ) {
     return retryOnClash(() =>
       db.servicePrice.upsert({
         where: {
-          serviceId_vehicleTypeId: {
+          serviceId_vehicleTypeId_mode: {
             serviceId: data.serviceId,
             vehicleTypeId: data.vehicleTypeId,
+            mode: data.mode,
           },
         },
-        update: { price: data.price },
-        create: data,
+        update: { price: data.price, source: 'manual', listPrice: null },
+        create: { ...data, source: 'manual' },
       }),
     );
   },
@@ -124,10 +128,16 @@ export const serviceRepo = {
     });
   },
 
-  /** A service is offered for a vehicle only where it has a price; this withdraws one vehicle. */
-  async removePrice(db: DbClient, key: { serviceId: string; vehicleTypeId: string }) {
+  /**
+   * A service is offered for a vehicle only where it has a price; this withdraws one vehicle,
+   * for one way of delivering. Its commission goes once no price for that vehicle is left.
+   */
+  async removePrice(db: DbClient, key: { serviceId: string; vehicleTypeId: string; mode: DeliveryMode }) {
     await db.servicePrice.deleteMany({ where: key });
-    await db.commissionRate.deleteMany({ where: key });
+    const left = await db.servicePrice.count({ where: { serviceId: key.serviceId, vehicleTypeId: key.vehicleTypeId } });
+    if (!left) {
+      await db.commissionRate.deleteMany({ where: { serviceId: key.serviceId, vehicleTypeId: key.vehicleTypeId } });
+    }
   },
 
   async setServiceAppliesTo(db: DbClient, id: string, appliesTo: ServiceAppliesTo) {
@@ -142,16 +152,23 @@ export const serviceRepo = {
 
   /** Owner settings screen: add a new vehicle size within a category (e.g. Bike → Scooter). */
   /** Selecting a size the owner deselected earlier brings it back with its old prices. */
-  async createVehicleType(db: DbClient, data: { name: string; category?: VehicleCategory }) {
+  /** `bodyTypeId` ties it to the business catalog's body type (its prices come from there). */
+  async createVehicleType(db: DbClient, data: { name: string; category?: VehicleCategory; bodyTypeId?: string | null }) {
     const category = data.category ?? 'car';
     const hidden = await db.vehicleType.findFirst({ where: { name: data.name, category, active: false } });
-    if (hidden) return db.vehicleType.update({ where: { id: hidden.id }, data: { active: true } });
+    if (hidden) {
+      return db.vehicleType.update({
+        where: { id: hidden.id },
+        data: { active: true, ...(data.bodyTypeId ? { bodyTypeId: data.bodyTypeId } : {}) },
+      });
+    }
     const count = await db.vehicleType.count();
     return db.vehicleType.create({
       data: {
         name: data.name,
         category,
         sortOrder: count,
+        bodyTypeId: data.bodyTypeId ?? null,
       },
     });
   },
@@ -168,6 +185,7 @@ export const serviceRepo = {
       return 'hidden';
     }
     await db.servicePrice.deleteMany({ where: { vehicleTypeId: id } });
+    await db.branchPriceOverride.deleteMany({ where: { vehicleTypeId: id } });
     await db.commissionRate.deleteMany({ where: { vehicleTypeId: id } });
     await db.vehicleType.delete({ where: { id } });
     return 'deleted';

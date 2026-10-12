@@ -2,6 +2,7 @@ import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { hoursSummary, openState } from '@mana/domain';
 import {
+  IconCar,
   IconClock,
   IconMapPin,
   IconPhone,
@@ -47,6 +48,14 @@ export function BranchCard({ branch, now }: { branch: Branch; now: Date }) {
           )
         }
       />
+      {branch.modes.includes('doorstep') ? (
+        <EdgeRow
+          icon={<IconCar size={19} color={colors.indigo} />}
+          title={branch.modes.includes('hub') ? 'We also wash at your door' : 'We wash at your door'}
+          titleLines={2}
+          subtitle="Call or WhatsApp to book a doorstep wash"
+        />
+      ) : null}
       {canDirect ? (
         <EdgeRow
           icon={<IconMapPin size={19} color={colors.tealDeep} />}

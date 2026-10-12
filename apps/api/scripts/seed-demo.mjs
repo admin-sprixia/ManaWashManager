@@ -12,7 +12,13 @@
 //   ~75 days of washes, customers and vehicles; reminders (due and comeback), coupons and
 //   referrals; expenses with bill photos; stock; attendance; cash drawer days; an error report;
 //   stamp cards (one free wash used today) and a welcome gift, some of it owed (out of stock).
-//   A second branch, MANA Car Wash Kavali, with its own menu, staff (Venkat 9300000021) and washes.
+//   A doorstep team for Nellore communities, beside the Kovur hub; the owner runs the business
+//   catalog (services, base prices by size, the doorstep extra) that every branch's menu comes from.
+//   A second branch, MANA Car Wash Kavali, on the same catalog in a cheaper town price zone, with
+//   its own staff (Venkat 9300000021) and washes.
+//   Places the doorstep van serves: Lakshmi Towers (flats, members on plans, today's wash list with
+//   paid and unpaid vehicles, GST receipts) and Sri Ram Nagar (a member waiting for the team), plus
+//   "Call me back" requests nearby. Plans: Monthly, Quarterly (payable in parts), Bike Monthly.
 //
 // Washes older than a week are written straight into the database (the API only accepts a week
 // of backdating); everything newer goes through the real API, as the app would send it.
@@ -26,7 +32,7 @@ import { join } from 'node:path';
 import { API, API_DIR, STAGING, TARGET, apiFetch, d1Execute, d1Rows } from './lib/target.mjs';
 
 const PIN = '2580';
-const VEHICLE_ART = join(API_DIR, '..', 'manager', 'src', 'assets', 'vehicles');
+const VEHICLE_ART = join(API_DIR, '..', '..', 'packages', 'ui', 'src', 'assets', 'vehicles');
 const TMP = mkdtempSync(join(tmpdir(), 'mana-seed-'));
 const SHOP = 'shop_mana';
 
@@ -140,6 +146,26 @@ function vehiclePhoto(vt, plate, kind) {
     ${dirt}
     <rect x="0" y="720" width="800" height="80" fill="#000" opacity="0.45"/>
     <text x="28" y="772" font-family="Helvetica" font-size="30" fill="#fff">${kind === 'before' ? 'BEFORE' : 'AFTER'} · ${esc(plate)}</text>
+  </svg>`);
+}
+
+const PLACE_SCENE = {
+  gate: ['#475569', '#e2e8f0', 'GATE'],
+  parking: ['#0f766e', '#ccfbf1', 'PARKING'],
+  water: ['#0369a1', '#e0f2fe', 'WATER POINT'],
+  building: ['#92400e', '#fef3c7', 'BUILDING'],
+};
+function placePhoto(kind, placeName) {
+  if (!canDraw) return rawArt('vt_sedan');
+  const [ink, paper, title] = PLACE_SCENE[kind] ?? PLACE_SCENE.building;
+  return render(`<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800">
+    <rect width="800" height="800" fill="${paper}"/>
+    <rect x="120" y="180" width="560" height="420" rx="18" fill="${ink}" opacity="0.18"/>
+    <rect x="180" y="240" width="140" height="120" rx="8" fill="${ink}" opacity="0.35"/>
+    <rect x="480" y="240" width="140" height="120" rx="8" fill="${ink}" opacity="0.35"/>
+    <rect x="330" y="420" width="140" height="180" rx="8" fill="${ink}" opacity="0.5"/>
+    <rect x="0" y="700" width="800" height="100" fill="${ink}"/>
+    <text x="40" y="762" font-family="Helvetica" font-size="34" font-weight="bold" fill="#fff">${title} · ${esc(placeName)}</text>
   </svg>`);
 }
 
@@ -385,7 +411,7 @@ execFileSync('node', [join(API_DIR, 'scripts', 'db-reset-local.mjs'), ...(STAGIN
 });
 
 const PRICES = {};
-for (const row of query('SELECT service_id, vehicle_type_id, price FROM service_prices')) {
+for (const row of query("SELECT service_id, vehicle_type_id, price FROM service_prices WHERE mode = 'hub'")) {
   (PRICES[row.service_id] ??= {})[row.vehicle_type_id] = row.price;
 }
 step(`Writing the team and ${visits.filter((v) => v.daysAgo > API_DAYS).length} older washes straight into the database`);
@@ -395,6 +421,7 @@ step(`Writing the team and ${visits.filter((v) => v.daysAgo > API_DAYS).length} 
   sql.push(
     `UPDATE users SET name = ${q(OWNER.name)}, phone = ${q(OWNER.phone)}, pin_hash = ${q(await hashPin(PIN))}, created_at = ${q(ts(at(90, 9)))} WHERE id = '${OWNER.id}';`,
   );
+  sql.push(`UPDATE business_admins SET phone = ${q(OWNER.phone)} WHERE business_id = 'biz_mana';`);
   const [ravi, ...others] = STAFF;
   sql.push(
     `UPDATE users SET name = ${q(ravi.name)}, phone = ${q(ravi.phone)}, pin_hash = ${q(await hashPin(PIN))}, created_at = ${q(ts(at(ravi.joinedDaysAgo, 9)))} WHERE id = '${ravi.id}';`,
@@ -544,11 +571,11 @@ for (const person of [OWNER, ...STAFF]) {
 const OWN = tokens[OWNER.id];
 const tokenOf = (person) => tokens[person.id];
 
-step('Shop setup: name, combo contents, staff commissions, Google review link');
+step('Shop setup: name, the menu from the business catalog, staff commissions, Google review link');
 await call(OWN, 'PUT', '/shop/info', { name: 'MANA Car Wash', city: 'Nellore' });
-await call(OWN, 'PATCH', '/services/svc_mana_combo', {
-  includes: ['svc_complete_wash', 'svc_tyre_dressing', 'svc_dashboard_dressing'],
-});
+// The first menu read builds the branch's menu from the catalog: its own services (above) are
+// adopted with their ids, and the combo's contents come from the catalog's combo.
+await call(OWN, 'GET', '/services');
 for (const [serviceId, byType] of Object.entries(COMMISSIONS)) {
   for (const [vehicleTypeId, amount] of Object.entries(byType)) {
     await call(OWN, 'PUT', '/services/commissions', { serviceId, vehicleTypeId, amount });
@@ -965,6 +992,239 @@ await call(tokenOf(kiran), 'POST', '/shop/errors', {
 
 // ─── Second branch ────────────────────────────────────────────────────────
 
+step('Service network: a community team for Nellore');
+{
+  const { classes } = await call(OWN, 'GET', '/branch/points');
+  await call(OWN, 'POST', '/branch/points', {
+    kind: 'doorstep',
+    name: 'Community team',
+    latitude: 14.4426,
+    longitude: 79.9865,
+    radiusKm: 10,
+    classIds: classes.map((c) => c.id),
+  });
+}
+
+step('Communities: inspected by the team, approved by the owner, members on plans, today’s wash list');
+// The plans (Weekly, Regular, Premium in parts, Bike Monthly) come from seed.sql. Each community is
+// saved by staff after visiting it, sent for approval, and made live by the owner. Members are added
+// the way the team adds someone at the gate; their payment links are paid on the test checkout.
+const placesDemo = {};
+{
+  const DEV_CODE = '000000';
+  const [ravi, suresh] = STAFF;
+  const RAVI = tokenOf(ravi);
+  await call(OWN, 'PATCH', '/business/plan-rules', { gstin: '37AAKCM4821Q1Z6', legalName: 'MANA Car Wash Pvt Ltd' });
+  // Weekly plans wash on a place's first wash day of the week (weeks start Monday): make that
+  // today, with the place's other wash days later in the week.
+  const mondayIndex = (wd) => (wd + 6) % 7;
+  const washDays = [0, 2, 4].map((n) => (weekday(0) + n) % 7).filter((wd) => mondayIndex(wd) >= mondayIndex(weekday(0)));
+
+  /** What a staff visit records: the place, what they saw, who to call, photos, days residents want. */
+  async function inspect(token, place, photoKinds) {
+    const created = await call(token, 'POST', '/places', place);
+    for (const kind of photoKinds) {
+      const form = new FormData();
+      form.set('kind', kind);
+      form.set('file', placePhoto(kind, place.name));
+      await call(token, 'POST', `/places/${created.id}/photos`, form);
+    }
+    return created;
+  }
+
+  const towers = await inspect(
+    RAVI,
+    {
+      type: 'building',
+      name: 'Lakshmi Towers',
+      label: 'Beside Apollo Pharmacy, Magunta Layout',
+      latitude: 14.4441,
+      longitude: 79.9872,
+      notes: 'Watchman opens the basement gate at 6 am. Use the tap near the lift.',
+      contactName: 'Srinivas (secretary)',
+      contactPhone: '9440022001',
+      inspection: { water: 'yes', power: 'yes', parking: 'basement', space: 'good', permission: 'yes', cars: 22, bikes: 14, bestTime: 'early' },
+      slots: [
+        { days: washDays, time: '06:30' },
+        { days: washDays, time: '07:00' },
+      ],
+    },
+    ['gate', 'parking', 'water'],
+  );
+  await call(RAVI, 'POST', `/places/${towers.id}/submit`);
+  await call(OWN, 'POST', `/places/${towers.id}/go-live`, { washDays, washTime: '06:30', teamUserIds: [ravi.id, suresh.id] });
+  await call(OWN, 'POST', `/places/${towers.id}/units`, { block: 'A', numbers: '101-104, 201-204, 301-304' });
+  await call(OWN, 'POST', `/places/${towers.id}/units`, { block: 'B', numbers: '101-104, 201-204' });
+
+  const colonyDays = [weekday(1), weekday(3)].filter((d, i, all) => all.indexOf(d) === i);
+  const colony = await inspect(
+    tokenOf(suresh),
+    {
+      type: 'colony',
+      name: 'Sri Ram Nagar',
+      label: 'Main gate, near the water tank',
+      latitude: 14.4382,
+      longitude: 79.9811,
+      notes: 'Cars park on both sides of the main road. Residents asked for early mornings.',
+      contactName: 'Ramana (watchman)',
+      contactPhone: '9440022002',
+      inspection: { water: 'bring', power: 'no', parking: 'street', space: 'tight', permission: 'yes', cars: 12, bikes: 20, bestTime: 'early' },
+      slots: [{ days: colonyDays, time: '07:00' }],
+    },
+    ['gate', 'parking'],
+  );
+  await call(tokenOf(suresh), 'POST', `/places/${colony.id}/submit`);
+  await call(OWN, 'POST', `/places/${colony.id}/go-live`, {
+    washDays: colonyDays,
+    washTime: '07:00',
+    teamUserIds: [suresh.id],
+    needsApproval: true,
+  });
+
+  // Waiting for the owner: Kiran visited Green Park Residency and sent it for approval.
+  const greenPark = await inspect(
+    tokenOf(STAFF[2]),
+    {
+      type: 'building',
+      name: 'Green Park Residency',
+      label: 'Opposite Narayana School, Vedayapalem',
+      latitude: 14.4608,
+      longitude: 79.9721,
+      notes: '3 floors, 18 flats. Secretary wants a trial week first.',
+      contactName: 'Lakshmi (secretary)',
+      contactPhone: '9440022003',
+      inspection: { water: 'yes', power: 'yes', parking: 'open', space: 'good', permission: 'yes', cars: 14, bikes: 9, bestTime: 'early' },
+      slots: [
+        { days: [6, 0], time: '06:30' },
+        { days: [3], time: '06:00' },
+      ],
+    },
+    ['building', 'parking'],
+  );
+  await call(tokenOf(STAFF[2]), 'POST', `/places/${greenPark.id}/submit`);
+
+  // Still a draft: Ravi saved what he saw but hasn't talked to the society yet.
+  await inspect(
+    RAVI,
+    {
+      type: 'building',
+      name: 'Sai Krupa Apartments',
+      label: 'Behind the Ramalingeswara temple',
+      latitude: 14.4498,
+      longitude: 79.9902,
+      notes: 'Narrow gate. Ask about the basement.',
+      contactName: null,
+      contactPhone: null,
+      inspection: { water: 'yes', parking: 'basement', cars: 10 },
+      slots: [],
+    },
+    ['gate'],
+  );
+  const towerUnits = Object.fromEntries((await call(OWN, 'GET', `/places/${towers.id}`)).units.map((u) => [`${u.block}-${u.number}`, u.id]));
+  placesDemo.towers = { name: 'Lakshmi Towers', code: towers.code, units: Object.keys(towerUnits).length };
+  placesDemo.colony = { name: 'Sri Ram Nagar', code: colony.code };
+
+  const payOnTestCheckout = async (payment) => {
+    if (!payment.url.includes('/pay/test/')) return false;
+    const res = await apiFetch(API + new URL(payment.url).pathname, {
+      method: 'POST',
+      body: new URLSearchParams({ action: 'pay' }),
+      redirect: 'manual',
+    });
+    return res.status === 303;
+  };
+  async function addAtGate(placeId, person, unit, vehicles) {
+    await call(RAVI, 'POST', `/places/${placeId}/members/code`, { phone: person.phone });
+    return call(RAVI, 'POST', `/places/${placeId}/members`, { phone: person.phone, code: DEV_CODE, name: person.name, unit, vehicles });
+  }
+  const plan = (planId, payMode = 'full') => ({ kind: 'plan', planId, payMode });
+  const members = [
+    { name: 'Anil Reddy', phone: '9440011001', unit: 'A-101', vehicles: [['vt_sedan', plan('wp_mana_premium', 'parts')]], pay: true },
+    { name: 'Swathi Rao', phone: '9440011002', unit: 'A-203', vehicles: [['vt_hatchback', plan('wp_mana_weekly')], ['vt_scooter', plan('wp_mana_bike_monthly')]], pay: true },
+    { name: 'Prakash N', phone: '9440011003', unit: 'B-102', vehicles: [['vt_mini_suv', plan('wp_mana_regular')]], pay: true },
+    { name: 'Divya K', phone: '9440011004', unit: 'B-204', vehicles: [['vt_hatchback', plan('wp_mana_weekly')]], pay: false },
+  ];
+  const paidOrders = [];
+  const unpaidOrders = [];
+  for (const m of members) {
+    const joined = await addAtGate(
+      towers.id,
+      m,
+      { unitId: towerUnits[m.unit] },
+      m.vehicles.map(([vehicleTypeId, choice]) => ({ vehicleTypeId, choice })),
+    );
+    for (const order of joined.orders) {
+      const link = await call(RAVI, 'POST', `/places/orders/${order.id}/payment-link`);
+      if (m.pay && (await payOnTestCheckout(link.payment))) paidOrders.push(order.id);
+      else unpaidOrders.push(order.id);
+    }
+  }
+  // Their first washes were today, so today's wash list has paid vehicles and one not paid yet.
+  const ids = [...paidOrders, ...unpaidOrders].map(q).join(', ');
+  if (ids) runSql([`UPDATE place_orders SET first_wash_on = ${q(day(0))} WHERE id IN (${ids});`], 'places-first-wash');
+  placesDemo.paid = paidOrders.length;
+  placesDemo.unpaid = unpaidOrders.length;
+
+  // The first paid car is already washed today, at the building: the washer noted its number
+  // plate and took an after photo.
+  const today = await call(RAVI, 'GET', `/places/${towers.id}/day/${day(0)}`);
+  const first = today.rows.find((r) => r.paid && r.vehicle.category === 'car');
+  if (first) {
+    const visit = await call(RAVI, 'POST', `/places/${towers.id}/visits`, {
+      orderId: first.orderId,
+      date: day(0),
+      outcome: 'done',
+      plate: { registrationNumber: 'AP39CK4821', make: 'Honda', model: 'City' },
+      at: { latitude: 14.44415, longitude: 79.98725 },
+    });
+    const form = new FormData();
+    form.set('file', vehiclePhoto('vt_sedan', 'AP39CK4821', 'after'));
+    await call(RAVI, 'POST', `/places/${towers.id}/visits/${visit.visitId}/photo`, form);
+  }
+
+  // Someone joined Sri Ram Nagar from the app, from home: the team confirms them first.
+  // App codes per network address are capped hourly; moving each back keeps re-seeding possible.
+  const appTicket = async (phone) => {
+    await call(null, 'POST', '/c/auth/code', { phone });
+    runSql([`UPDATE signup_codes SET created_at = strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now', '-2 hours') WHERE phone = ${q(phone)};`], `code-${phone}`);
+    return (await call(null, 'POST', '/c/auth/verify', { phone, code: DEV_CODE })).ticket;
+  };
+  const colonyMenu = await call(null, 'GET', `/c/places/${colony.id}`);
+  const hatch = colonyMenu.menu.vehicleTypes.find((t) => t.name === 'Hatchback');
+  const pending = await call(null, 'POST', '/c/join', {
+    ticket: await appTicket('9440011005'),
+    placeId: colony.id,
+    name: 'Ramesh G',
+    unit: { text: 'H.No 14-2' },
+    location: { latitude: 14.4521, longitude: 79.9811 },
+    via: 'app',
+    vehicles: [{ vehicleTypeId: hatch.id, choice: plan('wp_mana_weekly') }],
+  });
+  placesDemo.pending = pending.memberStatus === 'pending' ? 1 : 0;
+
+  // People asking where we don't wash yet: two near Green Park (waiting for approval), and five
+  // neighbours in one Dargamitta lane, enough to start a community there.
+  const asking = [
+    ['9440011006', 14.4612, 79.9724, 'Vedayapalem, 3rd cross', 1, 0],
+    ['9440011007', 14.4616, 79.9726, 'Vedayapalem, 3rd cross', 1, 1],
+    ['9440011008', 14.4352, 79.9688, 'Dargamitta, Vivekananda Street', 1, 0],
+    ['9440011009', 14.4354, 79.9690, 'Dargamitta, Vivekananda Street', 2, 0],
+    ['9440011010', 14.4351, 79.9686, 'Dargamitta, Vivekananda Street', 1, 1],
+    ['9440011011', 14.4356, 79.9689, 'Dargamitta, Vivekananda Street', 1, 0],
+    ['9440011012', 14.4353, 79.9692, 'Dargamitta, Vivekananda Street', 1, 2],
+  ];
+  for (const [phone, latitude, longitude, address, cars, bikes] of asking) {
+    await call(null, 'POST', '/c/service-requests', {
+      ticket: await appTicket(phone),
+      location: { latitude, longitude },
+      address,
+      cars,
+      bikes,
+    });
+  }
+  placesDemo.asking = asking.length;
+}
+
 step('Second branch: MANA Car Wash Kavali');
 // Opening a branch needs paid Pro, and a new branch starts on Free: show both as paying shops.
 const paidPro = (shopId) =>
@@ -984,33 +1244,15 @@ await call(KAV, 'PUT', '/service-area/contact', {
   closesAt: '19:30',
   weeklyOff: 2,
 });
-const kvTypes = {};
-for (const [key, name, category] of [
-  ['hatch', 'Hatchback', 'car'],
-  ['sedan', 'Sedan', 'car'],
-  ['suv', 'SUV', 'car'],
-  ['bike', 'Bike', 'bike'],
-]) {
-  kvTypes[key] = (await call(KAV, 'POST', '/services/vehicle-types', { name, category })).id;
-}
-const kvComplete = await call(KAV, 'POST', '/services', {
-  name: 'Complete Car Wash',
-  description: 'Foam wash + interior vacuum + tyres',
-  vehicles: [
-    { vehicleTypeId: kvTypes.hatch, price: 35000 },
-    { vehicleTypeId: kvTypes.sedan, price: 45000 },
-    { vehicleTypeId: kvTypes.suv, price: 55000 },
-  ],
-});
-await call(KAV, 'POST', '/services', {
-  name: 'Exterior Wash',
-  vehicles: [
-    { vehicleTypeId: kvTypes.hatch, price: 20000 },
-    { vehicleTypeId: kvTypes.sedan, price: 25000 },
-    { vehicleTypeId: kvTypes.suv, price: 30000 },
-  ],
-});
-const kvBike = await call(KAV, 'POST', '/services', { name: 'Bike Wash', vehicles: [{ vehicleTypeId: kvTypes.bike, price: 12000 }] });
+// A new branch of the business gets the catalog's menu straight away; Kavali is a smaller town,
+// so the business puts it in a price zone 10% under the list price.
+await call(OWN, 'POST', '/business/zones', { name: 'Small towns', percentBp: -1000 });
+const smallTowns = (await call(OWN, 'GET', '/business/catalog')).zones.find((z) => z.name === 'Small towns');
+await call(OWN, 'PATCH', `/business/branches/${kavali.user.shopId}`, { priceZoneId: smallTowns.id });
+const kvTypes = Object.fromEntries((await call(KAV, 'GET', '/services/vehicle-types')).map((v) => [v.name, v.id]));
+const kvServices = Object.fromEntries((await call(KAV, 'GET', '/services')).map((s) => [s.name, s.id]));
+const kvComplete = { id: kvServices['Complete Car Wash'] };
+const kvBike = { id: kvServices['Complete Bike Wash'] };
 const venkat = await call(KAV, 'POST', '/team', { name: 'Venkat', phone: '9300000021', role: 'staff', pin: PIN });
 const venkatToken = (await call(null, 'POST', '/auth/pin/login', { phone: '9300000021', pin: PIN })).token;
 const kvWash = async (minutesAgo, vt, serviceId, stopAt) => {
@@ -1032,10 +1274,10 @@ const kvWash = async (minutesAgo, vt, serviceId, stopAt) => {
   await call(KAV, 'POST', `/jobs/${id}/pay`, { paymentMethod: 'cash', occurredAt: addMin(t, 45).toISOString() });
 };
 await call(venkatToken, 'PUT', '/cash/day/float', { date: day(0), amount: 100000 });
-await kvWash(240, kvTypes.sedan, kvComplete.id, 'paid');
-await kvWash(150, kvTypes.suv, kvComplete.id, 'paid');
-await kvWash(60, kvTypes.bike, kvBike.id, 'washing');
-await kvWash(15, kvTypes.hatch, kvComplete.id, 'waiting');
+await kvWash(240, kvTypes.Sedan, kvComplete.id, 'paid');
+await kvWash(150, kvTypes.SUV, kvComplete.id, 'paid');
+await kvWash(60, kvTypes.Bike, kvBike.id, 'washing');
+await kvWash(15, kvTypes.Hatchback, kvComplete.id, 'waiting');
 await call(KAV, 'PUT', '/attendance', { userId: venkat.id, date: day(0), status: 'present' });
 
 // ─── Timestamps the API sets to "now" ─────────────────────────────────────
@@ -1084,6 +1326,9 @@ Done. MANA Car Wash (Nellore), shop ID 482193:
   ${counts.customers} customers · ${counts.vehicles} vehicles · ${counts.jobs} washes · ${counts.expenses} expenses
   ${counts.photos} wash photos · ${counts.coupons} coupons · ${counts.cash_days} cash drawer days
   Rewards: ${counts.free_washes} free wash${counts.free_washes === 1 ? '' : 'es'} used · ${counts.gifts_given} welcome gifts given · ${counts.gifts_owed} owed
+  Communities: ${placesDemo.towers.name} (code ${placesDemo.towers.code}, ${placesDemo.towers.units} flats) and ${placesDemo.colony.name} (code ${placesDemo.colony.code}) live
+    Green Park Residency waiting for approval · Sai Krupa Apartments still a draft
+    ${placesDemo.paid} plan${placesDemo.paid === 1 ? '' : 's'} paid · ${placesDemo.unpaid} not paid · ${placesDemo.pending} member waiting for the team · ${placesDemo.asking} people asking
   ${canDraw ? '' : '(photos are vehicle pictures — bills are only drawn on macOS)\n  '}
 Sign in (PIN ${PIN} for everyone):
   Owner   Hrushikesh   ${OWNER.phone}   (both branches — switch from the shop name on Home)

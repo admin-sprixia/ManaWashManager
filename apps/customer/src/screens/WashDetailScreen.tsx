@@ -16,7 +16,15 @@ import {
   typography,
   type PillTone,
 } from '@mana/ui';
-import { EdgeGroup, EdgePanel, EdgeRow, HAIRLINE, Pill, SectionLabel } from '../components/CardList';
+import {
+  EdgeGroup,
+  EdgePanel,
+  EdgeRow,
+  HAIRLINE,
+  Pill,
+  SectionLabel,
+  TABLET_INSET,
+} from '../components/CardList';
 import { ScreenHeader } from '../components/ScreenHeader';
 import type { PaymentMethod } from '@mana/domain';
 import { api, send } from '../api/client';
@@ -29,6 +37,7 @@ import { RateWashCard } from '../components/RateWashCard';
 import { Shimmer, SkeletonList } from '../components/Skeleton';
 import { WASH_STATUS_LABEL, washTitle } from '../components/WashRow';
 import { useRemote } from '../hooks/useRemote';
+import { useIsTablet, usePageStyle } from '../layout/Layout';
 import type { MainStackParams } from '../navigation/types';
 
 type Props = NativeStackScreenProps<MainStackParams, 'WashDetail'>;
@@ -44,6 +53,8 @@ const STATUS_PILL: Record<Wash['status'], PillTone> = {
 
 /** One wash: what was done, the bill, its before/after photos, a rating and reports. */
 export function WashDetailScreen({ navigation, route }: Props) {
+  const pageStyle = usePageStyle();
+  const tablet = useIsTablet();
   const { byId } = useBranches();
   const detail = useRemote(() => send(api.washes[':id'].$get({ param: { id: route.params.id } })));
   const wash = detail.data?.wash;
@@ -51,7 +62,8 @@ export function WashDetailScreen({ navigation, route }: Props) {
   const before = wash?.photos.filter((p) => p.kind === 'before') ?? [];
   const after = wash?.photos.filter((p) => p.kind === 'after') ?? [];
   const allIds = [...before, ...after].map((p) => p.id);
-  const openPhoto = (id: string) => navigation.navigate('Photo', { photoIds: allIds, index: allIds.indexOf(id) });
+  const openPhoto = (id: string) =>
+    navigation.navigate('Photo', { photoIds: allIds, index: allIds.indexOf(id) });
 
   const photoGroup = (title: string, photos: typeof before) =>
     photos.length > 0 ? (
@@ -79,13 +91,18 @@ export function WashDetailScreen({ navigation, route }: Props) {
         title={wash ? wash.vehicle.registrationNumber : 'Wash'}
         onBack={() => navigation.goBack()}
         right={
-          wash ? <Pill label={WASH_STATUS_LABEL[wash.status].toUpperCase()} tone={STATUS_PILL[wash.status]} /> : undefined
+          wash ? (
+            <Pill
+              label={WASH_STATUS_LABEL[wash.status].toUpperCase()}
+              tone={STATUS_PILL[wash.status]}
+            />
+          ) : undefined
         }
       />
       {!wash ? (
         detail.loading ? (
           <View>
-            <View style={styles.summary}>
+            <View style={[styles.summary, tablet && TABLET_INSET]}>
               <View style={styles.summaryBody}>
                 <Shimmer style={{ height: 13, width: '60%' }} />
                 <Shimmer style={{ height: 34, width: '40%', marginTop: 12 }} />
@@ -102,12 +119,19 @@ export function WashDetailScreen({ navigation, route }: Props) {
         )
       ) : (
         <ScrollView
-          contentContainerStyle={styles.content}
-          refreshControl={<RefreshControl refreshing={detail.refreshing} onRefresh={() => void detail.reload()} />}
+          contentContainerStyle={[styles.content, pageStyle]}
+          refreshControl={
+            <RefreshControl refreshing={detail.refreshing} onRefresh={() => void detail.reload()} />
+          }
         >
-          <View style={styles.summary}>
+          <View style={[styles.summary, tablet && TABLET_INSET]}>
             <View style={styles.summaryClip}>
-              <View style={[styles.summaryAccent, { backgroundColor: statusColors[wash.status].border }]} />
+              <View
+                style={[
+                  styles.summaryAccent,
+                  { backgroundColor: statusColors[wash.status].border },
+                ]}
+              />
               <View style={styles.summaryBody}>
                 <Text style={styles.summaryMeta}>
                   {washTitle(wash)} · {formatDateTime(wash.createdAt)}
@@ -127,7 +151,7 @@ export function WashDetailScreen({ navigation, route }: Props) {
           </EdgeGroup>
 
           <SectionLabel>Services</SectionLabel>
-          <View style={styles.bill}>
+          <View style={[styles.bill, tablet && TABLET_INSET]}>
             {wash.services.map((s, i) => (
               <View key={s.name} style={[styles.billRow, i > 0 && styles.billDivider]}>
                 <Text style={styles.billName} numberOfLines={1}>
@@ -231,22 +255,50 @@ const styles = StyleSheet.create({
   loading: { marginTop: spacing.xl },
   content: { paddingBottom: spacing.xl },
   // The summary and the bill are full-width blocks, like every other list on the screen.
-  summary: { backgroundColor: colors.white, borderTopWidth: 1, borderBottomWidth: 1, borderColor: HAIRLINE, marginTop: 20 },
+  summary: {
+    backgroundColor: colors.white,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: HAIRLINE,
+    marginTop: 20,
+  },
   summaryClip: { overflow: 'hidden' },
   summaryAccent: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 5 },
   summaryBody: { paddingVertical: 18, paddingLeft: 22, paddingRight: 18, gap: 4 },
   summaryMeta: { ...typography.caption, color: colors.slateDeep, letterSpacing: 0, fontSize: 13.5 },
   summaryTotal: { ...typography.display, color: colors.ink, fontSize: 36, letterSpacing: -0.8 },
-  bill: { backgroundColor: colors.white, borderTopWidth: 1, borderBottomWidth: 1, borderColor: HAIRLINE, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
-  billRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: spacing.sm, gap: spacing.md },
-  billDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, marginTop: 2 },
+  bill: {
+    backgroundColor: colors.white,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: HAIRLINE,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  billRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.sm,
+    gap: spacing.md,
+  },
+  billDivider: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    marginTop: 2,
+  },
   billName: { ...typography.body, color: colors.waterInk, flexShrink: 1 },
   billMuted: { ...typography.body, color: colors.slateDeep, fontSize: 14 },
   billDiscount: { ...typography.body, color: colors.teal, fontSize: 14 },
   billTotalLabel: { ...typography.bodyStrong, color: colors.waterInk },
   billTotal: { ...typography.heading, color: colors.waterDeep },
   photoGroup: { gap: spacing.sm },
-  photoTitle: { ...typography.label, color: colors.slateDeep, textTransform: 'uppercase', letterSpacing: 0.6, fontSize: 12 },
+  photoTitle: {
+    ...typography.label,
+    color: colors.slateDeep,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    fontSize: 12,
+  },
   photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   photoCell: { width: '31%', aspectRatio: 1, borderRadius: radius.md, overflow: 'hidden' },
   photo: { width: '100%', height: '100%' },

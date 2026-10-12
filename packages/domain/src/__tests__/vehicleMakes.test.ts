@@ -1,0 +1,60 @@
+import { describe, expect, it } from 'vitest';
+import {
+  VEHICLE_MAKES,
+  VEHICLE_MAKE_MAX,
+  vehicleMakeNames,
+  vehicleModelNames,
+  vehicleTypeKeysFor,
+} from '../index';
+
+describe('vehicle makes', () => {
+  it('lists makes per category, A to Z, without repeats', () => {
+    const cars = vehicleMakeNames('car');
+    expect(cars).toContain('Maruti Suzuki');
+    expect(cars).not.toContain('Royal Enfield');
+    expect(cars).toEqual(
+      [...cars].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' })),
+    );
+    const all = vehicleMakeNames();
+    expect(new Set(all).size).toBe(all.length);
+    expect(all.filter((n) => n === 'Honda')).toHaveLength(1);
+  });
+
+  it("gives a make's models for the category", () => {
+    expect(vehicleModelNames('Honda', 'car')).toContain('City');
+    expect(vehicleModelNames('Honda', 'car')).not.toContain('Activa');
+    expect(vehicleModelNames('honda', 'bike')).toContain('Activa');
+    expect(vehicleModelNames('Honda')).toEqual(expect.arrayContaining(['City', 'Activa']));
+    expect(vehicleModelNames('Unknown Motors', 'car')).toEqual([]);
+  });
+
+  it('fits every name in the make and model fields, with no empty or repeated models', () => {
+    for (const make of VEHICLE_MAKES) {
+      expect(make.name.length).toBeLessThanOrEqual(VEHICLE_MAKE_MAX);
+      expect(make.models.length).toBeGreaterThan(0);
+      expect(new Set(make.models).size).toBe(make.models.length);
+      for (const model of make.models) expect(model.length).toBeLessThanOrEqual(VEHICLE_MAKE_MAX);
+    }
+  });
+
+  it('suggests the vehicle type from the make and model, best fit first', () => {
+    expect(vehicleTypeKeysFor('Maruti Suzuki', 'Swift')?.[0]).toBe('hatch');
+    expect(vehicleTypeKeysFor('maruti suzuki', ' dzire ')?.[0]).toBe('sedan');
+    expect(vehicleTypeKeysFor('Tata', 'Nexon')?.slice(0, 2)).toEqual(['suvMini', 'suvLarge']);
+    expect(vehicleTypeKeysFor('Toyota', 'Innova Crysta')).toEqual(['muv', 'suvLarge', 'suvMini']);
+    expect(vehicleTypeKeysFor('Honda', 'Activa')?.[0]).toBe('scooter');
+    expect(vehicleTypeKeysFor('Honda', 'City')?.[0]).toBe('sedan');
+    expect(vehicleTypeKeysFor('Royal Enfield', 'Classic 350')?.[0]).toBe('cruiser');
+    expect(vehicleTypeKeysFor('BMW', '3 Series')?.slice(0, 2)).toEqual(['luxury', 'sedan']);
+    expect(vehicleTypeKeysFor('BMW', 'G 310 R')?.[0]).toBe('bike');
+    expect(vehicleTypeKeysFor('Tata', 'Sumo Victoria')).toBeNull();
+    expect(vehicleTypeKeysFor('Unknown Motors', 'X')).toBeNull();
+  });
+
+  it('puts every model under exactly one body style', () => {
+    for (const make of VEHICLE_MAKES) {
+      const fromBodies = Object.values(make.bodies).flat();
+      expect(fromBodies).toHaveLength(make.models.length);
+    }
+  });
+});

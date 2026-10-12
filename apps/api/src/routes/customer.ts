@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   customerRepo,
   directoryRepo,
+  placeOrderRepo,
   vehicleRepo,
   type DirectoryCursor,
 } from '@mana/db';
@@ -122,7 +123,7 @@ export const customerRoutes = new Hono<{ Bindings: Env }>()
     const db = c.get('db');
     const id = c.req.param('id');
     const { before } = c.req.valid('query');
-    const [customer, vehicles, page, summary] = await Promise.all([
+    const [customer, vehicles, page, summary, communities] = await Promise.all([
       customerRepo.findById(db, id),
       vehicleRepo.listForCustomer(db, id),
       customerRepo.getHistory(db, id, {
@@ -130,6 +131,7 @@ export const customerRoutes = new Hono<{ Bindings: Env }>()
         limit: HISTORY_PAGE + 1,
       }),
       customerRepo.visitSummary(db, id),
+      before ? Promise.resolve([]) : placeOrderRepo.forCustomer(c.env.DB, c.get('session').shopId, id, new Date()),
     ]);
     if (!customer) return c.json(null);
 
@@ -138,6 +140,7 @@ export const customerRoutes = new Hono<{ Bindings: Env }>()
       vehicles,
       history: page.slice(0, HISTORY_PAGE),
       hasMoreHistory: page.length > HISTORY_PAGE,
+      communities,
       ...summary,
     });
   })

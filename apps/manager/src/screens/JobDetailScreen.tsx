@@ -43,6 +43,7 @@ import {
   IconWhatsApp,
   colors,
   radius,
+  formatPhone,
   spacing,
   statusColors,
   typography,
@@ -335,7 +336,7 @@ export function JobDetailScreen({ navigation, route }: Props) {
           <EdgeRow
             icon={<IconPerson size={20} color={colors.waterDeep} />}
             title={customerLine(job)}
-            subtitle={job.customer.phone}
+            subtitle={`+91 ${formatPhone(job.customer.phone.replace(/\D/g, '').slice(-10))}`}
             onPress={job.customer.id ? () => navigation.navigate('CustomerProfile', { customerId: job.customer.id }) : undefined}
             right={
               <View style={styles.contactBtns}>

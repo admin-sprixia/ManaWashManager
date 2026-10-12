@@ -43,7 +43,10 @@ const phoneSchema = z
   .string()
   .transform(normalizePhone)
   .refine((p) => /^[6-9]\d{9}$/.test(p), 'Enter a valid 10-digit mobile number');
-const codeSchema = z.string().trim().regex(/^\d{4,8}$/, 'Enter the code');
+const codeSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{4,8}$/, 'Enter the code');
 const idSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, 'Invalid id');
 const pointSchema = z.object({
   latitude: z.number().min(-90).max(90),
@@ -64,11 +67,13 @@ const placeSchema = z
 const requestSchema = z
   .object({
     ticket: z.string().min(1),
-    name: z.string().trim().min(1, 'Enter your name').max(60),
+    // Only the location, the vehicles and when are needed; the team asks the rest on the call.
+    name: optionalText(60),
     location: pointSchema.nullish(),
     areaId: idSchema.nullish(),
-    address: z.string().trim().min(5, 'Enter your address').max(SERVICE_REQUEST_ADDRESS_MAX),
-    placeKind: z.enum(PLACE_KINDS),
+    /** A landmark or address line. */
+    address: optionalText(SERVICE_REQUEST_ADDRESS_MAX),
+    placeKind: z.enum(PLACE_KINDS).nullish(),
     placeName: optionalText(80),
     homeText: optionalText(40),
     cars: z.number().int().min(0).max(MAX_VEHICLES_PER_REQUEST),
@@ -109,8 +114,8 @@ const vehicleRequestSchema = z.object({
     .transform(normalizeRegistration)
     .refine(isValidRegistration, 'Enter the registration number, e.g. AP39AB1234'),
   vehicleTypeId: idSchema,
-  make: optionalText(VEHICLE_MAKE_MAX),
-  model: optionalText(VEHICLE_MAKE_MAX),
+  make: z.string().trim().min(1, 'Pick the make').max(VEHICLE_MAKE_MAX),
+  model: z.string().trim().min(1, 'Pick the model').max(VEHICLE_MAKE_MAX),
 });
 
 const branchNotFound = { error: 'branch_not_found' as const, message: 'Pick your branch again.' };
@@ -150,9 +155,14 @@ function requestView(r: RequestRow) {
     preferredTime: r.preferredTime,
     notes: r.notes,
     reason: r.reason,
-    location: r.latitude != null && r.longitude != null ? { latitude: r.latitude, longitude: r.longitude } : null,
+    location:
+      r.latitude != null && r.longitude != null
+        ? { latitude: r.latitude, longitude: r.longitude }
+        : null,
     area: r.area ? { id: r.area.id, name: r.area.name } : null,
     branch: r.branch ? { name: r.branch.name, city: r.branch.city } : null,
+    /** We started washing at a place near them: they can join it in one tap. */
+    invitedPlaceId: r.invitedPlaceId,
     createdAt: r.createdAt.toISOString(),
     handledAt: r.handledAt?.toISOString() ?? null,
   };
@@ -204,25 +214,38 @@ export const customerAppRoutes = new Hono<{ Bindings: Env }>()
     if (!sent.ok) return c.json(sent.body, sent.status);
     return c.json(sent.body);
   })
-  .post('/auth/verify', zValidator('json', z.object({ phone: phoneSchema, code: codeSchema })), async (c) => {
-    const { phone, code } = c.req.valid('json');
-    const checked = await checkPhoneCode({ env: c.env, phone, purpose: 'customer', subject: `customer:${phone}`, code });
-    if (!checked.ok) return c.json(checked.body, checked.status);
-
-    const platform = createPlatformDb(c.env.DB);
-    const links = await customerAppRepo.links(platform, phone);
-    if (links.length === 0) {
-      const requests = await serviceRequestRepo.listForPhone(platform, phone);
-      return c.json({
-        status: 'request' as const,
-        ticket: await createTicket({ phone, purpose: 'service_request' }, c.env.JWT_SECRET),
-        requests: requests.map(requestView),
+  .post(
+    '/auth/verify',
+    zValidator('json', z.object({ phone: phoneSchema, code: codeSchema })),
+    async (c) => {
+      const { phone, code } = c.req.valid('json');
+      const checked = await checkPhoneCode({
+        env: c.env,
+        phone,
+        purpose: 'customer',
+        subject: `customer:${phone}`,
+        code,
       });
-    }
-    const account = await customerAccountRepo.ensure(platform, phone, new Date());
-    const token = await createCustomerToken({ sub: account.id, phone, sv: account.sessionVersion }, c.env.JWT_SECRET);
-    return c.json({ status: 'signed_in' as const, token, account: accountView(phone, links) });
-  })
+      if (!checked.ok) return c.json(checked.body, checked.status);
+
+      const platform = createPlatformDb(c.env.DB);
+      const links = await customerAppRepo.links(platform, phone);
+      if (links.length === 0) {
+        const requests = await serviceRequestRepo.listForPhone(platform, phone);
+        return c.json({
+          status: 'request' as const,
+          ticket: await createTicket({ phone, purpose: 'service_request' }, c.env.JWT_SECRET),
+          requests: requests.map(requestView),
+        });
+      }
+      const account = await customerAccountRepo.ensure(platform, phone, new Date());
+      const token = await createCustomerToken(
+        { sub: account.id, phone, sv: account.sessionVersion },
+        c.env.JWT_SECRET,
+      );
+      return c.json({ status: 'signed_in' as const, token, account: accountView(phone, links) });
+    },
+  )
 
   // ---------- Before signing in: prices and where we wash ----------
   .get('/prices/from', async (c) => {
@@ -242,7 +265,11 @@ export const customerAppRoutes = new Hono<{ Bindings: Env }>()
     const match = branchFor({ point: location ?? null, areaId: areaId ?? null }, branches);
     if (!match) return c.json({ served: false as const });
     const branch = branches.find((b) => b.shopId === match.shopId)!;
-    return c.json({ served: true as const, via: match.via, branch: { name: branch.name, city: branch.city } });
+    return c.json({
+      served: true as const,
+      via: match.via,
+      branch: { name: branch.name, city: branch.city },
+    });
   })
 
   // ---------- Request service (number not registered yet) ----------
@@ -259,7 +286,10 @@ export const customerAppRoutes = new Hono<{ Bindings: Env }>()
     if (branches.length === 0) return c.json(notOpen, 503);
     if (links.length > 0) return c.json(alreadyCustomer, 409);
     if (body.areaId && !branches.some((b) => b.areaIds.includes(body.areaId!))) {
-      return c.json({ error: 'area_not_found' as const, message: 'Pick your area from the list again.' }, 400);
+      return c.json(
+        { error: 'area_not_found' as const, message: 'Pick your area from the list again.' },
+        400,
+      );
     }
 
     const point = body.location ?? null;
@@ -278,7 +308,7 @@ export const customerAppRoutes = new Hono<{ Bindings: Env }>()
         // Kept only when the area belongs to the branch that got the request.
         areaId: body.areaId && branch.areaIds.includes(body.areaId) ? body.areaId : null,
         address: body.address,
-        placeKind: body.placeKind,
+        placeKind: body.placeKind ?? null,
         placeName: body.placeName,
         homeText: body.homeText,
         cars: body.cars,
@@ -290,15 +320,27 @@ export const customerAppRoutes = new Hono<{ Bindings: Env }>()
       now,
     );
     if (!created) {
-      return c.json({ error: 'busy' as const, message: 'Your request is already being saved. Try again.' }, 409);
+      return c.json(
+        { error: 'busy' as const, message: 'Your request is already being saved. Try again.' },
+        409,
+      );
     }
     return c.json(
-      { request: requestView({ ...created, branch: { id: branch.shopId, name: branch.name, city: branch.city } }) },
+      {
+        request: requestView({
+          ...created,
+          branch: { id: branch.shopId, name: branch.name, city: branch.city },
+        }),
+      },
       201,
     );
   })
   .post('/service-requests/mine', zValidator('json', ticketSchema), async (c) => {
-    const ticket = await readTicket(c.req.valid('json').ticket, c.env.JWT_SECRET, 'service_request');
+    const ticket = await readTicket(
+      c.req.valid('json').ticket,
+      c.env.JWT_SECRET,
+      'service_request',
+    );
     if (!ticket) return c.json(ticketExpired, 401);
     const platform = createPlatformDb(c.env.DB);
     const [requests, links] = await Promise.all([
@@ -313,7 +355,11 @@ export const customerAppRoutes = new Hono<{ Bindings: Env }>()
     zValidator('param', z.object({ id: idSchema })),
     zValidator('json', ticketSchema),
     async (c) => {
-      const ticket = await readTicket(c.req.valid('json').ticket, c.env.JWT_SECRET, 'service_request');
+      const ticket = await readTicket(
+        c.req.valid('json').ticket,
+        c.env.JWT_SECRET,
+        'service_request',
+      );
       if (!ticket) return c.json(ticketExpired, 401);
       const ok = await serviceRequestRepo.cancelForPhone(
         createPlatformDb(c.env.DB),
@@ -322,7 +368,10 @@ export const customerAppRoutes = new Hono<{ Bindings: Env }>()
         new Date(),
       );
       if (!ok) {
-        return c.json({ error: 'not_open' as const, message: 'This request was already handled.' }, 409);
+        return c.json(
+          { error: 'not_open' as const, message: 'This request was already handled.' },
+          409,
+        );
       }
       return c.json({ ok: true as const });
     },
@@ -343,27 +392,47 @@ export const customerAppRoutes = new Hono<{ Bindings: Env }>()
     const { name } = c.req.valid('json');
     const links = c.get('customerLinks');
     // Their name on every branch they're a customer of: it's the same person.
-    await Promise.all(links.map((l) => customerRepo.updateName(createShopDb(c.env.DB, l.shopId), l.customerId, name)));
-    return c.json(accountView(c.get('customer').phone, links.map((l) => ({ ...l, customerName: name }))));
+    await Promise.all(
+      links.map((l) =>
+        customerRepo.updateName(createShopDb(c.env.DB, l.shopId), l.customerId, name),
+      ),
+    );
+    return c.json(
+      accountView(
+        c.get('customer').phone,
+        links.map((l) => ({ ...l, customerName: name })),
+      ),
+    );
   })
   .get('/live', requireCustomer, async (c) => {
     const now = new Date();
     const perBranch = await Promise.all(
-      c.get('customerLinks').map((link) => customerAppRepo.live(createShopDb(c.env.DB, link.shopId), link, now)),
+      c
+        .get('customerLinks')
+        .map((link) => customerAppRepo.live(createShopDb(c.env.DB, link.shopId), link, now)),
     );
-    return c.json({ washes: perBranch.flat().sort((a, b) => a.createdAt.localeCompare(b.createdAt)) });
+    return c.json({
+      washes: perBranch.flat().sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    });
   })
   .get('/referrals', requireCustomer, async (c) => {
     const perBranch = await Promise.all(
-      c.get('customerLinks').map((link) => customerAppRepo.referrals(createShopDb(c.env.DB, link.shopId), link)),
+      c
+        .get('customerLinks')
+        .map((link) => customerAppRepo.referrals(createShopDb(c.env.DB, link.shopId), link)),
     );
     return c.json({
       canRefer: perBranch.some((b) => b.paidWashes > 0),
-      referrals: perBranch.flatMap((b) => b.referrals).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+      referrals: perBranch
+        .flatMap((b) => b.referrals)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     });
   })
   .post('/me/sign-out-everywhere', requireCustomer, async (c) => {
-    await customerAccountRepo.signOutEverywhere(createPlatformDb(c.env.DB), c.get('customer').accountId);
+    await customerAccountRepo.signOutEverywhere(
+      createPlatformDb(c.env.DB),
+      c.get('customer').accountId,
+    );
     return c.json({ ok: true as const });
   })
   .delete('/me', requireCustomer, async (c) => {
@@ -374,8 +443,16 @@ export const customerAppRoutes = new Hono<{ Bindings: Env }>()
     const now = new Date();
     const links = c.get('customerLinks');
     const [vehicles, requests] = await Promise.all([
-      Promise.all(links.map((link) => customerAppRepo.vehicles(createShopDb(c.env.DB, link.shopId), link, now))),
-      Promise.all(links.map((link) => customerCareRepo.vehicleRequests(createShopDb(c.env.DB, link.shopId), link, now))),
+      Promise.all(
+        links.map((link) =>
+          customerAppRepo.vehicles(createShopDb(c.env.DB, link.shopId), link, now),
+        ),
+      ),
+      Promise.all(
+        links.map((link) =>
+          customerCareRepo.vehicleRequests(createShopDb(c.env.DB, link.shopId), link, now),
+        ),
+      ),
     ]);
     return c.json({ vehicles: vehicles.flat(), requests: requests.flat() });
   })
@@ -386,7 +463,12 @@ export const customerAppRoutes = new Hono<{ Bindings: Env }>()
     const result = await customerCareRepo.requestVehicle(
       createShopDb(c.env.DB, link.shopId),
       link,
-      { registrationNumber: body.registrationNumber, vehicleTypeId: body.vehicleTypeId, make: body.make, model: body.model },
+      {
+        registrationNumber: body.registrationNumber,
+        vehicleTypeId: body.vehicleTypeId,
+        make: body.make,
+        model: body.model,
+      },
       new Date(),
     );
     switch (result.kind) {
@@ -395,60 +477,106 @@ export const customerAppRoutes = new Hono<{ Bindings: Env }>()
       case 'requested':
         return c.json({ status: 'requested' as const, id: result.id }, 201);
       case 'already_yours':
-        return c.json({ error: 'already_yours' as const, message: 'This vehicle is already in your list.' }, 409);
+        return c.json(
+          { error: 'already_yours' as const, message: 'This vehicle is already in your list.' },
+          409,
+        );
       case 'already_requested':
         return c.json(
-          { error: 'already_requested' as const, message: 'This vehicle is already waiting for the car wash to confirm.' },
+          {
+            error: 'already_requested' as const,
+            message: 'This vehicle is already waiting for the car wash to confirm.',
+          },
           409,
         );
       case 'too_many':
         return c.json(
-          { error: 'too_many' as const, message: 'You have vehicles waiting to be confirmed. Please wait for those first.' },
+          {
+            error: 'too_many' as const,
+            message: 'You have vehicles waiting to be confirmed. Please wait for those first.',
+          },
           429,
         );
       case 'bad_type':
         return c.json({ error: 'bad_type' as const, message: 'Pick the vehicle type again.' }, 400);
     }
   })
-  .delete('/vehicles/:id', requireCustomer, zValidator('param', z.object({ id: idSchema })), async (c) => {
-    const id = c.req.valid('param').id;
-    const now = new Date();
-    for (const link of c.get('customerLinks')) {
-      if (await customerCareRepo.hideVehicle(createShopDb(c.env.DB, link.shopId), link, id, now)) {
-        return c.json({ ok: true as const });
+  .delete(
+    '/vehicles/:id',
+    requireCustomer,
+    zValidator('param', z.object({ id: idSchema })),
+    async (c) => {
+      const id = c.req.valid('param').id;
+      const now = new Date();
+      for (const link of c.get('customerLinks')) {
+        if (
+          await customerCareRepo.hideVehicle(createShopDb(c.env.DB, link.shopId), link, id, now)
+        ) {
+          return c.json({ ok: true as const });
+        }
       }
-    }
-    return c.json({ error: 'not_found' as const, message: 'This vehicle isn’t in your list.' }, 404);
-  })
-  .post('/vehicle-requests/:id/cancel', requireCustomer, zValidator('param', z.object({ id: idSchema })), async (c) => {
-    const id = c.req.valid('param').id;
-    const now = new Date();
-    for (const link of c.get('customerLinks')) {
-      if (await customerCareRepo.cancelVehicleRequest(createShopDb(c.env.DB, link.shopId), link, id, now)) {
-        return c.json({ ok: true as const });
+      return c.json(
+        { error: 'not_found' as const, message: 'This vehicle isn’t in your list.' },
+        404,
+      );
+    },
+  )
+  .post(
+    '/vehicle-requests/:id/cancel',
+    requireCustomer,
+    zValidator('param', z.object({ id: idSchema })),
+    async (c) => {
+      const id = c.req.valid('param').id;
+      const now = new Date();
+      for (const link of c.get('customerLinks')) {
+        if (
+          await customerCareRepo.cancelVehicleRequest(
+            createShopDb(c.env.DB, link.shopId),
+            link,
+            id,
+            now,
+          )
+        ) {
+          return c.json({ ok: true as const });
+        }
       }
-    }
-    return c.json({ error: 'not_open' as const, message: 'The car wash already handled this request.' }, 409);
-  })
+      return c.json(
+        { error: 'not_open' as const, message: 'The car wash already handled this request.' },
+        409,
+      );
+    },
+  )
   .get('/washes', requireCustomer, zValidator('query', washesQuerySchema), async (c) => {
     const { before, limit } = c.req.valid('query');
     const cutoff = before ? new Date(before) : null;
     const perBranch = await Promise.all(
       c
         .get('customerLinks')
-        .map((link) => customerAppRepo.washes(createShopDb(c.env.DB, link.shopId), link, cutoff, limit + 1)),
+        .map((link) =>
+          customerAppRepo.washes(createShopDb(c.env.DB, link.shopId), link, cutoff, limit + 1),
+        ),
     );
     const all = perBranch.flat().sort(byNewest);
     const washes = all.slice(0, limit);
-    return c.json({ washes, nextBefore: all.length > limit ? washes[washes.length - 1]!.createdAt : null });
+    return c.json({
+      washes,
+      nextBefore: all.length > limit ? washes[washes.length - 1]!.createdAt : null,
+    });
   })
-  .get('/washes/:id', requireCustomer, zValidator('param', z.object({ id: idSchema })), async (c) => {
-    const id = c.req.valid('param').id;
-    const now = new Date();
-    const found = await findAcross(c.env, c.get('customerLinks'), (db, link) => customerAppRepo.wash(db, link, id, now));
-    if (!found) return c.json(washNotFound, 404);
-    return c.json({ wash: found.value });
-  })
+  .get(
+    '/washes/:id',
+    requireCustomer,
+    zValidator('param', z.object({ id: idSchema })),
+    async (c) => {
+      const id = c.req.valid('param').id;
+      const now = new Date();
+      const found = await findAcross(c.env, c.get('customerLinks'), (db, link) =>
+        customerAppRepo.wash(db, link, id, now),
+      );
+      if (!found) return c.json(washNotFound, 404);
+      return c.json({ wash: found.value });
+    },
+  )
   .put(
     '/washes/:id/rating',
     requireCustomer,
@@ -459,7 +587,13 @@ export const customerAppRoutes = new Hono<{ Bindings: Env }>()
       const body = c.req.valid('json');
       const now = new Date();
       for (const link of c.get('customerLinks')) {
-        const result = await customerCareRepo.rate(createShopDb(c.env.DB, link.shopId), link, id, body, now);
+        const result = await customerCareRepo.rate(
+          createShopDb(c.env.DB, link.shopId),
+          link,
+          id,
+          body,
+          now,
+        );
         if (result === 'not_found') continue;
         if (result === 'not_rateable') {
           return c.json(
@@ -477,9 +611,13 @@ export const customerAppRoutes = new Hono<{ Bindings: Env }>()
   )
   .get('/problems', requireCustomer, async (c) => {
     const perBranch = await Promise.all(
-      c.get('customerLinks').map((link) => customerCareRepo.problems(createShopDb(c.env.DB, link.shopId), link)),
+      c
+        .get('customerLinks')
+        .map((link) => customerCareRepo.problems(createShopDb(c.env.DB, link.shopId), link)),
     );
-    return c.json({ problems: perBranch.flat().sort((a, b) => b.createdAt.localeCompare(a.createdAt)) });
+    return c.json({
+      problems: perBranch.flat().sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    });
   })
   .post('/problems', requireCustomer, zValidator('json', problemSchema), async (c) => {
     const body = c.req.valid('json');
@@ -487,16 +625,24 @@ export const customerAppRoutes = new Hono<{ Bindings: Env }>()
     const now = new Date();
     const data = { jobId: body.washId ?? null, kind: body.kind, details: body.details };
     // About a wash: the branch that did it. Otherwise the branch they picked (or their only one).
-    const candidates = body.washId ? links : [linkFor(links, body.branchId ?? (links.length === 1 ? links[0]!.shopId : null))];
+    const candidates = body.washId
+      ? links
+      : [linkFor(links, body.branchId ?? (links.length === 1 ? links[0]!.shopId : null))];
     for (const link of candidates) {
       if (!link) break;
-      const result = await customerCareRepo.reportProblem(createShopDb(c.env.DB, link.shopId), link, data, now);
+      const result = await customerCareRepo.reportProblem(
+        createShopDb(c.env.DB, link.shopId),
+        link,
+        data,
+        now,
+      );
       if (result === 'not_found') continue;
       if (result === 'too_many') {
         return c.json(
           {
             error: 'too_many' as const,
-            message: 'You already have reports the car wash is looking into. Please call the branch.',
+            message:
+              'You already have reports the car wash is looking into. Please call the branch.',
           },
           429,
         );
@@ -505,14 +651,21 @@ export const customerAppRoutes = new Hono<{ Bindings: Env }>()
     }
     return body.washId ? c.json(washNotFound, 404) : c.json(branchNotFound, 404);
   })
-  .get('/photos/:id', requireCustomer, zValidator('param', z.object({ id: idSchema })), async (c) => {
-    const id = c.req.valid('param').id;
-    const found = await findAcross(c.env, c.get('customerLinks'), (db, link) => customerAppRepo.photo(db, link, id));
-    if (!found) return c.json({ error: 'not_found' as const }, 404);
-    const object = await c.env.PHOTOS.get(found.value.r2Key);
-    if (!object) return c.json({ error: 'not_found' as const }, 404);
-    return c.body(object.body, 200, {
-      'Content-Type': found.value.contentType,
-      'Cache-Control': 'private, max-age=86400',
-    });
-  });
+  .get(
+    '/photos/:id',
+    requireCustomer,
+    zValidator('param', z.object({ id: idSchema })),
+    async (c) => {
+      const id = c.req.valid('param').id;
+      const found = await findAcross(c.env, c.get('customerLinks'), (db, link) =>
+        customerAppRepo.photo(db, link, id),
+      );
+      if (!found) return c.json({ error: 'not_found' as const }, 404);
+      const object = await c.env.PHOTOS.get(found.value.r2Key);
+      if (!object) return c.json({ error: 'not_found' as const }, 404);
+      return c.body(object.body, 200, {
+        'Content-Type': found.value.contentType,
+        'Cache-Control': 'private, max-age=86400',
+      });
+    },
+  );

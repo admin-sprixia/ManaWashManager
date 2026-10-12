@@ -25,6 +25,7 @@ import {
   parseServiceAppliesTo,
   parseVehicleCategory,
   serviceAppliesToCategory,
+  type DeliveryMode,
   type Service,
   type ServicePrice,
   type VehicleCategory,
@@ -57,6 +58,7 @@ import { CheckoutBar } from '../components/newWash/CheckoutBar';
 import { CustomerSearch } from '../components/newWash/CustomerSearch';
 import { WelcomeCard, type RepeatOffer } from '../components/newWash/WelcomeCard';
 import { CouponOffer, type UsableCoupon } from '../components/newWash/CouponOffer';
+import { PlanWashCard, type ShopPlan } from '../components/newWash/PlanWashCard';
 import { ReferralField, useReferralQuote } from '../components/newWash/ReferralField';
 import { SellerField } from '../components/newWash/SellerField';
 import { RewardsPanel } from '../components/newWash/RewardsPanel';
@@ -120,7 +122,14 @@ interface CachedCatalog {
   prices: ServicePrice[];
   /** Staff commission per service per size; missing from catalogs saved by older versions. */
   commissions?: CommissionRate[];
+  /** How this branch washes: at its hub, at the customer's door, or both. */
+  modes: DeliveryMode[];
 }
+
+const WASH_MODES: { id: DeliveryMode; label: string }[] = [
+  { id: 'hub', label: 'At the shop' },
+  { id: 'doorstep', label: 'Doorstep' },
+];
 
 interface CommissionRate {
   serviceId: string;
@@ -180,7 +189,9 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
 
   const [services, setServices] = useState<Service[]>([]);
   const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
-  const [prices, setPrices] = useState<ServicePrice[]>([]);
+  const [allPrices, setAllPrices] = useState<ServicePrice[]>([]);
+  const [modes, setModes] = useState<DeliveryMode[]>(['hub']);
+  const [washMode, setWashMode] = useState<DeliveryMode>('hub');
   const [commissions, setCommissions] = useState<CommissionRate[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState<string | null>(null);
@@ -208,6 +219,9 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   const [referrerPhone, setReferrerPhone] = useState('');
   /** Services the customer takes free from the car's stamp cards. */
   const [freeIds, setFreeIds] = useState<Set<string>>(new Set());
+  /** The customer's community plans, and the one paying for this wash. */
+  const [shopPlans, setShopPlans] = useState<ShopPlan[]>([]);
+  const [planOrderId, setPlanOrderId] = useState<string | null>(null);
   /** Who got a commission service; `null` means whoever is entering the wash. */
   const [sellers, setSellers] = useState<Person[] | null>(null);
 
@@ -219,25 +233,28 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     if (cached) {
       setServices(normalizeServices(cached.services));
       setVehicleTypes(normalizeVehicleTypes(cached.vehicleTypes));
-      setPrices(cached.prices);
+      setAllPrices(cached.prices);
+      setModes(cached.modes);
       setCommissions(cached.commissions ?? []);
       setCatalogLoading(false);
     }
     try {
-      const [servicesRes, vehicleTypesRes, pricesRes, commissionsRes] = await Promise.all([
+      const [servicesRes, vehicleTypesRes, pricesRes, commissionsRes, networkRes] = await Promise.all([
         api.services.$get({ query: {} }),
         api.services['vehicle-types'].$get({ query: {} }),
         api.services.prices.$get({ query: {} }),
         api.services.commissions.$get(),
+        api.services.network.$get(),
       ]);
       if (!servicesRes.ok || !vehicleTypesRes.ok || !pricesRes.ok || !commissionsRes.ok) {
         throw new Error('Could not load services or vehicle types.');
       }
-      const [servicesJson, vehicleTypesJson, pricesJson, commissionsJson] = await Promise.all([
+      const [servicesJson, vehicleTypesJson, pricesJson, commissionsJson, network] = await Promise.all([
         servicesRes.json(),
         vehicleTypesRes.json(),
         pricesRes.json(),
         commissionsRes.json(),
+        networkRes.ok ? networkRes.json() : null,
       ]);
       if (!Array.isArray(vehicleTypesJson)) throw new Error('Vehicle types response was invalid.');
       const fresh: CachedCatalog = {
@@ -247,10 +264,12 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
         commissions: Array.isArray(commissionsJson)
           ? commissionsJson.map(({ serviceId, vehicleTypeId, amount }) => ({ serviceId, vehicleTypeId, amount }))
           : [],
+        modes: network?.modes.length ? network.modes : ['hub'],
       };
       setServices(normalizeServices(fresh.services));
       setVehicleTypes(normalizeVehicleTypes(fresh.vehicleTypes));
-      setPrices(fresh.prices);
+      setAllPrices(fresh.prices);
+      setModes(fresh.modes);
       setCommissions(fresh.commissions ?? []);
       await writeCache(CacheKeys.catalog, fresh);
     } catch (e) {
@@ -271,6 +290,18 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   useEffect(() => {
     void loadCatalog();
   }, [loadCatalog]);
+
+  // A doorstep-only branch starts on the doorstep menu; a branch that closed its doorstep team
+  // falls back to the hub.
+  useEffect(() => {
+    if (!modes.includes(washMode)) setWashMode(modes[0] ?? 'hub');
+  }, [modes, washMode]);
+
+  /** The menu for how this wash is delivered: hub and doorstep prices differ. */
+  const prices = useMemo(
+    () => allPrices.filter((p) => (p.mode ?? 'hub') === washMode),
+    [allPrices, washMode],
+  );
 
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   useEffect(() => {
@@ -340,6 +371,14 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
       return;
     }
     selectVehicle(vt, { scroll: true });
+  };
+
+  const switchWashMode = (next: DeliveryMode) => {
+    if (next === washMode) return;
+    animate();
+    setWashMode(next);
+    setSelectedServiceIds(new Set());
+    setFreeIds(new Set());
   };
 
   const switchFamily = (next: VehicleCategory) => {
@@ -566,6 +605,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   const clearOrder = () => {
     setSelectedServiceIds(new Set());
     setFreeIds(new Set());
+    setPlanOrderId(null);
     setSellers(null);
     setServiceQuery('');
     setDiscountOpen(false);
@@ -738,11 +778,83 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     if (freeState(card).disabled) return;
     // One kind of discount per bill: the free wash replaces a coupon or a typed discount.
     setCouponApplied(false);
+    setPlanOrderId(null);
     setDiscountOpen(false);
     setDiscountRupees('');
     setDiscountReason('');
     if (!selectedServiceIds.has(card.serviceId)) toggleService(card.serviceId);
     setFreeIds((prev) => new Set(prev).add(card.serviceId));
+  };
+
+  // ---------- Community plan members ----------
+
+  const planPhone = mode !== 'search' && phoneOk && online ? phoneDigits : null;
+  useEffect(() => {
+    setShopPlans([]);
+    setPlanOrderId(null);
+    if (!planPhone) return;
+    let alive = true;
+    api.places['shop-plans']
+      .$get({ query: { phone: planPhone } })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (alive && data) setShopPlans(data.plans);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [planPhone]);
+
+  // A plan belongs to one car: hide plans for the customer's other plates.
+  const visiblePlans = useMemo(
+    () => shopPlans.filter((p) => !p.vehicle.registrationNumber || !regOk || p.vehicle.registrationNumber === reg),
+    [shopPlans, reg, regOk],
+  );
+
+  const planBlocked = (plan: ShopPlan): string | null => {
+    if (!online) return 'Needs internet to use';
+    if (washMode !== 'hub') return 'Plan washes here are for washes at the shop';
+    if (!selectedVehicle) return 'Pick the vehicle size first';
+    if (plan.vehicle.typeId !== selectedVehicle.id) return `The plan is for a ${plan.vehicle.typeName}`;
+    if (!plan.service) return null;
+    const offered = servicesForVehicle.some((s) => s.id === plan.service?.id) && priceFor(plan.service.id) != null;
+    if (!offered) return `${plan.service.name} isn’t on the ${selectedVehicle.name} menu`;
+    const combo = coveredBy.get(plan.service.id);
+    if (combo) return `In the ${combo} combo — pick ${plan.service.name} on its own`;
+    return null;
+  };
+
+  const activePlan = visiblePlans.find((p) => p.orderId === planOrderId) ?? null;
+  const planActive =
+    activePlan != null &&
+    activePlan.service != null &&
+    activePlan.problem == null &&
+    planBlocked(activePlan) == null &&
+    selectedServiceIds.has(activePlan.service.id);
+  const planSaving = planActive && activePlan?.service ? (priceFor(activePlan.service.id) ?? 0) : 0;
+
+  // Unpicking the covered service drops the plan wash with it.
+  useEffect(() => {
+    if (activePlan?.service && !selectedServiceIds.has(activePlan.service.id)) setPlanOrderId(null);
+  }, [selectedServiceIds, activePlan]);
+
+  const togglePlan = (plan: ShopPlan) => {
+    animate();
+    if (planOrderId === plan.orderId) {
+      setPlanOrderId(null);
+      return;
+    }
+    if (plan.problem || planBlocked(plan) || !plan.service) return;
+    // One kind of discount per bill: the plan wash replaces every other one.
+    setCouponApplied(false);
+    setFreeIds(new Set());
+    setReferrerPhone('');
+    setDiscountOpen(false);
+    setDiscountRupees('');
+    setDiscountReason('');
+    if (!selectedServiceIds.has(plan.service.id)) toggleService(plan.service.id);
+    setPlanOrderId(plan.orderId);
   };
 
   const onGiftGiven = () => {
@@ -763,19 +875,22 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   const subtotal = breakdown?.subtotal ?? 0;
   const discountTooBig = Boolean(breakdown) && discountPaise > subtotal;
   const discountNeedsReason = discountPaise > 0 && discountReason.trim().length === 0;
-  const couponActive = couponApplied && offer != null && !freeActive;
+  const couponActive = couponApplied && offer != null && !freeActive && !planActive;
   const couponSaving = offer ? couponDiscount(subtotal, offer.percent) : 0;
   // Referrals are for genuinely new customers only: neither the phone nor the plate is on file.
   const isNewCustomer =
     isPro &&
     mode === 'form' && !known && regOk && phoneOk && !plateEntry && !phoneEntry && !server.looking;
   const referral = useReferralQuote(referrerPhone, phoneDigits, reg, isNewCustomer && online);
-  const referralActive = isNewCustomer && referral.quote != null && !freeActive;
+  const referralActive = isNewCustomer && referral.quote != null && !freeActive && !planActive;
   const referralSaving = referral.quote ? couponDiscount(subtotal, referral.quote.percent) : 0;
-  const manualDiscount = couponActive || referralActive || freeActive || discountTooBig ? 0 : discountPaise;
+  const manualDiscount =
+    couponActive || referralActive || freeActive || planActive || discountTooBig ? 0 : discountPaise;
   const appliedDiscount = freeActive
     ? freeSaving
-    : couponActive
+    : planActive
+      ? planSaving
+      : couponActive
       ? couponSaving
       : referralActive
         ? referralSaving
@@ -811,6 +926,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
         setDiscountRupees('');
         setDiscountReason('');
         setFreeIds(new Set());
+        setPlanOrderId(null);
       }
       return !on;
     });
@@ -883,6 +999,8 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
                     ? 'A selected service has no price for this vehicle'
                     : freeActive && !online
                       ? 'Free wash needs internet — remove it to save offline'
+                      : planOrderId && !planActive && activePlan
+                      ? planBlocked(activePlan) ?? 'This plan can’t be used — remove it'
                       : couponActive && !online
                       ? 'Coupon needs internet — remove it to save offline'
                       : isNewCustomer && referral.entered && !referralActive
@@ -949,11 +1067,13 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
             ownership: conflict && ownership ? ownership : undefined,
             vehicleTypeId,
             services: lineItems,
+            mode: washMode,
             discount: manualDiscount,
             discountReason: manualDiscount > 0 ? discountReason.trim() : undefined,
             couponCode: couponActive ? offer.code : undefined,
             referralToken: referralQuote?.token,
             rewardServiceIds: freeActive ? freeActiveIds : undefined,
+            planOrderId: planActive && activePlan ? activePlan.orderId : undefined,
             sellerIds: commissionTotal > 0 ? pickedSellers.map((s) => s.id) : undefined,
           },
           meta: {
@@ -969,7 +1089,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
             sellers: commissionTotal > 0 ? pickedSellers : undefined,
           },
         },
-        { requireOnline: couponActive || referralActive || freeActive },
+        { requireOnline: couponActive || referralActive || freeActive || planActive },
       );
       if (result.status === 'rejected') {
         if (result.planError) {
@@ -978,6 +1098,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
         }
         // The card may have changed (used on another phone, a wash voided): show it as it is now.
         if (freeActive) vehicleRewards.reload();
+        if (planActive) setPlanOrderId(null);
         throw new Error(result.message);
       }
       directory.recordVisit({
@@ -995,7 +1116,9 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
           ? `Saved offline — ${firstName}’s ${reg} will sync automatically`
           : freeActive
             ? `Wash started for ${firstName} · free ${freeActiveIds.map((id) => freeCards.get(id)?.serviceName).join(' + ')} used`
-            : `Wash started for ${firstName} · ${reg}`,
+            : planActive && activePlan
+              ? `Wash started for ${firstName} · ${activePlan.washesTotal - activePlan.washesUsed - 1} plan washes left`
+              : `Wash started for ${firstName} · ${reg}`,
         result.status === 'queued' ? 'offline' : 'success',
       );
       resetForm();
@@ -1237,7 +1360,9 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
                 />
                 <View style={styles.flex}>
                   <Text style={styles.savedVehicleName}>{selectedVehicle.name}</Text>
-                  <Text style={styles.savedVehicleHint}>Saved from their last visit</Text>
+                  <Text style={styles.savedVehicleHint}>
+                    {known?.lastVisit ? 'Saved from their last visit' : 'Saved on their profile'}
+                  </Text>
                 </View>
                 <Pressable
                   onPress={() => {
@@ -1330,10 +1455,31 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
               hint={
                 !selectedVehicle
                   ? 'Choose a vehicle type to see its menu'
-                  : `${selectedVehicle.category === 'bike' ? 'Bike' : 'Car'} menu with prices for ${selectedVehicle.name}`
+                  : `${selectedVehicle.category === 'bike' ? 'Bike' : 'Car'} menu with ${washMode === 'doorstep' ? 'doorstep ' : ''}prices for ${selectedVehicle.name}`
               }
             />
           </View>
+
+          {modes.length > 1 ? (
+            <View style={styles.segmentWrap}>
+              <View style={styles.segment} accessibilityRole="tablist" accessibilityLabel="Where the wash happens">
+                {WASH_MODES.map((m) => {
+                  const on = washMode === m.id;
+                  return (
+                    <Pressable
+                      key={m.id}
+                      onPress={() => switchWashMode(m.id)}
+                      style={[styles.segmentBtn, on && styles.segmentBtnOn]}
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected: on }}
+                    >
+                      <Text style={[styles.segmentText, on && styles.segmentTextOn]}>{m.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
 
           {rewardsEnabled ? (
             <RewardsPanel
@@ -1349,6 +1495,18 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
             />
           ) : null}
 
+          {visiblePlans.map((plan) => (
+            <PlanWashCard
+              key={plan.orderId}
+              plan={plan}
+              applied={planActive && activePlan?.orderId === plan.orderId}
+              saving={planSaving}
+              blocked={planBlocked(plan)}
+              formatMoney={formatRupees}
+              onToggle={() => togglePlan(plan)}
+            />
+          ))}
+
           {!selectedVehicle ? (
             <View style={[styles.notice, styles.noticeSoft]}>
               <Text style={styles.noticeTitle}>Services appear here</Text>
@@ -1360,8 +1518,9 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
           ) : servicesForVehicle.length === 0 ? (
             <View style={styles.notice}>
               <Text style={styles.noticeText}>
-                No services for {selectedVehicle.name} yet. The owner can add them in Services &
-                prices.
+                {washMode === 'doorstep'
+                  ? `No doorstep services for ${selectedVehicle.name}. Switch to At the shop, or ask the owner to add this vehicle to the doorstep team.`
+                  : `No services for ${selectedVehicle.name} yet. The owner can add them in Services & prices.`}
               </Text>
             </View>
           ) : (
@@ -1453,7 +1612,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
               ) : null}
 
               {/* Optional discount */}
-              {breakdown && !couponActive && !referralActive && !freeActive ? (
+              {breakdown && !couponActive && !referralActive && !freeActive && !planActive ? (
                 <View style={[styles.group, styles.discountGroup]}>
                   {!discountOpen ? (
                     <Pressable
@@ -1534,6 +1693,8 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
                 ? freeActiveIds.length === 1
                   ? 'free wash'
                   : `${freeActiveIds.length} free washes`
+                : planActive
+                ? 'plan wash'
                 : couponActive
                 ? `${offer.percent}% coupon`
                 : referralActive && referral.quote

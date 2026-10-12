@@ -1,5 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  RefreshControl,
+  SectionList,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import type { CompositeScreenProps } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -12,6 +19,7 @@ import { MessageCard } from '../components/MessageCard';
 import { SkeletonList } from '../components/Skeleton';
 import { TabTitle } from '../components/TabTitle';
 import { WashRow } from '../components/WashRow';
+import { PAGE_MAX, useIsTablet } from '../layout/Layout';
 import type { MainStackParams, TabParams } from '../navigation/types';
 
 type Props = CompositeScreenProps<
@@ -29,13 +37,17 @@ interface WashSection {
 
 const PAGE = 20;
 
-const monthTitle = (iso: string) => new Date(iso).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+const monthTitle = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 'es'}`;
 
 /** Washes still on the board come first as "Today"; the rest are grouped by month, newest first. */
 function toSections(washes: Wash[]): WashSection[] {
   const live = washes.filter((w) => w.status !== 'paid');
-  const sections: WashSection[] = live.length > 0 ? [{ key: 'today', title: 'Today', right: `${live.length} in progress`, data: live }] : [];
+  const sections: WashSection[] =
+    live.length > 0
+      ? [{ key: 'today', title: 'Today', right: `${live.length} in progress`, data: live }]
+      : [];
   for (const wash of washes) {
     if (wash.status !== 'paid') continue;
     const title = monthTitle(wash.createdAt);
@@ -49,8 +61,9 @@ function toSections(washes: Wash[]): WashSection[] {
 
 /** Between two rows: a hairline that starts under the text, on the white of the block. */
 function Separator() {
+  const tablet = useIsTablet();
   return (
-    <View style={styles.separatorWrap}>
+    <View style={[styles.separatorWrap, tablet && styles.insetSides]}>
       <View style={styles.separator} />
     </View>
   );
@@ -89,7 +102,9 @@ export function WashesScreen({ navigation }: Props) {
     busy.current = true;
     setLoadingMore(true);
     try {
-      const page = await send(api.washes.$get({ query: { limit: String(PAGE), before: nextBefore } }));
+      const page = await send(
+        api.washes.$get({ query: { limit: String(PAGE), before: nextBefore } }),
+      );
       setWashes((current) => {
         const seen = new Set(current.map((w) => w.id));
         return [...current, ...page.washes.filter((w) => !seen.has(w.id))];
@@ -109,7 +124,11 @@ export function WashesScreen({ navigation }: Props) {
 
   const sections = useMemo(() => toSections(washes), [washes]);
   // The plate only helps when there is more than one vehicle to tell apart.
-  const showPlate = useMemo(() => new Set(washes.map((w) => w.vehicle.registrationNumber)).size > 1, [washes]);
+  const showPlate = useMemo(
+    () => new Set(washes.map((w) => w.vehicle.registrationNumber)).size > 1,
+    [washes],
+  );
+  const tablet = useIsTablet();
 
   return (
     <View style={styles.screen}>
@@ -118,7 +137,7 @@ export function WashesScreen({ navigation }: Props) {
         sections={sections}
         keyExtractor={(w) => w.id}
         stickySectionHeadersEnabled={false}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, tablet && styles.contentTablet]}
         ListHeaderComponent={
           error && washes.length > 0 ? (
             <View style={styles.pad}>
@@ -126,10 +145,25 @@ export function WashesScreen({ navigation }: Props) {
             </View>
           ) : null
         }
-        renderSectionHeader={({ section }) => <SectionLabel right={section.right}>{section.title}</SectionLabel>}
+        renderSectionHeader={({ section }) => (
+          <SectionLabel right={section.right}>{section.title}</SectionLabel>
+        )}
         renderItem={({ item, index, section }) => (
-          <View style={[styles.item, index === 0 && styles.first, index === section.data.length - 1 && styles.last]}>
-            <WashRow wash={item} showPlate={showPlate} onPress={() => navigation.navigate('WashDetail', { id: item.id })} />
+          <View
+            style={[
+              styles.item,
+              index === 0 && styles.first,
+              index === section.data.length - 1 && styles.last,
+              tablet && styles.insetSides,
+              tablet && index === 0 && styles.firstTablet,
+              tablet && index === section.data.length - 1 && styles.lastTablet,
+            ]}
+          >
+            <WashRow
+              wash={item}
+              showPlate={showPlate}
+              onPress={() => navigation.navigate('WashDetail', { id: item.id })}
+            />
           </View>
         )}
         ItemSeparatorComponent={Separator}
@@ -143,7 +177,10 @@ export function WashesScreen({ navigation }: Props) {
               action={{ label: 'Try again', onPress: () => void loadFirst(false) }}
             />
           ) : (
-            <MessageCard title="No washes yet" body="Each wash at MANA shows here, with its photos." />
+            <MessageCard
+              title="No washes yet"
+              body="Each wash at MANA shows here, with its photos."
+            />
           )
         }
         ListFooterComponent={
@@ -159,7 +196,11 @@ export function WashesScreen({ navigation }: Props) {
         onEndReached={() => void loadMore()}
         onEndReachedThreshold={0.4}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => void loadFirst(true)} colors={[colors.indigo]} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => void loadFirst(true)}
+            colors={[colors.indigo]}
+          />
         }
       />
     </View>
@@ -169,14 +210,37 @@ export function WashesScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
   content: { paddingBottom: spacing.lg },
+  contentTablet: { width: '100%', maxWidth: PAGE_MAX, alignSelf: 'center' },
   pad: { paddingHorizontal: spacing.md, paddingTop: spacing.md },
   // A section's rows read as one white block: a hairline above the first row and below the last.
   item: { backgroundColor: colors.white },
   first: { borderTopWidth: 1, borderTopColor: HAIRLINE },
   last: { borderBottomWidth: 1, borderBottomColor: HAIRLINE },
   separatorWrap: { backgroundColor: colors.white },
+  // On tablets each month is a rounded card in the page column.
+  insetSides: {
+    marginHorizontal: 16,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: HAIRLINE,
+    overflow: 'hidden',
+  },
+  firstTablet: { borderTopLeftRadius: 20, borderTopRightRadius: 20 },
+  lastTablet: { borderBottomLeftRadius: 20, borderBottomRightRadius: 20 },
   separator: { height: 1, marginLeft: 74, backgroundColor: HAIRLINE },
-  more: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingTop: 18 },
+  more: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingTop: 18,
+  },
   moreText: { fontSize: 13.5, fontWeight: '600', color: colors.slateDeep },
-  end: { textAlign: 'center', paddingTop: 18, fontSize: 12.5, fontWeight: '600', color: colors.slate },
+  end: {
+    textAlign: 'center',
+    paddingTop: 18,
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: colors.slate,
+  },
 });

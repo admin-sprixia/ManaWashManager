@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TextInput, View } from 'react-native';
 import { formatPhone } from '../format';
 import { colors, radius, spacing, typography } from '../theme';
@@ -35,6 +35,13 @@ export function CodeEntry({
   resendIn,
   onResend,
 }: CodeEntryProps) {
+  const input = useRef<TextInput>(null);
+  // Focused once the previous step's field has gone: Android hides the keyboard when a focused
+  // field unmounts, which would undo an autoFocus made in the same frame.
+  useEffect(() => {
+    const timer = setTimeout(() => input.current?.focus(), 250);
+    return () => clearTimeout(timer);
+  }, []);
   return (
     <>
       <Text style={styles.title}>Enter the WhatsApp code</Text>
@@ -42,6 +49,7 @@ export function CodeEntry({
         Sent to +91 {formatPhone(phone)}. It works for {validMinutes} minutes.
       </Text>
       <TextInput
+        ref={input}
         style={[styles.otpInput, error ? styles.fieldError : null]}
         value={value}
         onChangeText={(t) => {
@@ -55,7 +63,6 @@ export function CodeEntry({
         textContentType="oneTimeCode"
         autoComplete="sms-otp"
         maxLength={codeLength}
-        autoFocus
         editable={!loading}
         accessibilityLabel="WhatsApp code"
       />

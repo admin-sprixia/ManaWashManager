@@ -12,7 +12,10 @@ export interface D1Database {
   exec: (query: string) => Promise<unknown>;
 }
 
-/** Tables that belong to the platform, not to a shop — never filtered by shop. */
+/**
+ * Tables that belong to the platform, not to a shop — never filtered by shop. The service network
+ * models are business-level: catalogRepo filters every one of them by business id.
+ */
 const PLATFORM_MODELS = new Set([
   'Shop',
   'PlatformSetting',
@@ -20,6 +23,20 @@ const PLATFORM_MODELS = new Set([
   'RateLimit',
   'BillingEvent',
   'CustomerAccount',
+  'Business',
+  'BusinessAdmin',
+  'BusinessSetting',
+  'VehicleClass',
+  'VehicleSize',
+  'BodyType',
+  'CatalogService',
+  'CatalogServiceClass',
+  'CatalogComboItem',
+  'PriceBook',
+  'PriceBookEntry',
+  'ModeAdjustment',
+  'PriceZone',
+  'WashPlan',
 ]);
 
 /** Operations whose `where` gets `shopId` added. Prisma 5 accepts extra fields on unique wheres. */

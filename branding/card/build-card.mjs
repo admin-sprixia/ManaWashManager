@@ -2,7 +2,7 @@
 //   CARD_URL=https://… PYTHON=/path/to/python-with-fonttools node branding/card/build-card.mjs
 //
 // Card: 55 × 110 mm, 1 unit = 0.1 mm.
-// Front: the indigo glass mark (white centre line), MANA / CAR WASH, a fine-line water ribbon
+// Front: the indigo glass mark (white centre line), శ్రీ MANA / WASH (Sri in Telugu), a fine-line water ribbon
 // and the line "Some journeys stay with us forever."
 // Back: a QR code for CARD_URL with the mark in its centre, GET THE APP · REVIEW US, and Thank you.
 // All lettering is outlined from macOS system fonts (Didot, Avenir Next) by outline-text.py,
@@ -37,6 +37,10 @@ const C = {
   mid: '#4458CC',
   soft: '#9BAEF5',
   mist: '#DDE3FA',
+  // gandham bottu (sandalwood paste) gold, for శ్రీ
+  gandhamLight: '#F8E2B0',
+  gandham: '#E8BF78',
+  gandhamDeep: '#CF9C52',
 };
 
 // A few faint stars, like the app icon. [x, y, r] in card units.
@@ -51,29 +55,57 @@ const n = (v) => String(Math.round(v * 100) / 100);
 const SUP = '/System/Library/Fonts/Supplemental';
 const DIDOT = `${SUP}/Didot.ttc`;
 const AVENIR = '/System/Library/Fonts/Avenir Next.ttc';
+const TELUGU = `${SUP}/Telugu Sangam MN.ttc`; // bold face: once fitted to MANA's cap height its strokes match Didot's weight
 
 const TEXT = [
-  { id: 'mana', font: DIDOT, index: 0, text: 'MANA', size: 74, tracking: 0.36 },
-  { id: 'carwash', font: AVENIR, index: 5, text: 'CAR WASH', size: 17, tracking: 0.62 },
+  { id: 'sri', font: TELUGU, index: 1, text: 'శ్రీ', size: 70 },
+  { id: 'mana', font: DIDOT, index: 0, text: 'MANA', size: 70, tracking: 0.3 },
+  { id: 'wash', font: AVENIR, index: 5, text: 'WASH', size: 20, tracking: 0.7 },
   { id: 'tag1', font: DIDOT, index: 1, text: 'Some journeys', size: 37, tracking: 0.01 },
   { id: 'tag2', font: DIDOT, index: 1, text: 'stay with us forever.', size: 37, tracking: 0.01 },
   { id: 'cta1', font: AVENIR, index: 2, text: 'GET THE APP', size: 17, tracking: 0.34 },
   { id: 'cta2', font: AVENIR, index: 2, text: 'REVIEW US', size: 17, tracking: 0.34 },
   { id: 'scan', font: DIDOT, index: 1, text: 'Scan with your phone camera', size: 22, tracking: 0.01 },
   { id: 'thanks', font: DIDOT, index: 1, text: 'Thank you', size: 46, tracking: 0.01 },
-  { id: 'manaSmall', font: DIDOT, index: 0, text: 'MANA', size: 30, tracking: 0.4 },
+  { id: 'sriSmall', font: TELUGU, index: 1, text: 'శ్రీ', size: 28 },
+  { id: 'manaSmall', font: DIDOT, index: 0, text: 'MANA WASH', size: 28, tracking: 0.3 },
 ];
 const T = JSON.parse(
   execFileSync(PYTHON, [join(HERE, 'outline-text.py')], { input: JSON.stringify(TEXT) }).toString(),
 );
 
 /** Outlined text centred on x, baseline at y. */
+/**
+ * Several outlined pieces in one row, `gap` apart, the whole row centred on x, baseline at y.
+ * A piece can be [id, fill, fitTo]: it is then scaled so its ink runs exactly from the top to the
+ * bottom of the `fitTo` piece's ink (శ్రీ stands as tall as MANA's capitals, no taller).
+ */
+const row = (parts, x, y, gap) => {
+  const placed = parts.map(([id, fill, fitTo]) => {
+    if (!fitTo) return { id, fill, k: 1, dy: 0, w: T[id].width };
+    const k = (T[fitTo].bottom - T[fitTo].top) / (T[id].bottom - T[id].top);
+    return { id, fill, k, dy: T[fitTo].top - T[id].top * k, w: T[id].width * k };
+  });
+  const total = placed.reduce((w, p) => w + p.w, 0) + gap * (placed.length - 1);
+  let left = x - total / 2;
+  return placed
+    .map(({ id, fill, k, dy, w }) => {
+      const out = `<path d="${T[id].d}" transform="translate(${n(left)} ${n(y + dy)}) scale(${n(k)})" fill="${fill}"/>`;
+      left += w + gap;
+      return out;
+    })
+    .join('');
+};
+
 const text = (id, x, y, fill, extra = '') =>
   `<path d="${T[id].d}" transform="translate(${n(x - T[id].width / 2)} ${n(y)})" fill="${fill}"${extra}/>`;
 
 // ---------- shared pieces ----------
 /** glowY: where the soft light behind the main element sits, as a fraction of the card height. */
 const paperDefs = (p, glowY) => `
+<linearGradient id="${p}-gandham" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="${C.gandhamLight}"/><stop offset="0.55" stop-color="${C.gandham}"/><stop offset="1" stop-color="${C.gandhamDeep}"/>
+</linearGradient>
 <linearGradient id="${p}-paper" x1="0.2" y1="0" x2="0.8" y2="1">
   <stop offset="0" stop-color="${C.night0}"/><stop offset="0.5" stop-color="${C.night1}"/><stop offset="1" stop-color="${C.night2}"/>
 </linearGradient>
@@ -193,15 +225,15 @@ function front() {
   const p = 'f';
   const rib = ribbon(p, { y0: 735, amp: 46, width: 92, phase: 0.35, opacity: 0.75 });
   const ruleY = 566;
-  const half = T.carwash.width / 2;
+  const half = T.wash.width / 2;
   const body = `
 ${paper(p)}
 <g clip-path="url(#${p}-card)">${rib}</g>
 ${mark(CX, 168, 160)}
-${text('mana', CX, 502, C.white)}
+${row([['sri', `url(#${p}-gandham)`, 'mana'], ['mana', C.white]], CX, 500, 26)}
 <line x1="${n(CX - half - 74)}" y1="${ruleY}" x2="${n(CX - half - 22)}" y2="${ruleY}" stroke="${C.soft}" stroke-opacity="0.6" stroke-width="1"/>
 <line x1="${n(CX + half + 22)}" y1="${ruleY}" x2="${n(CX + half + 74)}" y2="${ruleY}" stroke="${C.soft}" stroke-opacity="0.6" stroke-width="1"/>
-${text('carwash', CX, ruleY + 6, C.soft)}
+${text('wash', CX, ruleY + 7, C.soft)}
 ${text('tag1', CX, 902, C.pale)}
 ${text('tag2', CX, 950, C.pale)}
 <path d="M${CX} 996 l5 7 l-5 7 l-5 -7 Z" fill="${C.soft}" opacity="0.9"/>
@@ -224,7 +256,7 @@ function back() {
   const body = `
 ${paper(p)}
 <g clip-path="url(#${p}-card)">${rib}</g>
-${text('manaSmall', CX, 190, C.white)}
+${row([['sriSmall', `url(#${p}-gandham)`, 'manaSmall'], ['manaSmall', C.white]], CX, 190, 13)}
 <rect x="${CX - frame / 2}" y="${qrCy - frame / 2}" width="${frame}" height="${frame}" rx="30" fill="#FFFFFF" stroke="${C.soft}" stroke-opacity="0.5" stroke-width="1"/>
 ${corners(CX, qrCy, frame + 22)}
 ${qr(CX, qrCy, qrSize)}

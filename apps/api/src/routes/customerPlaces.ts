@@ -30,13 +30,13 @@ import { requireCustomer } from '../middleware/customer';
 import type { Env } from '../types';
 
 /**
- * The MANA Car Wash app's side of places and plans: finding a served place (nearby, or from a
+ * The Mana Wash app's side of places and plans: finding a served place (nearby, or from a
  * QR poster / neighbour's link), joining it with flat and vehicles, and then managing each
  * vehicle's plan — paying, skipping, pausing, cancelling, renewing — and its receipts.
  * Looking at places is public (like prices); everything about a customer is their own only.
  */
 
-const placeNotFound = { error: 'not_found' as const, message: 'This place isn’t on MANA Car Wash any more.' };
+const placeNotFound = { error: 'not_found' as const, message: 'This place isn’t on Mana Wash any more.' };
 const codeNotFound = { error: 'not_found' as const, message: 'No place has this code. Check the code on the poster.' };
 const orderNotFound = { error: 'not_found' as const, message: 'This plan isn’t in your account.' };
 const ticketExpired = { error: 'ticket_expired' as const, message: 'Please sign in again with your number.' };

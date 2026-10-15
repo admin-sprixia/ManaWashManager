@@ -1,7 +1,8 @@
 import { hc } from 'hono/client';
 import type { AppType } from '@mana/api';
 import { getSessionToken } from './session';
-import { emitSessionInvalid, NetworkError, setOnline } from './network';
+import { getDeviceKey, deviceLabel } from './device';
+import { emitPinUpgradeRequired, emitSessionInvalid, NetworkError, setOnline } from './network';
 import { DEV_API_URL, PRODUCTION_API_URL } from '../config/app';
 import type { ExpensePayload } from '../offline/types';
 
@@ -14,8 +15,9 @@ const UPLOAD_TIMEOUT_MS = 90_000;
 
 /**
  * Every request goes through here: a hard timeout, online/offline tracking for the sync
- * banner, and a global sign-out when the server rejects an authenticated session (token
- * expired, the owner deactivated this account, or the shop's plan has no seat for it).
+ * banner, a global sign-out when the server rejects an authenticated session (token expired,
+ * the account was turned off, or HQ closed the branch), and the 6-digit PIN step for owners and
+ * managers still on a short one.
  */
 async function trackedFetch(
   input: RequestInfo | URL,
@@ -46,11 +48,12 @@ async function trackedFetch(
     // PIN) is rejected for the old one; that says nothing about the current session.
     const current = await getSessionToken();
     if (sentAuth !== `Bearer ${current ?? ''}`) return res;
-    const body = (await res.clone().json().catch(() => null)) as { error?: string } | null;
+    const body = (await res.clone().json().catch(() => null)) as { error?: string; message?: string } | null;
     if (res.status === 401 && body?.error === 'unauthorized') emitSessionInvalid('expired');
     if (res.status === 401 && body?.error === 'session_revoked') emitSessionInvalid('revoked');
     if (res.status === 403 && body?.error === 'account_disabled') emitSessionInvalid('disabled');
-    if (res.status === 403 && body?.error === 'plan_seat_locked') emitSessionInvalid('seat_locked');
+    if (res.status === 403 && body?.error === 'branch_closed') emitSessionInvalid('closed', body.message);
+    if (res.status === 403 && body?.error === 'pin_upgrade_required') emitPinUpgradeRequired();
   }
   return res;
 }
@@ -62,13 +65,21 @@ async function trackedFetch(
  */
 export const api = hc<AppType>(API_BASE_URL, {
   fetch: (input: RequestInfo | URL, init?: RequestInit) => trackedFetch(input, init),
-  headers: async (): Promise<Record<string, string>> => {
-    const token = await getSessionToken();
-    const headers: Record<string, string> = {};
-    if (token) headers.Authorization = `Bearer ${token}`;
-    return headers;
-  },
+  headers: authHeaders,
 });
+
+/**
+ * The session and this phone's key. A session only works from the phone it was issued to, so
+ * every request (uploads and private images too) sends both.
+ */
+async function authHeaders(): Promise<Record<string, string>> {
+  const [token, device] = await Promise.all([getSessionToken(), getDeviceKey()]);
+  const headers: Record<string, string> = { 'x-device-key': device };
+  const label = deviceLabel();
+  if (label) headers['x-device-name'] = label;
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
 
 export interface PhotoUpload {
   id: string;
@@ -94,10 +105,9 @@ export async function uploadPhoto(photo: PhotoUpload): Promise<Response> {
     type: photo.contentType,
     name: `${photo.id}.${photo.contentType === 'image/png' ? 'png' : 'jpg'}`,
   } as unknown as Blob);
-  const token = await getSessionToken();
   return trackedFetch(
     `${API_BASE_URL}/photos`,
-    { method: 'POST', body: form, headers: token ? { Authorization: `Bearer ${token}` } : {} },
+    { method: 'POST', body: form, headers: await authHeaders() },
     UPLOAD_TIMEOUT_MS,
   );
 }
@@ -110,10 +120,9 @@ async function uploadFile(path: string, photo: { uri: string; contentType: strin
     type: photo.contentType,
     name: `photo.${photo.contentType === 'image/png' ? 'png' : 'jpg'}`,
   } as unknown as Blob);
-  const token = await getSessionToken();
   return trackedFetch(
     `${API_BASE_URL}${path}`,
-    { method: 'POST', body: form, headers: token ? { Authorization: `Bearer ${token}` } : {} },
+    { method: 'POST', body: form, headers: await authHeaders() },
     UPLOAD_TIMEOUT_MS,
   );
 }
@@ -130,8 +139,7 @@ export function uploadVisitPhoto(placeId: string, visitId: string, photo: { uri:
 
 /** Image source for a team-only file under the API (a community photo, a wash's after photo). */
 export async function privateImage(path: string): Promise<{ uri: string; headers: Record<string, string> }> {
-  const token = await getSessionToken();
-  return { uri: `${API_BASE_URL}${path}`, headers: token ? { Authorization: `Bearer ${token}` } : {} };
+  return { uri: `${API_BASE_URL}${path}`, headers: await authHeaders() };
 }
 
 /** An expense with its bill and item photos, sent as one multipart request. */
@@ -149,10 +157,9 @@ export async function uploadExpense(expense: ExpensePayload): Promise<Response> 
       name: `${expense.id}-${field}.${photo.contentType === 'image/png' ? 'png' : 'jpg'}`,
     } as unknown as Blob);
   }
-  const token = await getSessionToken();
   return trackedFetch(
     `${API_BASE_URL}/expenses`,
-    { method: 'POST', body: form, headers: token ? { Authorization: `Bearer ${token}` } : {} },
+    { method: 'POST', body: form, headers: await authHeaders() },
     UPLOAD_TIMEOUT_MS,
   );
 }
@@ -162,19 +169,17 @@ export async function expensePhotoSource(
   expenseId: string,
   kind: 'bill' | 'item',
 ): Promise<{ uri: string; headers: Record<string, string> }> {
-  const token = await getSessionToken();
   return {
     uri: `${API_BASE_URL}/expenses/${expenseId}/photos/${kind}`,
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: await authHeaders(),
   };
 }
 
 /** Image source for a stored photo; the Authorization header keeps it private to the team. */
 export async function photoSource(photoId: string): Promise<{ uri: string; headers: Record<string, string> }> {
-  const token = await getSessionToken();
   return {
     uri: `${API_BASE_URL}/photos/${photoId}`,
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: await authHeaders(),
   };
 }
 

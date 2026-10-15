@@ -1,7 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { SEAT_LOCKED_MESSAGE } from '@mana/domain';
 import { api } from './client';
-import { subscribeSessionInvalid } from './network';
+import { subscribePinUpgradeRequired, subscribeSessionInvalid } from './network';
 import {
   clearSession,
   getCacheShop,
@@ -20,10 +19,17 @@ interface AuthContextValue {
   checking: boolean;
   user: SessionUser | null;
   isOwner: boolean;
+  /** Runs the team (staff and join requests) without the owner's money and price screens. */
+  isManager: boolean;
+  /** Owner or manager: can open Team. */
+  canManageTeam: boolean;
   /** Why the last session ended, when it wasn't the user's choice — shown on the login screen. */
   sessionNotice: string | null;
+  /** Shown once after signing in, e.g. who reset this person's PIN. */
+  signInNotice: string | null;
+  setSignInNotice: (notice: string | null) => void;
   signIn: (token: string, user: SessionUser) => Promise<void>;
-  /** Owners with several branches: opens another of their shops without signing in again. */
+  /** People at several branches: opens another of their branches without signing in again. */
   switchShop: (shopId: string) => Promise<void>;
   signOut: () => Promise<void>;
   bootstrap: () => Promise<void>;
@@ -39,6 +45,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [checking, setChecking] = useState(true);
   const [user, setUser] = useState<SessionUser | null>(null);
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
+  const [signInNotice, setSignInNotice] = useState<string | null>(null);
 
   const refreshUser = useCallback(async () => {
     try {
@@ -46,7 +53,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!res.ok) return;
       const me = await res.json();
       if (!('id' in me)) return;
-      const next: SessionUser = { ...me, role: me.role === 'owner' ? 'owner' : 'staff' };
+      const next: SessionUser = me;
       await setSessionUser(next);
       setUser(next);
     } catch {
@@ -95,26 +102,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(next);
   }, []);
 
-  const signOut = useCallback(async () => {
+  const forget = useCallback(async () => {
     await Promise.all([clearSession(), clearCaches()]);
+    setSignInNotice(null);
     setUser(null);
   }, []);
 
+  // Choosing to sign out also stops trusting this phone, so the next sign-in here needs a
+  // WhatsApp code. Offline, it still signs out; the phone stays trusted until a reset.
+  const signOut = useCallback(async () => {
+    try {
+      await api.auth.signout.$post();
+    } catch {
+      // Offline.
+    }
+    await forget();
+  }, [forget]);
+
   useEffect(
     () =>
-      subscribeSessionInvalid((reason) => {
+      subscribeSessionInvalid((reason, message) => {
         setSessionNotice(
           reason === 'disabled'
             ? 'Your account has been turned off. Ask the owner if this is a mistake.'
             : reason === 'revoked'
-              ? 'Your PIN was changed or reset. Sign in with the new PIN.'
-              : reason === 'seat_locked'
-                ? SEAT_LOCKED_MESSAGE
+              ? 'You were signed out on this phone (your PIN, number or phones changed). Sign in again.'
+              : reason === 'closed'
+                ? (message ?? 'Mana Wash HQ has closed this branch.')
                 : 'Your session ended. Please sign in again.',
         );
-        void signOut();
+        void forget();
       }),
-    [signOut],
+    [forget],
+  );
+
+  useEffect(
+    () =>
+      subscribePinUpgradeRequired(() => {
+        setUser((current) => {
+          if (!current || current.pinUpgradeRequired) return current;
+          const next = { ...current, pinUpgradeRequired: true };
+          void setSessionUser(next);
+          return next;
+        });
+      }),
+    [],
   );
 
   const value = useMemo(
@@ -123,7 +155,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       checking,
       user,
       isOwner: user?.role === 'owner',
+      isManager: user?.role === 'manager',
+      canManageTeam: user?.role === 'owner' || user?.role === 'manager',
       sessionNotice,
+      signInNotice,
+      setSignInNotice,
       signIn,
       switchShop,
       signOut,
@@ -135,6 +171,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       checking,
       user,
       sessionNotice,
+      signInNotice,
       signIn,
       switchShop,
       signOut,

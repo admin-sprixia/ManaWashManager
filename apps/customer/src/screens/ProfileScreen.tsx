@@ -142,7 +142,7 @@ export function ProfileScreen({ navigation }: Props) {
             </Pressable>
           </EdgeGroup>
 
-          <SectionLabel>MANA Car Wash</SectionLabel>
+          <SectionLabel>Mana Wash</SectionLabel>
           <EdgeGroup>
             <EdgeRow
               icon={<IconUserPlus size={19} color={colors.tealDeep} />}

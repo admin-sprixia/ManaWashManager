@@ -26,12 +26,10 @@ import {
   MIN_REASON_LENGTH,
   normalizeCouponCode,
   normalizePhone,
-  planRequiredMessage,
   PriceNotFoundError,
   referralProblemMessage,
   type JobStatus,
   type PaymentMethod,
-  type PlanStatus,
 } from '@mana/domain';
 import {
   cancelReferralForVoidedJob,
@@ -43,7 +41,6 @@ import {
 import { checkFreeWashes, settleRewardsForPaidJob } from '../lib/rewards';
 import { occurredAt } from '../lib/clientTime';
 import { requireAuth, requireRole } from '../middleware/auth';
-import { reportWindowProblem, requirePro, washLimitProblem } from '../lib/plan';
 import { startOfIstDay } from '../lib/istDate';
 import { reportQuerySchema, resolveReportWindow, windowMeta } from '../lib/reportWindow';
 import type { Env } from '../types';
@@ -209,7 +206,6 @@ type PricingInput = z.infer<typeof createJobSchema>;
 async function priceJob(
   db: DbClient,
   body: Pick<PricingInput, keyof typeof pricingFields>,
-  plan: PlanStatus,
 ) {
   const vehicleType = await serviceRepo.getVehicleType(db, body.vehicleTypeId);
   if (!vehicleType)
@@ -260,8 +256,7 @@ async function priceJob(
     lineItems: breakdown.lineItems.map((li) => ({
       serviceId: li.serviceId,
       priceAtTime: li.unitPrice,
-      // Commission is a Pro feature: washes started on Free don't earn any.
-      commissionAtTime: plan.tier === 'pro' ? (commissionFor.get(li.serviceId) ?? 0) : 0,
+      commissionAtTime: commissionFor.get(li.serviceId) ?? 0,
       quantity: li.quantity,
     })),
   };
@@ -316,11 +311,10 @@ async function finishReplayedJob(
   db: DbClient,
   existing: BoardRow,
   body: Pick<PricingInput, keyof typeof pricingFields> & { sellerIds?: string[] },
-  plan: PlanStatus,
   userId: string,
 ) {
   if (existing.jobServices.length > 0) return existing;
-  const priced = await priceJob(db, body, plan);
+  const priced = await priceJob(db, body);
   if ('error' in priced) return existing;
   return (
     (await jobRepo.completeCreate(db, existing.id, {
@@ -350,17 +344,13 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     const db = c.get('db');
     const session = c.get('session');
 
-    const plan = c.get('plan');
     if (body.id) {
       const existing = await jobRepo.findBoardRow(db, body.id);
-      if (existing) return c.json(await finishReplayedJob(db, existing, body, plan, session.sub), 200);
+      if (existing) return c.json(await finishReplayedJob(db, existing, body, session.sub), 200);
     }
 
     const createdAt = occurredAt(c, body.occurredAt);
-    const overLimit = await washLimitProblem(db, plan, createdAt);
-    if (overLimit) return c.json(overLimit, 402);
-
-    const priced = await priceJob(db, body, plan);
+    const priced = await priceJob(db, body);
     if ('error' in priced) return c.json({ error: priced.error, message: priced.message }, 400);
 
     const job = await jobRepo.create(db, {
@@ -384,24 +374,12 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     const db = c.get('db');
     const session = c.get('session');
 
-    const plan = c.get('plan');
     const existing = await jobRepo.findBoardRow(db, body.id);
-    if (existing) return c.json(await finishReplayedJob(db, existing, body, plan, session.sub), 200);
+    if (existing) return c.json(await finishReplayedJob(db, existing, body, session.sub), 200);
 
-    if (plan.tier !== 'pro' && (body.couponCode || body.referralToken || body.rewardServiceIds)) {
-      const feature = body.couponCode
-        ? ('coupons' as const)
-        : body.referralToken
-          ? ('referrals' as const)
-          : ('rewards' as const);
-      return c.json({ error: 'plan_required' as const, feature, message: planRequiredMessage(feature) }, 402);
-    }
     const createdAt = occurredAt(c, body.occurredAt);
-    const overLimit = await washLimitProblem(db, plan, createdAt);
-    if (overLimit) return c.json(overLimit, 402);
-
     // Price first so a bad selection never leaves a half-created customer behind.
-    const priced = await priceJob(db, body, plan);
+    const priced = await priceJob(db, body);
     if ('error' in priced) return c.json({ error: priced.error, message: priced.message }, 400);
 
     // Coupons are checked against the vehicle and owner as they stand *before* this request
@@ -621,7 +599,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       // A replay of this same request may have created the job first; its coupon, referral and
       // free washes are this job's, so leave them alone.
       const winner = await jobRepo.findBoardRow(db, body.id);
-      if (winner) return c.json(await finishReplayedJob(db, winner, body, plan, session.sub), 200);
+      if (winner) return c.json(await finishReplayedJob(db, winner, body, session.sub), 200);
       if (coupon) await couponRepo.release(db, { couponId: coupon.id, jobId: body.id });
       if (referral) await referralRepo.removeForJob(db, body.id);
       if (freeWash) await rewardRepo.releaseClaims(db, body.id);
@@ -640,9 +618,6 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     const query = c.req.valid('query');
     const window = resolveReportWindow(query);
     if ('error' in window) return c.json({ error: window.error }, 400);
-    const tooFarBack = reportWindowProblem(c.get('plan'), window.from);
-    if (tooFarBack) return c.json(tooFarBack, 402);
-
     const [stats, pendingNow, expenses, plans] = await Promise.all([
       jobRepo.getStats(db, window.from, window.to),
       jobRepo.countPending(db),
@@ -661,7 +636,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     });
   })
   // Full export payload for PDF — same window as /stats, plus every job line in the period.
-  .get('/stats/export', requireRole('owner'), requirePro('pdfExport'), zValidator('query', reportQuerySchema), async (c) => {
+  .get('/stats/export', requireRole('owner'), zValidator('query', reportQuerySchema), async (c) => {
     const db = c.get('db');
     const query = c.req.valid('query');
     const window = resolveReportWindow(query);
@@ -841,7 +816,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     // only finishes what's missing.
     const settle = async () => {
       await settleReferralForPaidJob(db, id, userId);
-      return settleRewardsForPaidJob(db, id, c.get('plan'), userId);
+      return settleRewardsForPaidJob(db, id, userId);
     };
 
     const from = job.status as JobStatus;

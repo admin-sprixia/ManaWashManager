@@ -14,7 +14,6 @@ import {
   type StockUnit,
 } from '@mana/domain';
 import { requireAuth, requireRole } from '../middleware/auth';
-import { requirePro } from '../lib/plan';
 import { startOfIstDaysAgo } from '../lib/istDate';
 import type { Env } from '../types';
 
@@ -52,7 +51,7 @@ function withLevel<T extends { balance: number; lowAt: number | null }>(item: T)
 // Everyone sees stock and logs what they use; setting items up, adding without a bill and
 // correcting a count are the owner's.
 export const stockRoutes = new Hono<{ Bindings: Env }>()
-  .use('*', requireAuth, requirePro('inventory'))
+  .use('*', requireAuth)
   .get('/', async (c) => {
     const db = c.get('db');
     const [items, used, owed] = await Promise.all([

@@ -1,14 +1,13 @@
-// Walks the MANA Car Wash app against the local API: prices and service area before signing in,
+// Walks the Mana Wash app against the local API: prices and service area before signing in,
 // a new number asking for service, the owner approving it, the customer signing in and seeing only
 // their own cars, washes and photos, and signing out / deleting the account.
 //   cd apps/api && npm run db:reset:local && npm run dev      (in one terminal)
 //   cd apps/api && npm run test:customer-app                  (in another)
 // Uses fresh random numbers each run, so it can be re-run without a reset. Shop A is the seeded
 // MANA shop (listed in the app); shop C ("Other Wash") is added here and starts unlisted.
-import { API, apiFetch, d1Rows, d1Run } from './lib/target.mjs';
+import { API, apiFetch, d1Rows, d1Run, DEV_CODE, signIn as signInWith } from './lib/target.mjs';
 
-const DEV_CODE = process.env.DEV_CODE ?? '000000';
-const PIN = '2580';
+const PIN = '258025';
 const KOVUR = { latitude: 14.5, longitude: 79.99 };
 const HYDERABAD = { latitude: 17.385, longitude: 78.4867 };
 
@@ -60,14 +59,9 @@ async function verify(phone) {
 }
 
 async function signInOwner(phone) {
-  const byPin = await call(null, 'POST', '/auth/pin/login', { phone, pin: PIN });
-  if (byPin.body?.token) return byPin.body;
-  await call(null, 'POST', '/auth/code/request', { phone });
-  const verified = await call(null, 'POST', '/auth/code/verify', { phone, code: DEV_CODE });
-  if (!verified.body?.token) throw new Error(`Owner sign-in failed for ${phone}: ${show(verified)}`);
-  const withPin = await call(verified.body.token, 'PUT', '/auth/pin', { pin: PIN });
-  if (!withPin.body?.token) throw new Error(`Setting the PIN failed for ${phone}: ${show(withPin)}`);
-  return withPin.body;
+  const r = await signInWith(phone, PIN);
+  if (!r.body?.token) throw new Error(`Owner sign-in failed for ${phone}: ${show(r)}`);
+  return r.body;
 }
 
 async function washFor(token, phone, plate, { vehicleTypeId, serviceId }) {
@@ -95,8 +89,8 @@ async function washFor(token, phone, plate, { vehicleTypeId, serviceId }) {
 // ─── Setup: shop C, unlisted, with its own owner and menu ─────────────────
 
 d1Run(
-  "INSERT OR IGNORE INTO shops (id, code, name, city, plan) VALUES ('shop_test_c', '900003', 'Other Wash', 'Nellore', 'trial');" +
-    "UPDATE shops SET in_customer_app = 0, trial_ends_at = strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now', '+14 days') WHERE id = 'shop_test_c';" +
+  "INSERT OR IGNORE INTO shops (id, code, name, city) VALUES ('shop_test_c', '900003', 'Other Wash', 'Nellore');" +
+    "UPDATE shops SET in_customer_app = 0 WHERE id = 'shop_test_c';" +
     "INSERT OR IGNORE INTO users (id, shop_id, name, phone, role) VALUES ('user_c_owner', 'shop_test_c', 'C Owner', '9200000003', 'owner');" +
     "INSERT OR IGNORE INTO vehicle_types (id, shop_id, name, category, sort_order) VALUES ('vt_c_sedan', 'shop_test_c', 'Sedan', 'car', 0);" +
     "INSERT OR IGNORE INTO services (id, shop_id, name, applies_to, sort_order) VALUES ('svc_c_wash', 'shop_test_c', 'Basic Wash', 'car', 0);" +
@@ -106,7 +100,7 @@ const A = (await signInOwner('9100000000')).token;
 const C = (await signInOwner('9200000003')).token;
 // Staff sign in with a PIN only; give the seeded staff the owner's.
 d1Run("UPDATE users SET pin_hash = (SELECT pin_hash FROM users WHERE id = 'user_owner_seed') WHERE id = 'user_staff_seed';");
-const staffLogin = await call(null, 'POST', '/auth/pin/login', { phone: '9100000001', pin: PIN });
+const staffLogin = await signInWith('9100000001', PIN);
 if (!staffLogin.body?.token) throw new Error(`Staff sign-in failed: ${show(staffLogin)}`);
 const staffA = staffLogin.body.token;
 const A_MENU = { vehicleTypeId: 'vt_sedan', serviceId: 'svc_complete_wash' };

@@ -6,10 +6,9 @@
 // exact same instant the way it can in production. These checks prove every guard is in place
 // and that the second request is answered cleanly; the guards themselves are single statements
 // (or a per-number lock) so they also hold when requests truly overlap.
-import { API, apiFetch, d1Rows, d1Run } from './lib/target.mjs';
+import { API, apiFetch, d1Rows, d1Run, DEV_CODE, signIn as signInWith } from './lib/target.mjs';
 
-const DEV_CODE = process.env.DEV_CODE ?? '000000';
-const PIN = '2580';
+const PIN = '258025';
 
 let passed = 0;
 let failed = 0;
@@ -55,8 +54,14 @@ const o2Phone = `95${rand(8)}`;
 const VT = `vt_race_${run}`;
 const SVC = `svc_race_${run}`;
 
+const BIZ = `biz_race_${run}`;
+
+// Both owners are HQ for the shop's business: only HQ adds or removes owners. menu_version matches
+// the catalog so the shop's own test menu is never rebuilt from the (empty) catalog.
 sql(
-  `INSERT INTO shops (id, code, name, plan, paid_until) VALUES ('${SHOP}', '${SHOP_CODE}', 'Race Check Wash', 'active', ${isoIn(30)});` +
+  `INSERT INTO businesses (id, name) VALUES ('${BIZ}', 'Race Business');` +
+    `INSERT INTO business_admins (business_id, phone) VALUES ('${BIZ}', '${o1Phone}'), ('${BIZ}', '${o2Phone}');` +
+    `INSERT INTO shops (id, code, name, business_id, menu_version) VALUES ('${SHOP}', '${SHOP_CODE}', 'Race Check Wash', '${BIZ}', 1);` +
     `INSERT INTO users (id, shop_id, name, phone, role) VALUES ('${O1}', '${SHOP}', 'Owner One', '${o1Phone}', 'owner');` +
     `INSERT INTO users (id, shop_id, name, phone, role) VALUES ('${O2}', '${SHOP}', 'Owner Two', '${o2Phone}', 'owner');` +
     `INSERT INTO vehicle_types (id, shop_id, name, category, sort_order) VALUES ('${VT}', '${SHOP}', 'Sedan', 'car', 0);` +
@@ -65,13 +70,11 @@ sql(
 );
 
 async function signIn(phone) {
-  await call(null, 'POST', '/auth/code/request', { phone });
-  const v = await call(null, 'POST', '/auth/code/verify', { phone, code: DEV_CODE });
-  const p = v.body?.token ? await call(v.body.token, 'PUT', '/auth/pin', { pin: PIN }) : v;
+  const p = await signInWith(phone, PIN);
   return p.body?.token;
 }
 async function pinLogin(phone) {
-  const r = await call(null, 'POST', '/auth/pin/login', { phone, pin: PIN });
+  const r = await signInWith(phone, PIN);
   if (!r.body?.token) console.log(`      (sign-in for ${phone} failed: ${show(r)})`);
   return r.body?.token;
 }
@@ -137,15 +140,13 @@ check(
   `${pair.map(show).join(' | ')} rows=${withNumber(newPhone)}`,
 );
 
-// Double tap on "Create shop" (same ticket, two requests).
+// Double tap on HQ's "Add owner" for the same branch and number.
 const founderPhone = `97${rand(8)}`;
-await call(null, 'POST', '/signup/code', { phone: founderPhone, purpose: 'signup' });
-const ticket = (await call(null, 'POST', '/signup/verify', { phone: founderPhone, purpose: 'signup', code: DEV_CODE })).body?.ticket;
 pair = await Promise.all(
-  [0, 1].map(() => call(null, 'POST', '/signup/shop', { ticket, pin: PIN, name: 'Double Tap', shopName: 'Double Tap Wash' })),
+  [0, 1].map(() => call(A, 'POST', `/business/branches/${SHOP}/owners`, { name: 'Double Tap', phone: founderPhone })),
 );
 check(
-  'Double tap on Create shop: one shop, the other tap is told the number is registered',
+  'Double tap on Add owner: one owner, the other tap is told they already own it',
   withNumber(founderPhone) === 1 && pair.filter((r) => r.status === 201).length === 1 && pair.some((r) => r.status === 409),
   `${pair.map(show).join(' | ')} rows=${withNumber(founderPhone)}`,
 );
@@ -167,11 +168,11 @@ check(
   `${pair.map(show).join(' | ')} rows=${withNumber(joinPhone)}`,
 );
 
-// A stray owner row on this number (not made by "open another shop", so a different PIN) can't
-// be reached by switching. The database already refuses a stray staff row.
+// A stray row on this number with a different PIN (not made through the app, which copies the
+// person's PIN onto every branch they join) can't be reached by switching.
 const STRAY = `shop_stray_${run}`;
 sql(
-  `INSERT INTO shops (id, code, name, plan) VALUES ('${STRAY}', '${rand(6)}', 'Stray Shop', 'free');` +
+  `INSERT INTO shops (id, code, name) VALUES ('${STRAY}', '${rand(6)}', 'Stray Shop');` +
     `INSERT INTO users (id, shop_id, name, phone, role, pin_hash) VALUES ('user_stray_${run}', '${STRAY}', 'Stray', '${o1Phone}', 'owner', 'not-their-pin');`,
 );
 r = await call(A, 'POST', '/auth/switch', { shopId: STRAY });
@@ -369,6 +370,23 @@ check('…a wrong code is refused', r.status === 401 && r.body?.error === 'inval
 r = await call(B, 'POST', '/auth/me/phone', { phone: movedPhone, pin: PIN, code: DEV_CODE });
 const nowOn = rows(`SELECT phone FROM users WHERE id = '${O2}'`)[0]?.phone;
 check('…and the right code with the PIN moves the number', r.status === 200 && nowOn === movedPhone, `${show(r)} phone=${nowOn}`);
+const movedToken = r.body?.token;
+r = await call(B, 'GET', '/auth/me');
+check('…older sessions on the old number are signed out', r.status === 401 && r.body?.error === 'session_revoked', show(r));
+r = await call(movedToken, 'GET', '/auth/me');
+check('…the phone that moved stays signed in', r.status === 200 && r.body?.phone === movedPhone, show(r));
+r = await call(null, 'POST', '/auth/start', { phone: movedPhone });
+check('…and is trusted for the new number (straight to the PIN)', r.status === 200 && r.body?.next === 'pin', show(r));
+r = await call(null, 'POST', '/auth/start', { phone: o2Phone });
+check('…while the old number is no longer an account', r.status === 200 && r.body?.next === 'new', show(r));
+const hqNumbers = rows(`SELECT phone FROM business_admins WHERE phone IN ('${o2Phone}', '${movedPhone}')`).map((x) => x.phone);
+check(
+  '…and HQ moves with them (the old number, which the telco may give someone else, isn’t HQ any more)',
+  hqNumbers.length === 1 && hqNumbers[0] === movedPhone,
+  JSON.stringify(hqNumbers),
+);
+r = await call(movedToken, 'GET', '/business/overview');
+check('…so they still run HQ on the new number', r.status === 200, show(r));
 
 // ─── Dates ────────────────────────────────────────────────────────────────
 

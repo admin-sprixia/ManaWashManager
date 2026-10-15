@@ -12,7 +12,9 @@ import {
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { branchPausedMessage } from '@mana/domain';
 import {
+  Notice,
   ScreenContainer,
   showToast,
   IconPlus,
@@ -23,8 +25,6 @@ import {
   typography,
 } from '@mana/ui';
 import { SyncBanner } from '../components/SyncBanner';
-import { PlanBanner } from '../components/PlanBanner';
-import { showUpgrade } from '../components/UpgradeSheet';
 import { PaymentSheet } from '../components/PaymentSheet';
 import { PeoplePickerSheet } from '../components/PeoplePickerSheet';
 import { ReadyPromptSheet } from '../components/ReadyPromptSheet';
@@ -38,7 +38,6 @@ import { useBoardJobs } from '../offline/useBoardJobs';
 import { useReminderCount } from '../offline/useReminderCount';
 import { useJobActions } from '../offline/useJobActions';
 import { useShop } from '../offline/ShopProvider';
-import { usePlan } from '../offline/PlanProvider';
 import type { BoardJob } from '../offline/types';
 import { buildThankYouMessage } from '../utils/messages';
 import { openWhatsApp } from '../utils/whatsapp';
@@ -65,12 +64,11 @@ const SECTION_DEFS: { key: string; title: string; statuses: JobStatus[]; todayOn
 const COMPACT_BAR_HEIGHT = 58;
 
 export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
-  const { user, isOwner } = useAuth();
+  const { user, isOwner, canManageTeam } = useAuth();
   const insets = useSafeAreaInsets();
   const { jobs, loading, error, refresh } = useBoardJobs();
   const actions = useJobActions();
   const reminderCount = useReminderCount();
-  const { isPro, atWashLimit } = usePlan();
   const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [payJob, setPayJob] = useState<BoardJob | null>(null);
@@ -86,7 +84,7 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
   } = useShop();
   const moreAlerts = [
     isOwner && unseenErrors > 0 ? 'new errors to review' : null,
-    isOwner && joinRequests > 0 ? 'someone waiting to join' : null,
+    canManageTeam && joinRequests > 0 ? 'someone waiting to join' : null,
     lowStock > 0 ? 'stock running low' : null,
   ].filter((a): a is string => a != null);
   const moreAlert = moreAlerts.length > 0 ? moreAlerts.join(', ') : undefined;
@@ -200,14 +198,11 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
   const communities = useCommunityToday();
   const communityCount = isOwner ? communities.review : 0;
   const goMore = useCallback(() => navigation.navigate('More'), [navigation]);
-  const goReminders = useCallback(
-    () => (isPro ? navigation.navigate('Reminders') : showUpgrade({ kind: 'feature', feature: 'reminders' })),
-    [navigation, isPro],
-  );
-  const goPlan = useCallback(() => navigation.navigate('Plan'), [navigation]);
+  const goReminders = useCallback(() => navigation.navigate('Reminders'), [navigation]);
+  const paused = shopInfo?.status === 'paused';
   const newWash = useCallback(
-    () => (atWashLimit ? showUpgrade({ kind: 'washLimit' }) : navigation.navigate('NewWash')),
-    [navigation, atWashLimit],
+    () => (paused ? showToast('Mana Wash HQ has paused this branch — no new washes for now.', 'error') : navigation.navigate('NewWash')),
+    [navigation, paused],
   );
   const name = firstName(user?.name);
 
@@ -249,8 +244,14 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
                 onLayout={(e) => setHeroHeight(e.nativeEvent.layout.height)}
               />
               <View style={styles.bannerWrap}>
+                {paused ? (
+                  <View style={styles.pausedWrap}>
+                    <Notice tone="warning" title="Branch paused">
+                      {branchPausedMessage(shopInfo?.statusReason ?? null)}
+                    </Notice>
+                  </View>
+                ) : null}
                 <SyncBanner onReview={goMore} />
-                <PlanBanner onOpenPlan={goPlan} />
                 <CommunityTodayCard places={communities.places} onPress={goCommunities} />
               </View>
             </>
@@ -368,6 +369,7 @@ const styles = StyleSheet.create({
   // Room for the floating New Wash button so the last row's action is never covered.
   list: { paddingBottom: 112, flexGrow: 1 },
   bannerWrap: { paddingTop: spacing.sm },
+  pausedWrap: { paddingHorizontal: spacing.md, paddingBottom: spacing.sm },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'baseline',

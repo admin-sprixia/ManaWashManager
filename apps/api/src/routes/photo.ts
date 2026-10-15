@@ -13,7 +13,6 @@ import { occurredAt } from '../lib/clientTime';
 import { withLock } from '../lib/phoneLock';
 import { startOfIstDay } from '../lib/istDate';
 import { requireAuth, requireRole } from '../middleware/auth';
-import { requirePro } from '../lib/plan';
 import type { Env } from '../types';
 
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -39,7 +38,7 @@ function staffCanSee(job: { status: string; createdAt: Date }) {
 // Uploads may be replayed from the phone's offline queue, so they're keyed by a client id.
 export const photoRoutes = new Hono<{ Bindings: Env }>()
   .use('*', requireAuth)
-  .post('/', requirePro('photos'), zValidator('form', uploadSchema), async (c) => {
+  .post('/', zValidator('form', uploadSchema), async (c) => {
     const body = c.req.valid('form');
     const db = c.get('db');
     const session = c.get('session');

@@ -37,6 +37,8 @@ const PLATFORM_MODELS = new Set([
   'ModeAdjustment',
   'PriceZone',
   'WashPlan',
+  'TrustedDevice',
+  'PinReset',
 ]);
 
 /** Operations whose `where` gets `shopId` added. Prisma 5 accepts extra fields on unique wheres. */

@@ -217,7 +217,7 @@ function VisitSheet({
     const when = row.visit && !row.visit.byCustomer ? ` at ${formatTime(row.visit.at)}` : '';
     void openWhatsApp(
       row.customer.phone,
-      `Hi${name ? ` ${name}` : ''}, your ${vehicle} at ${placeName} was washed today${when}. Thank you! — MANA Car Wash`,
+      `Hi${name ? ` ${name}` : ''}, your ${vehicle} at ${placeName} was washed today${when}. Thank you! — Mana Wash`,
     );
   };
 

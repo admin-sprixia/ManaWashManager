@@ -13,7 +13,15 @@ import {
 import LinearGradient from 'react-native-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { formatShopCode, isValidPhone, normalizePhone, type UserRole } from '@mana/domain';
+import {
+  canManageMember,
+  formatShopCode,
+  isValidPhone,
+  normalizePhone,
+  toUserRole,
+  USER_ROLE_LABEL,
+  type UserRole,
+} from '@mana/domain';
 import {
   ScreenContainer,
   ScreenHeader,
@@ -28,6 +36,7 @@ import {
   IconChevronRight,
   IconLock,
   IconPerson,
+  IconUsers,
   IconPhone,
   IconPlus,
   IconShare,
@@ -41,9 +50,7 @@ import {
   spacing,
   typography,
 } from '@mana/ui';
-import { SetPinSheet } from '../components/SetPinSheet';
 import { api, apiErrorMessage } from '../api/client';
-import { handlePlanError } from '../components/UpgradeSheet';
 import { NetworkError } from '../api/network';
 import { useAuth } from '../api/auth';
 import { useShop } from '../offline/ShopProvider';
@@ -59,8 +66,6 @@ interface Member {
   role: string;
   active: boolean;
   hasPin: boolean;
-  /** Over the plan's seats: can't sign in until the shop upgrades. */
-  seatLocked?: boolean;
 }
 
 interface JoinRequest {
@@ -82,17 +87,37 @@ function askedAgo(iso: string): string {
 
 const ROLE_OPTIONS: { key: UserRole; label: string; hint: string }[] = [
   { key: 'staff', label: 'Staff', hint: 'Washes, payments & expenses' },
-  { key: 'owner', label: 'Owner', hint: 'Everything — prices, reports & team' },
+  { key: 'manager', label: 'Manager', hint: 'Plus adding staff & approving joins' },
+  { key: 'owner', label: 'Owner', hint: 'Everything — money, prices & reports' },
 ];
+
+/** The roles this person may give someone: managers add staff, owners add managers, HQ adds owners. */
+function assignableRoles(me: UserRole, hq: boolean): UserRole[] {
+  return ROLE_OPTIONS.map((r) => r.key).filter((r) => canManageMember(me, r, hq));
+}
+
+function RoleIcon({ role, color }: { role: UserRole; color: string }) {
+  if (role === 'owner') return <IconShield size={15} color={color} />;
+  if (role === 'manager') return <IconUsers size={15} color={color} />;
+  return <IconPerson size={15} color={color} />;
+}
 
 function formatPhone(digits: string): string {
   return digits.length > 5 ? `${digits.slice(0, 5)} ${digits.slice(5)}` : digits;
 }
 
-function RolePicker({ value, onChange }: { value: UserRole; onChange: (r: UserRole) => void }) {
+function RolePicker({
+  value,
+  options,
+  onChange,
+}: {
+  value: UserRole;
+  options: UserRole[];
+  onChange: (r: UserRole) => void;
+}) {
   return (
     <View style={styles.roleRow}>
-      {ROLE_OPTIONS.map((r) => {
+      {ROLE_OPTIONS.filter((r) => options.includes(r.key)).map((r) => {
         const on = value === r.key;
         const tint = on ? colors.white : colors.waterDeep;
         return (
@@ -105,7 +130,7 @@ function RolePicker({ value, onChange }: { value: UserRole; onChange: (r: UserRo
           >
             <View style={styles.roleTop}>
               <View style={[styles.roleIcon, on && styles.roleIconOn]}>
-                {r.key === 'owner' ? <IconShield size={15} color={tint} /> : <IconPerson size={15} color={tint} />}
+                <RoleIcon role={r.key} color={tint} />
               </View>
               {on ? (
                 <View style={styles.roleCheck}>
@@ -140,6 +165,7 @@ function SectionHead({ title, meta, count }: { title: string; meta?: string; cou
 
 export function TeamScreen({ navigation }: Props) {
   const { user } = useAuth();
+  const myRole = user?.role ?? 'staff';
   const { info: shop, refresh: refreshShop } = useShop();
   const [members, setMembers] = useState<Member[]>([]);
   const [requests, setRequests] = useState<JoinRequest[]>([]);
@@ -149,7 +175,9 @@ export function TeamScreen({ navigation }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [selected, setSelected] = useState<Member | null>(null);
-  const [pinFor, setPinFor] = useState<Member | null>(null);
+  // Only Mana Wash HQ adds, removes or changes owners; quietly left off when offline.
+  const [isHq, setIsHq] = useState(false);
+  const roleChoices = assignableRoles(myRole, isHq);
 
   const load = useCallback(async (): Promise<Member[] | null> => {
     try {
@@ -171,6 +199,13 @@ export function TeamScreen({ navigation }: Props) {
   useFocusEffect(
     useCallback(() => {
       void load();
+      api.services.network
+        .$get()
+        .then((res) => (res.ok ? res.json() : null))
+        .then((network) => {
+          if (network) setIsHq(network.isBusinessAdmin);
+        })
+        .catch(() => undefined);
     }, [load]),
   );
 
@@ -181,14 +216,12 @@ export function TeamScreen({ navigation }: Props) {
         action === 'approve'
           ? await api.team.requests[':id'].approve.$post({ param: { id: request.id } })
           : await api.team.requests[':id'].reject.$post({ param: { id: request.id } });
-      if (await handlePlanError(res)) {
-        // The upgrade sheet explains it; the request stays waiting.
-      } else if (!res.ok) {
+      if (!res.ok) {
         showToast(await apiErrorMessage(res, 'Couldn’t update this request.'), 'error');
       } else {
         showToast(
           action === 'approve'
-            ? `${request.name} added — they’ll choose their own PIN on their phone`
+            ? `${request.name} added — they sign in with a WhatsApp code and choose their own PIN`
             : `${request.name}’s request declined`,
         );
       }
@@ -216,24 +249,26 @@ export function TeamScreen({ navigation }: Props) {
     () =>
       members
         .filter((m) => m.active)
-        .sort((a, b) => Number(b.id === user?.id) - Number(a.id === user?.id) || Number(b.role === 'owner') - Number(a.role === 'owner')),
+        .sort((a, b) => Number(b.id === user?.id) - Number(a.id === user?.id)),
     [members, user?.id],
   );
   const inactive = useMemo(() => members.filter((m) => !m.active), [members]);
   const ownerCount = active.filter((m) => m.role === 'owner').length;
-  const staffCount = active.length - ownerCount;
+  const managerCount = active.filter((m) => m.role === 'manager').length;
+  const staffCount = active.length - ownerCount - managerCount;
   const noPin = active.filter((m) => !m.hasPin);
 
   const renderMember = (m: Member, i: number, list: Member[]) => {
     const isSelf = m.id === user?.id;
-    const owner = m.role === 'owner';
+    const role = toUserRole(m.role);
+    const owner = role === 'owner';
     return (
       <Pressable
         key={m.id}
         onPress={() => setSelected(m)}
         style={({ pressed }) => [styles.memberRow, i < list.length - 1 && styles.divider, pressed && styles.rowPressed]}
         accessibilityRole="button"
-        accessibilityLabel={`${m.name}, ${owner ? 'owner' : 'staff'}`}
+        accessibilityLabel={`${m.name}, ${USER_ROLE_LABEL[role]}`}
       >
         <View>
           <Avatar name={m.name} id={m.id} size={46} muted={!m.active} />
@@ -255,18 +290,13 @@ export function TeamScreen({ navigation }: Props) {
             ) : null}
           </View>
           <Text style={styles.memberPhone}>
-            {owner ? 'Owner' : 'Staff'} · +91 {formatPhone(m.phone)}
+            {USER_ROLE_LABEL[role]} · +91 {formatPhone(m.phone)}
           </Text>
-          {m.active && m.seatLocked ? (
-            <View style={styles.statusLine}>
-              <View style={[styles.statusDot, { backgroundColor: colors.amber }]} />
-              <Text style={[styles.statusText, { color: colors.amberDeep }]}>Needs Pro — can’t sign in</Text>
-            </View>
-          ) : m.active ? (
+          {m.active ? (
             <View style={styles.statusLine}>
               <View style={[styles.statusDot, { backgroundColor: m.hasPin ? colors.teal : colors.amber }]} />
               <Text style={[styles.statusText, { color: m.hasPin ? colors.tealDeep : colors.amberDeep }]}>
-                {m.hasPin ? 'Can sign in' : 'No PIN yet — can’t sign in'}
+                {m.hasPin ? 'Has a PIN' : 'Hasn’t chosen a PIN yet'}
               </Text>
             </View>
           ) : (
@@ -369,35 +399,36 @@ export function TeamScreen({ navigation }: Props) {
                   <Text style={styles.heroCellLabel}>Owner{ownerCount === 1 ? '' : 's'}</Text>
                 </View>
                 <View style={[styles.heroCell, styles.heroCellDivider]}>
+                  <Text style={styles.heroCellValue}>{managerCount}</Text>
+                  <Text style={styles.heroCellLabel}>Manager{managerCount === 1 ? '' : 's'}</Text>
+                </View>
+                <View style={[styles.heroCell, styles.heroCellDivider]}>
                   <Text style={styles.heroCellValue}>{staffCount}</Text>
                   <Text style={styles.heroCellLabel}>Staff</Text>
                 </View>
                 <View style={[styles.heroCell, styles.heroCellDivider]}>
                   <Text style={[styles.heroCellValue, requests.length > 0 && styles.heroFlag]}>{requests.length}</Text>
-                  <Text style={styles.heroCellLabel}>Waiting to join</Text>
+                  <Text style={styles.heroCellLabel}>Waiting</Text>
                 </View>
               </View>
             </LinearGradient>
 
             {noPin.length ? (
-              <Pressable
-                onPress={() => setPinFor(noPin[0]!)}
-                style={({ pressed }) => [styles.alertBand, pressed && styles.rowPressed]}
-                accessibilityRole="button"
-              >
+              <View style={styles.alertBand}>
                 <View style={styles.alertIcon}>
                   <IconAlert size={17} color={colors.amberDeep} />
                 </View>
                 <View style={styles.alertCopy}>
                   <Text style={styles.alertTitle}>
                     {noPin.length === 1
-                      ? `${noPin[0]!.name} can’t sign in yet`
-                      : `${noPin.length} people can’t sign in yet`}
+                      ? `${noPin[0]!.name} hasn’t chosen a PIN yet`
+                      : `${noPin.length} people haven’t chosen a PIN yet`}
                   </Text>
-                  <Text style={styles.alertMeta}>Set a PIN and share it with them privately</Text>
+                  <Text style={styles.alertMeta}>
+                    They sign in with their number, confirm with a WhatsApp code, then pick their own PIN
+                  </Text>
                 </View>
-                <Text style={styles.alertAction}>Set PIN ›</Text>
-              </Pressable>
+              </View>
             ) : null}
 
             {requests.length ? (
@@ -442,7 +473,8 @@ export function TeamScreen({ navigation }: Props) {
                   ))}
                 </View>
                 <Text style={styles.footnote}>
-                  Approve only people who work here. They join as Staff — you can change that later.
+                  Approve only people who work here. They join as Staff
+                  {roleChoices.includes('manager') ? ' — you can make them a manager later.' : '.'}
                 </Text>
               </View>
             ) : null}
@@ -467,7 +499,7 @@ export function TeamScreen({ navigation }: Props) {
                     <IconUserPlus size={22} color={colors.tealDeep} />
                   </View>
                   <View style={styles.inviteCopy}>
-                    <Text style={styles.inviteLabel}>Your shop ID</Text>
+                    <Text style={styles.inviteLabel}>Your branch ID</Text>
                     <Text style={styles.inviteCode}>{formatShopCode(shop.code)}</Text>
                     <Text style={styles.inviteMeta}>They type it in the app, you approve them here</Text>
                   </View>
@@ -475,7 +507,7 @@ export function TeamScreen({ navigation }: Props) {
                     onPress={() => shareShopInvite(shop)}
                     style={({ pressed }) => [styles.shareBtn, pressed && styles.pressed]}
                     accessibilityRole="button"
-                    accessibilityLabel="Share shop ID"
+                    accessibilityLabel="Share branch ID"
                   >
                     <IconShare size={16} color={colors.white} />
                     <Text style={styles.shareText}>Share</Text>
@@ -485,8 +517,9 @@ export function TeamScreen({ navigation }: Props) {
             ) : null}
 
             <Text style={styles.footnote}>
-              Everyone signs in with their own number, so every wash, payment and correction is recorded
-              against the person who did it.
+              Everyone signs in with their own number and their own PIN, so every wash, payment and
+              correction is recorded against the person who did it. Nobody — not even the owner — can
+              see or set someone else’s PIN.
             </Text>
           </>
         )}
@@ -494,48 +527,25 @@ export function TeamScreen({ navigation }: Props) {
 
       <AddMemberSheet
         visible={adding}
+        roles={roleChoices}
         onClose={() => setAdding(false)}
-        onAdded={async (name, id) => {
+        onAdded={async (name) => {
           setAdding(false);
-          showToast(`${name} added — now set their PIN so they can sign in`);
-          const members = await load();
-          const added = members?.find((m) => m.id === id);
-          if (added) setPinFor(added);
+          showToast(`${name} added — they sign in with their number and a WhatsApp code`);
+          await load();
         }}
       />
 
       <MemberSheet
         member={selected}
         isSelf={selected?.id === user?.id}
+        myRole={myRole}
+        isHq={isHq}
         onClose={() => setSelected(null)}
         onChanged={async (message) => {
           setSelected(null);
           showToast(message);
           await load();
-        }}
-        onSetPin={(m) => {
-          setSelected(null);
-          setPinFor(m);
-        }}
-      />
-
-      <SetPinSheet
-        visible={pinFor != null}
-        title={pinFor?.hasPin ? 'Reset PIN' : 'Set PIN'}
-        subtitle={pinFor ? `For ${pinFor.name} · share it with them privately` : ''}
-        onClose={() => setPinFor(null)}
-        onSubmit={async (pin) => {
-          if (!pinFor) return null;
-          try {
-            const res = await api.team[':id'].pin.$put({ param: { id: pinFor.id }, json: { pin } });
-            if (!res.ok) return apiErrorMessage(res, 'Couldn’t save the PIN.');
-            showToast(`PIN saved for ${pinFor.name}`);
-            setPinFor(null);
-            await load();
-            return null;
-          } catch (e) {
-            return e instanceof NetworkError ? 'This needs a connection.' : 'Couldn’t save the PIN.';
-          }
         }}
       />
     </ScreenContainer>
@@ -544,12 +554,15 @@ export function TeamScreen({ navigation }: Props) {
 
 function AddMemberSheet({
   visible,
+  roles,
   onClose,
   onAdded,
 }: {
   visible: boolean;
+  /** What this person may add: managers add staff, owners add managers too, HQ adds owners. */
+  roles: UserRole[];
   onClose: () => void;
-  onAdded: (name: string, id: string) => Promise<void>;
+  onAdded: (name: string) => Promise<void>;
 }) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -577,17 +590,11 @@ function AddMemberSheet({
     setError(null);
     try {
       const res = await api.team.$post({ json: { name: name.trim(), phone: digits, role } });
-      if (res.status === 402) {
-        onClose();
-        await handlePlanError(res);
-        return;
-      }
       if (!res.ok) {
         setError(await apiErrorMessage(res, 'Couldn’t add this person.'));
         return;
       }
-      const created = await res.json();
-      await onAdded(name.trim(), 'id' in created ? created.id : '');
+      await onAdded(name.trim());
     } catch (e) {
       setError(e instanceof NetworkError ? 'Adding a teammate needs a connection.' : 'Couldn’t add this person.');
     } finally {
@@ -610,24 +617,26 @@ function AddMemberSheet({
       onClose={onClose}
       dismissable={!busy}
       title="Add a teammate"
-      subtitle="Takes a minute — you’ll set their PIN next."
+      subtitle="They choose their own PIN on their phone."
       footer={
         <>
           <Button
-            label={canSave ? `Add ${firstName} as ${role === 'owner' ? 'Owner' : 'Staff'}` : 'Add to team'}
+            label={canSave ? `Add ${firstName} as ${USER_ROLE_LABEL[role]}` : 'Add to team'}
             size="lg"
             loading={busy}
             disabled={!canSave}
             onPress={() => void save()}
           />
           <Text style={styles.footHint}>
-            {canSave ? 'Next: choose a 4-digit PIN for them' : 'Fill in a name and a 10-digit number'}
+            {canSave
+              ? 'Next: they sign in with this number and a WhatsApp code'
+              : 'Fill in a name and a 10-digit number'}
           </Text>
         </>
       }
     >
       <View style={styles.steps}>
-        {['Details', 'Set PIN', 'They sign in'].map((label, i) => (
+        {['Details', 'WhatsApp code', 'Their PIN'].map((label, i) => (
           <React.Fragment key={label}>
             {i > 0 ? <View style={[styles.stepLine, i === 1 && canSave && styles.stepLineOn]} /> : null}
             <View style={styles.step}>
@@ -666,8 +675,8 @@ function AddMemberSheet({
           </Text>
           <Text style={styles.idPhone}>{digits ? `+91 ${formatPhone(digits)}` : '+91 ····· ·····'}</Text>
           <View style={styles.idRole}>
-            {role === 'owner' ? <IconShield size={11} color={colors.white} /> : <IconPerson size={11} color={colors.white} />}
-            <Text style={styles.idRoleText}>{role === 'owner' ? 'Owner' : 'Staff'}</Text>
+            <RoleIcon role={role} color={colors.white} />
+            <Text style={styles.idRoleText}>{USER_ROLE_LABEL[role]}</Text>
           </View>
         </View>
       </LinearGradient>
@@ -715,10 +724,12 @@ function AddMemberSheet({
         <Text style={[styles.fieldHint, phoneValid && styles.fieldHintOk]}>{phoneHint}</Text>
       </View>
 
-      <View style={styles.field}>
-        <Text style={styles.fieldLabel}>What can they do?</Text>
-        <RolePicker value={role} onChange={setRole} />
-      </View>
+      {roles.length > 1 ? (
+        <View style={styles.field}>
+          <Text style={styles.fieldLabel}>What can they do?</Text>
+          <RolePicker value={role} options={roles} onChange={setRole} />
+        </View>
+      ) : null}
 
       {error ? (
         <View style={styles.errorLine}>
@@ -739,7 +750,7 @@ function AddMemberSheet({
           <View style={styles.memberCopy}>
             <Text style={styles.selfJoinTitle}>Or let them join on their own</Text>
             <Text style={styles.actionMeta}>
-              Send shop ID {formatShopCode(shop.code)} — they pick their own PIN
+              Send branch ID {formatShopCode(shop.code)} — they pick their own PIN
             </Text>
           </View>
           <IconChevronRight size={16} color={colors.slate} />
@@ -785,15 +796,17 @@ function ActionRow({
 function MemberSheet({
   member,
   isSelf,
+  myRole,
+  isHq,
   onClose,
   onChanged,
-  onSetPin,
 }: {
   member: Member | null;
   isSelf: boolean;
+  myRole: UserRole;
+  isHq: boolean;
   onClose: () => void;
   onChanged: (message: string) => Promise<void>;
-  onSetPin: (m: Member) => void;
 }) {
   const [role, setRole] = useState<UserRole>('staff');
   const [name, setName] = useState('');
@@ -802,7 +815,7 @@ function MemberSheet({
 
   React.useEffect(() => {
     if (member) {
-      setRole(member.role === 'owner' ? 'owner' : 'staff');
+      setRole(toUserRole(member.role));
       setName(member.name);
       setError(null);
       setBusy(false);
@@ -816,11 +829,6 @@ function MemberSheet({
     setError(null);
     try {
       const res = await api.team[':id'].$patch({ param: { id: member.id }, json: body });
-      if (res.status === 402) {
-        onClose();
-        await handlePlanError(res);
-        return;
-      }
       if (!res.ok) {
         setError(await apiErrorMessage(res, 'Couldn’t save.'));
         return;
@@ -833,23 +841,30 @@ function MemberSheet({
     }
   };
 
-  const removePin = async () => {
+  const resetPin = async () => {
+    setBusy(true);
+    setError(null);
     try {
-      const res = await api.team[':id'].pin.$delete({ param: { id: member.id } });
-      if (!res.ok) return setError(await apiErrorMessage(res));
-      await onChanged(`PIN removed for ${member.name}`);
-    } catch {
-      setError('This needs a connection.');
+      const res = await api.team[':id']['reset-pin'].$post({ param: { id: member.id } });
+      if (!res.ok) {
+        setError(await apiErrorMessage(res, 'Couldn’t reset the PIN.'));
+        return;
+      }
+      await onChanged(`${member.name}’s PIN reset — they’ll get back in with a WhatsApp code`);
+    } catch (e) {
+      setError(e instanceof NetworkError ? 'This needs a connection.' : 'Couldn’t reset the PIN.');
+    } finally {
+      setBusy(false);
     }
   };
 
-  const clearPin = () =>
+  const confirmReset = () =>
     showAlert(
-      'Remove PIN?',
-      `${member.name} won’t be able to sign in until a new PIN is set.`,
+      `Reset ${member.name}’s PIN?`,
+      'They’re signed out on every phone. To get back in they confirm their number with a WhatsApp code and choose a new PIN. They’ll see that you reset it.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Remove', style: 'destructive', onPress: () => void removePin() },
+        { text: 'Reset PIN', style: 'destructive', onPress: () => void resetPin() },
       ],
       { icon: <IconLock size={26} color={colors.danger} /> },
     );
@@ -890,7 +905,7 @@ function MemberSheet({
   const confirmRemove = () =>
     showAlert(
       `Remove ${member.name} from the team?`,
-      'They’re signed out and can’t come back unless they ask again. Their past work stays in reports, and their number becomes free to join another shop.',
+      'They’re signed out and can’t come back unless they ask again. Their past work stays in reports, and their number becomes free to join another branch.',
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Remove', style: 'destructive', onPress: () => void removeMember() },
@@ -898,8 +913,11 @@ function MemberSheet({
       { icon: <IconTrash size={26} color={colors.danger} /> },
     );
 
+  const memberRole = toUserRole(member.role);
+  const canManage = !isSelf && canManageMember(myRole, memberRole, isHq);
+  const roleOptions = canManage ? assignableRoles(myRole, isHq) : [];
   const nameChanged = name.trim().length > 0 && name.trim() !== member.name;
-  const roleChanged = role !== (member.role === 'owner' ? 'owner' : 'staff');
+  const roleChanged = roleOptions.length > 1 && role !== memberRole;
 
   return (
     <BottomSheet
@@ -935,10 +953,10 @@ function MemberSheet({
               ]}
             />
             <Text style={styles.profileStatus}>
-              {!member.active ? 'Access turned off' : member.hasPin ? 'Can sign in' : 'No PIN yet — can’t sign in'}
+              {!member.active ? 'Access turned off' : member.hasPin ? 'Has a PIN' : 'Hasn’t chosen a PIN yet'}
             </Text>
           </View>
-          <Text style={styles.memberPhone}>{member.role === 'owner' ? 'Owner' : 'Staff'}</Text>
+          <Text style={styles.memberPhone}>{USER_ROLE_LABEL[memberRole]}</Text>
         </View>
         {!isSelf ? (
           <Pressable
@@ -953,40 +971,36 @@ function MemberSheet({
         ) : null}
       </View>
 
-      <View style={styles.field}>
-        <Text style={styles.fieldLabel}>Name</Text>
-        <TextInput style={styles.input} value={name} onChangeText={setName} maxLength={60} autoCapitalize="words" />
-      </View>
-      <View style={styles.field}>
-        <Text style={styles.fieldLabel}>Role</Text>
-        <RolePicker value={role} onChange={setRole} />
-      </View>
+      {canManage ? (
+        <View style={styles.field}>
+          <Text style={styles.fieldLabel}>Name</Text>
+          <TextInput style={styles.input} value={name} onChangeText={setName} maxLength={60} autoCapitalize="words" />
+        </View>
+      ) : null}
+      {roleOptions.length > 1 ? (
+        <View style={styles.field}>
+          <Text style={styles.fieldLabel}>Role</Text>
+          <RolePicker value={role} options={roleOptions} onChange={setRole} />
+        </View>
+      ) : null}
 
-      <View style={styles.field}>
-        <Text style={styles.fieldLabel}>Sign-in</Text>
-        <View style={styles.actionList}>
-          <ActionRow
-            icon={<IconLock size={17} color={colors.waterDeep} />}
-            tint={colors.waterPale}
-            title={member.hasPin ? 'Reset PIN' : 'Set a PIN'}
-            subtitle={member.hasPin ? 'Also unlocks after too many wrong tries' : 'Needed to sign in'}
-            onPress={() => onSetPin(member)}
-            last={!(member.hasPin && !isSelf)}
-          />
-          {member.hasPin && !isSelf ? (
+      {canManage && member.hasPin ? (
+        <View style={styles.field}>
+          <Text style={styles.fieldLabel}>Sign-in</Text>
+          <View style={styles.actionList}>
             <ActionRow
-              icon={<IconLock size={17} color={colors.slateDeep} />}
-              tint={colors.surface}
-              title="Remove PIN"
-              subtitle="Blocks sign-in until a new PIN is set"
-              onPress={clearPin}
+              icon={<IconLock size={17} color={colors.waterDeep} />}
+              tint={colors.waterPale}
+              title="Reset PIN"
+              subtitle="Forgot it, locked out or lost their phone"
+              onPress={confirmReset}
               last
             />
-          ) : null}
+          </View>
         </View>
-      </View>
+      ) : null}
 
-      {!isSelf ? (
+      {canManage ? (
         <View style={styles.field}>
           <Text style={styles.fieldLabel}>Access</Text>
           <View style={styles.actionList}>
@@ -1009,7 +1023,15 @@ function MemberSheet({
             />
           </View>
         </View>
-      ) : null}
+      ) : isSelf ? (
+        <Text style={styles.footnote}>Change your own PIN from More → Change PIN.</Text>
+      ) : (
+        <Text style={styles.footnote}>
+          {memberRole === 'owner'
+            ? 'Owners are added, changed and reset by Mana Wash HQ.'
+            : 'Only the owner can change or reset a manager.'}
+        </Text>
+      )}
       {error ? <Text style={styles.sheetError}>{error}</Text> : null}
     </BottomSheet>
   );

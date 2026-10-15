@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   canCorrectPayment,
+  canManageMember,
   canVoidJob,
   checkPin,
+  isSeniorRole,
+  toUserRole,
   isValidPhone,
   MAX_OFFLINE_BACKDATE_MS,
   normalizePhone,
@@ -31,6 +34,40 @@ describe('checkPin', () => {
     expect(checkPin('6543')).toBe('sequence');
     expect(checkPin('7890')).toBe('sequence');
   });
+
+  it('holds owners, managers and HQ to 6 digits', () => {
+    expect(checkPin('4821', true)).toBe('too_short');
+    expect(checkPin('48213', true)).toBe('too_short');
+    expect(checkPin('190273', true)).toBeNull();
+    expect(checkPin('123456', true)).toBe('sequence');
+  });
+});
+
+describe('roles', () => {
+  it('reads unknown roles as staff', () => {
+    expect(toUserRole('manager')).toBe('manager');
+    expect(toUserRole('admin')).toBe('staff');
+    expect(isSeniorRole('manager')).toBe(true);
+    expect(isSeniorRole('staff')).toBe(false);
+  });
+
+  it('lets only HQ manage owners', () => {
+    expect(canManageMember('owner', 'owner')).toBe(false);
+    expect(canManageMember('manager', 'owner')).toBe(false);
+    expect(canManageMember('staff', 'owner', true)).toBe(true);
+  });
+
+  it('lets owners (and HQ) manage managers', () => {
+    expect(canManageMember('owner', 'manager')).toBe(true);
+    expect(canManageMember('manager', 'manager')).toBe(false);
+    expect(canManageMember('staff', 'manager', true)).toBe(true);
+  });
+
+  it('lets owners and managers manage staff, but not staff themselves', () => {
+    expect(canManageMember('owner', 'staff')).toBe(true);
+    expect(canManageMember('manager', 'staff')).toBe(true);
+    expect(canManageMember('staff', 'staff')).toBe(false);
+  });
 });
 
 describe('normalizePhone', () => {
@@ -56,6 +93,7 @@ describe('canVoidJob', () => {
 
   it('only lets the owner void a paid job', () => {
     expect(canVoidJob('paid', 'staff')).toBe(false);
+    expect(canVoidJob('paid', 'manager')).toBe(false);
     expect(canVoidJob('paid', 'owner')).toBe(true);
   });
 
@@ -68,6 +106,7 @@ describe('canCorrectPayment', () => {
   it('is owner-only and paid-only', () => {
     expect(canCorrectPayment('paid', 'owner')).toBe(true);
     expect(canCorrectPayment('paid', 'staff')).toBe(false);
+    expect(canCorrectPayment('paid', 'manager')).toBe(false);
     expect(canCorrectPayment('ready', 'owner')).toBe(false);
   });
 });

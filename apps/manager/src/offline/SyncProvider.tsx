@@ -14,7 +14,6 @@ import { isOnline, subscribeOnline } from '../api/network';
 import { showToast } from '@mana/ui';
 import { queueError } from '../utils/errorReporter';
 import { newId } from '../utils/id';
-import type { PlanRefusal } from '../api/planErrors';
 import { opLocalFiles, sendOp } from './dispatch';
 import { deleteLocalCopy } from './photoFiles';
 import { opJobId, type OutboxItem, type OutboxOp } from './types';
@@ -32,8 +31,7 @@ function backoffMs(attempts: number): number {
 export type SubmitResult =
   | { status: 'sent'; data: unknown }
   | { status: 'queued' }
-  /** `planError`: the shop's plan doesn't allow it — show the upgrade sheet rather than an error. */
-  | { status: 'rejected'; message: string; planError?: PlanRefusal };
+  | { status: 'rejected'; message: string };
 
 export interface SubmitOptions {
   /** Send now or fail — never park it in the outbox (e.g. coupon redemption must be checked live). */
@@ -214,11 +212,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         if (result.kind === 'network') return { status: 'rejected', message: offline };
         if (result.kind === 'auth') return { status: 'rejected', message: 'Your session ended. Sign in again.' };
         if (result.kind === 'superseded') return { status: 'sent', data: null };
-        return {
-          status: 'rejected',
-          message: result.message,
-          planError: result.kind === 'rejected' ? result.plan : undefined,
-        };
+        return { status: 'rejected', message: result.message };
       }
 
       const item: OutboxItem = {
@@ -244,7 +238,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
           return { status: 'sent', data: null };
         }
         if (result.kind === 'rejected') {
-          return { status: 'rejected', message: result.message, planError: result.plan };
+          return { status: 'rejected', message: result.message };
         }
       }
 

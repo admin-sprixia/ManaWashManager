@@ -242,7 +242,7 @@ function RatingSummary({ last30 }: { last30: RatingsBody['last30'] }) {
 }
 
 /**
- * What customers send from the MANA Car Wash app: problems to sort out, vehicles to add, and
+ * What customers send from the Mana Wash app: problems to sort out, vehicles to add, and
  * how they rated their washes. The whole team can act on them.
  */
 export function AppFeedbackScreen({ navigation, route }: Props) {
@@ -385,7 +385,7 @@ export function AppFeedbackScreen({ navigation, route }: Props) {
         <EmptyState
           icon={<IconAlert size={28} color={colors.water} />}
           title={showDone ? 'Nothing resolved yet' : 'No open problems'}
-          body="When a customer reports a problem in the MANA Car Wash app, it shows here."
+          body="When a customer reports a problem in the Mana Wash app, it shows here."
         />
       );
     }

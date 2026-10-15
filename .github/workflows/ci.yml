@@ -57,7 +57,7 @@ jobs:
             echo "DEV_MODE=true"
             echo "DEV_RECOVERY_CODE=000000"
             echo "RAZORPAY_WEBHOOK_SECRET=ci-$(openssl rand -hex 16)"
-            # A stand-in Razorpay that test:plans runs on port 8799 (test keys only).
+            # A stand-in Razorpay that test:places runs on port 8799 (test keys only).
             echo "RAZORPAY_KEY_ID=rzp_test_standin"
             echo "RAZORPAY_KEY_SECRET=standin"
             echo "RAZORPAY_API_BASE=http://127.0.0.1:8799/v1"
@@ -79,9 +79,7 @@ jobs:
       - run: npm run test:rewards
       - run: npm run test:customer-app
       - run: npm run test:catalog
-      - name: Plan limits and billing webhook
-        run: |
-          RAZORPAY_WEBHOOK_SECRET="$(grep '^RAZORPAY_WEBHOOK_SECRET=' .dev.vars | cut -d= -f2-)" npm run test:plans
+      - run: npm run test:access
       - name: Places, plans and payments
         run: |
           RAZORPAY_WEBHOOK_SECRET="$(grep '^RAZORPAY_WEBHOOK_SECRET=' .dev.vars | cut -d= -f2-)" npm run test:places

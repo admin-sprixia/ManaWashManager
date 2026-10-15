@@ -4,7 +4,6 @@ import { z } from 'zod';
 import { couponRepo } from '@mana/db';
 import { normalizePhone } from '@mana/domain';
 import { requireAuth } from '../middleware/auth';
-import { requirePro } from '../lib/plan';
 import type { Env } from '../types';
 
 const usableQuerySchema = z.object({
@@ -13,7 +12,7 @@ const usableQuerySchema = z.object({
 });
 
 export const couponRoutes = new Hono<{ Bindings: Env }>()
-  .use('*', requireAuth, requirePro('coupons'))
+  .use('*', requireAuth)
   // New Wash asks this once the customer is known. Only a live coupon issued to this vehicle's
   // current owner — presented under the owner's own number — comes back.
   .get('/usable', zValidator('query', usableQuerySchema), async (c) => {

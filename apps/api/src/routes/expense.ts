@@ -15,7 +15,6 @@ import {
   type ExpenseUnit,
 } from '@mana/domain';
 import { requireAuth } from '../middleware/auth';
-import { requirePro } from '../lib/plan';
 import { formatIstDateOnly, parseIstDateOnly, startOfIstDay, startOfIstDaysAgo } from '../lib/istDate';
 import { reportQuerySchema, resolveReportWindow, windowMeta } from '../lib/reportWindow';
 import { addPurchaseToStock, reverseExpenseStock, type StockResult } from '../lib/stock';
@@ -89,7 +88,7 @@ const voidExpenseSchema = z.object({
 // Chained in one expression, with every input declared via `zValidator` — see the comment
 // in routes/auth.ts for why both matter for Hono RPC's client typing.
 export const expenseRoutes = new Hono<{ Bindings: Env }>()
-  .use('*', requireAuth, requirePro('expenses'))
+  .use('*', requireAuth)
   // Anyone on shift can log an expense (chemicals bought, electricity bill paid in cash…).
   .post('/', zValidator('form', createFormSchema), async (c) => {
     const form = c.req.valid('form');

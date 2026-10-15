@@ -74,14 +74,18 @@ def enableProguardInReleaseBuilds = true
  */
 def jscFlavor = 'org.webkit:android-jsc:+'
 
+/** True when the private upload key's four properties are set (in ~/.gradle/gradle.properties). */
+def uploadKeyConfigured = ["MANA_UPLOAD_STORE_FILE", "MANA_UPLOAD_STORE_PASSWORD", "MANA_UPLOAD_KEY_ALIAS", "MANA_UPLOAD_KEY_PASSWORD"]
+    .every { project.hasProperty(it) && project.property(it) }
+
 android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.sprixia.manacarwash"
+    namespace "com.sprixia.manawash"
     defaultConfig {
-        applicationId "com.sprixia.manacarwash"
+        applicationId "com.sprixia.manawash"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 501
@@ -99,15 +103,24 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        // The private upload key, from ~/.gradle/gradle.properties (never this repo). Anyone
+        // holding the shared debug key could otherwise sign an "update" that replaces this app.
+        if (uploadKeyConfigured) {
+            release {
+                storeFile file(MANA_UPLOAD_STORE_FILE)
+                storePassword MANA_UPLOAD_STORE_PASSWORD
+                keyAlias MANA_UPLOAD_KEY_ALIAS
+                keyPassword MANA_UPLOAD_KEY_PASSWORD
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            // Signed with the upload key; preReleaseBuild below refuses to build without it.
+            signingConfig uploadKeyConfigured ? signingConfigs.release : signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             shrinkResources enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
@@ -119,6 +132,15 @@ android {
 // can't reach anything. (Smoke builds on CI can pass -PskipApiUrlCheck.)
 afterEvaluate {
     tasks.named("preReleaseBuild").configure {
+        doFirst {
+            // A local smoke build may pass -PdebugSignedRelease; nothing built that way goes to a phone.
+            if (!uploadKeyConfigured && !project.hasProperty("debugSignedRelease")) {
+                throw new GradleException(
+                    "Release builds must be signed with the private upload key.\n" +
+                    "Set MANA_UPLOAD_STORE_FILE, MANA_UPLOAD_STORE_PASSWORD, MANA_UPLOAD_KEY_ALIAS and\n" +
+                    "MANA_UPLOAD_KEY_PASSWORD in ~/.gradle/gradle.properties (see README → Release signing).")
+            }
+        }
         doFirst {
             if (project.hasProperty("skipApiUrlCheck")) return
             def cfg = new groovy.json.JsonSlurper().parse(file("../../src/config/release.json"))

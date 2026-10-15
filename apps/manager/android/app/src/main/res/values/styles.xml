@@ -4,6 +4,8 @@
     <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
         <!-- Customize your theme here. -->
         <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
+        <!-- The launch window is the splash animation's indigo gradient; the app paints white over it. -->
+        <item name="android:windowBackground">@drawable/splash_window</item>
     </style>
 
 </resources>

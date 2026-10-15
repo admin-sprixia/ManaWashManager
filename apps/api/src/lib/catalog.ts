@@ -1,5 +1,7 @@
 import type { Context, Next } from 'hono';
-import { CatalogError, catalogRepo, createPlatformDb, menuRepo } from '@mana/db';
+import { CatalogError, catalogRepo, createPlatformDb, menuRepo, userRepo } from '@mana/db';
+import { SENIOR_PIN_DIGITS } from '@mana/domain';
+import { pinUpgradeBody } from '../middleware/auth';
 import { reportError } from './alerts';
 import type { Env } from '../types';
 
@@ -16,23 +18,29 @@ type Ctx = Context<{ Bindings: Env }>;
 const INLINE_PUBLISH = 3;
 
 /**
- * Only the business's admins (by phone) change the catalog. The signed-in branch's business is
- * the one they manage; a branch without one gets its own on first use.
+ * Only HQ — the business's admins, by phone — changes the catalog and opens or staffs branches.
+ * The signed-in branch's business is the one they manage. Being a branch owner is never enough.
  */
 export async function requireBusinessAdmin(c: Ctx, next: Next): Promise<Response | void> {
   const session = c.get('session');
   const businessId = await catalogRepo.ensureBusinessForShop(c.env.DB, session.shopId);
-  const pdb = createPlatformDb(c.env.DB);
-  if (!(await catalogRepo.isAdmin(pdb, businessId, session.phone))) {
-    // A branch that just got its own business: its owners run it.
-    const admins = await pdb.businessAdmin.count({ where: { businessId } });
-    if (admins > 0 || session.role !== 'owner') {
-      return c.json({ error: 'forbidden' as const, message: 'Only the business admins can change this.' }, 403);
-    }
-    await catalogRepo.addAdmin(c.env.DB, businessId, session.phone);
+  const platform = createPlatformDb(c.env.DB);
+  if (!(await catalogRepo.isAdmin(platform, businessId, session.phone))) {
+    return c.json({ error: 'forbidden' as const, message: 'Only Mana Wash HQ can change this.' }, 403);
   }
+  // Owners and managers are already held to 6 digits by requireAuth; HQ is too, whatever their role here.
+  const me = await userRepo.findById(platform, session.sub);
+  if (me?.pinHash && (me.pinDigits ?? 0) < SENIOR_PIN_DIGITS) return c.json(pinUpgradeBody, 403);
   c.set('businessId', businessId);
   await next();
+}
+
+/** True when the signed-in person is HQ for their branch's business. */
+export async function isHq(c: Ctx): Promise<boolean> {
+  const session = c.get('session');
+  const branch = await catalogRepo.branchOf(createPlatformDb(c.env.DB), session.shopId);
+  if (!branch?.businessId) return false;
+  return catalogRepo.isAdmin(createPlatformDb(c.env.DB), branch.businessId, session.phone);
 }
 
 /** The repo's validation errors as API errors; anything else is a real failure. */

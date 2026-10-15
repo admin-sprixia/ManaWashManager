@@ -10,7 +10,6 @@ import {
   verifyReferralQuote,
 } from '../lib/referral';
 import { requireAuth } from '../middleware/auth';
-import { requirePro } from '../lib/plan';
 import type { Env } from '../types';
 
 const phoneSchema = z
@@ -31,7 +30,7 @@ const quoteSchema = z.object({
 
 // Online only, like coupons: the rules depend on the database as it stands right now.
 export const referralRoutes = new Hono<{ Bindings: Env }>()
-  .use('*', requireAuth, requirePro('referrals'))
+  .use('*', requireAuth)
   // Checks a referral at the counter and draws the new customer's discount. The phone shows it
   // and sends the signed quote back with the wash.
   .post('/quote', zValidator('json', quoteSchema), async (c) => {

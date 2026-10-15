@@ -4,7 +4,7 @@ import release from './release.json';
 /** Shared product version (see scripts/version.mjs); shown on the Profile tab. */
 export const APP_VERSION: string = pkg.version;
 
-export const APP_NAME = 'MANA Car Wash';
+export const APP_NAME = 'Mana Wash';
 
 /** Where "Contact us" and the delete-account note point. */
 export const SUPPORT_EMAIL = 'support@sprixia.com';

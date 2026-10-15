@@ -1,4 +1,4 @@
-package com.sprixia.manacarwash
+package com.sprixia.manawash
 
 import android.content.res.Configuration
 import android.os.Bundle
@@ -13,7 +13,7 @@ class MainActivity : ReactActivity() {
    * Returns the name of the main component registered from JavaScript. This is used to schedule
    * rendering of the component.
    */
-  override fun getMainComponentName(): String = "ManaCarWash"
+  override fun getMainComponentName(): String = "ManaWash"
 
   /**
    * Returns the instance of the [ReactActivityDelegate]. We use [DefaultReactActivityDelegate]

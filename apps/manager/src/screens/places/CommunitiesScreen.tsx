@@ -323,7 +323,7 @@ export function CommunitiesScreen({ navigation }: Props) {
               })}
             </View>
           ) : (
-            <Text style={[styles.help, styles.pad]}>Nobody waiting right now. When people ask in the MANA Car Wash app, they show here by area.</Text>
+            <Text style={[styles.help, styles.pad]}>Nobody waiting right now. When people ask in the Mana Wash app, they show here by area.</Text>
           )}
           <EdgeGroup>
             <EdgeRow

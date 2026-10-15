@@ -26,22 +26,11 @@ import { PinPad } from './PinPad';
 import { api, apiErrorMessage } from '../api/client';
 import { NetworkError } from '../api/network';
 import { useAuth } from '../api/auth';
-import { setLoginHints, type SessionUser } from '../api/session';
+import { setLoginHints } from '../api/session';
 import { useShop } from '../offline/ShopProvider';
 
 function formatPhone(digits: string): string {
   return digits.length > 5 ? `${digits.slice(0, 5)} ${digits.slice(5)}` : digits;
-}
-
-function toSessionUser(u: {
-  id: string;
-  name: string;
-  phone: string;
-  role: string;
-  hasPin: boolean;
-  shopId: string;
-}): SessionUser {
-  return { ...u, role: u.role === 'owner' ? 'owner' : 'staff' };
 }
 
 type Step = 'edit' | 'code' | 'confirm';
@@ -107,7 +96,7 @@ export function EditProfileSheet({ visible, onClose }: { visible: boolean; onClo
           setError(await apiErrorMessage(res, 'Couldn’t save your name.'));
           return;
         }
-        await updateUser(toSessionUser(await res.json()));
+        await updateUser(await res.json());
       }
       if (phoneChanged) {
         if (await sendCode()) setStep('code');
@@ -174,7 +163,7 @@ export function EditProfileSheet({ visible, onClose }: { visible: boolean; onClo
         return;
       }
       const body = await res.json();
-      await signIn(body.token, toSessionUser(body.user));
+      await signIn(body.token, body.user);
       await setLoginHints(body.user.phone, 'pin');
       showToast(`Number updated — sign in with +91 ${formatPhone(body.user.phone)} from now on`);
       onClose();

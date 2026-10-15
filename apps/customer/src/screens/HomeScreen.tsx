@@ -48,7 +48,7 @@ export function HomeScreen({ navigation }: Props) {
     <HomeView
       greeting={greeting(now)}
       firstName={account.name?.split(' ')[0]}
-      branchLine={account.branches.map((b) => (b.city ? `${b.name}, ${b.city}` : b.name)).join(' · ') || 'MANA Car Wash'}
+      branchLine={account.branches.map((b) => (b.city ? `${b.name}, ${b.city}` : b.name)).join(' · ') || 'Mana Wash'}
       referralOffer={REFERRAL_OFFER_TEXT}
       now={now}
       latest={home.data?.[0].washes[0] ?? null}

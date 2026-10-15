@@ -1,4 +1,4 @@
-rootProject.name = 'ManaCarWash'
+rootProject.name = 'ManaWash'
 // Paths go up 3 levels (android -> customer -> apps -> repo root) because this is an npm
 // workspaces monorepo: node_modules is hoisted to the repo root, not local to apps/customer.
 apply from: file("../../../node_modules/@react-native-community/cli-platform-android/native_modules.gradle"); applyNativeModulesSettingsGradle(settings)

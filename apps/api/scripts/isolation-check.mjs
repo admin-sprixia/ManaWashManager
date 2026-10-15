@@ -3,10 +3,9 @@
 //   cd apps/api && npm run test:isolation                     (in another)
 // Shop A is the seeded MANA shop; Shop B ("Test Wash") is added by this script. Shop A creates
 // one of everything, then Shop B tries to read and change each of them by ID and by listing.
-import { API, apiFetch, d1Rows, d1Run } from './lib/target.mjs';
+import { API, apiFetch, d1Rows, d1Run, signIn } from './lib/target.mjs';
 
-const DEV_CODE = process.env.DEV_CODE ?? '000000';
-const PIN = '2580';
+const PIN = '258025';
 
 let passed = 0;
 let failed = 0;
@@ -38,20 +37,10 @@ async function call(token, method, path, body) {
 const sql = d1Run;
 const rows = d1Rows;
 
-/**
- * Owner sign-in the way the app does it: PIN if one is set (re-runs), otherwise the WhatsApp
- * code (fixed in dev) and then set a PIN.
- */
 async function signInOwner(phone) {
-  const byPin = await call(null, 'POST', '/auth/pin/login', { phone, pin: PIN });
-  if (byPin.body?.token) return byPin.body;
-  await call(null, 'POST', '/auth/code/request', { phone });
-  const verified = await call(null, 'POST', '/auth/code/verify', { phone, code: DEV_CODE });
-  if (!verified.body?.token) throw new Error(`Owner sign-in failed for ${phone}: ${JSON.stringify(verified.body)}`);
-  // Setting a PIN signs out older sessions; carry on with the fresh one it returns.
-  const withPin = await call(verified.body.token, 'PUT', '/auth/pin', { pin: PIN });
-  if (!withPin.body?.token) throw new Error(`Setting the PIN failed for ${phone}: ${JSON.stringify(withPin.body)}`);
-  return withPin.body;
+  const r = await signIn(phone, PIN);
+  if (!r.body?.token) throw new Error(`Owner sign-in failed for ${phone}: ${JSON.stringify(r.body)}`);
+  return r.body;
 }
 
 const today = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
@@ -61,9 +50,7 @@ const notMine = (r) => r.status === 404 || r.status === 400 || r.status === 403;
 // ─── Setup ────────────────────────────────────────────────────────────────
 
 sql(
-  "INSERT OR IGNORE INTO shops (id, code, name, plan) VALUES ('shop_test_b', '900001', 'Test Wash', 'trial');" +
-    // On a live trial so the Pro-only lists (staff report, reminders…) answer instead of 402.
-    "UPDATE shops SET trial_ends_at = strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now', '+14 days') WHERE id = 'shop_test_b';" +
+  "INSERT OR IGNORE INTO shops (id, code, name) VALUES ('shop_test_b', '900001', 'Test Wash');" +
     "INSERT OR IGNORE INTO users (id, shop_id, name, phone, role) VALUES ('user_b_owner', 'shop_test_b', 'B Owner', '9200000000', 'owner');" +
     "INSERT OR IGNORE INTO users (id, shop_id, name, phone, role) VALUES ('user_b_staff', 'shop_test_b', 'B Staff', '9200000091', 'staff');" +
     "INSERT OR IGNORE INTO vehicle_types (id, shop_id, name, category, sort_order) VALUES ('vt_b_sedan', 'shop_test_b', 'Sedan', 'car', 0);" +
@@ -214,7 +201,7 @@ r = await call(B, 'POST', `/expenses/${expenseId}/void`, { reason: 'Trying to vo
 check('B cannot void A’s expense', notMine(r), `${r.status}`);
 r = await call(B, 'DELETE', `/photos/${photoId}`);
 check('B cannot delete A’s photo', notMine(r), `${r.status}`);
-r = await call(B, 'PUT', '/team/user_staff_seed/pin', { pin: '1357' });
+r = await call(B, 'POST', '/team/user_staff_seed/reset-pin');
 check('B cannot reset A’s staff PIN', notMine(r), `${r.status}`);
 r = await call(B, 'PATCH', '/team/user_staff_seed', { active: false });
 check('B cannot turn off A’s staff', notMine(r), `${r.status}`);
@@ -280,10 +267,18 @@ check('…and A’s customer is untouched', JSON.stringify(aAgain.body).includes
 
 // ─── Staff and sign-in ────────────────────────────────────────────────────
 
+// Someone can work at two branches: B adding A's staff gives B its own row for them, nothing more.
+const aStaffBefore = rows("SELECT pin_hash, session_version FROM users WHERE id = 'user_staff_seed'")[0];
 r = await call(B, 'POST', '/team', { name: 'Stealer', phone: '9100000001', role: 'staff' });
-check('B cannot add A’s staff phone to its team', r.status === 409, `${r.status}`);
-r = await call(null, 'POST', '/auth/code/request', { phone: '9200000091' });
-check('B’s staff can’t get WhatsApp codes', r.status === 403);
+check('B can add A’s staff to its own team', r.status === 201, `${r.status} ${JSON.stringify(r.body)}`);
+const bRowForA = r.body?.id;
+const bCopy = rows(`SELECT name, pin_hash FROM users WHERE id = '${bRowForA}'`)[0];
+check('…keeping their name and their one PIN', bCopy?.name !== 'Stealer' && bCopy?.pin_hash === aStaffBefore?.pin_hash);
+r = await call(B, 'POST', `/team/${bRowForA}/reset-pin`);
+check('…but B can’t reset their PIN (only HQ can, for someone at two branches)', r.status === 403 && r.body?.error === 'works_elsewhere', `${r.status}`);
+const aStaffAfter = rows("SELECT pin_hash, session_version FROM users WHERE id = 'user_staff_seed'")[0];
+check('…and A’s row is untouched', JSON.stringify(aStaffAfter) === JSON.stringify(aStaffBefore));
+if (bRowForA) await call(B, 'DELETE', `/team/${bRowForA}`);
 r = await call(A, 'GET', '/jobs/today');
 check('A still sees its own job', JSON.stringify(r.body).includes(jobId) && !JSON.stringify(r.body).includes(bJobId));
 

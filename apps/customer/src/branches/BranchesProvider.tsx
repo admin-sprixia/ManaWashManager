@@ -4,7 +4,7 @@ import { api, send } from '../api/client';
 import { errorMessage } from '../api/errors';
 import type { Branch } from '../api/types';
 
-const CACHE_KEY = 'manacarwash.branches';
+const CACHE_KEY = 'manawash.branches';
 
 interface BranchesValue {
   /** Every branch in the app, last good copy (from this phone's cache until the network answers). */

@@ -5,10 +5,9 @@
 // API:
 //   cd apps/api && npm run db:reset:local && npm run dev      (in one terminal)
 //   cd apps/api && npm run test:catalog                       (in another)
-import { API, apiFetch, d1Rows, d1Run } from './lib/target.mjs';
+import { API, apiFetch, d1Rows, d1Run, DEV_CODE, signIn as signInWith } from './lib/target.mjs';
 
-const DEV_CODE = process.env.DEV_CODE ?? '000000';
-const PIN = '2580';
+const PIN = '258025';
 
 let passed = 0;
 let failed = 0;
@@ -39,7 +38,6 @@ async function call(token, method, path, body) {
 
 const run = Date.now().toString(36);
 const rand = (n) => String(Math.floor(Math.random() * 10 ** n)).padStart(n, '0');
-const isoIn = (days) => `'${new Date(Date.now() + days * 86400000).toISOString()}'`;
 
 const BIZ = `biz_cc_${run}`;
 const A = `shop_cca_${run}`;
@@ -55,7 +53,7 @@ const OWNER_C = `user_ccc_${run}`;
 const OWNER_D = `user_ccd_${run}`;
 
 const shopRow = (id, name) =>
-  `INSERT INTO shops (id, code, name, plan, paid_until, business_id) VALUES ('${id}', '${rand(6)}', '${name}', 'active', ${isoIn(30)}, '${BIZ}');`;
+  `INSERT INTO shops (id, code, name, business_id) VALUES ('${id}', '${rand(6)}', '${name}', '${BIZ}');`;
 d1Run(
   `INSERT INTO businesses (id, name) VALUES ('${BIZ}', 'Catalog Check Co');` +
     shopRow(A, 'Catalog Hub') +
@@ -81,16 +79,14 @@ d1Run(
 );
 
 async function signIn(phone) {
-  await call(null, 'POST', '/auth/code/request', { phone });
-  const v = await call(null, 'POST', '/auth/code/verify', { phone, code: DEV_CODE });
-  const p = v.body?.token ? await call(v.body.token, 'PUT', '/auth/pin', { pin: PIN }) : v;
+  const p = await signInWith(phone, PIN);
   if (!p.body?.token) console.log(`      (sign-in for ${phone} failed: ${show(p)})`);
   return p.body?.token;
 }
 const OA = await signIn(phoneA);
 const OB = await signIn(phoneB);
 d1Run(`UPDATE users SET pin_hash = (SELECT pin_hash FROM users WHERE id = '${OWNER_A}') WHERE id = '${STAFF_A}';`);
-const SA = (await call(null, 'POST', '/auth/pin/login', { phone: staffPhone, pin: PIN })).body?.token;
+const SA = (await signInWith(staffPhone, PIN)).body?.token;
 check('Admin owner, other branch owner and staff sign in', !!OA && !!OB && !!SA);
 if (!OA || !OB || !SA) process.exit(1);
 

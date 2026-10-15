@@ -1,4 +1,4 @@
-package com.sprixia.manawashmanager
+package com.sprixia.manawashpartner
 
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.NativeModule

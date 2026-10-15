@@ -64,7 +64,7 @@ interface ReminderItem {
   bucket: 'due' | 'comeback';
   remindedAt: string | null;
   coupon: CouponSummary | null;
-  /** The car's stamp cards with something on them (Pro shops with stamp cards). */
+  /** The car's stamp cards with something on them. */
   rewards?: RewardCard[];
 }
 

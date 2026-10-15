@@ -57,6 +57,8 @@ const GLYPHS = {
   H: { w: 86, d: 'M0 0V100M86 0V100M0 50H86' },
   E: { w: 66, d: 'M66 0H0V100H66M0 50H54' },
   R: { w: 84, d: 'M0 100V0H46A27 27 0 0 1 46 54H0M42 54L84 100' },
+  P: { w: 76, d: 'M0 100V0H46A27 27 0 0 1 46 54H0' },
+  T: { w: 84, d: 'M0 0H84M42 0V100' },
   C: { w: 90, d: 'M84.8 17.9A48 50 0 1 0 84.8 82.1' },
   G: { w: 98, d: 'M86.5 17.9A49 50 0 1 0 98 50H54' },
   S: { w: 60, d: 'M54 17C48 5 38 0 30 0C13 0 5 11 5 24C5 38 16 44 30 50C44 56 55 62 55 76C55 89 46 100 30 100C17 100 8 93 4 81' },
@@ -134,7 +136,7 @@ const WORD_STROKE = 15;
 const WORD_GAP = 44; // glyph units
 const WORD_WIDTH = layoutRow(WORD, WORD_GAP).width * (WORD_CAP / 100);
 
-const DESC = { text: 'WASH MANAGER', cap: 24 };
+const DESC = { text: 'WASH PARTNER', cap: 24 };
 
 /** Colours for text per theme. */
 const TEXT = {
@@ -170,7 +172,7 @@ function horizontal(kind, idp) {
   const height = 242 * s - 14 * s + pad * 2;
   return doc({
     viewBox: `${n(minX)} ${n(top)} ${n(width)} ${n(height)}`,
-    title: 'MANA Wash Manager',
+    title: 'Mana Wash Partner',
     defs: mark.defs,
     body: `<g transform="scale(${s})">${mark.body}</g>${word.svg}${desc.svg}`,
   });
@@ -192,7 +194,7 @@ function stacked(kind, idp) {
   const H = descBase + 24;
   return doc({
     viewBox: `0 0 ${W} ${n(H)}`,
-    title: 'MANA Wash Manager',
+    title: 'Mana Wash Partner',
     defs: mark.defs,
     body: `<g transform="translate(${markTx} ${markTy})">${mark.body}</g>${word.svg}${desc.svg}`,
   });
@@ -220,7 +222,7 @@ function appIcon() {
     `<path d="${SHELL}" fill="url(#ic-shell)"/>` +
     `<path d="${CORE}" fill="url(#ic-core)"/>` +
     `</g>`;
-  return doc({ viewBox: '0 0 512 512', title: 'MANA Wash Manager app icon', defs, body });
+  return doc({ viewBox: '0 0 512 512', title: 'Mana Wash Partner app icon', defs, body });
 }
 
 // ─── Circular badge / seal: for stamps, uniforms, receipts and stickers ──────────
@@ -257,7 +259,7 @@ function badge(kind, idp) {
   const lettering =
     `<g fill="none" stroke="${text}" stroke-width="${n(stroke / k)}" stroke-linecap="round" stroke-linejoin="round">` +
     arc('MANA', { r: 134, top: true, gap: 46 }) +
-    arc('WASH MANAGER', { r: 162, top: false, gap: 30 }) +
+    arc('WASH PARTNER', { r: 162, top: false, gap: 30 }) +
     `</g>`;
   // stroke-width above is in glyph units, but each path is scaled by k — so it ends up `stroke` px.
 
@@ -272,7 +274,7 @@ function badge(kind, idp) {
     `<g transform="translate(${n(C0 - 128 * s)} ${n(C0 - 128 * s)}) scale(${s})">${mark.body}</g>`;
   return doc({
     viewBox: '0 0 400 400',
-    title: 'MANA Wash Manager badge',
+    title: 'Mana Wash Partner badge',
     defs: mark.defs,
     body,
   });

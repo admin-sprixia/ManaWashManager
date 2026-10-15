@@ -1,8 +1,8 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, StatusBar, StyleSheet, View } from 'react-native';
 import { DefaultTheme, NavigationContainer, type Theme } from '@react-navigation/native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { AlertHost, ToastHost, colors } from '@mana/ui';
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
+import { AlertHost, SplashIntro, ToastHost, colors } from '@mana/ui';
 import { AuthProvider, useAuth } from './src/auth/AuthProvider';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { holdIncomingLinks } from './src/navigation/linking';
@@ -51,20 +51,32 @@ function Body() {
 }
 
 export default function App() {
+  // The opening animation plays once per launch. The app mounts underneath once its lines are drawn
+  // (see SplashIntro), and the splash then fades away over it.
+  const [splash, setSplash] = useState(true);
+  const [revealed, setRevealed] = useState(false);
   return (
-    <SafeAreaProvider>
+    // initialMetrics lets the first frame render at once, so nothing blank shows before the splash.
+    <SafeAreaProvider style={styles.root} initialMetrics={initialWindowMetrics}>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
-      <AuthProvider>
-        <ErrorBoundary>
-          <Body />
-        </ErrorBoundary>
-        <ToastHost />
-        <AlertHost />
-      </AuthProvider>
+      {revealed ? (
+        <AuthProvider>
+          <ErrorBoundary>
+            <Body />
+          </ErrorBoundary>
+          <ToastHost />
+          <AlertHost />
+        </AuthProvider>
+      ) : null}
+      {splash ? (
+        <SplashIntro product="WASH" onReveal={() => setRevealed(true)} onDone={() => setSplash(false)} />
+      ) : null}
     </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
+  // The launch window is the splash's indigo gradient; screens sit on white.
+  root: { backgroundColor: colors.white },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.white },
 });

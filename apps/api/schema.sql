@@ -29,24 +29,8 @@ CREATE TABLE shops (
   code TEXT NOT NULL UNIQUE,         -- 6-digit shop ID staff type to ask to join; not a secret
   name TEXT NOT NULL,
   city TEXT,
-  -- Subscription status from Razorpay: trial | pending | active | past_due | cancelled | free.
-  -- Free vs Pro is worked out from the dates below (packages/domain/src/plans.ts), not this.
-  plan TEXT NOT NULL DEFAULT 'trial',
-  trial_ends_at TEXT,
-  paid_until TEXT,                   -- end of the last paid period
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
-  subscription_id TEXT,              -- Razorpay subscription (sub_…) currently attached
-  billing_interval TEXT CHECK (billing_interval IN ('monthly', 'yearly')),
-  price_paise INTEGER CHECK (price_paise >= 0), -- what the attached subscription charges
-  -- Set when the shop's first founder-price payment succeeds. Counts toward the 50 founder slots
-  -- forever, even after cancelling (the founder price itself is only kept while subscribed).
-  founder_at TEXT,
-  -- A founder slot kept for this shop while its founder-price payment is on its way (open
-  -- checkout, or first charge due at the end of the trial). Lapses if the shop never pays.
-  founder_hold_until TEXT,
-  -- When that hold was taken: for the last slot, the earlier claim wins (ties by shop id).
-  founder_hold_at TEXT,
-  -- Listed in the MANA Car Wash app. Set by Sprixia for MANA's own branches, never by an owner, so
+  -- Listed in the Mana Wash app. Set by Sprixia for MANA's own branches, never by an owner, so
   -- other car washes on the platform never show up there and their customers can't sign in to it.
   in_customer_app INTEGER NOT NULL DEFAULT 0 CHECK (in_customer_app IN (0, 1)),
   -- The hub and how far from it the branch washes. No radius = only its service_areas.
@@ -65,10 +49,26 @@ CREATE TABLE shops (
   business_id TEXT REFERENCES businesses(id),
   price_book_id TEXT REFERENCES price_books(id),
   price_zone_id TEXT REFERENCES price_zones(id),
-  menu_version INTEGER NOT NULL DEFAULT 0
+  menu_version INTEGER NOT NULL DEFAULT 0,
+  -- Set only by Mana Wash HQ (packages/domain/src/branchStatus.ts): paused = no new washes and
+  -- nothing else changes; closed = nobody signs in. The reason is shown to the branch's team.
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'closed')),
+  status_reason TEXT CHECK (status_reason IS NULL OR length(status_reason) BETWEEN 3 AND 200),
+  status_changed_at TEXT
 );
 
--- Every successful (or failed) subscription charge, for the owner's payment history.
+-- Every status HQ has set for a branch, who set it and why.
+CREATE TABLE branch_status_events (
+  id TEXT PRIMARY KEY,
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  status TEXT NOT NULL CHECK (status IN ('active', 'paused', 'closed')),
+  reason TEXT CHECK (reason IS NULL OR length(reason) BETWEEN 3 AND 200),
+  changed_by_phone TEXT NOT NULL CHECK (length(changed_by_phone) = 10),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now'))
+);
+
+-- Charges from the software subscriptions shops paid before the app came with the franchise
+-- (migration 0012). Kept for the record; nothing writes here any more.
 CREATE TABLE billing_payments (
   id TEXT PRIMARY KEY,               -- Razorpay payment id (pay_…)
   shop_id TEXT NOT NULL REFERENCES shops(id),
@@ -102,8 +102,10 @@ CREATE TABLE users (
   id TEXT PRIMARY KEY,
   shop_id TEXT NOT NULL REFERENCES shops(id),
   name TEXT NOT NULL,
-  phone TEXT NOT NULL,                -- staff: one shop; an owner may run several branches, one row each (same PIN)
-  role TEXT NOT NULL DEFAULT 'staff' CHECK (role IN ('owner', 'staff')),
+  phone TEXT NOT NULL,                -- one person; working at several branches = one row each, same PIN
+  -- owner: everything for the branch; manager: the team and join requests, no money fixes;
+  -- staff: washes and payments. Only Mana Wash HQ adds or removes owners.
+  role TEXT NOT NULL DEFAULT 'staff' CHECK (role IN ('owner', 'manager', 'staff')),
   active INTEGER NOT NULL DEFAULT 1,  -- deactivated users can't sign in or call the API
   pin_hash TEXT,                      -- PBKDF2 "iterations$salt$hash"; NULL = PIN sign-in not set up
   pin_failed_attempts INTEGER NOT NULL DEFAULT 0,
@@ -113,7 +115,38 @@ CREATE TABLE users (
   session_version INTEGER NOT NULL DEFAULT 0,
   removed_at TEXT,                    -- removed from the team: kept for history, number is free again
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  -- Length of the current PIN (owners and managers must have 6), and when it was chosen.
+  pin_digits INTEGER CHECK (pin_digits IS NULL OR pin_digits BETWEEN 4 AND 6),
+  pin_set_at TEXT,
+  -- Locks in a row: each lasts longer (15 min, 1 hour, a day). 0 after a right or new PIN.
+  pin_lock_count INTEGER NOT NULL DEFAULT 0,
   UNIQUE (shop_id, id)
+);
+
+-- Phones that proved they hold a number with a WhatsApp code. A PIN only works on these; a new
+-- phone needs a code first. Kept until the person signs out on it or their PIN is reset.
+CREATE TABLE trusted_devices (
+  id TEXT PRIMARY KEY,
+  phone TEXT NOT NULL CHECK (length(phone) = 10),
+  device_hash TEXT NOT NULL CHECK (length(device_hash) = 64), -- SHA-256 of the app's device key
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  last_used_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  label TEXT CHECK (label IS NULL OR length(label) <= 60), -- make and model, for More → Your phones
+  -- When the right PIN was last used here. Owners, managers and HQ can only reset their own PIN
+  -- with a WhatsApp code on such a phone.
+  pin_confirmed_at TEXT,
+  UNIQUE (phone, device_hash)
+);
+
+-- Every PIN reset: whose, who did it and where. A reset only clears the PIN; the person signs in
+-- again with a WhatsApp code and chooses a new one, and is told who reset it.
+CREATE TABLE pin_resets (
+  id TEXT PRIMARY KEY,
+  phone TEXT NOT NULL CHECK (length(phone) = 10),
+  shop_id TEXT REFERENCES shops(id),     -- the branch it was done from; NULL = Sprixia support
+  by_phone TEXT CHECK (by_phone IS NULL OR length(by_phone) = 10),
+  by_label TEXT NOT NULL CHECK (length(by_label) BETWEEN 1 AND 100),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now'))
 );
 
 CREATE TABLE vehicle_types (
@@ -210,7 +243,7 @@ CREATE TABLE vehicles (
   -- (the vehicle, its owner's name/phone, or a job for that owner). Phones sync their offline
   -- customer directory by pulling rows changed since their last cursor.
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
-  -- The customer removed it from their list in the MANA Car Wash app. Only hides it there.
+  -- The customer removed it from their list in the Mana Wash app. Only hides it there.
   app_hidden_at TEXT,
   UNIQUE (shop_id, registration_number),
   UNIQUE (shop_id, id),
@@ -523,7 +556,7 @@ CREATE TABLE service_areas (
   UNIQUE (shop_id, id)
 );
 
--- One per phone number that has signed in to the MANA Car Wash app — platform-level, because one
+-- One per phone number that has signed in to the Mana Wash app — platform-level, because one
 -- person can be a customer of several branches. Which branches is never stored: it's every listed
 -- shop with a customer on this number, so registering (or removing) them takes effect at once.
 CREATE TABLE customer_accounts (
@@ -1285,31 +1318,11 @@ CREATE TABLE receipt_series (
 -- Indexes for the app's actual hot paths: today's job board, the dashboard, and lookups. Every
 -- list the app shows is one shop's, so those indexes lead with shop_id.
 CREATE INDEX idx_users_shop ON users(shop_id);
--- Removed team members keep their row for history but give up the number. A number can be live in
--- several shops only as the owner of each (enforced by the API: routes/auth.ts `/shops`).
+-- Removed team members keep their row for history but give up the number. A number is live at
+-- most once per branch; working at several branches is one row in each.
 CREATE UNIQUE INDEX idx_users_shop_phone_live ON users(shop_id, phone) WHERE removed_at IS NULL;
 CREATE INDEX idx_users_phone ON users(phone);
-
--- Same rule in the database: a number live in more than one shop must be the owner in all of them.
-CREATE TRIGGER trg_users_phone_insert BEFORE INSERT ON users
-WHEN NEW.removed_at IS NULL AND EXISTS (
-  SELECT 1 FROM users u
-  WHERE u.phone = NEW.phone AND u.removed_at IS NULL AND u.shop_id != NEW.shop_id
-    AND (u.role != 'owner' OR NEW.role != 'owner')
-)
-BEGIN
-  SELECT RAISE(ABORT, 'phone_in_use');
-END;
-
-CREATE TRIGGER trg_users_phone_update BEFORE UPDATE OF phone, role, removed_at ON users
-WHEN NEW.removed_at IS NULL AND EXISTS (
-  SELECT 1 FROM users u
-  WHERE u.phone = NEW.phone AND u.removed_at IS NULL AND u.id != NEW.id AND u.shop_id != NEW.shop_id
-    AND (u.role != 'owner' OR NEW.role != 'owner')
-)
-BEGIN
-  SELECT RAISE(ABORT, 'phone_in_use');
-END;
+CREATE INDEX idx_pin_resets_phone ON pin_resets(phone, created_at);
 -- The audit trails are append-only in the database too, not just by convention: a bug or a
 -- hand-run query can't rewrite who did what. (Back-dating a stock move's created_at in demo
 -- data is still allowed; its amounts and links are not.)
@@ -1380,9 +1393,7 @@ CREATE INDEX idx_job_photos_job_id ON job_photos(job_id);
 CREATE INDEX idx_job_photos_created_at ON job_photos(created_at);
 CREATE INDEX idx_job_photos_deleted_at ON job_photos(deleted_at) WHERE deleted_at IS NOT NULL;
 CREATE INDEX idx_rate_limits_window ON rate_limits(window_start);
-CREATE INDEX idx_shops_subscription ON shops(subscription_id);
-CREATE INDEX idx_shops_founder ON shops(founder_at) WHERE founder_at IS NOT NULL;
-CREATE INDEX idx_shops_founder_hold ON shops(founder_hold_until) WHERE founder_hold_until IS NOT NULL;
+CREATE INDEX idx_branch_status_events_shop ON branch_status_events(shop_id, created_at);
 CREATE INDEX idx_billing_payments_shop_paid ON billing_payments(shop_id, paid_at);
 CREATE INDEX idx_billing_events_received ON billing_events(received_at);
 CREATE INDEX idx_app_errors_shop_created_at ON app_errors(shop_id, created_at);

@@ -131,7 +131,7 @@ const ticketExpired = {
 };
 const notOpen = {
   error: 'not_open' as const,
-  message: 'MANA Car Wash isn’t taking requests in the app yet. Please call us.',
+  message: 'Mana Wash isn’t taking requests in the app yet. Please call us.',
 };
 const alreadyCustomer = {
   error: 'already_customer' as const,
@@ -194,7 +194,7 @@ async function findAcross<T>(
   return null;
 }
 
-// The MANA Car Wash app. Everything a customer reads goes through `requireCustomer` and is limited
+// The Mana Wash app. Everything a customer reads goes through `requireCustomer` and is limited
 // to the branches where their own phone is a customer. A number the car wash hasn't registered
 // gets a service-request ticket instead of a sign-in: it can ask for service and follow that
 // request, nothing else.

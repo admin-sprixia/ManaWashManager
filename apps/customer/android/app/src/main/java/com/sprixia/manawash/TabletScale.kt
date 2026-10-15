@@ -1,4 +1,4 @@
-package com.sprixia.manacarwash
+package com.sprixia.manawash
 
 import android.content.res.Resources
 import kotlin.math.min

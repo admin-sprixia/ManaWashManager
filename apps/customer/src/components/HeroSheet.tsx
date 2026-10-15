@@ -40,7 +40,7 @@ export function HeroSheet({
         keyboardShouldPersistTaps="handled"
       >
         <AuthHero
-          product="Car Wash"
+          product="Wash"
           {...hero}
           maxWidth={tablet ? FORM_MAX + spacing.lg * 2 : undefined}
         />

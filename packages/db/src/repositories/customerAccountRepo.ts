@@ -1,7 +1,7 @@
 import type { DbClient } from '../client';
 import { retryOnClash } from '../retryOnClash';
 
-/** MANA Car Wash sign-ins. Always used with the platform client. */
+/** Mana Wash sign-ins. Always used with the platform client. */
 export const customerAccountRepo = {
   async findById(db: DbClient, id: string) {
     return db.customerAccount.findUnique({ where: { id } });

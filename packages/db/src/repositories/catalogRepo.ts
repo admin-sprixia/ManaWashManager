@@ -6,6 +6,7 @@ import {
   categoryForClass,
   parsePricingPolicy,
   parseServiceModes,
+  type BranchStatus,
   type DeliveryMode,
   type PricingPolicy,
   type ServiceModes,
@@ -116,11 +117,17 @@ export interface CatalogView extends CatalogData {
   prices: { priceBookId: string; serviceId: string; sizeId: string; price: number }[];
   branches: {
     id: string;
+    /** The branch ID new staff type to ask to join. */
+    code: string;
     name: string;
     city: string | null;
     priceBookId: string | null;
     priceZoneId: string | null;
+    /** Set by HQ: active, paused or closed, with why. */
+    status: BranchStatus;
+    statusReason: string | null;
     upToDate: boolean;
+    owners: { id: string; name: string; phone: string; active: boolean; pinSet: boolean }[];
   }[];
   admins: string[];
 }
@@ -246,8 +253,9 @@ export const catalogRepo = {
   },
 
   /**
-   * The branch's business, made on the spot for a shop that has none (a shop started through
-   * sign-up): a business of its own, run by its owners.
+   * The branch's business. Branches are only opened by HQ, inside its business; a legacy shop
+   * with none (started through the old public sign-up) gets an empty business of its own on the
+   * spot, with no admins — its owner can't make it a separate brand.
    */
   async ensureBusinessForShop(d1: D1Database, shopId: string): Promise<string> {
     const pdb = createPlatformDb(d1);
@@ -255,22 +263,12 @@ export const catalogRepo = {
     if (!shop) return fail('not_found', 'Shop not found.');
     if (shop.businessId) return shop.businessId;
     const businessId = `biz_${shopId}`;
-    const owners = await pdb.user.findMany({
-      where: { shopId, role: 'owner', removedAt: null },
-      select: { phone: true },
-    });
     await runStatements(d1, [
       {
         sql: 'INSERT OR IGNORE INTO businesses (id, name) VALUES (?, ?)',
         params: [businessId, shop.name.slice(0, 80) || 'My business'],
       },
       { sql: 'UPDATE shops SET business_id = ? WHERE id = ? AND business_id IS NULL', params: [businessId, shopId] },
-      ...insertRows(
-        'business_admins',
-        ['business_id', 'phone'],
-        owners.filter((o) => o.phone.length === 10).map((o) => [businessId, o.phone]),
-        { orIgnore: true },
-      ),
     ]);
     const after = await pdb.shop.findUnique({ where: { id: shopId }, select: { businessId: true } });
     return after?.businessId ?? businessId;
@@ -342,15 +340,29 @@ export const catalogRepo = {
       pdb.shop.findMany({
         where: { businessId },
         orderBy: { name: 'asc' },
-        select: { id: true, name: true, city: true, priceBookId: true, priceZoneId: true, menuVersion: true },
+        select: { id: true, code: true, name: true, city: true, priceBookId: true, priceZoneId: true, menuVersion: true, status: true, statusReason: true },
       }),
       pdb.businessAdmin.findMany({ where: { businessId }, orderBy: { createdAt: 'asc' }, select: { phone: true } }),
     ]);
     if (!data) return null;
+    const owners = await pdb.$queryRaw<
+      { id: string; shop_id: string; name: string; phone: string; active: number; pin_set: number }[]
+    >`
+      SELECT u.id, u.shop_id, u.name, u.phone, u.active, u.pin_hash IS NOT NULL AS pin_set
+        FROM users u JOIN shops s ON s.id = u.shop_id
+       WHERE s.business_id = ${businessId} AND u.role = 'owner' AND u.removed_at IS NULL
+       ORDER BY u.created_at`;
     return {
       ...data,
       prices,
-      branches: branches.map(({ menuVersion, ...b }) => ({ ...b, upToDate: menuVersion >= data.business.catalogVersion })),
+      branches: branches.map(({ menuVersion, ...b }) => ({
+        ...b,
+        status: b.status as BranchStatus,
+        upToDate: menuVersion >= data.business.catalogVersion,
+        owners: owners
+          .filter((o) => o.shop_id === b.id)
+          .map((o) => ({ id: o.id, name: o.name, phone: o.phone, active: Number(o.active) === 1, pinSet: Number(o.pin_set) === 1 })),
+      })),
       admins: admins.map((a) => a.phone),
     };
   },
@@ -366,6 +378,11 @@ export const catalogRepo = {
   async isAdmin(pdb: DbClient, businessId: string, phone: string): Promise<boolean> {
     const row = await pdb.businessAdmin.findUnique({ where: { businessId_phone: { businessId, phone } } });
     return row != null;
+  },
+
+  /** HQ of any business: held to the same 6-digit PIN as owners. */
+  async isAdminAnywhere(pdb: DbClient, phone: string): Promise<boolean> {
+    return (await pdb.businessAdmin.findFirst({ where: { phone }, select: { phone: true } })) != null;
   },
 
   async addAdmin(d1: D1Database, businessId: string, phone: string) {

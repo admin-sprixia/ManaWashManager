@@ -55,7 +55,6 @@ import {
   type VehicleType,
 } from '@mana/domain';
 import type { RootStackParamList } from '../navigation/RootNavigator';
-import { usePlan } from '../offline/PlanProvider';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -124,7 +123,6 @@ const MODES: { id: DeliveryMode; label: string }[] = [
 ];
 
 export function SettingsScreen({ navigation }: SettingsScreenProps) {
-  const { isPro } = usePlan();
   const [services, setServices] = useState<BranchService[]>([]);
   const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
   const [prices, setPrices] = useState<PriceRow[]>([]);
@@ -780,7 +778,6 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
         }
         price={prompt?.kind === 'editPrice' ? prompt.price : null}
         commission={prompt?.kind === 'editPrice' ? commissionFor(prompt.serviceId, prompt.vehicleTypeId) : null}
-        commissionLocked={!isPro}
         business={promptBusiness}
         onClose={closePrompt}
         onSave={savePrice}

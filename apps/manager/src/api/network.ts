@@ -24,18 +24,31 @@ export function subscribeOnline(listener: Listener): () => void {
 }
 
 /** Why the server ended this phone's session. */
-export type SessionEndReason = 'expired' | 'disabled' | 'revoked' | 'seat_locked';
-type SessionListener = (reason: SessionEndReason) => void;
+export type SessionEndReason = 'expired' | 'disabled' | 'revoked' | 'closed';
+type SessionListener = (reason: SessionEndReason, message?: string) => void;
 const sessionListeners = new Set<SessionListener>();
 
 /** Fired when an authenticated request is rejected — the auth layer signs the user out. */
-export function emitSessionInvalid(reason: SessionEndReason): void {
-  sessionListeners.forEach((l) => l(reason));
+export function emitSessionInvalid(reason: SessionEndReason, message?: string): void {
+  sessionListeners.forEach((l) => l(reason, message));
 }
 
 export function subscribeSessionInvalid(listener: SessionListener): () => void {
   sessionListeners.add(listener);
   return () => sessionListeners.delete(listener);
+}
+
+type Listener0 = () => void;
+const pinUpgradeListeners = new Set<Listener0>();
+
+/** The server wants a 6-digit PIN from this owner or manager before anything else. */
+export function emitPinUpgradeRequired(): void {
+  pinUpgradeListeners.forEach((l) => l());
+}
+
+export function subscribePinUpgradeRequired(listener: Listener0): () => void {
+  pinUpgradeListeners.add(listener);
+  return () => pinUpgradeListeners.delete(listener);
 }
 
 /** A request that never reached the API (no signal, DNS, timeout) — safe to retry later. */

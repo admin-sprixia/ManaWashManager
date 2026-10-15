@@ -157,7 +157,7 @@ function RequestItem({
 }
 
 /**
- * Requests from the MANA Car Wash app: people who aren't customers yet asking us to wash where
+ * Requests from the Mana Wash app: people who aren't customers yet asking us to wash where
  * they live. Everyone can see them (to call); the owner approves, which makes them a customer here
  * so they can sign in, or declines with a reason they'll see.
  */
@@ -208,7 +208,7 @@ export function ServiceRequestsScreen({ navigation }: Props) {
   const approve = (r: Request) =>
     showAlert(
       `Approve ${whoOf(r)}?`,
-      'They become a customer of this branch and can sign in to the MANA Car Wash app. Call them first to agree a time and price.',
+      'They become a customer of this branch and can sign in to the Mana Wash app. Call them first to agree a time and price.',
       [
         { text: 'Not yet', style: 'cancel' },
         {
@@ -288,7 +288,7 @@ export function ServiceRequestsScreen({ navigation }: Props) {
               title={filter === 'open' ? 'No new requests' : 'Nothing handled yet'}
               body={
                 filter === 'open'
-                  ? 'When someone asks you to wash where they live in the MANA Car Wash app, it shows here.'
+                  ? 'When someone asks you to wash where they live in the Mana Wash app, it shows here.'
                   : 'Approved and declined requests show here.'
               }
             />

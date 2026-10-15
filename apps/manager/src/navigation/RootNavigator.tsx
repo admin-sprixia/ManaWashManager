@@ -1,9 +1,5 @@
-import React, { useEffect } from 'react';
-import {
-  createNavigationContainerRef,
-  DefaultTheme,
-  NavigationContainer,
-} from '@react-navigation/native';
+import React from 'react';
+import { DefaultTheme, NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { JobBoardScreen } from '../screens/JobBoardScreen';
 import { NewWashScreen } from '../screens/NewWashScreen';
@@ -20,7 +16,6 @@ import { CashScreen } from '../screens/CashScreen';
 import { AttendanceScreen } from '../screens/AttendanceScreen';
 import { ErrorLogScreen } from '../screens/ErrorLogScreen';
 import { InventoryScreen } from '../screens/InventoryScreen';
-import { PlanScreen } from '../screens/PlanScreen';
 import { RewardsScreen } from '../screens/RewardsScreen';
 import { AppFeedbackScreen } from '../screens/AppFeedbackScreen';
 import { ServiceAreaScreen } from '../screens/ServiceAreaScreen';
@@ -40,7 +35,6 @@ import { PlaceDayScreen } from '../screens/places/PlaceDayScreen';
 import { PlaceDemandScreen } from '../screens/places/PlaceDemandScreen';
 import { PlaceFormScreen } from '../screens/places/PlaceFormScreen';
 import { PlaceScreen } from '../screens/places/PlaceScreen';
-import { setOpenPlans, UpgradeHost } from '../components/UpgradeSheet';
 import { useAuth } from '../api/auth';
 import { colors } from '@mana/ui';
 
@@ -61,7 +55,6 @@ export type RootStackParamList = {
   ErrorLog: undefined;
   Inventory: undefined;
   Rewards: undefined;
-  Plan: undefined;
   ServiceRequests: undefined;
   ServiceArea: undefined;
   AppFeedback: { tab?: 'problems' | 'vehicles' | 'ratings' } | undefined;
@@ -85,7 +78,6 @@ export type RootStackParamList = {
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
-const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
 const navTheme = {
   ...DefaultTheme,
@@ -102,16 +94,10 @@ const navTheme = {
 const slide = { animation: 'slide_from_right' as const };
 
 export function RootNavigator() {
-  const { isOwner } = useAuth();
-
-  // The upgrade sheet opens from anywhere; only the owner has a plan screen to send it to.
-  useEffect(() => {
-    setOpenPlans(isOwner ? () => navigationRef.isReady() && navigationRef.navigate('Plan') : null);
-    return () => setOpenPlans(null);
-  }, [isOwner]);
+  const { isOwner, canManageTeam } = useAuth();
 
   return (
-    <NavigationContainer ref={navigationRef} theme={navTheme}>
+    <NavigationContainer theme={navTheme}>
       {/* headerShown: false — every screen owns its full header treatment (a GradientHero
           for the Job Board, a ScreenHeader elsewhere), so the native stack header would
           just duplicate it. */}
@@ -143,24 +129,22 @@ export function RootNavigator() {
         <Stack.Screen name="PlaceDay" component={PlaceDayScreen} options={slide} />
         <Stack.Screen name="AddMember" component={AddMemberScreen} options={slide} />
         <Stack.Screen name="PlaceDemand" component={PlaceDemandScreen} options={slide} />
-        {/* Owner-only screens aren't even registered for staff — the API enforces the same
-            rules, this just keeps them out of reach in the UI. */}
+        {/* Screens a role can't use aren't even registered for it — the API enforces the same
+            rules, this just keeps them out of reach in the UI. Managers run the team only. */}
+        {canManageTeam ? <Stack.Screen name="Team" component={TeamScreen} options={slide} /> : null}
         {isOwner ? (
           <>
             <Stack.Screen name="Reports" component={ReportsScreen} options={slide} />
             <Stack.Screen name="Settings" component={SettingsScreen} options={slide} />
-            <Stack.Screen name="Team" component={TeamScreen} options={slide} />
             <Stack.Screen name="StaffReport" component={StaffReportScreen} options={slide} />
             <Stack.Screen name="Attendance" component={AttendanceScreen} options={slide} />
             <Stack.Screen name="ErrorLog" component={ErrorLogScreen} options={slide} />
-            <Stack.Screen name="Plan" component={PlanScreen} options={slide} />
             <Stack.Screen name="ServiceArea" component={ServiceAreaScreen} options={slide} />
             <Stack.Screen name="ServicePoints" component={ServicePointsScreen} options={slide} />
             <Stack.Screen name="PlaceForm" component={PlaceFormScreen} options={slide} />
           </>
         ) : null}
       </Stack.Navigator>
-      <UpgradeHost />
     </NavigationContainer>
   );
 }

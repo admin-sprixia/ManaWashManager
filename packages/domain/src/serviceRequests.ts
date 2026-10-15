@@ -1,5 +1,5 @@
 /**
- * "Request service" in the MANA Car Wash app: someone the car wash hasn't registered yet asks
+ * "Request service" in the Mana Wash app: someone the car wash hasn't registered yet asks
  * for doorstep washing. The team calls them, agrees a price, and approves (which registers them
  * as a customer, so they can sign in) or declines.
  */

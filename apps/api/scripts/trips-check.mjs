@@ -7,10 +7,12 @@
 //   npm run perf:trips
 // On the real servers each trip costs what the database is away (about 150 ms from India
 // to Cloudflare's Asia-Pacific database), so fewer trips is what makes a screen faster.
+import { signIn } from './lib/target.mjs';
+
 const API = process.env.API_URL ?? 'http://localhost:8787';
 const DELAY = Number(process.env.DEV_DB_DELAY_MS ?? 100);
 const PHONE = process.env.PHONE ?? '9888626111';
-const PIN = process.env.PIN ?? '2580';
+const PIN = process.env.PIN ?? '258025';
 
 async function call(token, path) {
   const started = performance.now();
@@ -19,12 +21,8 @@ async function call(token, path) {
   return { status: res.status, body, ms: performance.now() - started };
 }
 
-const login = await fetch(`${API}/auth/pin/login`, {
-  method: 'POST',
-  headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({ phone: PHONE, pin: PIN }),
-}).then((r) => r.json());
-const token = login.token;
+const login = (await signIn(PHONE, PIN)).body;
+const token = login?.token;
 if (!token) {
   console.error('Sign-in failed — run npm run db:seed:demo first.', login);
   process.exit(1);
@@ -40,7 +38,6 @@ const somePlate = dir.body?.entries?.find((e) => e.registrationNumber)?.registra
 const paths = [
   '/auth/me',
   '/auth/shops',
-  '/billing/plan',
   '/jobs/today',
   someJob && `/jobs/${someJob}`,
   '/jobs/stats?range=week',

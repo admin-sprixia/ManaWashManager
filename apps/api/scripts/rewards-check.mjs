@@ -3,10 +3,9 @@
 // later, void puts stock back). Run against the local API:
 //   cd apps/api && npm run db:reset:local && npm run dev      (in one terminal)
 //   cd apps/api && npm run test:rewards                       (in another)
-import { API, apiFetch, d1Rows, d1Run } from './lib/target.mjs';
+import { API, apiFetch, d1Rows, d1Run, DEV_CODE, signIn as signInWith } from './lib/target.mjs';
 
-const DEV_CODE = process.env.DEV_CODE ?? '000000';
-const PIN = '2580';
+const PIN = '258025';
 
 let passed = 0;
 let failed = 0;
@@ -41,18 +40,14 @@ const rows = d1Rows;
 const run = Date.now().toString(36);
 const rand = (n) => String(Math.floor(Math.random() * 10 ** n)).padStart(n, '0');
 const id = (p) => `${p}_${run}_${rand(6)}`;
-const isoIn = (days) => `'${new Date(Date.now() + days * 86400000).toISOString()}'`;
 /** Stored timestamp format, `days` from now (negative = past). */
 const stamp = (days) => new Date(Date.now() + days * 86400000).toISOString().replace('Z', '+00:00');
 
 const SHOP = `shop_rw_${run}`;
-const FREE_SHOP = `shop_rwf_${run}`;
 const OWNER = `user_rw_o_${run}`;
 const STAFF = `user_rw_s_${run}`;
-const FREE_OWNER = `user_rwf_o_${run}`;
 const ownerPhone = `94${rand(8)}`;
 const staffPhone = `94${rand(8)}`;
-const freePhone = `94${rand(8)}`;
 const HATCH = `vt_rw_h_${run}`;
 const SUV = `vt_rw_s_${run}`;
 const FW = `svc_rw_fw_${run}`;
@@ -63,11 +58,9 @@ const FRESH = `stk_rw_fresh_${run}`;
 const price = { [FW]: { [HATCH]: 30000, [SUV]: 50000 }, [PL]: { [HATCH]: 20000, [SUV]: 25000 }, [CB]: { [HATCH]: 45000, [SUV]: 65000 } };
 
 sql(
-  `INSERT INTO shops (id, code, name, plan, paid_until) VALUES ('${SHOP}', '${rand(6)}', 'Rewards Check Wash', 'active', ${isoIn(30)});` +
-    `INSERT INTO shops (id, code, name, plan) VALUES ('${FREE_SHOP}', '${rand(6)}', 'Rewards Free Wash', 'free');` +
+  `INSERT INTO shops (id, code, name) VALUES ('${SHOP}', '${rand(6)}', 'Rewards Check Wash');` +
     `INSERT INTO users (id, shop_id, name, phone, role) VALUES ('${OWNER}', '${SHOP}', 'Reward Owner', '${ownerPhone}', 'owner');` +
     `INSERT INTO users (id, shop_id, name, phone, role) VALUES ('${STAFF}', '${SHOP}', 'Reward Staff', '${staffPhone}', 'staff');` +
-    `INSERT INTO users (id, shop_id, name, phone, role) VALUES ('${FREE_OWNER}', '${FREE_SHOP}', 'Free Owner', '${freePhone}', 'owner');` +
     `INSERT INTO vehicle_types (id, shop_id, name, category, sort_order) VALUES ('${HATCH}', '${SHOP}', 'Hatchback', 'car', 0);` +
     `INSERT INTO vehicle_types (id, shop_id, name, category, sort_order) VALUES ('${SUV}', '${SHOP}', 'SUV', 'car', 1);` +
     `INSERT INTO services (id, shop_id, name, applies_to, sort_order) VALUES ('${FW}', '${SHOP}', 'Full Wash', 'car', 0);` +
@@ -88,21 +81,18 @@ sql(
 );
 
 async function signIn(phone) {
-  await call(null, 'POST', '/auth/code/request', { phone });
-  const v = await call(null, 'POST', '/auth/code/verify', { phone, code: DEV_CODE });
-  const p = v.body?.token ? await call(v.body.token, 'PUT', '/auth/pin', { pin: PIN }) : v;
+  const p = await signInWith(phone, PIN);
   if (!p.body?.token) console.log(`      (sign-in for ${phone} failed: ${show(p)})`);
   return p.body?.token;
 }
 const O = await signIn(ownerPhone);
-const F = await signIn(freePhone);
-// WhatsApp codes are owner-only; staff get the owner's PIN (same hash) and sign in with it.
+// Staff get the owner's PIN (same hash) and sign in with it.
 sql(`UPDATE users SET pin_hash = (SELECT pin_hash FROM users WHERE id = '${OWNER}') WHERE id = '${STAFF}';`);
-const staffLogin = await call(null, 'POST', '/auth/pin/login', { phone: staffPhone, pin: PIN });
+const staffLogin = await signInWith(staffPhone, PIN);
 if (!staffLogin.body?.token) console.log(`      (staff sign-in failed: ${show(staffLogin)})`);
 const S = staffLogin.body?.token;
-check('Owner, staff and a Free-plan owner sign in', !!O && !!S && !!F);
-if (!O || !S || !F) process.exit(1);
+check('Owner and staff sign in', !!O && !!S);
+if (!O || !S) process.exit(1);
 
 let plateN = 0;
 const plate = () => `KA${String(10 + (plateN++ % 89)).padStart(2, '0')}RW${rand(4)}`;
@@ -139,19 +129,7 @@ const lookup = (reg, token = O) => call(token, 'GET', `/rewards/vehicle?registra
 const card = (r, serviceId = FW) => r.body?.cards?.find((cd) => cd.serviceId === serviceId) ?? { stamps: 0, free: 0 };
 const balance = (itemId) => rows(`SELECT balance FROM stock_items WHERE id = '${itemId}'`)[0]?.balance;
 
-// ─── Pro gate ─────────────────────────────────────────────────────────────
-
-let r = await call(F, 'GET', '/rewards/settings');
-check('Free plan: rewards need Pro', r.status === 402 && r.body?.feature === 'rewards', show(r));
-r = await call(F, 'POST', '/jobs/start', {
-  id: id('job'),
-  customer: { phone: customerPhone(), name: 'X' },
-  registrationNumber: plate(),
-  vehicleTypeId: HATCH,
-  services: [{ serviceId: FW, quantity: 1 }],
-  rewardServiceIds: [FW],
-});
-check('Free plan: a free wash can’t be used', r.status === 402 && r.body?.feature === 'rewards', show(r));
+let r;
 
 // ─── Setting up ───────────────────────────────────────────────────────────
 

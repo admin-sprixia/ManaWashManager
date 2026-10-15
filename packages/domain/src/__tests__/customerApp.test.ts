@@ -86,7 +86,7 @@ describe('live status', () => {
 describe('referral message', () => {
   it('names the branch and the number to give', () => {
     const text = referralShareMessage({ phone: '9876543210', city: 'Nellore' });
-    expect(text).toContain('MANA Car Wash, Nellore');
+    expect(text).toContain('Mana Wash, Nellore');
     expect(text).toContain('9876543210');
   });
 });

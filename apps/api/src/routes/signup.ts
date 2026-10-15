@@ -1,9 +1,10 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { createPlatformDb, createShopDb, joinRequestRepo, shopRepo, userRepo } from '@mana/db';
+import { createPlatformDb, createShopDb, joinRequestRepo, securityRepo, shopRepo, userRepo } from '@mana/db';
 import {
   checkPin,
+  isSeniorRole,
   isValidShopCode,
   JOIN_REQUEST_TTL_DAYS,
   JOIN_REQUESTS_PER_SHOP,
@@ -12,10 +13,9 @@ import {
   SIGNUP_CODES_PER_IP_PER_HOUR,
 } from '@mana/domain';
 import { checkPhoneCode, sendPhoneCode } from '../lib/phoneCode';
-import { phoneBusy, withPhoneLock } from '../lib/phoneLock';
 import { hashPin } from '../lib/pin';
+import { deviceHash, deviceLabel } from '../lib/device';
 import { issueSession } from '../lib/session';
-import { createShopWithOwner, signupClosed, signupOpen } from '../lib/shops';
 import { createTicket, readTicket } from '../lib/ticket';
 import type { Env } from '../types';
 
@@ -23,7 +23,9 @@ const phoneSchema = z
   .string()
   .transform(normalizePhone)
   .refine((p) => /^[6-9]\d{9}$/.test(p), 'Enter a valid 10-digit mobile number');
-const purposeSchema = z.enum(['signup', 'join']);
+const purposeSchema = z.literal('join', {
+  errorMap: () => ({ message: 'New branches are opened by Mana Wash HQ. Ask your manager for the branch ID.' }),
+});
 
 const codeRequestSchema = z.object({ phone: phoneSchema, purpose: purposeSchema });
 const codeVerifySchema = z.object({
@@ -33,13 +35,6 @@ const codeVerifySchema = z.object({
     .string()
     .trim()
     .regex(/^\d{4,8}$/, 'Enter the code'),
-});
-const createShopSchema = z.object({
-  ticket: z.string().min(1),
-  pin: z.string(),
-  name: z.string().trim().min(1, 'Enter your name').max(60),
-  shopName: z.string().trim().min(2, 'Enter the shop name').max(60),
-  city: z.string().trim().max(40).optional(),
 });
 const joinSchema = z.object({
   ticket: z.string().min(1),
@@ -64,7 +59,26 @@ const requestGone = {
   message: 'This request isn’t available any more. Start again from your number.',
 };
 
-function codeSubject(purpose: 'signup' | 'join', phone: string) {
+const shopNotFound = {
+  error: 'shop_not_found' as const,
+  message: 'No branch has this ID. Check the number with your owner or manager.',
+};
+const shopPaused = {
+  error: 'branch_paused' as const,
+  message: 'This branch is paused by Mana Wash HQ and isn’t taking new team members right now.',
+};
+
+/** A branch people can ask to join: closed ones don't exist as far as joining goes. */
+async function joinableShop(env: Env, rawCode: string) {
+  const code = rawCode.replace(/\D/g, '');
+  if (!isValidShopCode(code)) return { problem: shopNotFound, status: 404 as const };
+  const shop = await shopRepo.findByCode(createPlatformDb(env.DB), code);
+  if (!shop || shop.status === 'closed') return { problem: shopNotFound, status: 404 as const };
+  if (shop.status === 'paused') return { problem: shopPaused, status: 409 as const };
+  return { shop };
+}
+
+function codeSubject(purpose: 'join', phone: string) {
   return `${purpose}:${phone}`;
 }
 
@@ -100,16 +114,12 @@ function describeJoin(found: NonNullable<Awaited<ReturnType<typeof loadJoinReque
 
 // Everything here runs before the person has an account, so none of it needs a session. Each step
 // hands the phone a signed ticket for the next one; nothing is created until the last step.
+// There is no way to start a shop here: branches are opened by HQ (routes/business.ts).
 //
-// New shop:  /code → /verify → /shop (PIN, name, shop name) — the shop and owner are made together.
-//            Only while sign-up is open (`signupOpen`); every step checks, so an old ticket can't.
-// Join shop: /shops/:code → /code → /verify → /join → owner approves in Team → /join/complete (PIN).
+// Join a branch: /shops/:code → /code → /verify → /join → owner approves in Team → /join/complete (PIN).
 export const signupRoutes = new Hono<{ Bindings: Env }>()
   .post('/code', zValidator('json', codeRequestSchema), async (c) => {
     const { phone, purpose } = c.req.valid('json');
-    if (purpose === 'signup' && !(await signupOpen(c.env, c.req.url))) {
-      return c.json(signupClosed, 403);
-    }
     const platform = createPlatformDb(c.env.DB);
     if (await userRepo.findByPhone(platform, phone)) return c.json(alreadyRegistered, 409);
 
@@ -127,9 +137,6 @@ export const signupRoutes = new Hono<{ Bindings: Env }>()
   })
   .post('/verify', zValidator('json', codeVerifySchema), async (c) => {
     const { phone, purpose, code } = c.req.valid('json');
-    if (purpose === 'signup' && !(await signupOpen(c.env, c.req.url))) {
-      return c.json(signupClosed, 403);
-    }
     const checked = await checkPhoneCode({
       env: c.env,
       phone,
@@ -140,45 +147,11 @@ export const signupRoutes = new Hono<{ Bindings: Env }>()
     if (!checked.ok) return c.json(checked.body, checked.status);
     return c.json({ ticket: await createTicket({ phone, purpose }, c.env.JWT_SECRET) });
   })
-  // The last step of a new shop: shop, owner and PIN are created together, so an app closed
-  // halfway through leaves nothing behind.
-  .post('/shop', zValidator('json', createShopSchema), async (c) => {
-    const body = c.req.valid('json');
-    if (!(await signupOpen(c.env, c.req.url))) return c.json(signupClosed, 403);
-    const ticket = await readTicket(body.ticket, c.env.JWT_SECRET, 'signup');
-    if (!ticket) return c.json(ticketExpired, 401);
-    const problem = checkPin(body.pin);
-    if (problem)
-      return c.json({ error: 'weak_pin' as const, message: pinProblemMessage(problem) }, 400);
-
-    const platform = createPlatformDb(c.env.DB);
-    const pinHash = await hashPin(body.pin);
-    // A double tap (or two phones with the same ticket) must make one shop, not two.
-    const owner = await withPhoneLock(c.env, ticket.phone, async () => {
-      if (await userRepo.findByPhone(platform, ticket.phone)) return 'taken' as const;
-      return createShopWithOwner(c.env, {
-        shopName: body.shopName,
-        city: body.city || null,
-        ownerName: body.name,
-        phone: ticket.phone,
-        pinHash,
-        trial: true,
-      });
-    });
-    if (owner === null) return c.json(phoneBusy, 409);
-    if (owner === 'taken') return c.json(alreadyRegistered, 409);
-    return c.json(await issueSession(owner, c.env), 201);
-  })
-  // Shows "Join MANA Car Wash, Hyderabad?" before anything is sent, so a mistyped ID is caught.
+  // Shows "Join Mana Wash, Hyderabad?" before anything is sent, so a mistyped ID is caught.
   .get('/shops/:code', async (c) => {
-    const code = c.req.param('code').replace(/\D/g, '');
-    const notFound = {
-      error: 'shop_not_found' as const,
-      message: 'No shop has this ID. Check the number with your owner.',
-    };
-    if (!isValidShopCode(code)) return c.json(notFound, 404);
-    const shop = await shopRepo.findByCode(createPlatformDb(c.env.DB), code);
-    if (!shop) return c.json(notFound, 404);
+    const found = await joinableShop(c.env, c.req.param('code'));
+    if (!found.shop) return c.json(found.problem, found.status);
+    const { shop } = found;
     return c.json({ code: shop.code, name: shop.name, city: shop.city });
   })
   .post('/join', zValidator('json', joinSchema), async (c) => {
@@ -187,10 +160,9 @@ export const signupRoutes = new Hono<{ Bindings: Env }>()
     if (!ticket) return c.json(ticketExpired, 401);
 
     const platform = createPlatformDb(c.env.DB);
-    const shop = await shopRepo.findByCode(platform, body.shopCode.replace(/\D/g, ''));
-    if (!shop) {
-      return c.json({ error: 'shop_not_found' as const, message: 'No shop has this ID.' }, 404);
-    }
+    const found = await joinableShop(c.env, body.shopCode);
+    if (!found.shop) return c.json(found.problem, found.status);
+    const { shop } = found;
     if (await userRepo.findByPhone(platform, ticket.phone)) return c.json(alreadyRegistered, 409);
 
     const now = new Date();
@@ -239,7 +211,8 @@ export const signupRoutes = new Hono<{ Bindings: Env }>()
     }
     return c.json({ ok: true as const });
   })
-  // After the owner approves: the new teammate picks their own PIN and is signed in.
+  // After the owner approves: the new teammate picks their own PIN and is signed in. They proved
+  // the number with a WhatsApp code at the start, so this phone is trusted for it.
   .post('/join/complete', zValidator('json', completeJoinSchema), async (c) => {
     const body = c.req.valid('json');
     const found = await loadJoinRequest(c.env, body.requestToken);
@@ -268,10 +241,12 @@ export const signupRoutes = new Hono<{ Bindings: Env }>()
         409,
       );
     }
-    const problem = checkPin(body.pin);
+    const problem = checkPin(body.pin, isSeniorRole(user.role));
     if (problem)
       return c.json({ error: 'weak_pin' as const, message: pinProblemMessage(problem) }, 400);
 
-    const withPin = await userRepo.setPinHash(db, user.id, await hashPin(body.pin));
-    return c.json(await issueSession(withPin, c.env));
+    const withPin = await userRepo.setPinHash(db, user.id, { hash: await hashPin(body.pin), digits: body.pin.length });
+    const device = await deviceHash(c);
+    if (device) await securityRepo.trust(createPlatformDb(c.env.DB), user.phone, device, { label: deviceLabel(c), pinConfirmed: true });
+    return c.json(await issueSession(withPin, c.env, device));
   });

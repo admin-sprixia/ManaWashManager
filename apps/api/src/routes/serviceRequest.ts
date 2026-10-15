@@ -43,7 +43,7 @@ function view(r: ServiceRequestRow) {
 
 export type ServiceRequestView = ReturnType<typeof view>;
 
-// "Request service" from the MANA Car Wash app, as the team sees it. Anyone on the team can see
+// "Request service" from the Mana Wash app, as the team sees it. Anyone on the team can see
 // requests (to call the person); only the owner approves or declines. Approving registers the
 // person as a customer of this branch, which is what lets them sign in to the app.
 export const serviceRequestRoutes = new Hono<{ Bindings: Env }>()

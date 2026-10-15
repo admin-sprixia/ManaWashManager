@@ -155,7 +155,7 @@ export function MyPlaceScreen({ navigation, route }: Props) {
             title="Invite neighbours"
             subtitle="They join your place in a minute."
             onPress={() =>
-              void shareText(`We get our cars washed at ${placeTitle(m.place)} with MANA Car Wash. Join here: ${API_BASE_URL}/p/${m.place.code}`)
+              void shareText(`We get our cars washed at ${placeTitle(m.place)} with Mana Wash. Join here: ${API_BASE_URL}/p/${m.place.code}`)
             }
           />
         </EdgeGroup>

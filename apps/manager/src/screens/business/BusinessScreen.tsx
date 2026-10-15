@@ -127,8 +127,8 @@ export function BusinessScreen({ navigation }: Props) {
     showAlert(
       turnOn ? 'Start washing at single homes?' : 'Stop washing at single homes?',
       turnOn
-        ? 'New Wash gets a Doorstep choice, and people near your branches can book your team to their home in the MANA Car Wash app.'
-        : 'Your team keeps washing at communities. New Wash and the MANA Car Wash app stop offering washes at single homes. Turn it back on any time.',
+        ? 'New Wash gets a Doorstep choice, and people near your branches can book your team to their home in the Mana Wash app.'
+        : 'Your team keeps washing at communities. New Wash and the Mana Wash app stop offering washes at single homes. Turn it back on any time.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -185,7 +185,7 @@ export function BusinessScreen({ navigation }: Props) {
             </Notice>
           ) : (
             <Notice tone="success" title="Every branch is up to date">
-              Changes here reach every branch’s menu, New Wash and the MANA Car Wash app straight away.
+              Changes here reach every branch’s menu, New Wash and the Mana Wash app straight away.
             </Notice>
           )}
         </View>

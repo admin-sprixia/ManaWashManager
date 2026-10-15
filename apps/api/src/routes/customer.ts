@@ -103,9 +103,7 @@ export const customerRoutes = new Hono<{ Bindings: Env }>()
   .get('/directory', zValidator('query', directoryQuerySchema), async (c) => {
     const { cursor, limit } = c.req.valid('query');
     const db = c.get('db');
-    const entries = await directoryRepo.page(db, parseCursor(cursor), limit, {
-      rewards: c.get('plan').tier === 'pro',
-    });
+    const entries = await directoryRepo.page(db, parseCursor(cursor), limit, { rewards: true });
     const last = entries[entries.length - 1];
     return c.json({
       entries,

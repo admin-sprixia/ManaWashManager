@@ -24,20 +24,18 @@ export interface Env {
   /** Nightly database backups — a separate bucket, so a photo clean-up can never touch them. */
   BACKUPS: FileBucket;
   JWT_SECRET: string;
-  /** One-time owner sign-in when setting up a device or after a forgotten PIN. See lib/recovery.ts. */
-  OWNER_RECOVERY_CODE?: string;
   /** Optional: error alerts to Sprixia's private Discord channel. See lib/alerts.ts and the README. */
   DISCORD_WEBHOOK_URL?: string;
-  /** WhatsApp Cloud API: sends the owner's sign-in codes. See lib/loginCode.ts and the README. */
+  /** WhatsApp Cloud API: sends sign-in codes (new phone, forgotten PIN). See lib/loginCode.ts and the README. */
   WHATSAPP_API_TOKEN?: string;
   WHATSAPP_PHONE_NUMBER_ID?: string;
   /** Name and language of the approved authentication template (defaults: login_code, en). */
   WHATSAPP_OTP_TEMPLATE?: string;
   WHATSAPP_OTP_LANGUAGE?: string;
   /**
-   * Dev-only, and only honoured for requests to localhost: the recovery code and WhatsApp code
-   * are both DEV_RECOVERY_CODE (default 000000), reusable, and no message is sent when WhatsApp
-   * isn't configured (or when WHATSAPP_OTP_BYPASS is on).
+   * Dev-only, and only honoured for requests to localhost: every WhatsApp code is
+   * DEV_RECOVERY_CODE (default 000000), reusable, and no message is sent when WhatsApp isn't
+   * configured (or when WHATSAPP_OTP_BYPASS is on).
    */
   DEV_MODE?: string;
   DEV_RECOVERY_CODE?: string;
@@ -55,16 +53,16 @@ export interface Env {
   ENVIRONMENT?: string;
   STAGING_TEST_CODES?: string;
   /**
-   * Razorpay: Pro subscriptions. Key id + secret from Dashboard → API Keys (rzp_test_… in Test
-   * mode); the webhook secret is the one typed when adding the webhook. See lib/razorpay.ts and
-   * the README. Without the keys the app shows plans but can't take payment.
+   * Razorpay: customer payment links. Key id + secret from Dashboard → API Keys (rzp_test_… in
+   * Test mode); the webhook secret is the one typed when adding the webhook. See lib/razorpay.ts
+   * and the README. Without the keys, washes are paid at the counter only.
    */
   RAZORPAY_KEY_ID?: string;
   RAZORPAY_KEY_SECRET?: string;
   RAZORPAY_WEBHOOK_SECRET?: string;
   /**
-   * Tests only: send Razorpay calls to a stand-in server (`npm run test:plans` runs one). Ignored
-   * unless the key id is a test key, so it can never redirect live payments.
+   * Tests only: send Razorpay calls to a stand-in server. Ignored unless the key id is a test
+   * key, so it can never redirect live payments.
    */
   RAZORPAY_API_BASE?: string;
   /** Older names for DEV_MODE / DEV_RECOVERY_CODE, still honoured in local `.dev.vars`. */

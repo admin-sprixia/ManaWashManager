@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Keychain from 'react-native-keychain';
+import { toUserRole, type UserRole } from '@mana/domain';
 
 const SESSION_TOKEN_KEY = 'mana.session_token';
 const SESSION_USER_KEY = 'mana.session_user';
@@ -13,8 +14,10 @@ export interface SessionUser {
   id: string;
   name: string;
   phone: string;
-  role: 'owner' | 'staff';
+  role: UserRole;
   hasPin: boolean;
+  /** An owner or manager still on a PIN shorter than 6 digits: must choose a new one first. */
+  pinUpgradeRequired: boolean;
   shopId: string;
 }
 
@@ -33,10 +36,12 @@ function parseStored<T>(raw: string | null): Partial<T> | null {
 }
 
 /**
- * The session token lives in the Android Keystore (encrypted, readable only by this app), not
- * in plain AsyncStorage. Every request needs it, so it's also held in memory after first read.
+ * The session token lives in the Android Keystore (encrypted, readable only by this app) and
+ * never in plain storage. On a phone whose Keystore doesn't work it's kept in memory only, so
+ * the PIN is asked again each time the app starts. Every request needs it, so it's also held in
+ * memory after first read.
  */
-const KEYCHAIN_SERVICE = 'com.sprixia.manawashmanager.session';
+const KEYCHAIN_SERVICE = 'com.sprixia.manawashpartner.session';
 let tokenCache: string | null | undefined;
 
 export async function getSessionToken(): Promise<string | null> {
@@ -45,9 +50,9 @@ export async function getSessionToken(): Promise<string | null> {
     const saved = await Keychain.getGenericPassword({ service: KEYCHAIN_SERVICE });
     if (saved) return (tokenCache = saved.password);
   } catch {
-    // Keystore unavailable on this phone: fall through to the plain copy below.
+    // Keystore unavailable on this phone: nothing saved to read.
   }
-  // Saved by an older build (or the Keystore fallback): move it into the Keystore.
+  // Saved in plain storage by an older build: move it into the Keystore (or memory) and wipe it.
   const plain = await AsyncStorage.getItem(SESSION_TOKEN_KEY);
   if (plain) await setSessionToken(plain);
   else tokenCache = null;
@@ -56,12 +61,11 @@ export async function getSessionToken(): Promise<string | null> {
 
 export async function setSessionToken(token: string): Promise<void> {
   tokenCache = token;
+  await AsyncStorage.removeItem(SESSION_TOKEN_KEY);
   try {
     await Keychain.setGenericPassword('session', token, { service: KEYCHAIN_SERVICE });
-    await AsyncStorage.removeItem(SESSION_TOKEN_KEY);
   } catch {
-    // A rare phone without a working Keystore still has to stay signed in.
-    await AsyncStorage.setItem(SESSION_TOKEN_KEY, token);
+    // No working Keystore: stay signed in until the app closes, never in plain storage.
   }
 }
 
@@ -82,8 +86,9 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     id: parsed.id,
     name: parsed.name,
     phone: parsed.phone ?? '',
-    role: parsed.role === 'owner' ? 'owner' : 'staff',
+    role: toUserRole(parsed.role ?? 'staff'),
     hasPin: Boolean(parsed.hasPin),
+    pinUpgradeRequired: Boolean(parsed.pinUpgradeRequired),
     shopId: parsed.shopId,
   };
 }
@@ -116,7 +121,7 @@ export async function setLoginHints(phone: string, method: LoginMethod): Promise
 }
 
 /**
- * Owners with several branches: the shop this number had open last, so signing in again lands
+ * People at several branches: the branch this number had open last, so signing in again lands
  * there. Survives sign-out on purpose; only used for the same number.
  */
 export async function getLastShop(phone: string): Promise<string | undefined> {

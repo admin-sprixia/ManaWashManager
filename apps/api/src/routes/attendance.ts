@@ -2,10 +2,9 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { opsRepo } from '@mana/db';
-import { ATTENDANCE_STATUSES, type AttendanceStatus } from '@mana/domain';
+import { ATTENDANCE_STATUSES, toUserRole, type AttendanceStatus } from '@mana/domain';
 import { formatIstDateOnly, parseIstDateOnly } from '../lib/istDate';
 import { requireAuth, requireRole } from '../middleware/auth';
-import { requirePro } from '../lib/plan';
 import type { Env } from '../types';
 
 const dateSchema = z
@@ -23,7 +22,7 @@ const markSchema = z.object({
 
 // Owner-only: attendance is marked by the owner. Staff see their own days via /shop/me/earnings.
 export const attendanceRoutes = new Hono<{ Bindings: Env }>()
-  .use('*', requireAuth, requireRole('owner'), requirePro('attendance'))
+  .use('*', requireAuth, requireRole('owner'))
   // One day's sheet: every active member (plus anyone already marked that day) and their status.
   .get('/', zValidator('query', dayQuerySchema), async (c) => {
     const db = c.get('db');
@@ -40,7 +39,7 @@ export const attendanceRoutes = new Hono<{ Bindings: Env }>()
         return {
           userId: u.id,
           name: u.name,
-          role: u.role as 'owner' | 'staff',
+          role: toUserRole(u.role),
           status: (mark?.status as AttendanceStatus | undefined) ?? null,
           markedBy: mark?.markedBy.name ?? null,
         };

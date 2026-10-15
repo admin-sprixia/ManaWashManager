@@ -9,11 +9,11 @@ import {
   MAX_CASH_PAISE,
   MIN_REASON_LENGTH,
   STAFF_CLOSE_WINDOW_DAYS,
+  type UserRole,
 } from '@mana/domain';
 import { endOfIstDay, formatIstDateOnly, parseIstDateOnly, startOfIstDaysAgo } from '../lib/istDate';
 import { reportQuerySchema, resolveReportWindow, windowMeta } from '../lib/reportWindow';
 import { requireAuth, requireRole } from '../middleware/auth';
-import { requirePro } from '../lib/plan';
 import type { Env } from '../types';
 import { windowDates } from './shop';
 
@@ -99,7 +99,7 @@ async function daySummary(db: DbClient, date: string) {
 }
 
 /** Staff handle today and a forgotten yesterday; anything older, or in the future, is refused. */
-function checkDate(date: string, role: 'owner' | 'staff') {
+function checkDate(date: string, role: UserRole) {
   const today = formatIstDateOnly(new Date());
   if (date > today) return 'The cash drawer can’t be closed for a future day.';
   if (role !== 'owner' && date < formatIstDateOnly(startOfIstDaysAgo(STAFF_CLOSE_WINDOW_DAYS))) {
@@ -110,7 +110,7 @@ function checkDate(date: string, role: 'owner' | 'staff') {
 
 // Online only: the expected figure has to come from the server's records at that moment.
 export const cashRoutes = new Hono<{ Bindings: Env }>()
-  .use('*', requireAuth, requirePro('cashDrawer'))
+  .use('*', requireAuth)
   .get('/day', zValidator('query', dayQuerySchema), async (c) => {
     const db = c.get('db');
     const date = c.req.valid('query').date ?? formatIstDateOnly(new Date());

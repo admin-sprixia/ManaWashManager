@@ -1,17 +1,49 @@
 import type { JobStatus, PaymentMethod } from './types';
 
-export type UserRole = 'owner' | 'staff';
+/**
+ * owner: everything for the branch. manager: the team (staff only) and join requests, plus
+ * everything staff do; no money fixes, prices or reports. staff: washes and payments. Only
+ * Mana Wash HQ adds or removes owners.
+ */
+export const USER_ROLES = ['owner', 'manager', 'staff'] as const;
 
-export const USER_ROLES: readonly UserRole[] = ['owner', 'staff'];
+export type UserRole = (typeof USER_ROLES)[number];
+
+export const USER_ROLE_LABEL: Record<UserRole, string> = {
+  owner: 'Owner',
+  manager: 'Manager',
+  staff: 'Staff',
+};
+
+export function toUserRole(role: string): UserRole {
+  return role === 'owner' || role === 'manager' ? role : 'staff';
+}
+
+/** Owners and managers run the team, so their PINs must be longer. */
+export function isSeniorRole(role: string): boolean {
+  return role === 'owner' || role === 'manager';
+}
+
+/**
+ * Whether someone in `actor`'s role may add, turn off, remove or reset the PIN of someone in
+ * `target`'s role at the same branch. Owners are HQ's alone (`hq`).
+ */
+export function canManageMember(actor: UserRole, target: UserRole, hq = false): boolean {
+  if (target === 'owner') return hq;
+  if (target === 'manager') return hq || actor === 'owner';
+  return hq || actor === 'owner' || actor === 'manager';
+}
 
 /** Wrong-PIN attempts allowed before the account's PIN sign-in is locked. */
 export const PIN_MAX_ATTEMPTS = 5;
 export const PIN_LOCK_MINUTES = 15;
+/** Each lock in a row lasts longer: 15 minutes, then 1 hour, then a day each time. */
+export const PIN_LOCK_STEPS_MINUTES = [PIN_LOCK_MINUTES, 60, 24 * 60] as const;
 
 /**
- * Owner sign-in codes, sent on WhatsApp for a first sign-in or a forgotten PIN (staff PINs are
- * set by the owner, so staff never get one). Each code allows a few guesses; the hourly cap on
- * new codes bounds both guessing and message cost.
+ * Sign-in codes, sent on WhatsApp: on a new phone, for a first sign-in, or after a forgotten or
+ * reset PIN. Each code allows a few guesses; the hourly cap on new codes bounds both guessing
+ * and message cost.
  */
 export const LOGIN_CODE_LENGTH = 6;
 export const LOGIN_CODE_TTL_MINUTES = 10;
@@ -21,10 +53,9 @@ export const LOGIN_CODES_PER_HOUR = 5;
 /** Sign-up codes go to numbers without an account, so one device is also capped across numbers. */
 export const SIGNUP_CODES_PER_IP_PER_HOUR = 20;
 
-/** New shops: a free trial, and a 6-digit shop ID staff use to ask to join. */
-export const SHOP_TRIAL_DAYS = 14;
+/** Every branch has a 6-digit branch ID staff use to ask to join. */
 export const SHOP_CODE_LENGTH = 6;
-/** Branches one owner can run on one number; each is its own shop with its own trial and plan. */
+/** Branches one person can work at on one number. */
 export const MAX_SHOPS_PER_OWNER = 10;
 
 /** Requests to join a shop wait this long for the owner, and a shop holds at most this many. */
@@ -40,14 +71,20 @@ export function formatShopCode(code: string): string {
   return code.length === 6 ? `${code.slice(0, 3)} ${code.slice(3)}` : code;
 }
 
-export type PinProblem = 'format' | 'repeated' | 'sequence';
+export type PinProblem = 'format' | 'too_short' | 'repeated' | 'sequence';
+
+/** Owners, managers and HQ need this many digits; staff may use 4 to 6. */
+export const SENIOR_PIN_DIGITS = 6;
+export const MIN_PIN_DIGITS = 4;
 
 /**
- * PINs are 4–6 digits. Trivially guessable ones (0000, 1234, 9876…) are rejected because a
- * PIN is the only thing between a lost phone and the day's cash totals.
+ * PINs are 4–6 digits, exactly 6 for owners, managers and HQ (`senior`). Trivially guessable
+ * ones (0000, 1234, 9876…) are rejected because a PIN is the only thing between a lost phone
+ * and the day's cash totals.
  */
-export function checkPin(pin: string): PinProblem | null {
+export function checkPin(pin: string, senior = false): PinProblem | null {
   if (!/^\d{4,6}$/.test(pin)) return 'format';
+  if (senior && pin.length < SENIOR_PIN_DIGITS) return 'too_short';
   if (/^(\d)\1+$/.test(pin)) return 'repeated';
   const digits = pin.split('').map(Number);
   const ascending = digits.every((d, i) => i === 0 || d === (digits[i - 1]! + 1) % 10);
@@ -60,6 +97,8 @@ export function pinProblemMessage(problem: PinProblem): string {
   switch (problem) {
     case 'format':
       return 'PIN must be 4 to 6 digits.';
+    case 'too_short':
+      return `Owners and managers need a ${SENIOR_PIN_DIGITS}-digit PIN.`;
     case 'repeated':
       return 'PIN can’t be the same digit repeated.';
     case 'sequence':

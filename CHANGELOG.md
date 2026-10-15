@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to MANA Wash Manager. One version number is shared by every app and package
+All notable changes to Mana Wash Partner and Mana Wash. One version number is shared by every app and package
 (`npm run version:set -- X.Y.Z`); the Android `versionCode` follows it automatically.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
@@ -10,12 +10,67 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
-- **Public sign-up is closed.** MANA Wash Manager now runs MANA Car Wash's own branches only, so a
-  new number can no longer start its own shop on staging or production. It goes straight to "Join
-  your shop" (ask to join with the 6-digit shop ID; the owner approves in Team), which works as
-  before. Every step of starting a shop refuses with `signup_closed`, including a half-finished
-  one. The platform setting `signup.open` (`true`/`false`) overrides this; without it, sign-up
-  stays open only on local `wrangler dev` (and CI), so `test:signup` keeps guarding the code.
+- **New app names.** The team app is now **Mana Wash Partner** (package
+  `com.sprixia.manawashpartner`, was `com.sprixia.manawashmanager`) and the customer app is
+  **Mana Wash** (package and iOS bundle `com.sprixia.manawash`, was `com.sprixia.manacarwash`;
+  links now open with `manawash://`). Each new package installs as a new app, so phones sign in
+  once again. Every screen, message, web page and logo uses the new names, and migration
+  `0015_brand_names` renames the business row from "MANA Car Wash" to "Mana Wash".
+- **Launcher icon** drop is 25% smaller, so it no longer looks zoomed in on the home screen.
+
+### Added
+
+- **Managers.** A third role between owner and staff: everything staff do, plus adding staff,
+  approving or declining join requests, and resetting staff PINs. No money fixes, prices, reports
+  or settings — every money fix stays with the owner. Owners add managers; HQ adds owners
+  (`canManageMember`). Migration `0013_roles_and_trusted_phones` widens the role check.
+- **Branch status, set by HQ only.** Active, Paused (no new washes; washes already open can be
+  finished and paid; no join requests) or Closed (nobody there can sign in; hidden from customers).
+  Pausing or closing needs a reason, which the team sees on the Home screen; every change is
+  logged with who made it (`PATCH /business/branches/:id/status`, history at
+  `GET /business/branches/:id/status`, migration `0012_branch_status`).
+- **Mana Wash HQ section** in More, for phones in `business_admins`: **All branches** shows today's
+  and this month's paid washes and takings, washes in progress and team size for every branch
+  (`GET /business/overview`), with pause / close / reopen, owners and price books per branch.
+- **Trusted phones.** The first sign-in on a phone needs a WhatsApp code, after which the PIN is
+  enough. A phone stays trusted until its user signs out, or their PIN is reset. The app sends a
+  random per-install key (`x-device-key`); only its hash is stored (`trusted_devices`).
+- **The PIN reset ladder.** The owner resets staff and managers, HQ resets owners and anyone at
+  more than one branch, Sprixia resets HQ after a phone call (`npm run support:reset-pin`). A reset
+  clears the PIN on every branch, signs the person out and forgets their phones; it never signs
+  anyone in. They return with a WhatsApp code, choose a new PIN, and are told who reset it and
+  when. Every reset is logged (`pin_resets`).
+- People at two branches (owners, managers or staff) switch between them from the branch name,
+  with one PIN for both.
+- HQ sees each branch's managers and staff in **All branches → the branch**, with Reset PIN for
+  people who work at more than one branch (`GET /business/branches/:id/team`).
+- `docs/AUTHENTICATION.md`: every sign-in process, case, limit and error code in one place.
+- `npm run test:access` (74 checks): roles, resets, trusted phones, the 6-digit upgrade, pause and
+  close, history and the HQ overview. Runs in CI.
+
+### Changed
+
+- **Changing your phone number** now signs out your other phones, stops trusting phones for the
+  old number, and trusts the phone that made the change for the new one.
+
+- **6-digit PINs for owners, managers and HQ.** Staff keep 4 to 6 digits. An owner or manager on a
+  shorter PIN is asked for a new 6-digit one (after their current PIN) before anything else opens.
+- **Forgot PIN works the same for everyone**: a WhatsApp code, then a new PIN.
+- Team: owners and managers no longer set anyone's PIN — everyone chooses their own after a
+  WhatsApp code. "Set PIN" and "Remove PIN" are replaced by **Reset PIN**.
+- Sign out also stops trusting the phone, so the next sign-in there needs a WhatsApp code.
+- **Branches are opened only by Mana Wash HQ.** Nobody can start a shop from the app any more:
+  the "owner or staff" choice is gone, and a new number goes straight to "Join your branch" (enter
+  the 6-digit branch ID; an owner or manager approves in Team). HQ (a phone in `business_admins`)
+  opens branches from **More → Mana Wash HQ → All branches → Open a branch** with the branch name, city and
+  owner's name and phone (`POST /business/branches`); the branch gets the business menu at once
+  and its owner signs in with a WhatsApp code and sets a PIN. Every branch belongs to the Mana
+  Wash business; migration `0011_hq_branches` links any branch that wasn't.
+- **Only HQ adds or removes branch owners.** In Team, owners add staff and managers, managers add
+  staff, and neither can change, turn off or remove an owner (`hq_only`). HQ does it from the
+  branch in All branches (`/business/branches/:id/owners`), and can't remove a branch's last
+  owner.
+
 - **New look for the MANA Car Wash app (and the shared UI).** Deep indigo and white throughout:
   a new hero (gradient, glow, stars and the logo watermark), a floating bottom bar, and the same
   edge-to-edge lists on every screen. Home gets a latest-wash card, free-wash cards that show each
@@ -26,6 +81,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   bike (`vehicle.category`), so the right icon shows.
 - The customer app needs a native rebuild: it adds `@react-native-clipboard/clipboard` (run
   `npm run pods` in `apps/customer` for iOS).
+
+### Removed
+
+- **Software plans.** Free / Pro, the 14-day trial, staff seats, the 300-washes limit, 7-day
+  reports, the plan screen, upgrade sheets and PRO badges, and Razorpay subscriptions
+  (`/billing`). Every branch gets every feature. Razorpay stays for customer payment links only.
+  `test:plans` is replaced by `test:access`.
+- **The owner recovery code** (`POST /auth/recover`, `OWNER_RECOVERY_CODE`). WhatsApp codes and
+  the reset ladder replace it.
+- `PUT` / `DELETE /team/:id/pin` (an owner choosing someone else's PIN); use
+  `POST /team/:id/reset-pin`.
+- Starting a shop: `POST /signup/shop`, the `signup` code purpose, the `signup.open` platform
+  setting (deleted by migration 0011) and the app's sign-up screens.
+- "Open another shop" for owners (`POST /auth/shops`); owners still switch between their branches.
+- Business admins are no longer created automatically: the first owner of a business used to
+  become its admin on first visit. HQ is now exactly the phones listed in `business_admins`.
 
 ## [0.5.1] - 2026-10-03
 

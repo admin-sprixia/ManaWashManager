@@ -235,5 +235,5 @@ export async function retryRefunds(env: Env) {
 /** The WhatsApp text the team sends with a payment link (Flow E). */
 export function paymentLinkMessage(input: { name: string | null; amount: number; title: string; place: string; url: string }) {
   const hello = input.name ? `Hello ${input.name},` : 'Hello,';
-  return `${hello} please pay ${formatInr(input.amount)} for your MANA Car Wash ${input.title} at ${input.place}: ${input.url}`;
+  return `${hello} please pay ${formatInr(input.amount)} for your Mana Wash ${input.title} at ${input.place}: ${input.url}`;
 }

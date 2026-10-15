@@ -2,7 +2,7 @@ import type { DbClient } from '../client';
 
 /**
  * signup / join: a number without an account. phone: moving an account to this new number.
- * customer: signing in to the MANA Car Wash app.
+ * customer: signing in to the Mana Wash app.
  */
 export type SignupPurpose = 'signup' | 'join' | 'phone' | 'customer';
 

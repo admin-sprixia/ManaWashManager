@@ -1,12 +1,12 @@
-// Walks the whole "new number" flow against the local API: starting a new shop, asking to join
-// one with its shop ID (approve, reject, cancel), and removing a teammate so their number is free.
+// Walks the whole "new number" flow against the local API: no self-serve shops, HQ opening a
+// branch and managing its owners, asking to join with the branch ID (approve, reject, cancel),
+// and removing a teammate so their number is free.
 //   cd apps/api && npm run db:reset:local && npm run dev      (in one terminal)
 //   cd apps/api && npm run test:signup                        (in another)
 // Uses fresh random numbers each run, so it can be re-run without a reset.
-import { API, apiFetch, d1Run } from './lib/target.mjs';
+import { API, apiFetch, DEV_CODE, signIn } from './lib/target.mjs';
 
-const DEV_CODE = process.env.DEV_CODE ?? '000000';
-const PIN = '2580';
+const PIN = '258025';
 const MANA_CODE = '482193';
 const MANA_OWNER = '9100000000';
 
@@ -48,16 +48,9 @@ async function verifiedTicket(phone, purpose) {
 }
 
 async function signInOwner(phone) {
-  const byPin = await call(null, 'POST', '/auth/pin/login', { phone, pin: PIN });
-  if (byPin.body?.token) return byPin.body;
-  await call(null, 'POST', '/auth/code/request', { phone });
-  const verified = await call(null, 'POST', '/auth/code/verify', { phone, code: DEV_CODE });
-  if (!verified.body?.token)
-    throw new Error(`Owner sign-in failed for ${phone}: ${show(verified)}`);
-  // Setting a PIN signs out older sessions; carry on with the fresh one it returns.
-  const withPin = await call(verified.body.token, 'PUT', '/auth/pin', { pin: PIN });
-  if (!withPin.body?.token) throw new Error(`Setting the PIN failed for ${phone}: ${show(withPin)}`);
-  return withPin.body;
+  const r = await signIn(phone, PIN);
+  if (!r.body?.token) throw new Error(`Owner sign-in failed for ${phone}: ${show(r)}`);
+  return r.body;
 }
 
 async function askToJoin(phone, shopCode, name) {
@@ -72,172 +65,107 @@ async function requestIdFor(ownerToken, phone) {
   return Array.isArray(list.body) ? list.body.find((r) => r.phone === phone)?.id : undefined;
 }
 
-// ─── New shop ─────────────────────────────────────────────────────────────
+// ─── No self-serve shops ──────────────────────────────────────────────────
 
 const ownerPhone = newPhone();
 const start = await call(null, 'POST', '/auth/start', { phone: ownerPhone });
-check('Unknown number → "new" (start or join a shop)', start.body?.next === 'new', show(start));
-check('Local dev: sign-up is open by default', start.body?.signupOpen === true, show(start));
+check('Unknown number → "new" (join a branch)', start.body?.next === 'new', show(start));
+const signupCode = await call(null, 'POST', '/signup/code', { phone: ownerPhone, purpose: 'signup' });
+check('No code to start a shop: only joining is offered', signupCode.status === 400, show(signupCode));
+const shopRoute = await call(null, 'POST', '/signup/shop', { ticket: 'x', pin: PIN, name: 'Arun', shopName: 'Bubble Wash' });
+check('The start-a-shop route is gone', shopRoute.status === 404, show(shopRoute));
 
-const taken = await call(null, 'POST', '/signup/code', { phone: MANA_OWNER, purpose: 'signup' });
-check(
-  'Sign-up code refused for a number that already has an account',
-  taken.status === 409,
-  show(taken),
-);
+// ─── Codes and tickets ────────────────────────────────────────────────────
 
-const sent = await call(null, 'POST', '/signup/code', { phone: ownerPhone, purpose: 'signup' });
-check('Sign-up code sent', sent.body?.sent === true, show(sent));
-const again = await call(null, 'POST', '/signup/code', { phone: ownerPhone, purpose: 'signup' });
-check(
-  'Asking again at once → wait before resending',
-  again.status === 429 && again.body?.error === 'too_soon',
-  show(again),
-);
+const taken = await call(null, 'POST', '/signup/code', { phone: MANA_OWNER, purpose: 'join' });
+check('Join code refused for a number that already has an account', taken.status === 409, show(taken));
 
-const wrong = await call(null, 'POST', '/signup/verify', {
-  phone: ownerPhone,
-  purpose: 'signup',
-  code: '111111',
-});
-check(
-  'Wrong code → tries left',
-  wrong.status === 401 && wrong.body?.attemptsLeft === 4,
-  show(wrong),
-);
-const wrongPurpose = await call(null, 'POST', '/signup/verify', {
-  phone: ownerPhone,
-  purpose: 'join',
-  code: DEV_CODE,
-});
-check(
-  'A sign-up code can’t be used to join a shop',
-  wrongPurpose.status === 410,
-  show(wrongPurpose),
-);
-const verified = await call(null, 'POST', '/signup/verify', {
-  phone: ownerPhone,
-  purpose: 'signup',
-  code: DEV_CODE,
-});
-check('Right code → sign-up ticket', typeof verified.body?.ticket === 'string', show(verified));
+const joiner = newPhone();
+const sent = await call(null, 'POST', '/signup/code', { phone: joiner, purpose: 'join' });
+check('Join code sent', sent.body?.sent === true, show(sent));
+const again = await call(null, 'POST', '/signup/code', { phone: joiner, purpose: 'join' });
+check('Asking again at once → wait before resending', again.status === 429 && again.body?.error === 'too_soon', show(again));
+const wrong = await call(null, 'POST', '/signup/verify', { phone: joiner, purpose: 'join', code: '111111' });
+check('Wrong code → tries left', wrong.status === 401 && wrong.body?.attemptsLeft === 4, show(wrong));
+const verified = await call(null, 'POST', '/signup/verify', { phone: joiner, purpose: 'join', code: DEV_CODE });
+check('Right code → join ticket', typeof verified.body?.ticket === 'string', show(verified));
 const ticket = verified.body.ticket;
-const reused = await call(null, 'POST', '/signup/verify', {
-  phone: ownerPhone,
-  purpose: 'signup',
-  code: DEV_CODE,
-});
+const reused = await call(null, 'POST', '/signup/verify', { phone: joiner, purpose: 'join', code: DEV_CODE });
 check('The same code can’t be used twice', reused.status === 410, show(reused));
-
-const weak = await call(null, 'POST', '/signup/shop', {
-  ticket,
-  pin: '1234',
-  name: 'Arun',
-  shopName: 'Bubble Wash',
-});
-check('Easy PIN refused', weak.status === 400 && weak.body?.error === 'weak_pin', show(weak));
-const forged = await call(null, 'POST', '/signup/shop', {
-  ticket: `${ticket}x`,
-  pin: PIN,
-  name: 'Arun',
-  shopName: 'Bubble Wash',
-});
+const forged = await call(null, 'POST', '/signup/join', { ticket: `${ticket}x`, shopCode: MANA_CODE, name: 'Arun' });
 check('Tampered ticket refused', forged.status === 401, show(forged));
-
-const created = await call(null, 'POST', '/signup/shop', {
-  ticket,
-  pin: PIN,
-  name: 'Arun',
-  shopName: 'Bubble Wash',
-  city: 'Vijayawada',
-});
-check(
-  'Shop created: owner signed in with a PIN, in a new shop',
-  created.status === 201 &&
-    created.body?.user?.role === 'owner' &&
-    created.body?.user?.hasPin &&
-    created.body?.user?.shopId !== 'shop_mana',
-  show(created),
-);
-const bOwner = created.body.token;
-const bShopId = created.body.user.shopId;
-
-const replay = await call(null, 'POST', '/signup/shop', {
-  ticket,
-  pin: PIN,
-  name: 'Arun',
-  shopName: 'Second Shop',
-});
-check('Same ticket can’t make a second shop', replay.status === 409, show(replay));
-
 const ticketAsSession = await call(ticket, 'GET', '/auth/me');
-check('A sign-up ticket is not a session', ticketAsSession.status === 401, show(ticketAsSession));
-const sessionAsTicket = await call(null, 'POST', '/signup/shop', {
-  ticket: bOwner,
-  pin: PIN,
-  name: 'X',
-  shopName: 'Fake',
-});
-check('A session is not a sign-up ticket', sessionAsTicket.status === 401, show(sessionAsTicket));
+check('A join ticket is not a session', ticketAsSession.status === 401, show(ticketAsSession));
 
-const startAgain = await call(null, 'POST', '/auth/start', { phone: ownerPhone });
-check(
-  'New owner’s number now goes to the PIN pad',
-  startAgain.body?.next === 'pin',
-  show(startAgain),
-);
-const pinLogin = await call(null, 'POST', '/auth/pin/login', { phone: ownerPhone, pin: PIN });
-check('New owner signs in with the PIN', pinLogin.body?.user?.shopId === bShopId, show(pinLogin));
-
-const info = await call(bOwner, 'GET', '/shop/info');
-check(
-  'Shop info: name, city and a 6-digit shop ID',
-  info.body?.name === 'Bubble Wash' &&
-    info.body?.city === 'Vijayawada' &&
-    /^[1-9]\d{5}$/.test(info.body?.code ?? ''),
-  show(info),
-);
-const bCode = info.body.code;
-const bTeam = await call(bOwner, 'GET', '/team');
-check(
-  'New shop’s team is just its owner',
-  Array.isArray(bTeam.body) && bTeam.body.length === 1,
-  show(bTeam),
-);
-const bServices = await call(bOwner, 'GET', '/services');
-check(
-  'New shop sees none of MANA’s services',
-  Array.isArray(bServices.body?.services ?? bServices.body) &&
-    (bServices.body?.services ?? bServices.body).length === 0,
-  show(bServices),
-);
-
-// ─── Join a shop ──────────────────────────────────────────────────────────
+// ─── HQ opens a branch ────────────────────────────────────────────────────
 
 const manaOwner = (await signInOwner(MANA_OWNER)).token;
+const opened = await call(manaOwner, 'POST', '/business/branches', {
+  name: 'Bubble Wash',
+  city: 'Vijayawada',
+  ownerName: 'Arun',
+  ownerPhone,
+});
+check('HQ opens a branch with its owner', opened.status === 201 && /^[1-9]\d{5}$/.test(opened.body?.code ?? ''), show(opened));
+const bCode = opened.body.code;
+const bShopId = opened.body.id;
+
+const startAgain = await call(null, 'POST', '/auth/start', { phone: ownerPhone });
+check('The new owner’s number is now known', startAgain.body?.next !== 'new', show(startAgain));
+const bOwnerSession = await signInOwner(ownerPhone);
+const bOwner = bOwnerSession.token;
+check('New owner signs in with a WhatsApp code and sets a PIN', bOwnerSession.user?.shopId === bShopId, JSON.stringify(bOwnerSession));
+
+const info = await call(bOwner, 'GET', '/shop/info');
+check('Branch info: name, city and branch ID', info.body?.name === 'Bubble Wash' && info.body?.city === 'Vijayawada' && info.body?.code === bCode, show(info));
+const bTeam = await call(bOwner, 'GET', '/team');
+check('New branch’s team is just its owner', Array.isArray(bTeam.body) && bTeam.body.length === 1 && bTeam.body[0].role === 'owner', show(bTeam));
+const bServices = await call(bOwner, 'GET', '/services');
+const bList = bServices.body?.services ?? bServices.body;
+check('New branch gets HQ’s menu', Array.isArray(bList) && bList.length > 0, show(bServices));
+
+const notHq = await call(bOwner, 'POST', '/business/branches', { name: 'Side Shop', ownerName: 'X', ownerPhone: newPhone() });
+check('A branch owner can’t open branches', notHq.status === 403, show(notHq));
+const oldRoute = await call(bOwner, 'POST', '/auth/shops', { shopName: 'Side Shop' });
+check('The owner’s open-another-shop route is gone', oldRoute.status === 404, show(oldRoute));
+const ownerByTeam = await call(bOwner, 'POST', '/team', { name: 'Partner', phone: newPhone(), role: 'owner' });
+check('A branch owner can’t add owners', ownerByTeam.status === 403 && ownerByTeam.body?.error === 'hq_only', show(ownerByTeam));
+const sessionAsTicket = await call(null, 'POST', '/signup/join', { ticket: bOwner, shopCode: MANA_CODE, name: 'X' });
+check('A session is not a join ticket', sessionAsTicket.status === 401, show(sessionAsTicket));
+
+// HQ adds and removes a second owner.
+const partnerPhone = newPhone();
+const partner = await call(manaOwner, 'POST', `/business/branches/${bShopId}/owners`, { name: 'Partner', phone: partnerPhone });
+check('HQ adds a second owner', partner.status === 201 || partner.status === 200, show(partner));
+const bTeam2 = await call(bOwner, 'GET', '/team');
+const partnerRow = Array.isArray(bTeam2.body) ? bTeam2.body.find((m) => m.phone === partnerPhone) : undefined;
+check('The partner shows as an owner in the branch team', partnerRow?.role === 'owner', show(bTeam2));
+if (partnerRow) {
+  const offByOwner = await call(bOwner, 'PATCH', `/team/${partnerRow.id}`, { active: false });
+  check('A branch owner can’t turn another owner off', offByOwner.status === 403, show(offByOwner));
+  const removeByOwner = await call(bOwner, 'DELETE', `/team/${partnerRow.id}`);
+  check('A branch owner can’t remove another owner', removeByOwner.status === 403, show(removeByOwner));
+  const removeByHq = await call(manaOwner, 'DELETE', `/business/branches/${bShopId}/owners/${partnerRow.id}`);
+  check('HQ removes the partner', removeByHq.status === 200, show(removeByHq));
+}
+const bOwnerRow = Array.isArray(bTeam.body) ? bTeam.body[0] : undefined;
+if (bOwnerRow) {
+  const lastOwner = await call(manaOwner, 'DELETE', `/business/branches/${bShopId}/owners/${bOwnerRow.id}`);
+  check('HQ can’t remove a branch’s last owner', lastOwner.status === 400, show(lastOwner));
+}
+
+// ─── Join a shop ──────────────────────────────────────────────────────────
 
 const noShop = await call(null, 'GET', '/signup/shops/000000');
 check('Unknown shop ID → not found', noShop.status === 404, show(noShop));
 const mana = await call(null, 'GET', `/signup/shops/${MANA_CODE}`);
 check(
   'Shop ID shows the shop’s name before joining',
-  mana.body?.name === 'MANA Car Wash' && mana.body?.city === 'Hyderabad',
+  mana.body?.name === 'Mana Wash' && mana.body?.city === 'Hyderabad',
   show(mana),
 );
 
 const ravi = newPhone();
-const signupTicket = await verifiedTicket(ravi, 'signup');
-const joinWithSignup = await call(null, 'POST', '/signup/join', {
-  ticket: signupTicket,
-  shopCode: MANA_CODE,
-  name: 'Ravi',
-});
-check(
-  'A sign-up ticket can’t be used to join',
-  joinWithSignup.status === 401,
-  show(joinWithSignup),
-);
-
 const joinTicket = await call(null, 'POST', '/signup/verify', {
   phone: ravi,
   purpose: 'join',
@@ -245,14 +173,13 @@ const joinTicket = await call(null, 'POST', '/signup/verify', {
 });
 check('No live join code yet → must ask for one', joinTicket.status === 410, show(joinTicket));
 
-await new Promise((r) => setTimeout(r, 31_000)); // resend wait for the same number
 const raviToken = await askToJoin(ravi, MANA_CODE, 'Ravi');
 check('Join request sent', typeof raviToken === 'string');
 
 const status = await call(null, 'POST', '/signup/join/status', { requestToken: raviToken });
 check(
   'Request is waiting for the owner',
-  status.body?.status === 'pending' && status.body?.shop?.name === 'MANA Car Wash',
+  status.body?.status === 'pending' && status.body?.shop?.name === 'Mana Wash',
   show(status),
 );
 const early = await call(null, 'POST', '/signup/join/complete', {
@@ -306,7 +233,7 @@ const doneAgain = await call(null, 'POST', '/signup/join/complete', {
 });
 check('The request can’t set a PIN a second time', doneAgain.status === 409, show(doneAgain));
 const raviPin = await call(null, 'POST', '/auth/pin/login', { phone: ravi, pin: PIN });
-check('Ravi signs in with his PIN next time', raviPin.body?.user?.id === raviId, show(raviPin));
+check('Ravi signs in with his PIN next time (joining trusted this phone)', raviPin.body?.user?.id === raviId, show(raviPin));
 
 // Reject and cancel
 const sita = newPhone();
@@ -379,51 +306,17 @@ check(
 );
 
 const reAdd = await call(manaOwner, 'POST', '/team', { name: 'Ravi', phone: ravi });
-check('MANA can’t add him back while he’s in another shop', reAdd.status === 409, show(reAdd));
-
-// ─── Sign-up closed (as on staging and production) ───────────────────────
-
-const lateFounder = newPhone();
-const lateTicket = await verifiedTicket(lateFounder, 'signup');
-const asha = newPhone();
-d1Run("INSERT OR REPLACE INTO platform_settings (key, value) VALUES ('signup.open', 'false')");
-try {
-  const closedStart = await call(null, 'POST', '/auth/start', { phone: asha });
-  check(
-    'Closed: unknown number → "new", sign-up not offered',
-    closedStart.body?.next === 'new' && closedStart.body?.signupOpen === false,
-    show(closedStart),
-  );
-  const closedCode = await call(null, 'POST', '/signup/code', { phone: asha, purpose: 'signup' });
-  check(
-    'Closed: no sign-up code',
-    closedCode.status === 403 && closedCode.body?.error === 'signup_closed',
-    show(closedCode),
-  );
-  const closedVerify = await call(null, 'POST', '/signup/verify', {
-    phone: asha,
-    purpose: 'signup',
-    code: DEV_CODE,
-  });
-  check('Closed: sign-up codes not checked', closedVerify.status === 403, show(closedVerify));
-  const closedShop = await call(null, 'POST', '/signup/shop', {
-    ticket: lateTicket,
-    pin: PIN,
-    name: 'Late',
-    shopName: 'Late Wash',
-  });
-  check(
-    'Closed: a ticket from before closing can’t make a shop',
-    closedShop.status === 403 && closedShop.body?.error === 'signup_closed',
-    show(closedShop),
-  );
-  const lateStart = await call(null, 'POST', '/auth/start', { phone: lateFounder });
-  check('Closed: no shop or account was made', lateStart.body?.next === 'new', show(lateStart));
-  const ashaToken = await askToJoin(asha, MANA_CODE, 'Asha');
-  check('Closed: staff can still ask to join with the shop ID', typeof ashaToken === 'string');
-} finally {
-  d1Run("DELETE FROM platform_settings WHERE key = 'signup.open'");
-}
+check('MANA can add him back while he works at the other branch too', reAdd.status === 201, show(reAdd));
+const reAddAgain = await call(manaOwner, 'POST', '/team', { name: 'Ravi', phone: ravi });
+check('…but not twice in the same branch', reAddAgain.status === 409, show(reAddAgain));
+const raviShops = await call(raviInB.body.token, 'GET', '/auth/shops');
+check(
+  'Ravi sees both branches to switch between, with one PIN',
+  raviShops.body?.shops?.length === 2 && raviShops.body.shops.every((x) => x.role === 'staff'),
+  show(raviShops),
+);
+const raviSwitch = await call(raviInB.body.token, 'POST', '/auth/switch', { shopId: 'shop_mana' });
+check('…and switches to MANA without the PIN again', raviSwitch.body?.user?.shopId === 'shop_mana', show(raviSwitch));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

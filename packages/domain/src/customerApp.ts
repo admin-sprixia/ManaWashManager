@@ -1,5 +1,5 @@
 /**
- * The MANA Car Wash app for signed-in customers: their car's live status, each branch's contact
+ * The Mana Wash app for signed-in customers: their car's live status, each branch's contact
  * details and opening hours, rating a wash, reporting a problem, and asking to add a vehicle.
  */
 
@@ -170,7 +170,7 @@ export function liveStatusText(status: LiveStatus, ahead: number): { title: stri
 export const REFERRAL_OFFER_TEXT = '5–10% off';
 
 export function referralShareMessage(input: { phone: string; city: string | null }): string {
-  const where = input.city ? `MANA Car Wash, ${input.city}` : 'MANA Car Wash';
+  const where = input.city ? `Mana Wash, ${input.city}` : 'Mana Wash';
   return (
     `I get my vehicle washed at ${where}. ` +
     `Give my number ${input.phone} at the counter on your first visit and you get ${REFERRAL_OFFER_TEXT} your wash.`

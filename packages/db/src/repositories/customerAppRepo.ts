@@ -74,7 +74,7 @@ function washView(row: WashRow, link: CustomerLink) {
 export type CustomerWashView = ReturnType<typeof washView>;
 
 /**
- * Everything the MANA Car Wash app reads about a signed-in customer. Each query runs through the
+ * Everything the Mana Wash app reads about a signed-in customer. Each query runs through the
  * branch's shop-scoped client *and* filters by that branch's customer id for this phone, so a
  * customer can only ever see their own vehicles, washes and photos.
  */
@@ -82,7 +82,7 @@ export const customerAppRepo = {
   /** Platform client: every listed branch with a customer on this number. */
   async links(platform: DbClient, phone: string): Promise<CustomerLink[]> {
     const shops = await platform.shop.findMany({
-      where: { inCustomerApp: true },
+      where: { inCustomerApp: true, status: 'active' },
       select: { id: true, name: true, city: true },
       orderBy: { createdAt: 'asc' },
     });
@@ -263,7 +263,7 @@ export const customerAppRepo = {
   /** Platform client: every listed branch with its contact details, hours and price list. */
   async branches(platform: DbClient) {
     const shops = await platform.shop.findMany({
-      where: { inCustomerApp: true },
+      where: { inCustomerApp: true, status: 'active' },
       orderBy: { createdAt: 'asc' },
       select: {
         id: true,

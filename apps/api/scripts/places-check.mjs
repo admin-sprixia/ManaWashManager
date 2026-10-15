@@ -10,10 +10,9 @@
 // payment links; without keys, through the test checkout page.
 import { createHmac } from 'node:crypto';
 import { createServer } from 'node:http';
-import { API, apiFetch, d1Rows, d1Run } from './lib/target.mjs';
+import { API, apiFetch, d1Rows, d1Run, DEV_CODE, signIn as signInWith } from './lib/target.mjs';
 
-const DEV_CODE = process.env.DEV_CODE ?? '000000';
-const PIN = '2580';
+const PIN = '258025';
 const KEY_SECRET = process.env.RAZORPAY_KEY_SECRET ?? 'standin';
 const WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET ?? '';
 
@@ -91,7 +90,6 @@ const weekday = new Date(`${today}T00:00:00Z`).getUTCDay();
 // ─── A business, a branch listed in the app, its team ────────────────────────
 const run = Date.now().toString(36);
 const rand = (n) => String(Math.floor(Math.random() * 10 ** n)).padStart(n, '0');
-const isoIn = (days) => `'${new Date(Date.now() + days * 86400000).toISOString()}'`;
 const BIZ = `biz_pl_${run}`;
 const A = `shop_pla_${run}`;
 const B = `shop_plb_${run}`;
@@ -107,9 +105,9 @@ const LNG = 72.6 + Math.random() / 10;
 
 d1Run(
   `INSERT INTO businesses (id, name) VALUES ('${BIZ}', 'Places Check Co');` +
-    `INSERT INTO shops (id, code, name, plan, paid_until, business_id, in_customer_app, latitude, longitude, service_radius_km)
-       VALUES ('${A}', '${SHOP_CODE}', 'Places Branch', 'active', ${isoIn(30)}, '${BIZ}', 1, ${LAT}, ${LNG}, 10);` +
-    `INSERT INTO shops (id, code, name, plan, paid_until, business_id) VALUES ('${B}', '${rand(6)}', 'Other Branch', 'active', ${isoIn(30)}, '${BIZ}');` +
+    `INSERT INTO shops (id, code, name, business_id, in_customer_app, latitude, longitude, service_radius_km)
+       VALUES ('${A}', '${SHOP_CODE}', 'Places Branch', '${BIZ}', 1, ${LAT}, ${LNG}, 10);` +
+    `INSERT INTO shops (id, code, name, business_id) VALUES ('${B}', '${rand(6)}', 'Other Branch', '${BIZ}');` +
     `INSERT INTO users (id, shop_id, name, phone, role) VALUES ('${OWNER}', '${A}', 'Places Owner', '${ownerPhone}', 'owner');` +
     `INSERT INTO users (id, shop_id, name, phone, role) VALUES ('${STAFF}', '${A}', 'Places Staff', '${staffPhone}', 'staff');` +
     `INSERT INTO users (id, shop_id, name, phone, role) VALUES ('user_plb_${run}', '${B}', 'Other Owner', '${ownerBPhone}', 'owner');` +
@@ -117,15 +115,13 @@ d1Run(
 );
 
 async function staffSignIn(phone) {
-  await call(null, 'POST', '/auth/code/request', { phone });
-  const v = await call(null, 'POST', '/auth/code/verify', { phone, code: DEV_CODE });
-  const p = v.body?.token ? await call(v.body.token, 'PUT', '/auth/pin', { pin: PIN }) : v;
+  const p = await signInWith(phone, PIN);
   return p.body?.token;
 }
 const OWN = await staffSignIn(ownerPhone);
 const OWNB = await staffSignIn(ownerBPhone);
 d1Run(`UPDATE users SET pin_hash = (SELECT pin_hash FROM users WHERE id = '${OWNER}') WHERE id = '${STAFF}';`);
-const STF = (await call(null, 'POST', '/auth/pin/login', { phone: staffPhone, pin: PIN })).body?.token;
+const STF = (await signInWith(staffPhone, PIN)).body?.token;
 check('Owner, staff and another branch’s owner sign in', !!OWN && !!STF && !!OWNB);
 if (!OWN || !STF || !OWNB) process.exit(1);
 
@@ -182,7 +178,7 @@ r = await call(STF, 'GET', '/business/plans');
 check('Staff can’t manage plans', r.status === 403, show(r));
 r = await call(OWN, 'PATCH', '/business/plan-rules', { gstin: 'BADGSTIN' });
 check('A wrong GSTIN is refused', r.status === 400, show(r));
-r = await call(OWN, 'PATCH', '/business/plan-rules', { gstin: '36abcde1234f1z5', legalName: 'MANA Car Wash Pvt Ltd', skipsPerMonth: 1, pauseDaysPerMonth: 7 });
+r = await call(OWN, 'PATCH', '/business/plan-rules', { gstin: '36abcde1234f1z5', legalName: 'Mana Wash Pvt Ltd', skipsPerMonth: 1, pauseDaysPerMonth: 7 });
 check('Admin sets GST details and skip/pause rules', r.status === 200 && r.body?.rules?.gstin === '36ABCDE1234F1Z5' && r.body?.rules?.partsFirstPct === 20, show(r));
 
 // ─── Communities: the team inspects, the owner approves ──────────────────────
@@ -628,7 +624,7 @@ check('…the requester sees the invite', !!streetPlace && r.body?.requests?.[0]
 
 // ─── Public pages ────────────────────────────────────────────────────────────
 r = await call(null, 'GET', `/p/${CODE}`);
-check('The invite link opens a page that opens the app on the place', r.status === 200 && r.body.includes(`manacarwash://place/${CODE}`) && r.body.includes('Sai Residency'), `${r.status}`);
+check('The invite link opens a page that opens the app on the place', r.status === 200 && r.body.includes(`manawash://place/${CODE}`) && r.body.includes('Sai Residency'), `${r.status}`);
 r = await call(null, 'GET', `/p/${CODE}/poster`);
 check('The poster has a QR and the code', r.status === 200 && r.body.includes('<svg') && r.body.includes(CODE), `${r.status}`);
 r = await call(null, 'GET', '/p/ZZZZZZZ');

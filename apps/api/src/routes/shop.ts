@@ -12,7 +12,6 @@ import {
 import { formatIstDateOnly } from '../lib/istDate';
 import { reportQuerySchema, resolveReportWindow, windowMeta } from '../lib/reportWindow';
 import { requireAuth, requireRole } from '../middleware/auth';
-import { requirePro } from '../lib/plan';
 import type { Env } from '../types';
 
 const settingsSchema = z.object({
@@ -71,7 +70,14 @@ export const shopRoutes = new Hono<{ Bindings: Env }>()
   .get('/info', async (c) => {
     const shop = await shopRepo.findById(createPlatformDb(c.env.DB), c.get('session').shopId);
     if (!shop) return c.json({ error: 'not_found' as const }, 404);
-    return c.json({ name: shop.name, city: shop.city, code: shop.code });
+    return c.json({
+      name: shop.name,
+      city: shop.city,
+      code: shop.code,
+      // Closed branches never get this far (the session is refused).
+      status: shop.status === 'paused' ? ('paused' as const) : ('active' as const),
+      statusReason: shop.statusReason,
+    });
   })
   // The name customers see on WhatsApp messages, PDFs and every phone in the shop.
   .put('/info', requireRole('owner'), zValidator('json', shopInfoSchema), async (c) => {
@@ -109,7 +115,7 @@ export const shopRoutes = new Hono<{ Bindings: Env }>()
   })
   // A team member's own numbers for a period: washes done, commission services they got
   // customers to take and what that earned, days worked.
-  .get('/me/earnings', requirePro('commission'), zValidator('query', reportQuerySchema), async (c) => {
+  .get('/me/earnings', zValidator('query', reportQuerySchema), async (c) => {
     const db = c.get('db');
     const query = c.req.valid('query');
     const window = resolveReportWindow(query);

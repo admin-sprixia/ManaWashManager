@@ -66,7 +66,7 @@ const vehicleRequestSelect = {
 } as const;
 
 /**
- * Ratings, problem reports and "add my vehicle" requests from the MANA Car Wash app — the
+ * Ratings, problem reports and "add my vehicle" requests from the Mana Wash app — the
  * customer's side (always filtered by their customer id in this branch) and the team's side.
  */
 export const customerCareRepo = {

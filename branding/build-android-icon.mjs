@@ -39,10 +39,10 @@ if (groupAt < 0) throw new Error('app-icon.svg: could not find the drop group');
 const backgroundArt = afterDefs.slice(0, groupAt); // tile, glow, stars
 const dropArt = afterDefs.slice(groupAt).replace(/^<g transform="[^"]*">/, '').replace(/<\/g>$/, '');
 
-// The drop in the 108 dp adaptive layer. Its height (with thickness) is 235 source units; this scale keeps
-// that inside the 66 dp safe circle with room for the soft glow.
+// The drop in the 108 dp adaptive layer. Its height (with thickness) is 235 source units; this scale makes it
+// about 45 dp tall: launchers show only the middle ~72 dp, so anything bigger looks zoomed in.
 const K = 108 / 512;
-const SCALE = 1.2 * K;
+const SCALE = 0.9 * K;
 const DROP_CENTRE_Y = 131.5; // the drop spans y 14–249 in source units, including its thickness
 const TX = 54 - 128 * SCALE;
 const TY = 54 - DROP_CENTRE_Y * SCALE;

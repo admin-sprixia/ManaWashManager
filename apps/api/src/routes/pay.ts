@@ -19,9 +19,9 @@ const idParam = z.object({ id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/) });
 function resultPage(payment: PaymentRow | null) {
   if (!payment) {
     return page('Payment', `<main><div class="card"><div class="badge bad">!</div><h1>Payment not found</h1>
-<p>Open the MANA Car Wash app to see your plan.</p>${openAppButton('home')}</div></main>`);
+<p>Open the Mana Wash app to see your plan.</p>${openAppButton('home')}</div></main>`);
   }
-  const back = openAppButton(`payment/${payment.id}`, 'Back to MANA Car Wash');
+  const back = openAppButton(`payment/${payment.id}`, 'Back to Mana Wash');
   if (payment.status === 'paid') {
     return page('Payment received', `<main><div class="card"><div class="badge ok">✓</div><h1>Payment received</h1>
 <div class="amount">${esc(formatInr(payment.amount))}</div>
@@ -71,7 +71,7 @@ export const payRoutes = new Hono<{ Bindings: Env }>()
     return c.html(
       page(
         'Test payment',
-        `<main><div class="card"><p class="small">TEST CHECKOUT · no real money</p><h1>MANA Car Wash</h1>
+        `<main><div class="card"><p class="small">TEST CHECKOUT · no real money</p><h1>Mana Wash</h1>
 <div class="amount">${esc(formatInr(payment.amount))}</div>
 <form method="post"><button class="btn primary" name="action" value="pay">Pay ${esc(formatInr(payment.amount))}</button>
 <button class="btn danger" name="action" value="fail">Make it fail</button></form></div></main>`,

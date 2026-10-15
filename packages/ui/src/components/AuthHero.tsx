@@ -6,7 +6,7 @@ import { GradientHero } from './GradientHero';
 import { IconChevronLeft, IconEdit } from './Icons';
 
 interface AuthHeroProps {
-  /** Shown under the MANA wordmark: "Wash Manager" or "Car Wash". */
+  /** Shown under the MANA wordmark: "Wash Partner" (team app) or "Wash" (customer app). */
   product: string;
   title: string;
   subtitle?: string;

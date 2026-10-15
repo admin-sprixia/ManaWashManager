@@ -26,41 +26,76 @@ export const userRepo = {
   /**
    * A phone belongs to one person on the whole platform. Pass the platform client to look across
    * every shop (sign-in, "is this number taken?"); a shop client only sees its own team.
-   * Removed members have given the number up. An owner with several branches has a row in each;
+   * Removed members have given the number up. Someone at several branches has a row in each;
    * this returns the oldest (their first shop).
    */
   async findByPhone(db: DbClient, phone: string) {
     return db.user.findFirst({ where: { phone, removedAt: null }, orderBy: { createdAt: 'asc' } });
   },
 
-  /** Every shop this number is live in, oldest first — one for staff, one per branch for owners. */
+  /** Every branch this number is live in, oldest first. */
   async listByPhone(db: DbClient, phone: string) {
     return db.user.findMany({ where: { phone, removedAt: null }, orderBy: { createdAt: 'asc' } });
   },
 
   /**
-   * Same person in every shop: one PIN and lockout for all of an owner's branches. A new (or
-   * cleared) PIN also signs out every phone still holding an older session.
+   * Same person in every branch: one PIN and lockout for all their rows. A new (or cleared) PIN
+   * also signs out every phone still holding an older session. `pinSetAt` only moves when the
+   * person chooses a PIN, so resets since then can be shown to them.
    */
-  async setPinHashForPhone(db: DbClient, phone: string, pinHash: string | null) {
+  async setPinHashForPhone(db: DbClient, phone: string, pin: { hash: string; digits: number } | null, now = new Date()) {
     await db.user.updateMany({
       where: { phone, removedAt: null },
-      data: { pinHash, pinFailedAttempts: 0, pinLockedUntil: null, sessionVersion: { increment: 1 } },
+      data: {
+        pinHash: pin?.hash ?? null,
+        pinDigits: pin?.digits ?? null,
+        pinSetAt: pin ? now : undefined,
+        pinFailedAttempts: 0,
+        pinLockedUntil: null,
+        pinLockCount: 0,
+        sessionVersion: { increment: 1 },
+      },
     });
+  },
+
+  /** A PIN from before lengths were kept: recorded once it has been typed correctly. */
+  async notePinDigits(db: DbClient, phone: string, digits: number) {
+    await db.user.updateMany({ where: { phone, removedAt: null, pinDigits: null }, data: { pinDigits: digits } });
   },
 
   async updateForPhone(db: DbClient, phone: string, data: { name?: string; phone?: string }) {
     await db.user.updateMany({ where: { phone, removedAt: null }, data });
   },
 
-  /** Team list: active first, owners before staff, then alphabetical. */
+  /**
+   * Moves someone to a new number on every branch, signs out their sessions on the old one, and
+   * moves HQ with them: an old number left as HQ could be given to a stranger by the telco.
+   */
+  async movePhone(db: DbClient, from: string, to: string) {
+    const admins = await db.businessAdmin.findMany({ where: { phone: from }, select: { businessId: true } });
+    for (const a of admins) {
+      await db.businessAdmin.upsert({
+        where: { businessId_phone: { businessId: a.businessId, phone: to } },
+        create: { businessId: a.businessId, phone: to },
+        update: {},
+      });
+    }
+    await db.user.updateMany({
+      where: { phone: from, removedAt: null },
+      data: { phone: to, sessionVersion: { increment: 1 } },
+    });
+    await db.businessAdmin.deleteMany({ where: { phone: from } });
+  },
+
+  /** Team list: active first, then owners, managers, staff, then alphabetical. */
   async list(db: DbClient) {
     const users = await db.user.findMany({ where: { removedAt: null }, select: publicSelect });
+    const rank = (role: string) => (role === 'owner' ? 0 : role === 'manager' ? 1 : 2);
     return users
       .map(({ pinHash, ...u }) => ({ ...u, hasPin: pinHash != null }))
       .sort((a, b) => {
         if (a.active !== b.active) return a.active ? -1 : 1;
-        if (a.role !== b.role) return a.role === 'owner' ? -1 : 1;
+        if (a.role !== b.role) return rank(a.role) - rank(b.role);
         return a.name.localeCompare(b.name);
       });
   },
@@ -79,11 +114,16 @@ export const userRepo = {
     return db.user.update({ where: { id }, data: { ...data, ...signOut } });
   },
 
+  /**
+   * A new row for someone who may already work at another branch: `pin` is copied from their
+   * other rows so one PIN still opens every branch.
+   */
   async createWithPin(
     db: DbClient,
-    data: { name: string; phone: string; role: UserRole; pinHash: string },
+    data: { name: string; phone: string; role: UserRole; pin: { hash: string | null; digits: number | null; setAt: Date | null } },
   ) {
-    return db.user.create({ data });
+    const { pin, ...rest } = data;
+    return db.user.create({ data: { ...rest, pinHash: pin.hash, pinDigits: pin.digits, pinSetAt: pin.setAt } });
   },
 
   async countActiveOwners(db: DbClient) {
@@ -120,6 +160,7 @@ export const userRepo = {
       data: {
         active: false,
         pinHash: null,
+        pinDigits: null,
         pinFailedAttempts: 0,
         pinLockedUntil: null,
         removedAt: now,
@@ -129,14 +170,31 @@ export const userRepo = {
   },
 
   /**
-   * Setting (or clearing) a PIN also clears any lockout from previous wrong attempts and signs
-   * out the phones that used the old one.
+   * A first PIN for someone in one branch only (a new teammate finishing their join request).
+   * Also clears any lockout and signs out older sessions.
    */
-  async setPinHash(db: DbClient, id: string, pinHash: string | null) {
+  async setPinHash(db: DbClient, id: string, pin: { hash: string; digits: number }, now = new Date()) {
     return db.user.update({
       where: { id },
-      data: { pinHash, pinFailedAttempts: 0, pinLockedUntil: null, sessionVersion: { increment: 1 } },
+      data: {
+        pinHash: pin.hash,
+        pinDigits: pin.digits,
+        pinSetAt: now,
+        pinFailedAttempts: 0,
+        pinLockedUntil: null,
+        sessionVersion: { increment: 1 },
+      },
     });
+  },
+
+  /** The PIN shared by someone's live rows, to copy onto a new row for them; null if none. */
+  async personPin(db: DbClient, phone: string) {
+    const row = await db.user.findFirst({
+      where: { phone, removedAt: null },
+      orderBy: { createdAt: 'asc' },
+      select: { name: true, pinHash: true, pinDigits: true, pinSetAt: true },
+    });
+    return row ? { name: row.name, pin: { hash: row.pinHash, digits: row.pinDigits, setAt: row.pinSetAt } } : null;
   },
 
   /**
@@ -156,11 +214,17 @@ export const userRepo = {
     return count === 1;
   },
 
-  /** After a wrong guess: how many have been used, locking the PIN once they're all gone. */
-  async settlePinFailure(db: DbClient, id: string, maxAttempts: number, lockUntil: Date) {
+  /**
+   * After a wrong guess: how many have been used, locking the PIN once they're all gone. Each
+   * lock in a row lasts longer: `lockMinutes[n]` for the (n+1)th, the last one from then on.
+   */
+  async settlePinFailure(db: DbClient, id: string, maxAttempts: number, now: Date, lockMinutes: readonly number[]) {
+    const before = await db.user.findUnique({ where: { id }, select: { pinLockCount: true } });
+    const step = Math.min(before?.pinLockCount ?? 0, lockMinutes.length - 1);
+    const lockUntil = new Date(now.getTime() + lockMinutes[step]! * 60 * 1000);
     await db.user.updateMany({
       where: { id, pinLockedUntil: null, pinFailedAttempts: { gte: maxAttempts } },
-      data: { pinLockedUntil: lockUntil },
+      data: { pinLockedUntil: lockUntil, pinLockCount: { increment: 1 } },
     });
     return db.user.findUnique({
       where: { id },
@@ -171,7 +235,12 @@ export const userRepo = {
   async clearPinFailures(db: DbClient, id: string) {
     return db.user.update({
       where: { id },
-      data: { pinFailedAttempts: 0, pinLockedUntil: null },
+      data: { pinFailedAttempts: 0, pinLockedUntil: null, pinLockCount: 0 },
     });
+  },
+
+  /** Signs out every phone holding a session for this number, on every branch. */
+  async signOutEverywhere(db: DbClient, phone: string) {
+    await db.user.updateMany({ where: { phone, removedAt: null }, data: { sessionVersion: { increment: 1 } } });
   },
 };

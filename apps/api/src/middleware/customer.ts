@@ -5,7 +5,7 @@ import type { Env } from '../types';
 
 declare module 'hono' {
   interface ContextVariableMap {
-    /** The MANA Car Wash account behind the request (customer routes only). */
+    /** The Mana Wash account behind the request (customer routes only). */
     customer: { accountId: string; phone: string };
     /** Listed branches where this phone is a customer — every customer read is limited to these. */
     customerLinks: CustomerLink[];

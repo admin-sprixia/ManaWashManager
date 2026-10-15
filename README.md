@@ -1,4 +1,4 @@
-# MANA Wash Manager
+# Mana Wash Partner
 
 MANA's own operations app: job tracking, customer history, payments — built per the
 [app build plan](./docs/old-plan/MANA-Wash-Manager-App-Build-Plan.md). Release 0.2.0: job board and new
@@ -49,16 +49,19 @@ Only needed the first time, or after adding/upgrading a native dependency (e.g. 
 already-installed app automatically — no need to re-run this; just reopen the app from the
 phone if it's not already in the foreground.
 
-**Sign in** — day to day, everyone signs in with phone + PIN. On a fresh local database nobody
-has a PIN yet: the owner enters their phone, the app asks for a WhatsApp code, and then they
-pick a PIN. Locally no message is sent — the code is fixed:
+**Sign in** — day to day, everyone signs in with phone + PIN, on a phone their number trusts. The
+first time on a phone (or after a reset, or after choosing Sign out) the app asks for a WhatsApp
+code; a number with no PIN yet chooses one straight after. Owners and managers use 6-digit PINs,
+staff 4 to 6. Locally no message is sent — the code is fixed:
 
-- Phone: `9100000000`
-- WhatsApp code (and recovery code): `000000` (dev only — `DEV_RECOVERY_CODE` in `.dev.vars`)
+- Phone: `9100000000` (also Mana Wash HQ in the seed)
+- WhatsApp code: `000000` (dev only — `DEV_RECOVERY_CODE` in `.dev.vars`)
 - While Meta reviews WhatsApp: keep `WHATSAPP_OTP_BYPASS=true` in `.dev.vars` so the app uses
   `000000` and never sends a real message. Set it to `false` when you’re ready to send real codes.
 
-Staff PINs are set by the owner from **More → Team**; staff never get WhatsApp codes.
+Nobody sets or sees someone else's PIN. Everyone chooses their own after a WhatsApp code; an owner,
+manager or HQ can only **reset** one (see [Forgotten or reset PINs](#forgotten-or-reset-pins)).
+Every sign-in case, limit and error is in [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md).
 
 If the app ever shows "Cannot connect to Metro" or a red error screen, check Terminals 1 and 2
 are both still running and the `adb reverse` step was re-run after the last USB reconnect —
@@ -68,7 +71,7 @@ that covers the two most common causes.
 
 ```text
 apps/
-  mobile/     React Native CLI app (TypeScript) — the actual MANA Wash Manager app
+  mobile/     React Native CLI app (TypeScript) — the Mana Wash Partner app (team app)
   api/        Cloudflare Worker (Hono) — mana-api, backed by D1 (mana_db)
 packages/
   domain/     Pure business rules: pricing calculation, job status transitions (unit tested)
@@ -100,14 +103,13 @@ wipe the live database.
 3. **Set the production secrets** (each prompts for the value; nothing is committed):
    ```bash
    npx wrangler secret put JWT_SECRET            # 32+ random characters: openssl rand -base64 48
-   npx wrangler secret put OWNER_RECOVERY_CODE   # 8+ characters, works once — keep it offline
    npx wrangler secret put WHATSAPP_API_TOKEN        # see "WhatsApp sign-in codes" below
    npx wrangler secret put WHATSAPP_PHONE_NUMBER_ID
    ```
    Never set `DEV_MODE` / `DEV_RECOVERY_CODE` in production.
 
-   **WhatsApp sign-in codes** — the owner gets a 6-digit code on WhatsApp on a new phone or after
-   forgetting their PIN. One-time setup in [Meta for Developers](https://developers.facebook.com/):
+   **WhatsApp sign-in codes** — everyone gets a 6-digit code on WhatsApp on a new phone or after
+   forgetting their PIN. WhatsApp is the only way in on a new phone, so set this up before go-live. One-time setup in [Meta for Developers](https://developers.facebook.com/):
    create a Business app → add **WhatsApp** → add and verify the shop's business number (it
    can't also be used in the normal WhatsApp app) → copy its **Phone number ID**. In Business
    Settings → System users, create a system user with the `whatsapp_business_messaging`
@@ -115,7 +117,7 @@ wipe the live database.
    create an **Authentication** template named `login_code` (language English) with a
    **Copy code** button, and wait for approval. A different name or language goes in
    `WHATSAPP_OTP_TEMPLATE` / `WHATSAPP_OTP_LANGUAGE`. Meta charges a small per-message fee for
-   authentication messages. Until this is set up, the owner uses the recovery code.
+   authentication messages. Until this is set up, nobody can sign in on a new phone.
 4. **Create the tables** — `npm run db:migrate:remote` applies every file in `migrations/`.
    The live database starts empty: no demo shop, no demo accounts.
 5. **Deploy** — `npm run deploy`. Note the `https://mana-api.<subdomain>.workers.dev` URL it
@@ -128,10 +130,12 @@ wipe the live database.
 7. **Build the release app** — from `apps/manager`: `npm run build:release`. Install
    `android/app/build/outputs/apk/release/app-release.apk` on each shop phone (the `.aab` next
    to it under `bundle/release` is the Play Store upload).
-8. **First sign-in** — the owner opens the app, enters their phone, picks **Start a new shop**
-   (WhatsApp code → PIN → name, shop name, city), then adds services and prices from
-   **More → Services & prices**, staff from **More → Team**, and the Google review link from
-   **More**. Staff join with the 6-digit shop ID shown in **More → shop name**.
+8. **First sign-in** — nobody can start a shop from the app. Mana Wash HQ (a phone in
+   `business_admins`) opens each branch from **More → Mana Wash HQ → All branches → Open a
+   branch** (branch name, city, owner's name and phone). The branch gets the
+   business menu straight away; its owner signs in with their phone and a WhatsApp code, then sets
+   a 6-digit PIN. Staff join with the 6-digit branch ID shown in **More → shop name**, and an owner
+   or manager approves them in **More → Team**. Only HQ adds or removes branch owners.
 
 **Changing the database later** — never edit a table by hand and never edit an old migration.
 Add the next numbered file (`migrations/0002_what_it_does.sql`), make the same change in
@@ -160,20 +164,17 @@ Treat the URL like a password — anyone who has it can post into that channel.
 You'll get at most one message per 15 minutes, with a count of errors since the last one —
 covering API errors, app crashes and a failed nightly backup.
 
-**Payments: Free and Pro (Razorpay)** — every shop gets a 14-day Pro trial, then drops to Free
-unless it pays. Free: the owner + 1 staff, 300 washes a month, reports for the last 7 days. Pro
-(₹499 a month or ₹4,999 a year; the first 50 shops to pay get ₹399 / ₹3,990, for life; each extra branch ₹349 / ₹3,490): 5 staff,
-unlimited washes and every feature. The server enforces all of it; the app only mirrors it. Owners
-pay with UPI AutoPay or a card on Razorpay's hosted page — the app never sees card or UPI details.
-One-time setup, in **Test Mode** first (top-right toggle in the
+**Payments (Razorpay)** — branches don't pay for the app: every branch gets every feature, and
+Mana Wash HQ settles royalties outside it. Razorpay is used only for **customer payment links**
+(community wash plans). One-time setup, in **Test Mode** first (top-right toggle in the
 [Razorpay Dashboard](https://dashboard.razorpay.com/)):
 
 1. **Account & Settings → API Keys → Generate Test Key.** Copy the Key ID (`rzp_test_…`) and
    the Key Secret (shown once).
 2. **Account & Settings → Webhooks → Add New Webhook.** URL
-   `https://api-staging.manawashmanager.com/billing/webhook` (production:
-   `https://api.manawashmanager.com/billing/webhook`), a long random **Secret**
-   (`openssl rand -hex 32`), and tick every `subscription.*` event.
+   `https://api-staging.manawashmanager.com/pay/webhook` (production:
+   `https://api.manawashmanager.com/pay/webhook`), a long random **Secret**
+   (`openssl rand -hex 32`), and tick the `payment_link.*` events.
 3. **Set the three secrets** from `apps/api` (each prompts for the value; drop `--env staging`
    for production):
    ```bash
@@ -181,21 +182,15 @@ One-time setup, in **Test Mode** first (top-right toggle in the
    npx wrangler secret put RAZORPAY_KEY_SECRET --env staging
    npx wrangler secret put RAZORPAY_WEBHOOK_SECRET --env staging
    ```
-4. **Try it** — More → Your plan → Upgrade. Test Mode pays with Razorpay's
-   [test UPI ID or test cards](https://razorpay.com/docs/payments/payments/test-card-upi-details/);
-   no real money moves. Pro switches on when the owner returns to the app (it asks Razorpay
-   directly) or when the webhook lands, whichever is first. A nightly job catches up any shop
-   whose renewal webhook went missing.
 
-**Right now staging has placeholder values** for all three secrets (an action item in the build
-plan's Next steps). The API treats any key ID that doesn't start with `rzp_test_` / `rzp_live_` as
-"not set up", so the app works normally and only the Upgrade button explains that payments
-aren't ready. Replace all three with the commands above when the Razorpay account exists.
+The API treats any key ID that doesn't start with `rzp_test_` / `rzp_live_` as "not set up"; plans
+are then paid at the counter only. Going live: activate the Razorpay account (KYC), generate
+**Live** keys and a live webhook the same way, and put them into the production secrets.
 
-Going live later: activate the Razorpay account (KYC), generate **Live** keys and a live webhook
-the same way, and put the live values into the production secrets. Razorpay plans are created by
-the API on first use, per key, so nothing else changes. Without the keys the app still works —
-the plan screen just says payments aren't set up yet.
+**Pausing or closing a branch** — HQ only, from **More → Mana Wash HQ → All branches → the
+branch**, with a reason the team sees. Paused: no new washes, but washes already open can be
+finished and paid. Closed: everyone there is signed out and can't sign in; its records are kept,
+and HQ can reopen it. Every change is logged with who made it and why.
 
 **Restoring** — D1's built-in Time Travel is the first resort (any minute in the last 30 days):
 `npx wrangler d1 time-travel restore mana_db --timestamp=<ISO time>`. The nightly backups are
@@ -221,9 +216,17 @@ release: `npm run db:migrate:staging`, `npx wrangler deploy --env staging`, and 
 phone's build at the staging URL with `set-api-url`. `--into staging` restores a production
 backup there for realistic testing.
 
-**Lost the owner PIN** — tap **Forgot PIN? → Send code on WhatsApp**. If WhatsApp isn't
-reachable, rotate the recovery code (`npx wrangler secret put OWNER_RECOVERY_CODE`) and sign in
-with the new one; each recovery code works once.
+### Forgotten or reset PINs
+
+- **Forgot it, phone in hand** — tap **Forgot PIN? → Send code on WhatsApp**, then choose a new PIN.
+- **Lost phone, or locked out** — someone above resets it: the owner resets staff and managers, a
+  manager resets staff (**More → Team → the person → Reset PIN**), HQ resets owners and anyone
+  working at more than one branch (**All branches → the branch → Reset PIN**). A reset signs them out everywhere and forgets
+  every phone they trusted; it never signs anyone in. They get back in with a WhatsApp code, choose
+  a new PIN, and are told who reset it and when. Every reset is logged.
+- **HQ itself** — Sprixia resets it after a phone call, from `apps/api`:
+  `npm run support:reset-pin -- --phone 98XXXXXXXX --into remote --yes --by "Name (Sprixia)"`
+  (`--into local` or `staging` to rehearse; `--by` is what the person is shown).
 
 ## Setup
 
@@ -262,7 +265,7 @@ npm run db:seed:demo     # optional, with the API running: 90 days of realistic 
 
 `seed.sql` adds the MANA shop (ID `482193`), its menu and prices, and the sign-in accounts
 listed under [Run the app](#run-the-app). `db:seed:demo` resets again and fills in customers,
-washes, photos, expenses, stock, cash days, a second branch and three staff (PIN `2580` for
+washes, photos, expenses, stock, cash days, a second branch and three staff (PIN `258025` for
 everyone; it prints the phone numbers). There is no remote reset — the live database is only
 ever changed by migrations. `schema.sql` is the readable picture of the whole database;
 `db:check` keeps it identical to the migrations.
@@ -314,7 +317,7 @@ npm run android
 If you ever do need an iOS build, the native `ios/` folder was never generated (CocoaPods
 isn't installed on this machine and MANA doesn't need it) — generate it the same way `android/`
 was: extract the `template/ios` folder from the `react-native` npm package and rename the
-`HelloWorld` placeholders to `ManaWashManager` / `com.sprixia.manawashmanager`.
+`HelloWorld` placeholders to `ManaWashPartner` / `com.sprixia.manawashpartner`.
 
 ### 7. Deploy the API
 
@@ -342,39 +345,38 @@ Don't merge a red build.
 
 ```bash
 cd apps/api && npm run test:isolation   # adds a second shop and proves neither can see or change the other's data
-cd apps/api && npm run test:signup      # new shop sign-up, join requests (approve/reject/cancel), remove from team
-cd apps/api && npm run test:plans       # Free limits (staff seats, 300 washes, 7-day reports, Pro-only features), trial, grace, webhook signature
+cd apps/api && npm run test:signup      # HQ opens branches and manages owners, join requests (approve/reject/cancel), remove from team
+cd apps/api && npm run test:access      # roles (owner, manager, staff), PIN resets, trusted phones, 6-digit PINs, pause and close
 cd apps/api && npm run test:rewards     # stamp cards, free washes, welcome gifts and owed gifts, including voids and retries
 cd apps/api && npm run test:races       # double taps and parallel requests can't double-count
-cd apps/api && npm run test:customer-app  # the MANA Car Wash app: sign-in, branches, vehicles, washes, requests
+cd apps/api && npm run test:customer-app  # the Mana Wash app (customers): sign-in, branches, vehicles, washes, requests
 cd apps/api && npm run test:catalog     # business price list, vehicle sizes, branches and service points
 cd apps/api && npm run test:places      # places, joining (flows A–E), plans, payments, receipts, refunds, nightly
 ```
 
 These expect a fresh local database: run `npm run db:reset:local` first, and `npm run db:seed:demo`
 afterwards to get the demo data back. `test:places` checks the signed payment webhook when
-`RAZORPAY_WEBHOOK_SECRET` is set in the shell, the same way as `test:plans` below. Places, plans and
-payments are described in `docs/old-plan/MANA-Registration-and-Plans.md`.
-
-`test:plans` checks a correctly signed webhook too when `RAZORPAY_WEBHOOK_SECRET` is set in the
-shell to the same value the local API uses (CI does this). It also runs a stand-in Razorpay on
-port 8799 for the checkout worst cases (last founder spot, double taps, a duplicate paid
-subscription); start the API pointed at it to include them:
+`RAZORPAY_WEBHOOK_SECRET` is set in the shell to the same value the local API uses (CI does this).
+It runs a stand-in Razorpay on port 8799; start the API pointed at it to include the payment-link
+checks:
 
 ```bash
 npx wrangler dev --var RAZORPAY_WEBHOOK_SECRET:local --var RAZORPAY_KEY_ID:rzp_test_standin \
   --var RAZORPAY_KEY_SECRET:standin --var RAZORPAY_API_BASE:http://127.0.0.1:8799/v1
-RAZORPAY_WEBHOOK_SECRET=local npm run test:plans
+RAZORPAY_WEBHOOK_SECRET=local npm run test:places
 ```
 
-`RAZORPAY_API_BASE` is ignored unless the key id starts with `rzp_test_`.
+`RAZORPAY_API_BASE` is ignored unless the key id starts with `rzp_test_`. Places, plans and
+payments are described in `docs/old-plan/MANA-Registration-and-Plans.md`. The scripts sign in
+with a fixed device key kept in `apps/api/.wrangler/script-device-key`, so they trust the local
+API once like a real phone.
 
-**Sign-up flow** — a number with no account picks "Start a new shop" (WhatsApp code → PIN twice →
-name, shop name, city) or "I work at a shop" (6-digit shop ID → WhatsApp code → name → the owner
-approves in More → Team → they choose their own PIN). The seeded MANA shop's ID is `482193`.
-"Start a new shop" is only offered while sign-up is open: by default on local `wrangler dev` (and
-CI), never on staging or production. The platform setting `signup.open` (`true`/`false`)
-overrides that; with it closed, a new number goes straight to "I work at a shop".
+**Sign-up flow** — a number with no account can only join a branch: 6-digit branch ID → WhatsApp
+code → name → an owner or manager approves in More → Team → they choose their own PIN. A paused
+branch takes no join requests; a closed one isn't found. The seeded MANA branch's ID is `482193`. New branches are opened only by HQ (`POST /business/branches`, for
+a phone in `business_admins`); every branch belongs to the Mana Wash business, and only HQ adds or
+removes owners (`/business/branches/:id/owners`; Team refuses with `hq_only`). The seeded HQ
+admin is `9100000000`.
 
 Run it after any change to a route or repository. Every signed-in route must use
 `c.get('db')` (locked to the signed-in shop), never `createPlatformDb`.

@@ -13,9 +13,9 @@ export interface DirectoryEntry {
   visitCount: number;
   lastVisit: string | null;
   lastServices: { serviceId: string; quantity: number }[];
-  /** Stamp cards with stamps or a free wash on them (Pro shops). Missing in older saved copies. */
+  /** Stamp cards with stamps or a free wash on them. Missing in older saved copies. */
   rewardCards?: RewardCard[];
-  /** Welcome-gift items still owed to this vehicle (Pro shops). */
+  /** Welcome-gift items still owed to this vehicle. */
   giftsOwed?: number;
   updatedAt: string;
   /** Written on this phone by a wash that hasn't been confirmed by a server sync yet. */

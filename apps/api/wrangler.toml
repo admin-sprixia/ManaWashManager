@@ -34,7 +34,7 @@ crons = ["30 21 * * *"]
 
 # Non-secret config only goes in [vars]. Secrets are set with `wrangler secret put <NAME>`
 # and never committed here — see the build plan's Naming conventions section:
-#   JWT_SECRET, OWNER_RECOVERY_CODE, WHATSAPP_API_TOKEN, WHATSAPP_PHONE_NUMBER_ID
+#   JWT_SECRET, WHATSAPP_API_TOKEN, WHATSAPP_PHONE_NUMBER_ID
 #   Optional: WHATSAPP_OTP_TEMPLATE (default login_code), WHATSAPP_OTP_LANGUAGE (default en)
 #   Optional error alerts: DISCORD_WEBHOOK_URL
 

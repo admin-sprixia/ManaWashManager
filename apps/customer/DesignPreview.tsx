@@ -24,7 +24,7 @@ const vehicle = (cards: object[], offers: object[] = [], gifts: object[] = []) =
 const offer = { code: 'MANA-7534-ZVKTRE', percent: 6, expiresAt: '2026-10-19T00:00:00Z' };
 
 const BASE: HomeViewProps = {
-  greeting: 'Good morning', firstName: 'Rohit', branchLine: 'MANA Car Wash, Nellore', referralOffer: '5–10% off',
+  greeting: 'Good morning', firstName: 'Rohit', branchLine: 'Mana Wash, Nellore', referralOffer: '5–10% off',
   now: new Date('2026-10-05T10:04:00+05:30'), latest: wash(), vehicles: [], liveWashes: [],
   branchOf: () => ({ phone: '9876543210', address: 'Nellore' }) as never,
   loading: false, refreshing: false, error: null, hasData: true, focused: true,

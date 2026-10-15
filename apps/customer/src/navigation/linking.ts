@@ -1,8 +1,8 @@
 import { Linking } from 'react-native';
 import type { LinkingOptions, PathConfigMap } from '@react-navigation/native';
 
-/** The app's own links: `manacarwash://place/AB12CD3` (QR posters, shared links) and `manacarwash://payment/<id>` (back from checkout). */
-export const LINK_PREFIX = 'manacarwash://';
+/** The app's own links: `manawash://place/AB12CD3` (QR posters, shared links) and `manawash://payment/<id>` (back from checkout). */
+export const LINK_PREFIX = 'manawash://';
 
 let held: string | null = null;
 let launchChecked = false;

@@ -54,7 +54,7 @@ export function PlaceDemandScreen({ navigation }: Props) {
       ) : (
         <ScrollView contentContainerStyle={styles.scroll} refreshControl={<RefreshControl refreshing={demand.refreshing} onRefresh={() => void demand.refresh()} />}>
           {!clusters.length && !byArea.length ? (
-            <Text style={[styles.help, styles.pad]}>No open requests right now. When people ask from the MANA Car Wash app, they show here by place.</Text>
+            <Text style={[styles.help, styles.pad]}>No open requests right now. When people ask from the Mana Wash app, they show here by place.</Text>
           ) : null}
           {clusters.map((c, i) => (
             <View key={c.requestIds[0]} style={i > 0 ? styles.gap : undefined}>

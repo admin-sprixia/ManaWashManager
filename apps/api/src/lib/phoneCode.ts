@@ -18,7 +18,7 @@ import type { Env } from '../types';
 
 /**
  * WhatsApp codes for numbers that aren't (yet) an account's sign-in: a new shop, joining one,
- * moving an account to a new number, and the MANA Car Wash app. Same rules everywhere: a resend
+ * moving an account to a new number, and the Mana Wash app. Same rules everywhere: a resend
  * wait, a cap per hour (and optionally per network address), 10 minutes to use it, 5 guesses.
  */
 

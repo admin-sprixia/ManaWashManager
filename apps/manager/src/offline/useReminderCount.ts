@@ -2,7 +2,6 @@ import { useCallback, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { api } from '../api/client';
 import { useSync } from './SyncProvider';
-import { usePlan } from './PlanProvider';
 
 /**
  * Badge count for the Job Board's bell: vehicles due a follow-up that nobody has acted on,
@@ -12,13 +11,10 @@ import { usePlan } from './PlanProvider';
  */
 export function useReminderCount(): number {
   const { version } = useSync();
-  const { isPro } = usePlan();
   const [count, setCount] = useState(0);
 
   useFocusEffect(
     useCallback(() => {
-      // Reminders are a Pro feature; on Free the bell opens the upgrade sheet instead.
-      if (!isPro) return;
       let alive = true;
       api.reminders
         .$get()
@@ -31,8 +27,8 @@ export function useReminderCount(): number {
         alive = false;
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [version, isPro]),
+    }, [version]),
   );
 
-  return isPro ? count : 0;
+  return count;
 }

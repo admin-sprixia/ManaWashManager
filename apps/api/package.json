@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test:isolation": "node scripts/isolation-check.mjs",
     "test:signup": "node scripts/signup-check.mjs",
-    "test:plans": "node scripts/plan-check.mjs",
+    "test:access": "node scripts/access-check.mjs",
     "test:races": "node scripts/race-check.mjs",
     "test:rewards": "node scripts/rewards-check.mjs",
     "test:customer-app": "node scripts/customer-app-check.mjs",
@@ -29,7 +29,8 @@
     "db:reset:staging": "node scripts/db-reset-local.mjs --staging",
     "db:seed:demo": "node scripts/seed-demo.mjs",
     "db:seed:staging": "node scripts/seed-demo.mjs --staging",
-    "backup:restore": "node scripts/restore-backup.mjs"
+    "backup:restore": "node scripts/restore-backup.mjs",
+    "support:reset-pin": "node scripts/reset-pin.mjs"
   },
   "dependencies": {
     "@hono/zod-validator": "^0.2.2",

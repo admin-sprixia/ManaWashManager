@@ -29,9 +29,13 @@ migrations.forEach((f, i) => {
 function build(sqlFiles) {
   const db = new DatabaseSync(':memory:');
   db.exec('PRAGMA foreign_keys = ON;');
+  // D1 applies each migration file as one transaction, which is what lets a file defer its
+  // foreign-key checks to the end (PRAGMA defer_foreign_keys) while it rebuilds a table.
   for (const [name, sql] of sqlFiles) {
     try {
+      db.exec('BEGIN');
       db.exec(sql);
+      db.exec('COMMIT');
     } catch (e) {
       fail(`${name}: ${e.message}`);
     }

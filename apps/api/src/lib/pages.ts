@@ -4,8 +4,8 @@
  * beyond opening the app, so they load fast on any phone.
  */
 
-export const APP_SCHEME = 'manacarwash://';
-export const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.sprixia.manacarwash';
+export const APP_SCHEME = 'manawash://';
+export const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.sprixia.manawash';
 
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
@@ -48,7 +48,7 @@ export function page(title: string, body: string, options: { print?: boolean } =
 }
 
 /** A page whose main button opens the app at `path` (falls back to the Play Store). */
-export function openAppButton(path: string, label = 'Open MANA Car Wash'): string {
+export function openAppButton(path: string, label = 'Open Mana Wash'): string {
   return `<a class="btn primary" href="${esc(APP_SCHEME + path)}">${esc(label)}</a>
 <a class="btn ghost small" href="${esc(PLAY_STORE_URL)}">Don’t have the app? Get it on Google Play</a>`;
 }

@@ -58,10 +58,10 @@ export const serviceAreaRepo = {
     });
   },
 
-  /** Shop-scoped client: whether Sprixia has listed this branch in the MANA Car Wash app. */
+  /** Shop-scoped client: whether Sprixia has listed this branch in the Mana Wash app and HQ has it open. */
   async isListed(db: DbClient): Promise<boolean> {
-    const shop = await db.shop.findUnique({ where: { id: db.$shopId() }, select: { inCustomerApp: true } });
-    return shop?.inCustomerApp ?? false;
+    const shop = await db.shop.findUnique({ where: { id: db.$shopId() }, select: { inCustomerApp: true, status: true } });
+    return (shop?.inCustomerApp ?? false) && shop?.status === 'active';
   },
 
   async setHub(db: DbClient, data: { latitude: number | null; longitude: number | null; radiusKm: number | null }) {
@@ -109,7 +109,7 @@ export const serviceAreaRepo = {
   /** Every branch listed in the customer app, with what `branchFor` needs. */
   async listBranches(platform: DbClient): Promise<(ServiceBranch & { name: string; city: string | null })[]> {
     const shops = await platform.shop.findMany({
-      where: { inCustomerApp: true },
+      where: { inCustomerApp: true, status: 'active' },
       select: { id: true, name: true, city: true, latitude: true, longitude: true, serviceRadiusKm: true },
     });
     if (shops.length === 0) return [];
@@ -140,7 +140,7 @@ export const serviceAreaRepo = {
   /** The area picker in the app: every live area of every listed branch. */
   async listPublicAreas(platform: DbClient) {
     const shops = await platform.shop.findMany({
-      where: { inCustomerApp: true },
+      where: { inCustomerApp: true, status: 'active' },
       select: { id: true, name: true, city: true },
     });
     if (shops.length === 0) return [];
@@ -163,7 +163,7 @@ export const serviceAreaRepo = {
    * from services offered for that category on active vehicle sizes.
    */
   async lowestPrices(platform: DbClient): Promise<{ car: number | null; bike: number | null }> {
-    const shops = await platform.shop.findMany({ where: { inCustomerApp: true }, select: { id: true } });
+    const shops = await platform.shop.findMany({ where: { inCustomerApp: true, status: 'active' }, select: { id: true } });
     if (shops.length === 0) return { car: null, bike: null };
     const shopIds = shops.map((s) => s.id);
     const lowest = async (category: 'car' | 'bike') => {

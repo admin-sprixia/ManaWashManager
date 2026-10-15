@@ -17,7 +17,6 @@ export const CacheKeys = {
   shop: 'shop.v1',
   stock: 'stock.v1',
   rewards: 'rewards.v1',
-  plan: 'plan.v1',
 } as const;
 
 export async function readCache<T>(key: string): Promise<T | null> {

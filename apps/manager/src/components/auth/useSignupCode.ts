@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
 import { NetworkError } from '../../api/network';
 
-type Purpose = 'signup' | 'join';
+type Purpose = 'join';
 
 interface CodeBody {
   sent?: boolean;

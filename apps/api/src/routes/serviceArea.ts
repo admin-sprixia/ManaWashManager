@@ -77,7 +77,7 @@ const contactSchema = z
 
 const nameTaken = { error: 'name_taken' as const, message: 'You already have an area with this name.' };
 
-// This branch in the MANA Car Wash app: its contact details and hours, and where it washes (the hub
+// This branch in the Mana Wash app: its contact details and hours, and where it washes (the hub
 // with a radius, and named areas as the backup). Owner only. Being listed in the app at all is decided by Sprixia (in_customer_app).
 export const serviceAreaRoutes = new Hono<{ Bindings: Env }>()
   .use('*', requireAuth, requireRole('owner'))

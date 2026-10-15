@@ -26,7 +26,7 @@ async function askPermission(): Promise<boolean> {
   if (Platform.OS !== 'android') return true;
   const granted = await PermissionsAndroid.request('android.permission.ACCESS_FINE_LOCATION', {
     title: 'Share your location',
-    message: 'MANA Car Wash uses it once, to check that we wash in your area.',
+    message: 'Mana Wash uses it once, to check that we wash in your area.',
     buttonPositive: 'Allow',
     buttonNegative: 'Not now',
   });
@@ -46,13 +46,13 @@ function position(highAccuracy: boolean): Promise<Coordinates> {
 /** Where the phone is, asked once. Throws a LocationError with a message fit to show. */
 export async function currentLocation(): Promise<Coordinates> {
   if (!(await askPermission())) {
-    throw new LocationError('Location is off for MANA Car Wash. Pick your area from the list instead.', 'denied');
+    throw new LocationError('Location is off for Mana Wash. Pick your area from the list instead.', 'denied');
   }
   try {
     return await position(true);
   } catch (first) {
     if ((first as { code?: number }).code === 1) {
-      throw new LocationError('Location is off for MANA Car Wash. Pick your area from the list instead.', 'denied');
+      throw new LocationError('Location is off for Mana Wash. Pick your area from the list instead.', 'denied');
     }
     // GPS can't get a fix indoors; the network location is close enough for an area check.
     try {

@@ -43,7 +43,7 @@ function Ring({ color, still }: { color: string; still: boolean }) {
   return <Animated.View style={[styles.ring, { backgroundColor: color, transform: [{ scale }] }]} />;
 }
 
-/** In queue → Washing → Ready, the same three steps as the Wash Manager's job page. */
+/** In queue → Washing → Ready, the same three steps as the Wash Partner app's job page. */
 function Steps({ status, ready }: { status: LiveStatus; ready: boolean }) {
   const reached = STEPS.findIndex((s) => s.status === status);
   const a = accents(ready);

@@ -6,15 +6,15 @@
 //   cd apps/api && npm run db:seed:demo (in another)
 //   cd apps/api && npm run db:seed:staging   (the deployed staging Worker and mana_db_staging)
 //
-// What it makes (all PINs 2580; the owner can also sign in with the dev code 000000):
-//   MANA Car Wash, Nellore — owner Hrushikesh 9888626111; staff Ravi 9300000011,
+// What it makes (all PINs 258025; a new phone confirms with the dev code 000000 first):
+//   Mana Wash, Nellore — owner Hrushikesh 9888626111; staff Ravi 9300000011,
 //   Suresh 9300000012, Kiran 9300000013; Mahesh 9300000019 waiting to join.
 //   ~75 days of washes, customers and vehicles; reminders (due and comeback), coupons and
 //   referrals; expenses with bill photos; stock; attendance; cash drawer days; an error report;
 //   stamp cards (one free wash used today) and a welcome gift, some of it owed (out of stock).
 //   A doorstep team for Nellore communities, beside the Kovur hub; the owner runs the business
 //   catalog (services, base prices by size, the doorstep extra) that every branch's menu comes from.
-//   A second branch, MANA Car Wash Kavali, on the same catalog in a cheaper town price zone, with
+//   A second branch, Mana Wash Kavali, on the same catalog in a cheaper town price zone, with
 //   its own staff (Venkat 9300000021) and washes.
 //   Places the doorstep van serves: Lakshmi Towers (flats, members on plans, today's wash list with
 //   paid and unpaid vehicles, GST receipts) and Sri Ram Nagar (a member waiting for the team), plus
@@ -29,9 +29,9 @@ import { randomUUID, webcrypto } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { API, API_DIR, STAGING, TARGET, apiFetch, d1Execute, d1Rows } from './lib/target.mjs';
+import { API, API_DIR, STAGING, TARGET, apiFetch, d1Execute, d1Rows, DEV_CODE, signIn as signInWith } from './lib/target.mjs';
 
-const PIN = '2580';
+const PIN = '258025';
 const VEHICLE_ART = join(API_DIR, '..', '..', 'packages', 'ui', 'src', 'assets', 'vehicles');
 const TMP = mkdtempSync(join(tmpdir(), 'mana-seed-'));
 const SHOP = 'shop_mana';
@@ -417,14 +417,14 @@ for (const row of query("SELECT service_id, vehicle_type_id, price FROM service_
 step(`Writing the team and ${visits.filter((v) => v.daysAgo > API_DAYS).length} older washes straight into the database`);
 {
   const sql = [];
-  sql.push(`UPDATE shops SET name = 'MANA Car Wash', city = 'Nellore', created_at = ${q(ts(at(90, 9)))} WHERE id = '${SHOP}';`);
+  sql.push(`UPDATE shops SET name = 'Mana Wash', city = 'Nellore', created_at = ${q(ts(at(90, 9)))} WHERE id = '${SHOP}';`);
   sql.push(
-    `UPDATE users SET name = ${q(OWNER.name)}, phone = ${q(OWNER.phone)}, pin_hash = ${q(await hashPin(PIN))}, created_at = ${q(ts(at(90, 9)))} WHERE id = '${OWNER.id}';`,
+    `UPDATE users SET name = ${q(OWNER.name)}, phone = ${q(OWNER.phone)}, pin_hash = ${q(await hashPin(PIN))}, pin_digits = ${PIN.length}, created_at = ${q(ts(at(90, 9)))} WHERE id = '${OWNER.id}';`,
   );
   sql.push(`UPDATE business_admins SET phone = ${q(OWNER.phone)} WHERE business_id = 'biz_mana';`);
   const [ravi, ...others] = STAFF;
   sql.push(
-    `UPDATE users SET name = ${q(ravi.name)}, phone = ${q(ravi.phone)}, pin_hash = ${q(await hashPin(PIN))}, created_at = ${q(ts(at(ravi.joinedDaysAgo, 9)))} WHERE id = '${ravi.id}';`,
+    `UPDATE users SET name = ${q(ravi.name)}, phone = ${q(ravi.phone)}, pin_hash = ${q(await hashPin(PIN))}, pin_digits = ${PIN.length}, created_at = ${q(ts(at(ravi.joinedDaysAgo, 9)))} WHERE id = '${ravi.id}';`,
   );
   for (const s of others) {
     sql.push(
@@ -435,6 +435,7 @@ step(`Writing the team and ${visits.filter((v) => v.daysAgo > API_DAYS).length} 
         phone: s.phone,
         role: 'staff',
         pin_hash: await hashPin(PIN),
+        pin_digits: PIN.length,
         created_at: ts(at(s.joinedDaysAgo, 9)),
       }),
     );
@@ -557,7 +558,7 @@ step('Signing everyone in with their PIN');
 async function pinLogin(phone) {
   for (let attempt = 1; ; attempt++) {
     try {
-      return await call(null, 'POST', '/auth/pin/login', { phone, pin: PIN });
+      return await signInWith(phone, PIN);
     } catch (err) {
       if (attempt >= 10 || !(err instanceof TypeError)) throw err;
       await new Promise((r) => setTimeout(r, 500 * attempt));
@@ -566,13 +567,13 @@ async function pinLogin(phone) {
 }
 const tokens = {};
 for (const person of [OWNER, ...STAFF]) {
-  tokens[person.id] = (await pinLogin(person.phone)).token;
+  tokens[person.id] = (await pinLogin(person.phone)).body?.token;
 }
 const OWN = tokens[OWNER.id];
 const tokenOf = (person) => tokens[person.id];
 
 step('Shop setup: name, the menu from the business catalog, staff commissions, Google review link');
-await call(OWN, 'PUT', '/shop/info', { name: 'MANA Car Wash', city: 'Nellore' });
+await call(OWN, 'PUT', '/shop/info', { name: 'Mana Wash', city: 'Nellore' });
 // The first menu read builds the branch's menu from the catalog: its own services (above) are
 // adopted with their ids, and the combo's contents come from the catalog's combo.
 await call(OWN, 'GET', '/services');
@@ -673,7 +674,7 @@ step('Corrections: a paid wash voided, a payment fixed from cash to UPI');
 
 const VENDORS = {
   chemicals: 'SRI SAI CAR CARE',
-  labour: 'MANA CAR WASH',
+  labour: 'MANA WASH',
   electricity: 'APSPDCL',
   water: 'BALAJI WATER SUPPLY',
   maintenance: 'KRISHNA HARDWARE',
@@ -1014,7 +1015,7 @@ const placesDemo = {};
   const DEV_CODE = '000000';
   const [ravi, suresh] = STAFF;
   const RAVI = tokenOf(ravi);
-  await call(OWN, 'PATCH', '/business/plan-rules', { gstin: '37AAKCM4821Q1Z6', legalName: 'MANA Car Wash Pvt Ltd' });
+  await call(OWN, 'PATCH', '/business/plan-rules', { gstin: '37AAKCM4821Q1Z6', legalName: 'Mana Wash Pvt Ltd' });
   // Weekly plans wash on a place's first wash day of the week (weeks start Monday): make that
   // today, with the place's other wash days later in the week.
   const mondayIndex = (wd) => (wd + 6) % 7;
@@ -1225,15 +1226,17 @@ const placesDemo = {};
   placesDemo.asking = asking.length;
 }
 
-step('Second branch: MANA Car Wash Kavali');
-// Opening a branch needs paid Pro, and a new branch starts on Free: show both as paying shops.
-const paidPro = (shopId) =>
-  `UPDATE shops SET plan = 'active', paid_until = strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now', '+30 days') WHERE id = '${shopId}';`;
-runSql([paidPro(SHOP)], 'paid-pro-main');
-const kavali = await call(OWN, 'POST', '/auth/shops', { shopName: 'MANA Car Wash Kavali', city: 'Kavali' });
-runSql([paidPro(kavali.user.shopId)], 'paid-pro-kavali');
+step('Second branch: Mana Wash Kavali');
+// HQ opens the branch, with the same owner (who keeps their PIN).
+const opened = await call(OWN, 'POST', '/business/branches', {
+  name: 'Mana Wash Kavali',
+  city: 'Kavali',
+  ownerName: OWNER.name,
+  ownerPhone: OWNER.phone,
+});
+const kavali = await call(OWN, 'POST', '/auth/switch', { shopId: opened.id });
 const KAV = kavali.token;
-// Listing a branch in the MANA Car Wash app is Sprixia's switch; the owner sets where it washes.
+// Listing a branch in the Mana Wash app is Sprixia's switch; the owner sets where it washes.
 runSql([`UPDATE shops SET in_customer_app = 1 WHERE id = '${kavali.user.shopId}';`], 'customer-app-kavali');
 await call(KAV, 'PUT', '/service-area', { latitude: 14.9163, longitude: 79.9945, radiusKm: 6 });
 await call(KAV, 'POST', '/service-area/areas', { name: 'Kavali', pincode: '524201' });
@@ -1253,8 +1256,8 @@ const kvTypes = Object.fromEntries((await call(KAV, 'GET', '/services/vehicle-ty
 const kvServices = Object.fromEntries((await call(KAV, 'GET', '/services')).map((s) => [s.name, s.id]));
 const kvComplete = { id: kvServices['Complete Car Wash'] };
 const kvBike = { id: kvServices['Complete Bike Wash'] };
-const venkat = await call(KAV, 'POST', '/team', { name: 'Venkat', phone: '9300000021', role: 'staff', pin: PIN });
-const venkatToken = (await call(null, 'POST', '/auth/pin/login', { phone: '9300000021', pin: PIN })).token;
+const venkat = await call(KAV, 'POST', '/team', { name: 'Venkat', phone: '9300000021', role: 'staff' });
+const venkatToken = (await signInWith('9300000021', PIN)).body?.token;
 const kvWash = async (minutesAgo, vt, serviceId, stopAt) => {
   const who = walkIn('vt_sedan');
   const id = cid('job');
@@ -1322,7 +1325,7 @@ const [counts] = query(`SELECT
   (SELECT COUNT(*) FROM reward_gifts WHERE shop_id = '${SHOP}' AND status = 'given') AS gifts_given,
   (SELECT COUNT(*) FROM reward_gifts WHERE shop_id = '${SHOP}' AND status = 'owed') AS gifts_owed`);
 console.log(`
-Done. MANA Car Wash (Nellore), shop ID 482193:
+Done. Mana Wash (Nellore), shop ID 482193:
   ${counts.customers} customers · ${counts.vehicles} vehicles · ${counts.jobs} washes · ${counts.expenses} expenses
   ${counts.photos} wash photos · ${counts.coupons} coupons · ${counts.cash_days} cash drawer days
   Rewards: ${counts.free_washes} free wash${counts.free_washes === 1 ? '' : 'es'} used · ${counts.gifts_given} welcome gifts given · ${counts.gifts_owed} owed

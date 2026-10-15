@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The launch window: the splash animation's indigo gradient (SplashIntro.tsx in packages/ui),
+     so the app opens on it and the logo draws on top with no change of background. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient
+        android:type="linear"
+        android:angle="270"
+        android:startColor="#1B2878"
+        android:centerColor="#0C1442"
+        android:endColor="#060A22" />
+</shape>

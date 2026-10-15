@@ -12,11 +12,11 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { API, API_DIR, TARGET } from './lib/target.mjs';
+import { API, API_DIR, TARGET, signIn as signInWith } from './lib/target.mjs';
 
 const RUNS = Number(process.env.PERF_RUNS ?? 10);
 const WARMUP = 2;
-const PIN = '2580';
+const PIN = '258025';
 const OWNER_PHONE = process.env.PERF_OWNER ?? '9888626111';
 const STAFF_PHONE = process.env.PERF_STAFF ?? '9300000011';
 const PHOTO = readFileSync(join(API_DIR, '..', 'manager', 'src', 'assets', 'vehicles', 'vehicle-sedan.jpg'));
@@ -124,8 +124,8 @@ console.log(`API speed report → ${API} (${TARGET}), ${RUNS} runs per read afte
 const health = await timed(null, 'GET', '/health');
 if (health.status !== 200) throw new Error(`The API isn't answering at ${API}`);
 
-const owner = (await call(null, 'POST', '/auth/pin/login', { phone: OWNER_PHONE, pin: PIN })).token;
-const staff = (await call(null, 'POST', '/auth/pin/login', { phone: STAFF_PHONE, pin: PIN })).token;
+const owner = (await signInWith(OWNER_PHONE, PIN)).body?.token;
+const staff = (await signInWith(STAFF_PHONE, PIN)).body?.token;
 const me = await call(owner, 'GET', '/auth/me');
 
 const board = await call(owner, 'GET', '/jobs/today');
@@ -157,7 +157,6 @@ const month = istDate().slice(0, 7);
 const READS = [
   ['Baseline', 'Health check (no auth, no database)', null, '/health'],
   ['App start', 'Who am I', 'owner', '/auth/me'],
-  ['App start', 'Plan', 'owner', '/billing/plan'],
   ['App start', 'My shops', 'owner', '/auth/shops'],
   ['App start', 'Shop info', 'owner', '/shop/info'],
   ['App start', 'Shop settings', 'owner', '/shop/settings'],
@@ -197,7 +196,6 @@ const READS = [
   ['Rewards', 'Gifts owed', 'owner', '/rewards/gifts/owed'],
   ['Team', 'Team', 'owner', '/team'],
   ['Team', 'Join requests', 'owner', '/team/requests'],
-  ['More', 'Plan & billing', 'owner', '/billing'],
   ['More', 'Error log', 'owner', '/shop/errors'],
   ...(photoId ? [['Job board', 'Wash photo (R2)', 'owner', `/photos/${photoId}`]] : []),
   ['Staff', 'My earnings: month (staff)', 'staff', '/shop/me/earnings?range=month'],
@@ -288,7 +286,7 @@ for (const w of writeSamples.values()) {
 // ─── Screens: what the app loads together, in parallel ────────────────────
 
 const SCREENS = [
-  ['App start (signed in)', ['/auth/me', '/billing/plan', '/auth/shops', '/shop/info', '/shop/settings', '/shop/roster', '/stock', '/rewards/settings', '/jobs/today', '/shop/errors/unseen']],
+  ['App start (signed in)', ['/auth/me', '/auth/shops', '/shop/info', '/shop/settings', '/shop/roster', '/stock', '/rewards/settings', '/jobs/today', '/shop/errors/unseen']],
   ['Job board', ['/jobs/today']],
   ['New Wash opened', ['/services', '/services/prices', '/services/vehicle-types', '/services/commissions']],
   ['New Wash: plate typed', [`/customers/lookup?registrationNumber=${plate}`, `/rewards/vehicle?registrationNumber=${plate}`, `/coupons/usable?registrationNumber=${plate}&phone=${customerPhone}`]],

@@ -1,72 +1,42 @@
 import React, { useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
-import { BRANCH_PRICE_LABEL, formatShopCode, MAX_SHOPS_PER_OWNER } from '@mana/domain';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { formatShopCode, USER_ROLE_LABEL } from '@mana/domain';
 import {
   colors,
-  radius,
   spacing,
   typography,
   BottomSheet,
-  Button,
   showToast,
   showAlert,
   IconAlert,
   IconCheck,
-  IconPlus,
 } from '@mana/ui';
-import { api } from '../api/client';
 import { useAuth } from '../api/auth';
 import { NetworkError } from '../api/network';
 import { useShop, type MyShop } from '../offline/ShopProvider';
 import { useSync } from '../offline/SyncProvider';
-import { handlePlanError } from './UpgradeSheet';
-
-type Mode = 'list' | 'add';
 
 const offlineMessage = 'Switching shops needs a connection.';
 
 /**
- * Owners running more than one branch: pick which shop the whole app shows, or open a new one.
- * Each shop keeps its own team, prices, money and stock; the PIN is the same for all of them.
+ * Anyone working at more than one branch: pick which branch the whole app shows. Each keeps its
+ * own team, prices, money and stock; the PIN is the same for all of them. New branches are opened
+ * by HQ, not from here.
  */
-export function ShopSwitcherSheet({
-  visible,
-  onClose,
-  startWith = 'list',
-}: {
-  visible: boolean;
-  onClose: () => void;
-  startWith?: Mode;
-}) {
-  const { switchShop, signIn } = useAuth();
-  const { myShops, canAddShop, info } = useShop();
+export function ShopSwitcherSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const { switchShop } = useAuth();
+  const { myShops, info } = useShop();
   const { pendingCount, online, syncNow } = useSync();
   const pendingRef = useRef(pendingCount);
   pendingRef.current = pendingCount;
-  const [mode, setMode] = useState<Mode>(startWith);
   const [busyShop, setBusyShop] = useState<string | null>(null);
-  const [name, setName] = useState('');
-  const [city, setCity] = useState('');
-  const [focus, setFocus] = useState<'name' | 'city' | null>(null);
-  const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!visible) return;
-    setMode(startWith);
     setBusyShop(null);
-    setName('');
-    setCity('');
     setError(null);
-    setCreating(false);
-  }, [visible, startWith]);
+  }, [visible]);
 
   const currentName = info?.name ?? 'this shop';
   const shops: MyShop[] =
@@ -114,188 +84,61 @@ export function ShopSwitcherSheet({
     }
   };
 
-  const trimmed = name.trim().replace(/\s+/g, ' ');
-  const canCreate = trimmed.length >= 2 && !creating;
-
-  const create = async () => {
-    if (!canCreate) return;
-    setError(null);
-    if (!(await confirmUnsynced())) return;
-    setCreating(true);
-    try {
-      const res = await api.auth.shops.$post({
-        json: { shopName: trimmed, city: city.trim() || undefined },
-      });
-      if (res.status === 402) {
-        onClose();
-        await handlePlanError(res);
-        return;
-      }
-      const body = await res.json().catch(() => null);
-      if (!res.ok || !body || !('token' in body)) {
-        const message = body && 'message' in body ? body.message : null;
-        throw new Error(message ?? 'Couldn’t open the new shop.');
-      }
-      await signIn(body.token, body.user);
-      onClose();
-      showToast(`${trimmed} is ready — add its prices in More → Services & prices`);
-    } catch (e) {
-      setError(
-        e instanceof NetworkError ? 'Opening a new shop needs a connection.' : (e as Error).message,
-      );
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  const busy = busyShop != null || creating;
+  const busy = busyShop != null;
 
   return (
     <BottomSheet
       visible={visible}
       onClose={onClose}
       dismissable={!busy}
-      title={mode === 'add' ? 'Open another shop' : 'Your shops'}
-      subtitle={
-        mode === 'add'
-          ? 'A new branch with its own shop ID, team, prices and money. Same number and PIN.'
-          : 'The whole app shows the shop you pick. Each one keeps its own team, money and stock.'
-      }
-      footer={
-        mode === 'add' ? (
-          <View style={styles.footerStack}>
-            <Button
-              label={trimmed.length < 2 ? 'Enter the shop name' : `Open ${trimmed}`}
-              onPress={() => void create()}
-              disabled={!canCreate}
-              loading={creating}
-            />
-            {startWith === 'list' ? (
-              <Pressable
-                onPress={() => setMode('list')}
-                disabled={creating}
-                hitSlop={8}
-                style={styles.backLink}
-              >
-                <Text style={styles.backText}>Back to your shops</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        ) : undefined
-      }
+      title="Your branches"
+      subtitle="The whole app shows the branch you pick. Each one keeps its own team, money and stock."
     >
-      {mode === 'list' ? (
-        <View style={styles.list}>
-          {shops.map((shop) => {
-            const loading = busyShop === shop.shopId;
-            return (
-              <Pressable
-                key={shop.shopId}
-                onPress={() => void pick(shop)}
-                disabled={busy || shop.current}
-                style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: shop.current }}
-              >
-                <View style={[styles.badge, shop.current && styles.badgeOn]}>
-                  <Text style={[styles.badgeText, shop.current && styles.badgeTextOn]}>
-                    {shop.name.trim().charAt(0).toUpperCase() || '#'}
-                  </Text>
-                </View>
-                <View style={styles.flex}>
-                  <Text style={styles.rowTitle} numberOfLines={1}>
-                    {shop.name}
-                  </Text>
-                  <Text style={styles.rowSub} numberOfLines={1}>
-                    {[shop.city, `ID ${formatShopCode(shop.code)}`].filter(Boolean).join(' · ')}
-                  </Text>
-                </View>
-                {loading ? (
-                  <ActivityIndicator color={colors.water} />
-                ) : shop.current ? (
-                  <View style={styles.tick}>
-                    <IconCheck size={13} color={colors.white} />
-                  </View>
-                ) : (
-                  <Text style={styles.openText}>Open</Text>
-                )}
-              </Pressable>
-            );
-          })}
-
-          {canAddShop ? (
+      <View style={styles.list}>
+        {shops.map((shop) => {
+          const loading = busyShop === shop.shopId;
+          return (
             <Pressable
-              onPress={() => {
-                setError(null);
-                setMode('add');
-              }}
-              disabled={busy}
+              key={shop.shopId}
+              onPress={() => void pick(shop)}
+              disabled={busy || shop.current}
               style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-              accessibilityRole="button"
+              accessibilityRole="radio"
+              accessibilityState={{ selected: shop.current }}
             >
-              <View style={[styles.badge, styles.addBadge]}>
-                <IconPlus size={18} color={colors.waterDeep} />
+              <View style={[styles.badge, shop.current && styles.badgeOn]}>
+                <Text style={[styles.badgeText, shop.current && styles.badgeTextOn]}>
+                  {shop.name.trim().charAt(0).toUpperCase() || '#'}
+                </Text>
               </View>
               <View style={styles.flex}>
-                <Text style={[styles.rowTitle, styles.addTitle]}>Open another shop</Text>
-                <Text style={styles.rowSub}>A new branch, managed from this same login</Text>
+                <Text style={styles.rowTitle} numberOfLines={1}>
+                  {shop.name}
+                </Text>
+                <Text style={styles.rowSub} numberOfLines={1}>
+                  {[
+                    shop.role ? USER_ROLE_LABEL[shop.role] : null,
+                    shop.city,
+                    `ID ${formatShopCode(shop.code)}`,
+                    shop.status === 'paused' ? 'Paused' : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </Text>
               </View>
-            </Pressable>
-          ) : shops.length >= MAX_SHOPS_PER_OWNER ? (
-            <Text style={styles.note}>
-              You can run up to {MAX_SHOPS_PER_OWNER} shops on one number.
-            </Text>
-          ) : null}
-        </View>
-      ) : (
-        <>
-          <View style={styles.field}>
-            <Text style={styles.label}>New shop name</Text>
-            <TextInput
-              style={[styles.input, focus === 'name' && styles.inputFocus]}
-              value={name}
-              onChangeText={setName}
-              onFocus={() => setFocus('name')}
-              onBlur={() => setFocus(null)}
-              placeholder="e.g. Mana Car Wash – Kavali"
-              placeholderTextColor={colors.slate}
-              maxLength={60}
-              autoCapitalize="words"
-              autoFocus
-            />
-          </View>
-          <View style={styles.field}>
-            <Text style={styles.label}>City or area (optional)</Text>
-            <TextInput
-              style={[styles.input, focus === 'city' && styles.inputFocus]}
-              value={city}
-              onChangeText={setCity}
-              onFocus={() => setFocus('city')}
-              onBlur={() => setFocus(null)}
-              placeholder="e.g. Kavali"
-              placeholderTextColor={colors.slate}
-              maxLength={40}
-              autoCapitalize="words"
-            />
-          </View>
-
-          <View style={styles.facts}>
-            {[
-              'Its own shop ID — staff there join with that ID',
-              'Starts empty: add its services and prices once',
-              `Starts on Free — Pro for this branch is ${BRANCH_PRICE_LABEL}`,
-              'Switch any time from the top of the home screen',
-            ].map((fact) => (
-              <View key={fact} style={styles.fact}>
-                <View style={styles.factDot}>
-                  <IconCheck size={10} color={colors.white} />
+              {loading ? (
+                <ActivityIndicator color={colors.water} />
+              ) : shop.current ? (
+                <View style={styles.tick}>
+                  <IconCheck size={13} color={colors.white} />
                 </View>
-                <Text style={styles.factText}>{fact}</Text>
-              </View>
-            ))}
-          </View>
-        </>
-      )}
+              ) : (
+                <Text style={styles.openText}>Open</Text>
+              )}
+            </Pressable>
+          );
+        })}
+      </View>
 
       {error ? (
         <View style={styles.errorRow}>
@@ -331,14 +174,7 @@ const styles = StyleSheet.create({
   badgeOn: { backgroundColor: colors.water },
   badgeText: { ...typography.heading, fontSize: 17, color: colors.waterDeep },
   badgeTextOn: { color: colors.white },
-  addBadge: {
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderStyle: 'dashed',
-    backgroundColor: colors.white,
-  },
   rowTitle: { ...typography.bodyStrong, fontSize: 16, color: colors.waterInk },
-  addTitle: { color: colors.waterDeep },
   rowSub: {
     ...typography.caption,
     fontSize: 12.5,
@@ -355,45 +191,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   openText: { ...typography.label, fontSize: 14, color: colors.water },
-  note: {
-    ...typography.caption,
-    color: colors.slate,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-  },
-  field: { gap: 6 },
-  label: { ...typography.caption, color: colors.slateDeep },
-  input: {
-    ...typography.body,
-    fontSize: 16,
-    height: 50,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.md,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    color: colors.waterInk,
-  },
-  inputFocus: { borderColor: colors.water, backgroundColor: colors.white },
-  facts: {
-    gap: spacing.sm,
-    paddingTop: spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-  },
-  fact: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  factDot: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: colors.teal,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  factText: { ...typography.body, fontSize: 14, color: colors.slateDeep, flex: 1 },
-  footerStack: { gap: spacing.sm },
-  backLink: { alignSelf: 'center', paddingVertical: 4 },
-  backText: { ...typography.label, fontSize: 14, color: colors.water },
   errorRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   errorText: {
     ...typography.caption,

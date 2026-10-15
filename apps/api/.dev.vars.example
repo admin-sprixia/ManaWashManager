@@ -3,8 +3,8 @@
 JWT_SECRET=change-me-to-a-long-random-string
 # Optional: error alerts to a private Discord channel (see README → Go live). Leave empty to turn off.
 DISCORD_WEBHOOK_URL=
-# Owner sign-in codes on WhatsApp (see README → Go live). Leave empty locally: in dev mode the
-# code is DEV_RECOVERY_CODE and nothing is sent.
+# Sign-in codes on WhatsApp — a new phone, or a forgotten or reset PIN (see README → Go live).
+# Leave empty locally: in dev mode the code is DEV_RECOVERY_CODE and nothing is sent.
 WHATSAPP_API_TOKEN=
 WHATSAPP_PHONE_NUMBER_ID=
 WHATSAPP_OTP_TEMPLATE=login_code
@@ -13,15 +13,14 @@ WHATSAPP_OTP_LANGUAGE=en
 # template, then set to false (or remove) to send real codes.
 WHATSAPP_OTP_BYPASS=true
 
-# Dev-only, and only for requests to localhost: the owner recovery code and WhatsApp code are
-# both DEV_RECOVERY_CODE and can be reused. Never set in production — there, set
-# OWNER_RECOVERY_CODE (8+ characters, works once).
+# Dev-only, and only for requests to localhost: every WhatsApp code is DEV_RECOVERY_CODE and can
+# be reused. Never set in production.
 DEV_MODE=true
 DEV_RECOVERY_CODE=000000
 
-# Pro subscriptions through Razorpay (see README → Go live → Payments). Leave empty locally:
-# the plan screen shows Pro but the upgrade button says payments aren't set up. Use the Test
-# Mode keys (rzp_test_…) until the account is activated for live payments.
+# Customer payment links through Razorpay (see README → Go live → Payments). Leave empty
+# locally: washes are then paid at the counter only. Use the Test Mode keys (rzp_test_…) until
+# the account is activated for live payments.
 RAZORPAY_KEY_ID=
 RAZORPAY_KEY_SECRET=
 RAZORPAY_WEBHOOK_SECRET=

@@ -6,27 +6,29 @@ import {
   createPlatformDb,
   createShopDb,
   loginCodeRepo,
-  platformSettingsRepo,
+  securityRepo,
   shopRepo,
   userRepo,
   type DbClient,
 } from '@mana/db';
 import {
-  BRANCH_NEEDS_PAID_PRO,
+  branchClosedMessage,
   checkPin,
-  isPaidPro,
+  isSeniorRole,
   LOGIN_CODE_MAX_ATTEMPTS,
   LOGIN_CODE_RESEND_SECONDS,
   LOGIN_CODE_TTL_MINUTES,
   LOGIN_CODES_PER_HOUR,
-  MAX_SHOPS_PER_OWNER,
   normalizePhone,
   PIN_LOCK_MINUTES,
+  PIN_LOCK_STEPS_MINUTES,
   PIN_MAX_ATTEMPTS,
   pinProblemMessage,
+  toUserRole,
 } from '@mana/domain';
 import { issueSession, publicUser, type DbUser } from '../lib/session';
-import { loadPlan, seatLocked, seatLockedBody } from '../lib/plan';
+import { deviceHash, deviceLabel } from '../lib/device';
+import { verifySessionToken } from '../lib/jwt';
 import {
   bypassWhatsAppOtp,
   generateLoginCode,
@@ -38,17 +40,8 @@ import {
 import { checkPhoneCode, sendPhoneCode } from '../lib/phoneCode';
 import { phoneBusy, withPhoneLock } from '../lib/phoneLock';
 import { hashPin, verifyPin } from '../lib/pin';
-import {
-  configuredRecoveryCode,
-  devCode,
-  recoveryCodeMatches,
-  recoveryUsedKey,
-  sameHex,
-  sha256Hex,
-  usesTestCodes,
-} from '../lib/recovery';
-import { createShopWithOwner, signupOpen } from '../lib/shops';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { devCode, sameHex } from '../lib/recovery';
+import { forgetShop, requireAuth } from '../middleware/auth';
 import type { Env } from '../types';
 
 const phoneSchema = z
@@ -56,19 +49,16 @@ const phoneSchema = z
   .transform(normalizePhone)
   .refine((p) => /^[6-9]\d{9}$/.test(p), 'Enter a valid 10-digit mobile number');
 
-/** The branch the phone was last on, for owners with several; ignored if it isn't theirs. */
+/** The branch the phone was last on, for people at several; ignored if it isn't theirs. */
 const shopHint = z.string().min(1).max(64).optional();
 const pinLoginSchema = z.object({
   phone: phoneSchema,
   pin: z.string().min(4).max(6),
   shopId: shopHint,
 });
-const recoverSchema = z.object({
-  phone: phoneSchema,
-  code: z.string().trim().min(1).max(64),
-  shopId: shopHint,
-});
 const codeRequestSchema = z.object({ phone: phoneSchema });
+/** `reset`: for a forgotten PIN, so an owner on an unknown phone is told before a code is sent. */
+const loginCodeRequestSchema = z.object({ phone: phoneSchema, purpose: z.enum(['device', 'reset']).optional() });
 const codeVerifySchema = z.object({
   phone: phoneSchema,
   code: z
@@ -76,12 +66,13 @@ const codeVerifySchema = z.object({
     .trim()
     .regex(/^\d{4,8}$/, 'Enter the code'),
   shopId: shopHint,
+  /**
+   * `device`: proves the number on a new phone, which is then trusted and goes on to the PIN.
+   * `reset`: forgot the PIN (or has none) — clears it and signs in to choose a new one.
+   */
+  purpose: z.enum(['device', 'reset']).default('reset'),
 });
 const switchShopSchema = z.object({ shopId: z.string().min(1).max(64) });
-const addShopSchema = z.object({
-  shopName: z.string().trim().min(2, 'Enter the shop name').max(60),
-  city: z.string().trim().max(40).optional(),
-});
 /** `currentPin` is required once a PIN exists — an unlocked, borrowed phone can't change it. */
 const setPinSchema = z.object({ pin: z.string(), currentPin: z.string().min(4).max(6).optional() });
 const updateProfileSchema = z.object({
@@ -122,8 +113,8 @@ function phoneChangeProblem(me: DbUser, phone: string) {
 
 /**
  * Sign-in starts before we know the shop: find the person by phone across every shop, then do
- * everything else through a client locked to their shop. An owner with several branches has a
- * row in each; PIN checks, lockouts and codes always use their first live row, so trying another
+ * everything else through a client locked to their shop. Someone at several branches has a row
+ * in each; PIN checks, lockouts and codes always use their first live row, so trying another
  * branch never buys extra guesses.
  */
 async function findSignInUser(env: Env, phone: string) {
@@ -133,36 +124,66 @@ async function findSignInUser(env: Env, phone: string) {
 }
 
 /**
- * Two rows on one number are the same person only as an owner's branches: both owner rows with
- * the same PIN (PIN set, changed and cleared on every row together). Anything else (a stray row
- * from a race, say) must never be reachable from the other one's sign-in.
+ * Two rows on one number are the same person when they share the PIN (set, changed and cleared
+ * on every row together, and copied onto a new row when they join another branch). Anything else
+ * (a stray row from a race, say) must never be reachable from the other one's sign-in.
  */
 function samePerson(a: DbUser | undefined, b: DbUser) {
-  return !!a && a.role === 'owner' && b.role === 'owner' && a.pinHash === b.pinHash;
+  return !!a && a.pinHash === b.pinHash;
 }
 
+type Found = NonNullable<Awaited<ReturnType<typeof findSignInUser>>>;
+
 /**
- * Signs in to the branch the phone asked for when it's one of theirs, else their first shop.
- * Staff beyond their shop's plan seats are turned away here, with the reason, rather than signed
- * in and then signed straight back out.
+ * The person's rows they can sign in to right now: turned on, the same person, and in a branch
+ * HQ hasn't closed. When every branch is closed, says why.
  */
-async function signInTo(
-  env: Env,
-  found: NonNullable<Awaited<ReturnType<typeof findSignInUser>>>,
-  shopId: string | undefined,
-) {
-  const pick =
-    found.rows.find(
-      (r) => r.shopId === shopId && r.active && (r.id === found.user.id || samePerson(found.user, r)),
-    ) ?? found.user;
-  const platform = createPlatformDb(env.DB);
-  const user = (await userRepo.findById(platform, pick.id)) ?? pick;
-  if (user.role !== 'owner') {
-    const plan = await loadPlan(platform, user.shopId);
-    if (await seatLocked(createShopDb(env.DB, user.shopId), user.id, plan)) return { locked: true as const };
-  }
-  return issueSession(user, env);
+async function usableRows(env: Env, found: Found) {
+  const candidates = found.rows.filter((r) => r.active && (r.id === found.user.id || samePerson(found.user, r)));
+  const shops = await shopRepo.listByIds(createPlatformDb(env.DB), candidates.map((r) => r.shopId));
+  const closed = new Map(shops.filter((s) => s.status === 'closed').map((s) => [s.id, s.statusReason]));
+  const rows = candidates.filter((r) => !closed.has(r.shopId));
+  if (rows.length > 0) return { rows };
+  const reason = closed.get(found.user.shopId) ?? null;
+  return { closed: { error: 'branch_closed' as const, message: branchClosedMessage(reason) } };
 }
+
+/** The branch the phone asked for when it's one of theirs, else their first open one. */
+function pickRow(rows: DbUser[], shopId: string | undefined) {
+  return rows.find((r) => r.shopId === shopId) ?? rows[0]!;
+}
+
+async function sessionFor(env: Env, row: DbUser, device: string | null) {
+  const user = (await userRepo.findById(createPlatformDb(env.DB), row.id)) ?? row;
+  return issueSession(user, env, device);
+}
+
+/** Owners, managers and HQ: 6-digit PINs, and a self-reset only on a phone they've used. */
+async function isSeniorPerson(platform: DbClient, phone: string, rows: DbUser[]) {
+  return rows.some((r) => isSeniorRole(toUserRole(r.role))) || (await catalogRepo.isAdminAnywhere(platform, phone));
+}
+
+const resetNeedsKnownPhone = {
+  error: 'reset_needs_known_phone' as const,
+  message:
+    'For safety, owners, managers and HQ can only reset their own PIN on a phone they’ve signed in on before. Use that phone, or ask the person above you (the owner, Mana Wash HQ, or Sprixia for HQ) to reset it.',
+};
+
+/**
+ * Whether a WhatsApp code alone may clear this person's PIN on this phone. Staff, and anyone
+ * without a PIN yet, always may. Owners, managers and HQ need a phone where their PIN has been
+ * used: a SIM swap or a hijacked WhatsApp on its own isn't enough to take over a branch.
+ */
+async function maySelfReset(platform: DbClient, found: Found, device: string | null) {
+  if (!found.user.pinHash) return true;
+  if (!(await isSeniorPerson(platform, found.user.phone, found.rows))) return true;
+  return device != null && (await securityRepo.isPinConfirmed(platform, found.user.phone, device));
+}
+
+const untrustedDevice = {
+  error: 'device_not_trusted' as const,
+  message: 'This phone is new for your number. Confirm with the WhatsApp code first.',
+};
 
 function lockedUntil(user: DbUser, now: Date): Date | null {
   return user.pinLockedUntil && user.pinLockedUntil.getTime() > now.getTime()
@@ -173,10 +194,9 @@ function lockedUntil(user: DbUser, now: Date): Date | null {
 type GuardedCheck = { ok: true } | { lockedUntil: Date } | { attemptsLeft: number };
 
 /**
- * Checks a PIN or the recovery code against the person's guess allowance. Both share one
- * counter, so alternating between them doesn't buy extra guesses. The guess is taken from the
- * allowance *before* `check` runs, so a burst of parallel requests gets at most PIN_MAX_ATTEMPTS
- * real checks — the rest are refused without being compared.
+ * Checks a PIN against the person's guess allowance. The guess is taken from the allowance
+ * *before* `check` runs, so a burst of parallel requests gets at most PIN_MAX_ATTEMPTS real
+ * checks — the rest are refused without being compared.
  */
 async function guardedCheck(
   db: DbClient,
@@ -184,16 +204,15 @@ async function guardedCheck(
   now: Date,
   check: () => Promise<boolean>,
 ): Promise<GuardedCheck> {
-  const lockUntil = new Date(now.getTime() + PIN_LOCK_MINUTES * 60 * 1000);
   if (!(await userRepo.reservePinAttempt(db, user.id, PIN_MAX_ATTEMPTS, now))) {
-    const state = await userRepo.settlePinFailure(db, user.id, PIN_MAX_ATTEMPTS, lockUntil);
-    return { lockedUntil: state?.pinLockedUntil ?? lockUntil };
+    const state = await userRepo.settlePinFailure(db, user.id, PIN_MAX_ATTEMPTS, now, PIN_LOCK_STEPS_MINUTES);
+    return { lockedUntil: state?.pinLockedUntil ?? new Date(now.getTime() + PIN_LOCK_MINUTES * 60 * 1000) };
   }
   if (await check()) {
     await userRepo.clearPinFailures(db, user.id);
     return { ok: true };
   }
-  const state = await userRepo.settlePinFailure(db, user.id, PIN_MAX_ATTEMPTS, lockUntil);
+  const state = await userRepo.settlePinFailure(db, user.id, PIN_MAX_ATTEMPTS, now, PIN_LOCK_STEPS_MINUTES);
   if (state?.pinLockedUntil) return { lockedUntil: state.pinLockedUntil };
   return { attemptsLeft: Math.max(0, PIN_MAX_ATTEMPTS - (state?.pinFailedAttempts ?? PIN_MAX_ATTEMPTS)) };
 }
@@ -211,43 +230,46 @@ function wrongPinMessage(result: { lockedUntil: Date } | { attemptsLeft: number 
 // level via `zValidator`. A hand-parsed `schema.parse(await c.req.json())` works at runtime
 // but is invisible to `hc<AppType>()`, silently degrading the client's types to `unknown`.
 //
-// Everyone signs in day to day with phone + PIN. The owner gets in on a new phone (or after
-// forgetting their PIN) with a code sent on WhatsApp; the one-time recovery code on the server is
-// the emergency fallback if WhatsApp isn't reachable. Numbers without an account go through
-// routes/signup.ts (start a shop, or ask to join one).
+// Everyone signs in day to day with phone + PIN, on a phone their number has trusted. A new phone
+// (or a forgotten PIN) is confirmed with a code sent on WhatsApp. Nobody can sign in for someone
+// else: an owner or HQ can only clear a PIN (routes/team.ts, routes/business.ts), and the person
+// then proves their number with a code. Numbers without an account ask to join a branch through
+// routes/signup.ts; only HQ opens branches (routes/business.ts).
 export const authRoutes = new Hono<{ Bindings: Env }>()
-  // Tells the app what to ask for after the phone number: the PIN pad, a WhatsApp code (owner
-  // with no PIN yet), or — for a number with no account — "join a shop" (and "start one" only
-  // while sign-up is open).
+  // Tells the app what to ask for after the phone number: the PIN pad, a WhatsApp code first (a
+  // new phone, or no PIN yet), or — for a number with no account — "join a branch".
   .post('/start', zValidator('json', codeRequestSchema), async (c) => {
     const { phone } = c.req.valid('json');
     const found = await findSignInUser(c.env, phone);
     if (!found) {
-      return c.json({ next: 'new' as const, signupOpen: await signupOpen(c.env, c.req.url) });
+      return c.json({ next: 'new' as const });
     }
     const { user } = found;
     if (!user.active) return c.json({ error: 'account_disabled' as const }, 403);
-    if (user.pinHash) return c.json({ next: 'pin' as const });
-    if (user.role === 'owner') return c.json({ next: 'code' as const });
-    return c.json(
-      {
-        error: 'pin_not_set' as const,
-        message: 'No PIN for this number yet. Ask the owner to set one in More → Team.',
-      },
-      409,
-    );
+    const usable = await usableRows(c.env, found);
+    if ('closed' in usable) return c.json(usable.closed, 403);
+    if (!user.pinHash) return c.json({ next: 'code' as const });
+    const device = await deviceHash(c);
+    if (device && (await securityRepo.isTrusted(createPlatformDb(c.env.DB), user.phone, device))) {
+      return c.json({ next: 'pin' as const });
+    }
+    return c.json({ next: 'verify_device' as const });
   })
-  // After PIN_MAX_ATTEMPTS wrong tries the PIN is locked for PIN_LOCK_MINUTES; the owner can
-  // reset a staff PIN from Team at any time.
+  // Only on a trusted phone, checked before the PIN so an unknown phone can't spend guesses.
+  // After PIN_MAX_ATTEMPTS wrong tries the PIN is locked for PIN_LOCK_MINUTES.
   .post('/pin/login', zValidator('json', pinLoginSchema), async (c) => {
     const body = c.req.valid('json');
     const found = await findSignInUser(c.env, body.phone);
     if (!found) return c.json({ error: 'no_account' as const }, 404);
     const { user, db } = found;
     if (!user.active) return c.json({ error: 'account_disabled' as const }, 403);
+    const platform = createPlatformDb(c.env.DB);
+    const device = await deviceHash(c);
+    if (!device || !(await securityRepo.isTrusted(platform, user.phone, device))) {
+      return c.json(untrustedDevice, 403);
+    }
     if (!user.pinHash) {
-      // The owner sets their own PIN after a WhatsApp code; staff wait for the owner to set one.
-      return c.json({ error: 'pin_not_set' as const, useCode: user.role === 'owner' }, 409);
+      return c.json({ error: 'pin_not_set' as const, useCode: true }, 409);
     }
 
     const now = new Date();
@@ -267,93 +289,22 @@ export const authRoutes = new Hono<{ Bindings: Env }>()
     if ('attemptsLeft' in result) {
       return c.json({ error: 'invalid_pin' as const, attemptsLeft: result.attemptsLeft }, 401);
     }
-    const signedIn = await signInTo(c.env, found, body.shopId);
-    if ('locked' in signedIn) return c.json(seatLockedBody, 403);
-    return c.json(signedIn);
+    const usable = await usableRows(c.env, found);
+    if ('closed' in usable) return c.json(usable.closed, 403);
+    if (user.pinDigits == null) await userRepo.notePinDigits(platform, user.phone, body.pin.length);
+    await securityRepo.trust(platform, user.phone, device, { now, label: deviceLabel(c), pinConfirmed: true });
+    return c.json(await sessionFor(c.env, pickRow(usable.rows, body.shopId), device));
   })
-  // Owner only. Clears the old PIN, so the app goes straight to "set a new PIN".
-  .post('/recover', zValidator('json', recoverSchema), async (c) => {
-    const body = c.req.valid('json');
-    const denied = {
-      error: 'recovery_denied' as const,
-      message: 'That recovery code isn’t right for this number.',
-    };
-
-    const dev = usesTestCodes(c.env, c.req.url);
-    const expected = configuredRecoveryCode(c.env, c.req.url);
-    if (!expected) {
-      return c.json(
-        {
-          error: 'recovery_not_configured' as const,
-          message: 'Recovery isn’t set up on the server yet.',
-        },
-        503,
-      );
-    }
-
-    const found = await findSignInUser(c.env, body.phone);
-    // Same answer for "no such owner" and "wrong code", so the endpoint can't be used to find
-    // out which numbers belong to the owner.
-    if (!found || found.user.role !== 'owner') return c.json(denied, 401);
-    const { user, db } = found;
-    if (!user.active) return c.json({ error: 'account_disabled' as const }, 403);
-
-    const now = new Date();
-    const locked = lockedUntil(user, now);
-    if (locked) {
-      return c.json({ error: 'pin_locked' as const, lockedUntil: locked.toISOString() }, 423);
-    }
-
-    const result = await guardedCheck(db, user, now, () => recoveryCodeMatches(body.code, expected));
-    if ('lockedUntil' in result) {
-      return c.json(
-        { error: 'pin_locked' as const, lockedUntil: result.lockedUntil.toISOString() },
-        423,
-      );
-    }
-    if ('attemptsLeft' in result) {
-      return c.json({ ...denied, attemptsLeft: result.attemptsLeft }, 401);
-    }
-
-    if (!dev) {
-      const codeHash = await sha256Hex(expected);
-      const claimed = await platformSettingsRepo.claim(
-        createPlatformDb(c.env.DB),
-        recoveryUsedKey(codeHash),
-        user.id,
-      );
-      if (!claimed) {
-        return c.json(
-          {
-            error: 'recovery_used' as const,
-            message: 'This recovery code was already used. Set a new one on the server first.',
-          },
-          410,
-        );
-      }
-    }
-
-    await userRepo.setPinHashForPhone(createPlatformDb(c.env.DB), user.phone, null);
-    const signedIn = await signInTo(c.env, found, body.shopId);
-    if ('locked' in signedIn) return c.json(seatLockedBody, 403);
-    return c.json(signedIn);
-  })
-  // Owner only: sends a sign-in code on WhatsApp. At most one every LOGIN_CODE_RESEND_SECONDS
-  // and LOGIN_CODES_PER_HOUR an hour, which caps both guessing and message cost.
-  .post('/code/request', zValidator('json', codeRequestSchema), async (c) => {
-    const { phone } = c.req.valid('json');
+  // Sends a sign-in code on WhatsApp. At most one every LOGIN_CODE_RESEND_SECONDS and
+  // LOGIN_CODES_PER_HOUR an hour, which caps both guessing and message cost.
+  .post('/code/request', zValidator('json', loginCodeRequestSchema), async (c) => {
+    const { phone, purpose } = c.req.valid('json');
     const found = await findSignInUser(c.env, phone);
     if (!found) return c.json({ error: 'no_account' as const }, 404);
     const { user, db } = found;
     if (!user.active) return c.json({ error: 'account_disabled' as const }, 403);
-    if (user.role !== 'owner') {
-      return c.json(
-        {
-          error: 'owner_only' as const,
-          message: 'WhatsApp codes are only for the owner. Ask the owner to set or reset your PIN.',
-        },
-        403,
-      );
+    if (purpose === 'reset' && !(await maySelfReset(createPlatformDb(c.env.DB), found, await deviceHash(c)))) {
+      return c.json(resetNeedsKnownPhone, 403);
     }
 
     const now = new Date();
@@ -378,7 +329,7 @@ export const authRoutes = new Hono<{ Bindings: Env }>()
         {
           error: 'too_many' as const,
           retryAfter,
-          message: `Too many codes asked for. Try again in ${Math.ceil(retryAfter / 60)} min, or use the recovery code.`,
+          message: `Too many codes asked for. Try again in ${Math.ceil(retryAfter / 60)} min.`,
         },
         429,
       );
@@ -389,7 +340,7 @@ export const authRoutes = new Hono<{ Bindings: Env }>()
       return c.json(
         {
           error: 'code_not_configured' as const,
-          message: 'WhatsApp codes aren’t set up on the server yet. Use the recovery code instead.',
+          message: 'WhatsApp codes aren’t set up on the server yet. Call Mana Wash support.',
         },
         503,
       );
@@ -408,8 +359,7 @@ export const authRoutes = new Hono<{ Bindings: Env }>()
       return c.json(
         {
           error: 'send_failed' as const,
-          message:
-            'Couldn’t send the WhatsApp message. Try again in a minute, or use the recovery code.',
+          message: 'Couldn’t send the WhatsApp message. Try again in a minute.',
         },
         502,
       );
@@ -420,16 +370,25 @@ export const authRoutes = new Hono<{ Bindings: Env }>()
       resendAfter: LOGIN_CODE_RESEND_SECONDS,
     });
   })
-  // Owner only. Like the recovery code, a correct code clears the old PIN so the app goes
-  // straight to "set a new PIN".
+  // A correct code trusts this phone for the number. For a new phone that's all (the PIN comes
+  // next); for a forgotten or reset PIN it also clears the PIN and signs in to choose a new one,
+  // telling the person if someone else reset it.
   .post('/code/verify', zValidator('json', codeVerifySchema), async (c) => {
-    const { phone, code, shopId } = c.req.valid('json');
+    const { phone, code, shopId, purpose } = c.req.valid('json');
     const found = await findSignInUser(c.env, phone);
-    if (!found || found.user.role !== 'owner') {
+    if (!found) {
       return c.json({ error: 'invalid_code' as const, message: 'That code isn’t right.' }, 401);
     }
     const { user, db } = found;
     if (!user.active) return c.json({ error: 'account_disabled' as const }, 403);
+    const device = await deviceHash(c);
+    if (purpose === 'device' && !device) {
+      return c.json({ error: 'device_key_required' as const, message: 'Update the app, then try again.' }, 400);
+    }
+    const platform = createPlatformDb(c.env.DB);
+    if (purpose === 'reset' && !(await maySelfReset(platform, found, device))) {
+      return c.json(resetNeedsKnownPhone, 403);
+    }
 
     const now = new Date();
     const expired = {
@@ -455,10 +414,33 @@ export const authRoutes = new Hono<{ Bindings: Env }>()
     }
     if (!(await loginCodeRepo.consume(db, live.id, now))) return c.json(expired, 410);
 
-    await userRepo.setPinHashForPhone(createPlatformDb(c.env.DB), user.phone, null);
-    const signedIn = await signInTo(c.env, found, shopId);
-    if ('locked' in signedIn) return c.json(seatLockedBody, 403);
-    return c.json(signedIn);
+    const usable = await usableRows(c.env, found);
+    if ('closed' in usable) return c.json(usable.closed, 403);
+    if (device) await securityRepo.trust(platform, user.phone, device, { now, label: deviceLabel(c) });
+    if (purpose === 'device' && user.pinHash) return c.json({ next: 'pin' as const });
+
+    const reset = await securityRepo.resetSince(platform, user.phone, user.pinSetAt);
+    await userRepo.setPinHashForPhone(platform, user.phone, null, now);
+    const session = await sessionFor(c.env, pickRow(usable.rows, shopId), device);
+    return c.json({
+      ...session,
+      resetBy: reset ? { by: reset.byLabel, at: reset.createdAt.toISOString() } : null,
+    });
+  })
+  // Stops trusting this phone for the number. Only needs a token this server signed (even an
+  // old one), so a phone that was signed out remotely can still forget itself.
+  .post('/signout', async (c) => {
+    const header = c.req.header('authorization');
+    const device = await deviceHash(c);
+    if (header?.startsWith('Bearer ') && device) {
+      try {
+        const claims = await verifySessionToken(header.slice('Bearer '.length), c.env.JWT_SECRET);
+        await securityRepo.forget(createPlatformDb(c.env.DB), claims.phone, device);
+      } catch {
+        // Not a token of ours: nothing to forget.
+      }
+    }
+    return c.json({ ok: true as const });
   })
   .get('/me', requireAuth, async (c) => {
     const db = c.get('db');
@@ -466,16 +448,20 @@ export const authRoutes = new Hono<{ Bindings: Env }>()
     if (!user) return c.json({ error: 'unauthorized' as const }, 401);
     return c.json(publicUser(user));
   })
-  // First PIN after a WhatsApp/recovery code, or a change from More. Every other phone signed in
-  // as this person is signed out; this one gets a fresh session back.
+  // First PIN after a WhatsApp code, a change from More, or the move to 6 digits. Owners,
+  // managers and HQ (in any of their branches) need 6 digits. Every other phone signed in as this
+  // person is signed out; this one gets a fresh session back.
   .put('/pin', requireAuth, zValidator('json', setPinSchema), async (c) => {
     const { pin, currentPin } = c.req.valid('json');
-    const problem = checkPin(pin);
+    const session = c.get('session');
+    const db = c.get('db');
+    const platform = createPlatformDb(c.env.DB);
+    const rows = await userRepo.listByPhone(platform, session.phone);
+    const senior = await isSeniorPerson(platform, session.phone, rows);
+    const problem = checkPin(pin, senior);
     if (problem) {
       return c.json({ error: 'weak_pin' as const, message: pinProblemMessage(problem) }, 400);
     }
-    const session = c.get('session');
-    const db = c.get('db');
     const me = await userRepo.findById(db, session.sub);
     if (!me) return c.json({ error: 'unauthorized' as const }, 401);
     if (me.pinHash) {
@@ -493,10 +479,11 @@ export const authRoutes = new Hono<{ Bindings: Env }>()
         return c.json({ error: 'invalid_pin' as const, message: wrongPinMessage(result) }, 401);
       }
     }
-    await userRepo.setPinHashForPhone(createPlatformDb(c.env.DB), session.phone, await hashPin(pin));
+    await userRepo.setPinHashForPhone(platform, session.phone, { hash: await hashPin(pin), digits: pin.length });
+    if (session.dv) await securityRepo.trust(platform, session.phone, session.dv, { label: deviceLabel(c), pinConfirmed: true });
     const user = await userRepo.findById(db, session.sub);
     if (!user) return c.json({ error: 'unauthorized' as const }, 401);
-    return c.json(await issueSession(user, c.env));
+    return c.json(await issueSession(user, c.env, session.dv));
   })
   .patch('/me', requireAuth, zValidator('json', updateProfileSchema), async (c) => {
     const { name } = c.req.valid('json');
@@ -565,16 +552,21 @@ export const authRoutes = new Hono<{ Bindings: Env }>()
     const moved = await withPhoneLock(c.env, phone, async () => {
       const taken = await userRepo.findByPhone(platform, phone);
       if (taken && taken.id !== me.id) return false;
-      await userRepo.updateForPhone(platform, me.phone, { phone });
+      await userRepo.movePhone(platform, me.phone, phone);
       return true;
     });
     if (moved === null) return c.json(phoneBusy, 409);
     if (!moved) return c.json(phoneTakenBody, 409);
+    // Phones trusted for the old number aren't trusted for the new one; this phone just proved it.
+    await securityRepo.forgetAll(platform, me.phone);
+    const device = await deviceHash(c);
+    if (device) await securityRepo.trust(platform, phone, device, { now, label: deviceLabel(c), pinConfirmed: true });
+    for (const r of await userRepo.listByPhone(platform, phone)) forgetShop(r.shopId);
     const user = await userRepo.findById(db, me.id);
     if (!user) return c.json({ error: 'unauthorized' as const }, 401);
-    return c.json(await issueSession(user, c.env));
+    return c.json(await issueSession(user, c.env, device));
   })
-  // Every shop this person can open with one sign-in. Staff have one; an owner one per branch.
+  // Every branch this person can open with one sign-in (closed ones left out).
   .get('/shops', requireAuth, async (c) => {
     const session = c.get('session');
     const platform = createPlatformDb(c.env.DB);
@@ -589,22 +581,19 @@ export const authRoutes = new Hono<{ Bindings: Env }>()
     return c.json({
       shops: rows.flatMap((r) => {
         const shop = byId.get(r.shopId);
-        if (!shop) return [];
+        if (!shop || shop.status === 'closed') return [];
         return [
           {
             shopId: shop.id,
             name: shop.name,
             city: shop.city,
             code: shop.code,
-            role: r.role === 'owner' ? ('owner' as const) : ('staff' as const),
+            role: toUserRole(r.role),
+            status: shop.status as 'active' | 'paused',
             current: r.shopId === session.shopId,
           },
         ];
       }),
-      canAdd:
-        session.role === 'owner' &&
-        rows.every((r) => r.role === 'owner') &&
-        rows.length < MAX_SHOPS_PER_OWNER,
     });
   })
   // Same person, another of their branches: no PIN again, since they've already proved who they are.
@@ -613,7 +602,7 @@ export const authRoutes = new Hono<{ Bindings: Env }>()
     const session = c.get('session');
     const rows = await userRepo.listByPhone(createPlatformDb(c.env.DB), session.phone);
     const me = rows.find((r) => r.id === session.sub);
-    // Only the same person's other branches: an owner row there with the same PIN.
+    // Only the same person's other branches: a row there with the same PIN.
     const target = rows.find(
       (r) => r.shopId === shopId && (r.id === session.sub || samePerson(me, r)),
     );
@@ -626,73 +615,48 @@ export const authRoutes = new Hono<{ Bindings: Env }>()
         403,
       );
     }
-    return c.json(await issueSession(target, c.env));
+    const shop = await shopRepo.statusOf(createPlatformDb(c.env.DB), shopId);
+    if (shop?.status === 'closed') {
+      return c.json({ error: 'branch_closed' as const, message: branchClosedMessage(shop.statusReason) }, 403);
+    }
+    return c.json(await issueSession(target, c.env, session.dv));
   })
-  // An owner on paid Pro opens another branch: its own shop ID, team, prices and data, with them
-  // as owner on the same phone and PIN. It starts on Free with its own plan — no second trial.
-  // Staff can't — their number belongs to their shop.
-  .post(
-    '/shops',
-    requireAuth,
-    requireRole('owner'),
-    zValidator('json', addShopSchema),
-    async (c) => {
-      const body = c.req.valid('json');
-      const session = c.get('session');
-      const platform = createPlatformDb(c.env.DB);
-      const rows = await userRepo.listByPhone(platform, session.phone);
-      if (!rows.every((r) => r.role === 'owner')) {
-        return c.json(
-          { error: 'forbidden' as const, message: 'Only owners can open another shop.' },
-          403,
-        );
-      }
-      if (rows.length >= MAX_SHOPS_PER_OWNER) {
-        return c.json(
-          {
-            error: 'too_many_shops' as const,
-            message: `You can run up to ${MAX_SHOPS_PER_OWNER} shops on one number. Contact support for more.`,
-          },
-          400,
-        );
-      }
-      const me = rows.find((r) => r.id === session.sub);
-      if (!me?.pinHash) {
-        return c.json({ error: 'pin_not_set' as const, message: 'Set your PIN first.' }, 409);
-      }
-      // Any of their shops on paid Pro will do, so a branch that's still on Free can open the next.
-      const plans = await Promise.all(rows.map((r) => loadPlan(platform, r.shopId)));
-      if (!plans.some(isPaidPro)) {
-        return c.json(
-          { error: 'plan_required' as const, feature: 'branches' as const, message: BRANCH_NEEDS_PAID_PRO },
-          402,
-        );
-      }
-      const pinHash = me.pinHash;
-      // Two taps at once must not both pass the shop count or both open a branch.
-      const owner = await withPhoneLock(c.env, me.phone, async () => {
-        if ((await userRepo.listByPhone(platform, session.phone)).length >= MAX_SHOPS_PER_OWNER) return 'full' as const;
-        return createShopWithOwner(c.env, {
-          shopName: body.shopName,
-          city: body.city || null,
-          ownerName: me.name,
-          phone: me.phone,
-          pinHash,
-          trial: false,
-          // A branch opened from a branch joins its business, and gets the business's menu.
-          businessId: await catalogRepo.ensureBusinessForShop(c.env.DB, session.shopId),
-        });
-      });
-      if (owner === null) return c.json(phoneBusy, 409);
-      if (owner === 'full') {
-        return c.json(
-          {
-            error: 'too_many_shops' as const,
-            message: `You can run up to ${MAX_SHOPS_PER_OWNER} shops on one number. Contact support for more.`,
-          },
-          400,
-        );
-      }
-      return c.json(await issueSession(owner, c.env), 201);
-    },
-  );
+  // More → Your phones: every phone this number is trusted (and may be signed in) on.
+  .get('/devices', requireAuth, async (c) => {
+    const session = c.get('session');
+    const devices = await securityRepo.list(createPlatformDb(c.env.DB), session.phone);
+    return c.json({
+      devices: devices.map((d) => ({
+        id: d.id,
+        label: d.label,
+        createdAt: d.createdAt.toISOString(),
+        lastUsedAt: d.lastUsedAt.toISOString(),
+        current: d.deviceHash === session.dv,
+      })),
+    });
+  })
+  // Signs out one of your other phones and stops trusting it: it needs a WhatsApp code to come back.
+  .delete('/devices/:id', requireAuth, zValidator('param', z.object({ id: z.string().min(1).max(64) })), async (c) => {
+    const session = c.get('session');
+    const platform = createPlatformDb(c.env.DB);
+    const mine = (await securityRepo.list(platform, session.phone)).find((d) => d.id === c.req.valid('param').id);
+    if (!mine) return c.json({ error: 'not_found' as const, message: 'That phone isn’t signed in any more.' }, 404);
+    if (mine.deviceHash === session.dv) {
+      return c.json({ error: 'this_phone' as const, message: 'To sign out this phone, use Sign out.' }, 400);
+    }
+    await securityRepo.forgetById(platform, session.phone, mine.id);
+    for (const r of await userRepo.listByPhone(platform, session.phone)) forgetShop(r.shopId);
+    return c.json({ ok: true as const });
+  })
+  // Lost or shared phone: signs out every other phone and forgets them; this one stays signed in.
+  .post('/devices/sign-out-others', requireAuth, async (c) => {
+    const session = c.get('session');
+    const platform = createPlatformDb(c.env.DB);
+    await userRepo.signOutEverywhere(platform, session.phone);
+    if (session.dv) await securityRepo.forgetOthers(platform, session.phone, session.dv);
+    else await securityRepo.forgetAll(platform, session.phone);
+    for (const r of await userRepo.listByPhone(platform, session.phone)) forgetShop(r.shopId);
+    const user = await userRepo.findById(c.get('db'), session.sub);
+    if (!user) return c.json({ error: 'unauthorized' as const }, 401);
+    return c.json(await issueSession(user, c.env, session.dv));
+  });

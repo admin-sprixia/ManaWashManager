@@ -58,7 +58,7 @@ import {
 /**
  * Places a branch's team washes at on fixed days, their flats and houses, and their members.
  * Every read and write is pinned to the branch (shop-scoped client or `shop_id = ?`), except the
- * few public lookups the MANA Car Wash app makes before anyone joins (nearby places, a QR code).
+ * few public lookups the Mana Wash app makes before anyone joins (nearby places, a QR code).
  */
 
 // Workers and Node both have Web Crypto; declared here because the packages build with lib ES2022.
@@ -1002,7 +1002,7 @@ export const placeRepo = {
       take: 300,
     });
     const shops = await pdb.shop.findMany({
-      where: { id: { in: [...new Set(places.map((p) => p.shopId))] }, inCustomerApp: true },
+      where: { id: { in: [...new Set(places.map((p) => p.shopId))] }, inCustomerApp: true, status: 'active' },
       select: { id: true, name: true },
     });
     const listed = new Map(shops.map((s) => [s.id, s.name]));
@@ -1018,15 +1018,15 @@ export const placeRepo = {
   async byCode(pdb: DbClient, code: string) {
     const place = await pdb.place.findUnique({ where: { code }, select: placeSelect });
     if (!place || place.status === 'closed' || place.stage !== 'live') return null;
-    const shop = await pdb.shop.findUnique({ where: { id: place.shopId }, select: { inCustomerApp: true, name: true } });
-    return shop?.inCustomerApp ? { place, branchName: shop.name } : null;
+    const shop = await pdb.shop.findUnique({ where: { id: place.shopId }, select: { inCustomerApp: true, status: true, name: true } });
+    return shop?.inCustomerApp && shop.status === 'active' ? { place, branchName: shop.name } : null;
   },
 
   async publicFind(pdb: DbClient, id: string) {
     const place = await pdb.place.findUnique({ where: { id }, select: placeSelect });
     if (!place || place.status === 'closed' || place.stage !== 'live') return null;
-    const shop = await pdb.shop.findUnique({ where: { id: place.shopId }, select: { inCustomerApp: true, name: true } });
-    return shop?.inCustomerApp ? { place, branchName: shop.name } : null;
+    const shop = await pdb.shop.findUnique({ where: { id: place.shopId }, select: { inCustomerApp: true, status: true, name: true } });
+    return shop?.inCustomerApp && shop.status === 'active' ? { place, branchName: shop.name } : null;
   },
 
   // ---------- The customer (their own memberships) ----------

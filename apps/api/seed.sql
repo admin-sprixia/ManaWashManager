@@ -7,11 +7,9 @@
 
 -- ─── Seed: MANA, the first shop on the platform ─────────────────────────────
 
--- Same 14-day Pro trial a real sign-up gets, counted from the reset.
-INSERT INTO shops (id, code, name, city, plan, trial_ends_at) VALUES
-  ('shop_mana', '482193', 'MANA Car Wash', 'Hyderabad', 'trial', strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now', '+14 days'));
+INSERT INTO shops (id, code, name, city) VALUES ('shop_mana', '482193', 'Mana Wash', 'Hyderabad');
 
--- Listed in the MANA Car Wash app, washing within 8 km of the Kovur hub, plus two named areas
+-- Listed in the Mana Wash app, washing within 8 km of the Kovur hub, plus two named areas
 -- for customers who don't share their location. Contact details and hours for the branch page.
 UPDATE shops SET in_customer_app = 1, latitude = 14.4936, longitude = 79.9884, service_radius_km = 8,
   address = 'Main Road, near Bus Stand, Kovur, Nellore 524137', contact_phone = '9888626111',
@@ -130,7 +128,7 @@ SELECT column1, 'shop_mana', column2, column3, column4 FROM (VALUES
 -- ─── Seed: owner account ────────────────────────────────────────────────────
 
 -- Placeholder owner account — replace the phone number with the real one, then sign in once
--- with a WhatsApp code (or the OWNER_RECOVERY_CODE secret) and set a PIN.
+-- with a WhatsApp code and set a 6-digit PIN.
 -- Stored as a plain 10-digit local number (no +91): that's what the login screen's phone-pad
 -- keyboard actually produces.
 INSERT INTO users (id, shop_id, name, phone, role) VALUES
@@ -143,11 +141,11 @@ INSERT INTO users (id, shop_id, name, phone, role) VALUES
 
 -- ─── Seed: the business catalog (service network) ───────────────────────────
 
--- MANA Car Wash runs every branch from one catalog. The branch's services above are adopted by
+-- Mana Wash runs every branch from one catalog. The branch's services above are adopted by
 -- the catalog services of the same name on the first menu build, so their ids, commissions and
 -- rewards stay; their prices come from the price book below from then on. The rest of the
 -- default classes, sizes and body types are filled in by the API on first use.
-INSERT INTO businesses (id, name) VALUES ('biz_mana', 'MANA Car Wash');
+INSERT INTO businesses (id, name) VALUES ('biz_mana', 'Mana Wash');
 UPDATE shops SET business_id = 'biz_mana' WHERE id = 'shop_mana';
 INSERT INTO business_admins (business_id, phone) VALUES ('biz_mana', '9100000000');
 

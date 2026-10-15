@@ -1,7 +1,7 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { catalogRepo, createPlatformDb, menuRepo, planRepo } from '@mana/db';
+import { catalogRepo, createPlatformDb, createShopDb, joinRequestRepo, menuRepo, planRepo, shopRepo, userRepo, type DbClient } from '@mana/db';
 import {
   GSTIN_RE,
   isClockTime,
@@ -21,11 +21,20 @@ import {
   PRICE_BOOK_NAME_MAX,
   PRICE_ZONE_NAME_MAX,
   ROUND_TO_CHOICES_PAISE,
+  MAX_SHOPS_PER_OWNER,
   normalizePhone,
+  BRANCH_STATUSES,
+  BRANCH_STATUS_REASON_MAX,
+  BRANCH_STATUS_REASON_MIN,
+  toUserRole,
 } from '@mana/domain';
-import { requireAuth } from '../middleware/auth';
+import { forgetShop, requireAuth } from '../middleware/auth';
 import { catalogError, publishBusiness, requireBusinessAdmin } from '../lib/catalog';
+import { phoneBusy, withPhoneLock } from '../lib/phoneLock';
 import { placeError } from '../lib/places';
+import { createShopWithOwner } from '../lib/shops';
+import { resetPin } from '../lib/pinReset';
+import { endOfIstDay, startOfIstDay, startOfIstMonth } from '../lib/istDate';
 import type { Env } from '../types';
 
 /**
@@ -143,7 +152,60 @@ const planRulesSchema = z.object({
   legalName: z.string().trim().max(120).nullable().optional(),
 });
 
+const personName = z.string().trim().min(1, 'Enter the owner’s name').max(60);
+const openBranchSchema = z.object({
+  name: z.string().trim().min(2, 'Enter the branch name').max(60),
+  city: z.string().trim().max(40).optional(),
+  ownerName: personName,
+  ownerPhone: phoneSchema,
+});
+const ownerSchema = z.object({ name: personName, phone: phoneSchema });
+const ownerParam = z.object({ id: idSchema, userId: idSchema });
+const statusSchema = z
+  .object({
+    status: z.enum(BRANCH_STATUSES),
+    reason: z.string().trim().max(BRANCH_STATUS_REASON_MAX).optional(),
+  })
+  .refine((d) => d.status === 'active' || (d.reason?.length ?? 0) >= BRANCH_STATUS_REASON_MIN, {
+    message: 'Say why, so the branch team knows.',
+    path: ['reason'],
+  });
+
 type Ctx = Context<{ Bindings: Env }>;
+
+type OwnerProblem = { status: 404 | 409; body: { error: string; message: string } };
+
+type PersonPin = { hash: string | null; digits: number | null; setAt: Date | null };
+
+/**
+ * Whether this number can become the owner of another branch, and the name and PIN it already
+ * has: someone's rows share one PIN, so the new branch opens with the same sign-in, whatever
+ * their role at the others.
+ */
+async function ownerCandidate(
+  platform: DbClient,
+  phone: string,
+): Promise<{ problem: OwnerProblem } | { name: string | null; pin: PersonPin }> {
+  const rows = await userRepo.listByPhone(platform, phone);
+  if (rows.length >= MAX_SHOPS_PER_OWNER) {
+    return {
+      problem: {
+        status: 409,
+        body: { error: 'too_many_shops', message: `One number can work at up to ${MAX_SHOPS_PER_OWNER} branches.` },
+      },
+    };
+  }
+  const person = await userRepo.personPin(platform, phone);
+  return { name: person?.name ?? null, pin: person?.pin ?? { hash: null, digits: null, setAt: null } };
+}
+
+/** The branch, only if it belongs to the signed-in HQ's business. */
+async function hqBranch(c: Ctx, shopId: string) {
+  const branch = await catalogRepo.branchOf(createPlatformDb(c.env.DB), shopId);
+  return branch && branch.businessId === c.get('businessId') ? branch : null;
+}
+
+const branchNotFound = { error: 'not_found' as const, message: 'No such branch in this business.' };
 
 /** Runs a catalog change, then rebuilds the branches' menus. */
 async function change(c: Ctx, write: () => Promise<unknown>) {
@@ -290,6 +352,143 @@ export const businessRoutes = new Hono<{ Bindings: Env }>()
   )
 
   // ---------- Branches ----------
+  // Only HQ opens a branch: always inside its business, with HQ's menu, and an owner who signs
+  // in with a WhatsApp code and picks a PIN (or uses the PIN they already have as an owner).
+  .post('/branches', zValidator('json', openBranchSchema), async (c) => {
+    const body = c.req.valid('json');
+    const platform = createPlatformDb(c.env.DB);
+    const result = await withPhoneLock(c.env, body.ownerPhone, async () => {
+      const candidate = await ownerCandidate(platform, body.ownerPhone);
+      if ('problem' in candidate) return candidate;
+      const created = await createShopWithOwner(c.env, {
+        shopName: body.name,
+        city: body.city || null,
+        ownerName: candidate.name ?? body.ownerName,
+        phone: body.ownerPhone,
+        pin: candidate.pin,
+        businessId: c.get('businessId'),
+      });
+      await joinRequestRepo.cancelOpenForPhone(platform, body.ownerPhone, new Date());
+      return created;
+    });
+    if (result === null) return c.json(phoneBusy, 409);
+    if ('problem' in result) return c.json(result.problem.body, result.problem.status);
+    return c.json({ id: result.shop.id, code: result.shop.code, name: result.shop.name }, 201);
+  })
+  // Only HQ makes someone an owner: a teammate of the branch is promoted, anyone else is added.
+  .post('/branches/:id/owners', zValidator('param', idParam), zValidator('json', ownerSchema), async (c) => {
+    const { id } = c.req.valid('param');
+    const body = c.req.valid('json');
+    if (!(await hqBranch(c, id))) return c.json(branchNotFound, 404);
+    const platform = createPlatformDb(c.env.DB);
+    const db = createShopDb(c.env.DB, id);
+    const result = await withPhoneLock(c.env, body.phone, async () => {
+      const here = (await userRepo.listByPhone(platform, body.phone)).find((r) => r.shopId === id);
+      if (here?.role === 'owner') {
+        return { problem: { status: 409, body: { error: 'already_owner', message: 'This person already owns the branch.' } } as OwnerProblem };
+      }
+      if (here) {
+        await userRepo.update(db, here.id, { role: 'owner', active: true });
+        return { id: here.id };
+      }
+      const candidate = await ownerCandidate(platform, body.phone);
+      if ('problem' in candidate) return candidate;
+      const owner = await userRepo.createWithPin(db, {
+        name: candidate.name ?? body.name,
+        phone: body.phone,
+        role: 'owner',
+        pin: candidate.pin,
+      });
+      await joinRequestRepo.cancelOpenForPhone(platform, body.phone, new Date());
+      return { id: owner.id };
+    });
+    forgetShop(id);
+    if (result === null) return c.json(phoneBusy, 409);
+    if ('problem' in result) return c.json(result.problem.body, result.problem.status);
+    return c.json(result, 201);
+  })
+  // Takes an owner off the branch (signed out, kept on past work). Another owner must remain.
+  .delete('/branches/:id/owners/:userId', zValidator('param', ownerParam), async (c) => {
+    const { id, userId } = c.req.valid('param');
+    if (!(await hqBranch(c, id))) return c.json(branchNotFound, 404);
+    const db = createShopDb(c.env.DB, id);
+    const target = await userRepo.findMember(db, userId);
+    if (!target || target.role !== 'owner') return c.json({ error: 'not_found' as const, message: 'Not an owner of this branch.' }, 404);
+    if (target.active && !(await userRepo.dropOwnerAccess(db, userId, { demote: false, deactivate: true }))) {
+      return c.json({ error: 'last_owner' as const, message: 'Add another owner before removing the last one.' }, 400);
+    }
+    await userRepo.remove(db, userId, new Date());
+    forgetShop(id);
+    return c.json({ ok: true as const });
+  })
+  // The branch's managers and staff, so HQ can reset someone who works at more than one branch.
+  .get('/branches/:id/team', zValidator('param', idParam), async (c) => {
+    const { id } = c.req.valid('param');
+    if (!(await hqBranch(c, id))) return c.json(branchNotFound, 404);
+    const team = await userRepo.list(createShopDb(c.env.DB, id));
+    return c.json({
+      team: team
+        .filter((u) => u.role !== 'owner')
+        .map((u) => ({ id: u.id, name: u.name, phone: u.phone, role: toUserRole(u.role), active: u.active, pinSet: u.hasPin })),
+    });
+  })
+  // Forgot their PIN, or it got locked: HQ resets branch owners (and anyone who works at more
+  // than one branch). Only clears it — see lib/pinReset.ts.
+  .post('/branches/:id/team/:userId/reset-pin', zValidator('param', ownerParam), async (c) => {
+    const { id, userId } = c.req.valid('param');
+    if (!(await hqBranch(c, id))) return c.json(branchNotFound, 404);
+    const session = c.get('session');
+    const target = await userRepo.findMember(createShopDb(c.env.DB, id), userId);
+    if (!target) return c.json({ error: 'not_found' as const, message: 'Not on this branch’s team.' }, 404);
+    if (target.phone === session.phone) {
+      return c.json(
+        { error: 'cannot_change_self' as const, message: 'Change your own PIN from More → Change PIN.' },
+        400,
+      );
+    }
+    const me = await userRepo.findById(c.get('db'), session.sub);
+    await resetPin(c.env, target, { phone: session.phone, label: `${me?.name ?? 'Someone'} (Mana Wash HQ)` });
+    return c.json({ ok: true as const });
+  })
+  // Every branch with its status and today's and this month's numbers.
+  .get('/overview', async (c) => {
+    const now = new Date();
+    const branches = await shopRepo.businessOverview(createPlatformDb(c.env.DB), c.get('businessId'), {
+      dayFrom: startOfIstDay(now),
+      dayTo: endOfIstDay(now),
+      monthFrom: startOfIstMonth(now),
+    });
+    return c.json({ branches, currentShopId: c.get('session').shopId });
+  })
+  .get('/branches/:id/status', zValidator('param', idParam), async (c) => {
+    const { id } = c.req.valid('param');
+    if (!(await hqBranch(c, id))) return c.json(branchNotFound, 404);
+    return c.json({ history: await shopRepo.statusHistory(createPlatformDb(c.env.DB), id) });
+  })
+  // Open, pause or close a branch. Paused: no new washes, but today's open ones can be finished
+  // and paid. Closed: nobody there can sign in. Every change is kept with who did it and why.
+  .patch('/branches/:id/status', zValidator('param', idParam), zValidator('json', statusSchema), async (c) => {
+    const { id } = c.req.valid('param');
+    const body = c.req.valid('json');
+    if (!(await hqBranch(c, id))) return c.json(branchNotFound, 404);
+    const session = c.get('session');
+    if (body.status === 'closed' && id === session.shopId) {
+      return c.json(
+        {
+          error: 'cannot_close_own' as const,
+          message: 'You’re signed in to this branch. Switch to another branch before closing it.',
+        },
+        400,
+      );
+    }
+    const changed = await shopRepo.setStatus(c.env.DB, createPlatformDb(c.env.DB), id, {
+      status: body.status,
+      reason: body.reason ?? null,
+      byPhone: session.phone,
+    });
+    forgetShop(id);
+    return c.json({ ok: true as const, changed });
+  })
   .patch(
     '/branches/:id',
     zValidator('param', idParam),

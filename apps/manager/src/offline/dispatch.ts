@@ -1,6 +1,5 @@
 import { api, apiErrorMessage, uploadExpense, uploadPhoto, type ApiResponse } from '../api/client';
 import { NetworkError } from '../api/network';
-import { planRefusalFrom, type PlanRefusal } from '../api/planErrors';
 import { deleteLocalCopy, localFileExists } from './photoFiles';
 import type { OutboxOp } from './types';
 
@@ -21,8 +20,8 @@ export type SendResult =
   | { ok: false; kind: 'auth' }
   /** Server hiccup (5xx, rate limit, busy) — keep it queued, try again later with backoff. */
   | { ok: false; kind: 'retry'; message: string }
-  /** The server said no (validation, permission, plan) — replaying won't help as things stand. */
-  | { ok: false; kind: 'rejected'; message: string; plan?: PlanRefusal }
+  /** The server said no (validation, permission, branch paused) — replaying won't help as things stand. */
+  | { ok: false; kind: 'rejected'; message: string }
   /** Someone else already moved the job on; the server's state wins, nothing to do. */
   | { ok: false; kind: 'superseded' };
 
@@ -98,7 +97,7 @@ export async function sendOp(op: OutboxOp): Promise<SendResult> {
   const replay: ApiResponse = { ok: false, status: res.status, json: () => Promise.resolve(body) };
   const error = typeof body?.error === 'string' ? body.error : null;
 
-  if (res.status === 401 || (res.status === 403 && (error === 'account_disabled' || error === 'plan_seat_locked'))) {
+  if (res.status === 401 || (res.status === 403 && (error === 'account_disabled' || error === 'branch_closed' || error === 'pin_upgrade_required'))) {
     return { ok: false, kind: 'auth' };
   }
   if (res.status >= 500 || res.status === 429 || (res.status === 409 && error === 'busy')) {
@@ -106,6 +105,5 @@ export async function sendOp(op: OutboxOp): Promise<SendResult> {
   }
   // A status change that lost the race (job already further along or voided) isn't an error.
   if (res.status === 409 && op.kind === 'job.status') return { ok: false, kind: 'superseded' };
-  const plan = planRefusalFrom(res.status, body) ?? undefined;
-  return { ok: false, kind: 'rejected', message: await apiErrorMessage(replay), plan };
+  return { ok: false, kind: 'rejected', message: await apiErrorMessage(replay) };
 }

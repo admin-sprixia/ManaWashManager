@@ -15,25 +15,20 @@ import {
   LOGIN_CODE_LENGTH,
   LOGIN_CODE_TTL_MINUTES,
   normalizePhone,
-  SEAT_LOCKED_MESSAGE,
-  SHOP_TRIAL_DAYS,
 } from '@mana/domain';
 import {
   AuthHero,
   Button,
   IconAlert,
-  IconChevronRight,
   IconLock,
   IconShield,
-  IconStore,
-  IconUserPlus,
+  IconUsers,
   colors,
   radius,
   spacing,
   typography,
 } from '@mana/ui';
 import { PinPad } from '../components/PinPad';
-import { SignUpFlow } from '../components/auth/SignUpFlow';
 import { JoinShopFlow } from '../components/auth/JoinShopFlow';
 import { api } from '../api/client';
 import { NetworkError } from '../api/network';
@@ -46,7 +41,9 @@ import {
   type SessionUser,
 } from '../api/session';
 
-type Step = 'phone' | 'pin' | 'forgot' | 'code' | 'recovery' | 'choose' | 'signup' | 'join';
+type Step = 'phone' | 'pin' | 'forgot' | 'code' | 'join';
+/** `device`: a new phone proves the number, then the PIN. `reset`: a forgotten PIN is cleared. */
+type CodePurpose = 'device' | 'reset';
 
 type SignInBody = {
   token?: string;
@@ -57,6 +54,8 @@ type SignInBody = {
   lockedUntil?: string;
   retryAfter?: number;
   resendAfter?: number;
+  next?: 'pin';
+  resetBy?: { by: string; at: string } | null;
 };
 
 function formatPhone(digits: string): string {
@@ -64,20 +63,30 @@ function formatPhone(digits: string): string {
 }
 
 function lockMessage(lockedUntil?: string): string {
-  if (!lockedUntil)
-    return 'Too many wrong tries. Try again later, or ask the owner to reset your PIN.';
+  if (!lockedUntil) return 'Too many wrong tries. Try again later, or tap “Forgot PIN?”.';
   const mins = Math.max(1, Math.ceil((new Date(lockedUntil).getTime() - Date.now()) / 60_000));
-  return `Too many wrong tries. Try again in ${mins} min, or ask the owner to reset your PIN.`;
+  const wait = mins < 90 ? `${mins} min` : `${Math.ceil(mins / 60)} hours`;
+  return `Too many wrong tries. Try again in ${wait}, or tap “Forgot PIN?”.`;
+}
+
+function resetNotice(resetBy: { by: string; at: string }): string {
+  const when = new Date(resetBy.at).toLocaleString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+  return `Your PIN was reset by ${resetBy.by} on ${when}. If you didn’t ask for this, tell your owner or Mana Wash HQ.`;
 }
 
 /**
- * Day to day everyone signs in with phone + PIN. The owner gets in on a new phone (or after
- * forgetting their PIN) with a code sent on WhatsApp, and the one-time recovery code is the
- * emergency fallback. A number with no account asks to join a shop with its shop ID (or, while
- * sign-up is open, may start a new shop instead).
+ * Day to day everyone signs in with phone + PIN on a phone their number trusts. A new phone is
+ * confirmed once with a code sent on WhatsApp; a forgotten PIN is cleared the same way. A reset by
+ * the owner or HQ never signs anyone in — the person still proves their number with a code. A
+ * number with no account asks to join a branch with its branch ID; branches are opened by HQ.
  */
 export function LoginScreen() {
-  const { signIn, sessionNotice } = useAuth();
+  const { signIn, sessionNotice, setSignInNotice } = useAuth();
   const [step, setStep] = useState<Step>('phone');
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
@@ -90,7 +99,8 @@ export function LoginScreen() {
   const [hintsLoaded, setHintsLoaded] = useState(false);
   const [resumeToken, setResumeToken] = useState<string | undefined>();
   const [codeBack, setCodeBack] = useState<Step>('phone');
-  const [signupOpen, setSignupOpen] = useState(false);
+  const [purpose, setPurpose] = useState<CodePurpose>('reset');
+  const [info, setInfo] = useState<string | null>(null);
   const [phoneFocused, setPhoneFocused] = useState(false);
 
   useEffect(() => {
@@ -126,13 +136,13 @@ export function LoginScreen() {
         ? e.message
         : 'Something went wrong.';
 
-  const accountError = (err?: string) =>
+  const accountError = (err?: string, message?: string) =>
     err === 'no_account'
       ? `No team account for ${formatPhone(digits)}. Ask the owner to add you.`
       : err === 'account_disabled'
         ? 'This account has been turned off. Ask the owner to re-enable it.'
-        : err === 'plan_seat_locked'
-          ? SEAT_LOCKED_MESSAGE
+        : err === 'branch_closed'
+          ? (message ?? 'Mana Wash HQ has closed your branch.')
           : null;
 
   const complete = async (token: string, user: SessionUser) => {
@@ -143,29 +153,25 @@ export function LoginScreen() {
   const goTo = (next: Step) => {
     setStep(next);
     setError(null);
+    setInfo(null);
     setPin('');
     setCode('');
   };
 
-  // A number with no account: choose "start a shop" or "join one" while sign-up is open; once it's
-  // closed (MANA's own branches only) the only way in is asking to join with the shop ID.
-  const goToNew = (open: boolean) => {
-    setSignupOpen(open);
-    if (open) {
-      goTo('choose');
-    } else {
-      setResumeToken(undefined);
-      goTo('join');
-    }
+  // A number with no account can only ask to join a branch with its branch ID.
+  const goToJoin = () => {
+    setResumeToken(undefined);
+    goTo('join');
   };
 
-  const requestCode = async () => {
+  const requestCode = async (why: CodePurpose = purpose) => {
     if (sending) return;
     if (step !== 'code') setCodeBack(step === 'forgot' ? 'forgot' : 'phone');
+    setPurpose(why);
     setError(null);
     setSending(true);
     try {
-      const res = await api.auth.code.request.$post({ json: { phone: digits } });
+      const res = await api.auth.code.request.$post({ json: { phone: digits, purpose: why } });
       const body = (await res.json().catch(() => null)) as SignInBody | null;
       // A code went out moments ago — it's still good, so just show the entry screen.
       if (body?.error === 'too_soon') {
@@ -174,7 +180,7 @@ export function LoginScreen() {
         return;
       }
       if (!res.ok)
-        throw new Error(accountError(body?.error) ?? body?.message ?? 'Couldn’t send the code.');
+        throw new Error(accountError(body?.error, body?.message) ?? body?.message ?? 'Couldn’t send the code.');
       setResendIn(body?.resendAfter ?? 30);
       goTo('code');
     } catch (e) {
@@ -191,18 +197,18 @@ export function LoginScreen() {
     try {
       const res = await api.auth.start.$post({ json: { phone: digits } });
       const body = (await res.json().catch(() => null)) as
-        (SignInBody & { next?: 'pin' | 'code' | 'new'; signupOpen?: boolean }) | null;
+        (Omit<SignInBody, 'next'> & { next?: 'pin' | 'code' | 'verify_device' | 'new' }) | null;
       if (body?.next === 'new') {
-        goToNew(body.signupOpen === true);
+        goToJoin();
         return;
       }
-      if (body?.next === 'code') {
+      if (body?.next === 'code' || body?.next === 'verify_device') {
         setLoading(false);
-        await requestCode();
+        await requestCode(body.next === 'code' ? 'reset' : 'device');
         return;
       }
       if (!res.ok || body?.next !== 'pin') {
-        throw new Error(accountError(body?.error) ?? body?.message ?? 'Couldn’t continue.');
+        throw new Error(accountError(body?.error, body?.message) ?? body?.message ?? 'Couldn’t continue.');
       }
       goTo('pin');
     } catch (e) {
@@ -218,19 +224,27 @@ export function LoginScreen() {
     setLoading(true);
     try {
       const res = await api.auth.code.verify.$post({
-        json: { phone: digits, code: value, shopId: await getLastShop(digits) },
+        json: { phone: digits, code: value, shopId: await getLastShop(digits), purpose },
       });
       const body = (await res.json().catch(() => null)) as SignInBody | null;
+      // A new phone is now trusted; the person's own PIN does the rest.
+      if (res.ok && body?.next === 'pin') {
+        goTo('pin');
+        setInfo('Phone confirmed. Now enter your PIN.');
+        setLoading(false);
+        return;
+      }
       if (!res.ok || !body?.token || !body.user) {
         setCode('');
         throw new Error(
-          accountError(body?.error) ??
+          accountError(body?.error, body?.message) ??
             (body?.attemptsLeft != null
               ? `${body.message ?? 'That code isn’t right.'} ${body.attemptsLeft} ${body.attemptsLeft === 1 ? 'try' : 'tries'} left.`
               : (body?.message ?? 'Couldn’t sign in.')),
         );
       }
       // The server cleared the old PIN; the app asks for a new one straight after this.
+      setSignInNotice(body.resetBy ? resetNotice(body.resetBy) : null);
       await complete(body.token, body.user);
     } catch (e) {
       setError(describeError(e));
@@ -249,22 +263,26 @@ export function LoginScreen() {
       const body = (await res.json().catch(() => null)) as
         (SignInBody & { useCode?: boolean }) | null;
       if (body?.error === 'pin_not_set' && body.useCode) {
-        // First time on this number (or after a reset): the owner proves it's them on WhatsApp.
+        // The PIN was reset since: the person proves it's them on WhatsApp, then picks a new one.
         setLoading(false);
         setPin('');
-        await requestCode();
+        await requestCode('reset');
+        return;
+      }
+      if (body?.error === 'device_not_trusted') {
+        setLoading(false);
+        setPin('');
+        await requestCode('device');
         return;
       }
       if (!res.ok || !body?.token || !body.user) {
         setPin('');
         setPinErrorKey((k) => k + 1);
         throw new Error(
-          accountError(body?.error) ??
+          accountError(body?.error, body?.message) ??
             (body?.error === 'pin_locked'
               ? lockMessage(body.lockedUntil)
-              : body?.error === 'pin_not_set'
-                ? 'No PIN for this number yet. Ask the owner to set one in More → Team.'
-                : body?.error === 'invalid_pin'
+              : body?.error === 'invalid_pin'
                   ? `Wrong PIN. ${body.attemptsLeft ?? 0} ${body.attemptsLeft === 1 ? 'try' : 'tries'} left.`
                   : 'Couldn’t sign in.'),
         );
@@ -276,50 +294,26 @@ export function LoginScreen() {
     }
   };
 
-  const recover = async () => {
-    if (!code.trim() || loading) return;
-    setError(null);
-    setLoading(true);
-    try {
-      const res = await api.auth.recover.$post({
-        json: { phone: digits, code: code.trim(), shopId: await getLastShop(digits) },
-      });
-      const body = (await res.json().catch(() => null)) as SignInBody | null;
-      if (!res.ok || !body?.token || !body.user) {
-        throw new Error(
-          accountError(body?.error) ??
-            (body?.error === 'pin_locked'
-              ? lockMessage(body.lockedUntil)
-              : body?.attemptsLeft != null
-                ? `${body.message ?? 'That code isn’t right.'} ${body.attemptsLeft} ${body.attemptsLeft === 1 ? 'try' : 'tries'} left.`
-                : (body?.message ?? 'Couldn’t sign in.')),
-        );
-      }
-      // The server cleared the old PIN; the app asks for a new one straight after this.
-      await complete(body.token, body.user);
-    } catch (e) {
-      setError(describeError(e));
-      setLoading(false);
-    }
-  };
-
   const onPinChange = (value: string) => {
     setPin(value);
     if (error) setError(null);
+    if (info) setInfo(null);
     if (value.length === 6) void verifyPin(value);
   };
 
-  // The remembered number may have lost its PIN since (reset, or a new phone): ask the server once,
-  // quietly, and move on to the WhatsApp code or the "New here?" choice. Offline, stay on the pad.
+  // The remembered number may have lost its PIN since (a reset) or this phone may no longer be
+  // trusted: ask the server once, quietly, and move on to the WhatsApp code or joining a branch.
+  // Offline, stay on the pad.
   useEffect(() => {
     if (!hintsLoaded || hintChecked.current || step !== 'pin' || !phoneOk) return;
     hintChecked.current = true;
     void api.auth.start
       .$post({ json: { phone: digits } })
-      .then((res) => res.json() as Promise<{ next?: string; signupOpen?: boolean }>)
-      .then(({ next, signupOpen: open }) => {
-        if (next === 'code') void requestCode();
-        else if (next === 'new') goToNew(open === true);
+      .then((res) => res.json() as Promise<{ next?: string }>)
+      .then(({ next }) => {
+        if (next === 'code') void requestCode('reset');
+        else if (next === 'verify_device') void requestCode('device');
+        else if (next === 'new') goToJoin();
       })
       .catch(() => undefined);
     // Runs once for the remembered number; requestCode/goTo are recreated every render.
@@ -340,26 +334,14 @@ export function LoginScreen() {
     step === 'phone'
       ? {
           title: 'Sign in',
-          subtitle: 'Owner and staff use the same app — your role decides what you see.',
+          subtitle: 'Use the mobile number your branch added you with.',
           tall: true,
         }
-      : step === 'choose'
-        ? {
-            title: 'Welcome to MANA',
-            subtitle: 'This number is new here. How will you use the app?',
-            phoneChip: changeNumber,
-            onBack: () => goTo('phone'),
-          }
-        : step === 'signup'
-          ? {
-              title: 'Start your shop',
-              subtitle: `Free for ${SHOP_TRIAL_DAYS} days · ready in about a minute.`,
-            }
-          : step === 'join'
+      : step === 'join'
             ? {
-                title: 'Join your shop',
-                subtitle: 'Your owner approves you, then you’re in.',
-                phoneChip: signupOpen || resumeToken ? undefined : changeNumber,
+                title: 'Join your branch',
+                subtitle: 'Your owner or manager approves you, then you’re in.',
+                phoneChip: resumeToken ? undefined : changeNumber,
               }
             : step === 'pin'
               ? { title: 'Welcome back', subtitle: 'Enter your PIN to continue.', phoneChip: changeNumber }
@@ -369,17 +351,14 @@ export function LoginScreen() {
                     subtitle: 'No problem — here’s how to get back in.',
                     onBack: () => goTo('pin'),
                   }
-                : step === 'code'
-                  ? {
-                      title: 'Check WhatsApp',
-                      subtitle: `We sent a ${LOGIN_CODE_LENGTH}-digit code to ${phoneLabel}. It works for ${LOGIN_CODE_TTL_MINUTES} minutes.`,
-                      onBack: () => goTo(codeBack),
-                    }
-                  : {
-                      title: 'Recovery code',
-                      subtitle: `Owner emergency sign-in for ${phoneLabel}.`,
-                      onBack: () => goTo('forgot'),
-                    };
+                : {
+                    title: purpose === 'device' ? 'Confirm this phone' : 'Check WhatsApp',
+                    subtitle:
+                      purpose === 'device'
+                        ? `First time on this phone. We sent a ${LOGIN_CODE_LENGTH}-digit code to ${phoneLabel} on WhatsApp.`
+                        : `We sent a ${LOGIN_CODE_LENGTH}-digit code to ${phoneLabel}. It works for ${LOGIN_CODE_TTL_MINUTES} minutes.`,
+                    onBack: () => goTo(codeBack),
+                  };
 
   return (
     <KeyboardAvoidingView
@@ -391,7 +370,7 @@ export function LoginScreen() {
         keyboardShouldPersistTaps="handled"
         bounces={false}
       >
-        <AuthHero product="Wash Manager" {...hero} />
+        <AuthHero product="Wash Partner" {...hero} />
 
         <View style={styles.panel}>
           {sessionNotice ? (
@@ -453,66 +432,13 @@ export function LoginScreen() {
                 <Text style={styles.trustText}>Your shop’s data stays private to your team.</Text>
               </View>
             </>
-          ) : step === 'choose' ? (
-            <>
-              <Text style={styles.sectionLabel}>I am the…</Text>
-              <View style={styles.choiceList}>
-                <Pressable
-                  style={({ pressed }) => [styles.choice, pressed && styles.choicePressed]}
-                  onPress={() => goTo('signup')}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Owner. I own a car wash. Set up your shop, free for ${SHOP_TRIAL_DAYS} days.`}
-                >
-                  <View style={styles.choiceIcon}>
-                    <IconStore size={24} color={colors.waterDeep} />
-                  </View>
-                  <View style={styles.choiceCopy}>
-                    <View style={styles.choiceHead}>
-                      <Text style={styles.choiceTitle}>Owner</Text>
-                      <View style={styles.choiceTag}>
-                        <Text style={styles.choiceTagText}>{SHOP_TRIAL_DAYS} DAYS FREE</Text>
-                      </View>
-                    </View>
-                    <Text style={styles.choiceBody}>
-                      I own a car wash. Set up my shop in a minute.
-                    </Text>
-                  </View>
-                  <IconChevronRight size={20} color={colors.slate} />
-                </Pressable>
-                <Pressable
-                  style={({ pressed }) => [styles.choice, pressed && styles.choicePressedTeal]}
-                  onPress={() => {
-                    setResumeToken(undefined);
-                    goTo('join');
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel="Staff. I work at a car wash. Join with the shop ID from your owner."
-                >
-                  <View style={[styles.choiceIcon, styles.choiceIconTeal]}>
-                    <IconUserPlus size={24} color={colors.tealDeep} />
-                  </View>
-                  <View style={styles.choiceCopy}>
-                    <Text style={styles.choiceTitle}>Staff</Text>
-                    <Text style={styles.choiceBody}>
-                      I work at a car wash. Join with the 6-digit shop ID from my owner.
-                    </Text>
-                  </View>
-                  <IconChevronRight size={20} color={colors.slate} />
-                </Pressable>
-              </View>
-              <Text style={styles.choiceHint}>
-                Not sure? The owner starts the shop first, then shares the shop ID with the team.
-              </Text>
-            </>
-          ) : step === 'signup' ? (
-            <SignUpFlow phone={digits} onBack={() => goTo('choose')} />
           ) : step === 'join' ? (
             <JoinShopFlow
               phone={digits}
               resumeToken={resumeToken}
               onBack={() => {
                 setResumeToken(undefined);
-                goTo(signupOpen ? 'choose' : 'phone');
+                goTo('phone');
               }}
             />
           ) : step === 'pin' ? (
@@ -530,9 +456,11 @@ export function LoginScreen() {
                   <ActivityIndicator color={colors.water} />
                 ) : error ? (
                   <Text style={[styles.error, styles.center]}>{error}</Text>
+                ) : info ? (
+                  <Text style={[styles.info, styles.center]}>{info}</Text>
                 ) : (
                   <Text style={[styles.helper, styles.center]}>
-                    4–6 digits · signs in automatically at 6
+                    Owners and managers: 6 digits · staff: 4–6
                   </Text>
                 )}
               </View>
@@ -551,26 +479,26 @@ export function LoginScreen() {
           ) : step === 'forgot' ? (
             <>
               <View style={styles.helpRow}>
-                <View style={[styles.helpIcon, styles.helpIconTeal]}>
-                  <IconUserPlus size={20} color={colors.tealDeep} />
-                </View>
-                <View style={styles.helpCopy}>
-                  <Text style={styles.helpTitle}>I’m staff</Text>
-                  <Text style={styles.helpBody}>
-                    Ask the owner to reset it in More → Team. You can sign in with the new PIN
-                    right away.
-                  </Text>
-                </View>
-              </View>
-              <View style={[styles.helpRow, styles.helpRowLast]}>
                 <View style={styles.helpIcon}>
                   <IconLock size={20} color={colors.waterDeep} />
                 </View>
                 <View style={styles.helpCopy}>
-                  <Text style={styles.helpTitle}>I’m the owner</Text>
+                  <Text style={styles.helpTitle}>Get a code on WhatsApp</Text>
                   <Text style={styles.helpBody}>
-                    We’ll send a {LOGIN_CODE_LENGTH}-digit code on WhatsApp to {phoneLabel}. Enter
-                    it, then choose a new PIN.
+                    We’ll send a {LOGIN_CODE_LENGTH}-digit code to {phoneLabel}. Enter it, then
+                    choose a new PIN.
+                  </Text>
+                </View>
+              </View>
+              <View style={[styles.helpRow, styles.helpRowLast]}>
+                <View style={[styles.helpIcon, styles.helpIconTeal]}>
+                  <IconUsers size={20} color={colors.tealDeep} />
+                </View>
+                <View style={styles.helpCopy}>
+                  <Text style={styles.helpTitle}>Lost your phone?</Text>
+                  <Text style={styles.helpBody}>
+                    Ask your owner (or Mana Wash HQ, if you’re an owner) to reset your PIN. That
+                    signs you out everywhere; you then get back in with a WhatsApp code.
                   </Text>
                 </View>
               </View>
@@ -579,13 +507,10 @@ export function LoginScreen() {
                 <Button
                   label="Send code on WhatsApp"
                   size="lg"
-                  onPress={() => void requestCode()}
+                  onPress={() => void requestCode('reset')}
                   loading={sending}
                 />
               </View>
-              <Pressable onPress={() => goTo('recovery')} hitSlop={8} style={styles.centerLink}>
-                <Text style={styles.link}>No WhatsApp? Use the recovery code</Text>
-              </Pressable>
             </>
           ) : step === 'code' ? (
             <>
@@ -616,7 +541,9 @@ export function LoginScreen() {
                   <Text style={styles.error}>{error}</Text>
                 ) : (
                   <Text style={styles.helper}>
-                    Signs in automatically once all {LOGIN_CODE_LENGTH} digits are in.
+                    {purpose === 'device'
+                      ? 'You only do this once per phone. Your PIN comes next.'
+                      : `Goes on automatically once all ${LOGIN_CODE_LENGTH} digits are in.`}
                   </Text>
                 )}
               </View>
@@ -627,46 +554,8 @@ export function LoginScreen() {
                 loading={sending}
                 disabled={resendIn > 0 || loading}
               />
-              <Pressable onPress={() => goTo('recovery')} hitSlop={8} style={styles.centerLink}>
-                <Text style={styles.link}>Use the recovery code instead</Text>
-              </Pressable>
             </>
-          ) : (
-            <>
-              <Text style={styles.body}>
-                Enter the recovery code kept on the server. It works once; you’ll choose a new PIN
-                straight after.
-              </Text>
-              <Text style={styles.fieldLabel}>Recovery code</Text>
-              <TextInput
-                style={[styles.codeInput, error ? styles.fieldError : null]}
-                value={code}
-                onChangeText={(t) => {
-                  setCode(t);
-                  if (error) setError(null);
-                }}
-                placeholder="Recovery code"
-                placeholderTextColor={colors.slate}
-                autoCapitalize="none"
-                autoCorrect={false}
-                secureTextEntry
-                autoFocus
-                returnKeyType="go"
-                onSubmitEditing={() => void recover()}
-                accessibilityLabel="Recovery code"
-              />
-              {error ? <Text style={styles.error}>{error}</Text> : null}
-              <View style={styles.actions}>
-                <Button
-                  label="Sign in with recovery code"
-                  size="lg"
-                  onPress={() => void recover()}
-                  loading={loading}
-                  disabled={!code.trim()}
-                />
-              </View>
-            </>
-          )}
+          ) : null}
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -705,16 +594,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   noticeText: { ...typography.label, color: colors.amberDeep, flex: 1, textTransform: 'none' },
-  body: { ...typography.body, color: colors.slateDeep, fontSize: 15, lineHeight: 22 },
   center: { textAlign: 'center' },
   fieldLabel: {
-    ...typography.caption,
-    color: colors.slateDeep,
-    fontWeight: '700',
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
-  },
-  sectionLabel: {
     ...typography.caption,
     color: colors.slateDeep,
     fontWeight: '700',
@@ -750,6 +631,7 @@ const styles = StyleSheet.create({
   },
   helper: { ...typography.caption, color: colors.slate, letterSpacing: 0, lineHeight: 17 },
   error: { ...typography.label, color: colors.danger, textTransform: 'none', lineHeight: 19 },
+  info: { ...typography.label, color: colors.tealDeep, textTransform: 'none', lineHeight: 19 },
   actions: { marginTop: spacing.md },
   trust: {
     flexDirection: 'row',
@@ -763,51 +645,6 @@ const styles = StyleSheet.create({
   centerLink: { alignSelf: 'center', paddingVertical: spacing.sm, marginTop: spacing.sm },
   pinWrap: { marginTop: spacing.xs },
   pinStatus: { minHeight: 40, justifyContent: 'center', marginTop: spacing.xs },
-  choiceList: {
-    marginHorizontal: -spacing.lg,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-  },
-  choice: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md + 4,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  choicePressed: { backgroundColor: colors.waterPale },
-  choicePressedTeal: { backgroundColor: '#F0FDFA' },
-  choiceIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
-    backgroundColor: colors.waterPale,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  choiceIconTeal: { backgroundColor: '#CCFBF1' },
-  choiceCopy: { flex: 1, gap: 3 },
-  choiceHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  choiceTitle: { ...typography.heading, color: colors.waterInk, fontSize: 18 },
-  choiceTag: {
-    backgroundColor: colors.waterPale,
-    borderRadius: radius.pill,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  },
-  choiceTagText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.6, color: colors.waterDeep },
-  choiceBody: { ...typography.body, color: colors.slateDeep, fontSize: 14, lineHeight: 20 },
-  choiceHint: {
-    ...typography.caption,
-    color: colors.slate,
-    letterSpacing: 0,
-    lineHeight: 18,
-    textAlign: 'center',
-    marginTop: spacing.md,
-    paddingHorizontal: spacing.md,
-  },
   helpRow: {
     flexDirection: 'row',
     gap: spacing.md,
@@ -839,17 +676,5 @@ const styles = StyleSheet.create({
     color: colors.waterInk,
     letterSpacing: 12,
     textAlign: 'center',
-  },
-  codeInput: {
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 6,
-    fontSize: 17,
-    fontWeight: '600',
-    color: colors.waterInk,
-    letterSpacing: 1,
   },
 });

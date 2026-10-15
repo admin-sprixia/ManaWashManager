@@ -42,8 +42,6 @@ import { buildThankYouMessage } from '../utils/messages';
 import { SHOP } from '../config/shop';
 import { useShop } from '../offline/ShopProvider';
 import type { RootStackParamList } from '../navigation/RootNavigator';
-import { usePlan } from '../offline/PlanProvider';
-import { showUpgrade } from '../components/UpgradeSheet';
 import { CustomerRewards } from '../components/rewards/CustomerRewards';
 import { CustomerCommunities, type CustomerCommunity } from '../components/CustomerCommunities';
 import type { JobStatus } from '@mana/domain';
@@ -101,7 +99,7 @@ const SOURCE_LABEL: Record<string, string> = {
   friend: 'Referred by a friend',
   board: 'Saw our board',
   instagram: 'Found on Instagram',
-  app: 'Asked in the MANA Car Wash app',
+  app: 'Asked in the Mana Wash app',
   community: 'Added by the team at a community',
   community_app: 'Joined a community in the app',
   other: 'Other source',
@@ -173,7 +171,6 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
   const { customerId } = route.params;
   const insets = useSafeAreaInsets();
   const { googleReviewUrl, rewardsOn } = useShop();
-  const { atWashLimit, isPro } = usePlan();
   const [data, setData] = useState<LoadState>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -322,9 +319,7 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
   }
 
   const startWash = (registration?: string) =>
-    atWashLimit
-      ? showUpgrade({ kind: 'washLimit' })
-      : navigation.navigate('NewWash', registration ? { registration } : undefined);
+    navigation.navigate('NewWash', registration ? { registration } : undefined);
 
   const thankYouMessage = (job: HistoryJob) =>
     buildThankYouMessage({
@@ -532,7 +527,7 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
           </>
         ) : null}
 
-        {isPro && rewardsOn ? <CustomerRewards customerId={customerId} /> : null}
+        {rewardsOn ? <CustomerRewards customerId={customerId} /> : null}
 
         <SectionHeader title="History" count={data.visitCount} />
         {history.length === 0 ? (

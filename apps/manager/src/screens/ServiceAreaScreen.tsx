@@ -66,7 +66,7 @@ function failure(err: unknown): string {
 }
 
 /**
- * Where this branch washes, for the MANA Car Wash app: a hub point with a radius, and named areas
+ * Where this branch washes, for the Mana Wash app: a hub point with a radius, and named areas
  * customers can pick when they don't share their location. Owner only.
  */
 export function ServiceAreaScreen({ navigation }: Props) {
@@ -229,12 +229,12 @@ export function ServiceAreaScreen({ navigation }: Props) {
           <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
             <View style={styles.pad}>
               {settings.inCustomerApp ? (
-                <Notice tone="success" title="Listed in the MANA Car Wash app">
+                <Notice tone="success" title="Listed in the Mana Wash app">
                   People nearby can find this branch, see your starting prices, join a community near them or ask you to start one.
                 </Notice>
               ) : (
                 <Notice tone="info" title="Not listed in the app yet">
-                  Set your service area now. Sprixia lists your branch in the MANA Car Wash app when it’s ready.
+                  Set your service area now. Sprixia lists your branch in the Mana Wash app when it’s ready.
                 </Notice>
               )}
             </View>

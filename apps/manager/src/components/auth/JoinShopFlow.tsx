@@ -62,7 +62,7 @@ interface JoinBody {
 const POLL_MS = 15_000;
 
 const CLOSED_MESSAGE: Record<Exclude<Status, 'pending' | 'approved'>, string> = {
-  rejected: 'The owner didn’t approve this request. Check the shop ID with them and try again.',
+  rejected: 'The owner didn’t approve this request. Check the branch ID with them and try again.',
   cancelled: 'This request was cancelled.',
   expired: `The owner didn’t answer within ${JOIN_REQUEST_TTL_DAYS} days, so the request expired.`,
 };
@@ -72,7 +72,7 @@ function shopLine(shop: ShopSummary) {
 }
 
 /**
- * Someone who works at a shop asks to join it: shop ID → confirm the shop's name → WhatsApp code
+ * Someone who works at a branch asks to join it: branch ID → confirm its name → WhatsApp code
  * → their name → wait for the owner. Once approved they choose their own PIN and are signed in.
  * The request is saved on the phone, so closing the app keeps them on the waiting screen.
  */
@@ -254,9 +254,9 @@ export function JoinShopFlow({
   if (step === 'shop') {
     return (
       <>
-        <Text style={styles.title}>Enter your shop ID</Text>
+        <Text style={styles.title}>Enter your branch ID</Text>
         <Text style={styles.subtitle}>
-          Ask your owner for it — it’s the {SHOP_CODE_LENGTH}-digit number in their app under More.
+          Ask your owner or manager for it — it’s the {SHOP_CODE_LENGTH}-digit number in their app under More.
         </Text>
         <TextInput
           style={[styles.bigInput, error ? styles.fieldError : null]}
@@ -272,12 +272,12 @@ export function JoinShopFlow({
           autoFocus
           returnKeyType="go"
           onSubmitEditing={() => void findShop()}
-          accessibilityLabel="Shop ID"
+          accessibilityLabel="Branch ID"
         />
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <View style={styles.actions}>
           <Button
-            label="Find shop"
+            label="Find branch"
             size="lg"
             onPress={() => void findShop()}
             loading={busy}
@@ -296,7 +296,7 @@ export function JoinShopFlow({
   if (step === 'confirm' && shop) {
     return (
       <>
-        <Text style={styles.title}>Is this your shop?</Text>
+        <Text style={styles.title}>Is this your branch?</Text>
         <View style={styles.shopCard}>
           <View style={styles.shopIcon}>
             <IconStore size={22} color={colors.waterDeep} />
@@ -304,7 +304,7 @@ export function JoinShopFlow({
           <View style={styles.shopCopy}>
             <Text style={styles.shopName}>{shop.name}</Text>
             <Text style={styles.shopMeta}>
-              {shop.city ? `${shop.city} · ` : ''}Shop ID {formatShopCode(shop.code)}
+              {shop.city ? `${shop.city} · ` : ''}Branch ID {formatShopCode(shop.code)}
             </Text>
           </View>
         </View>

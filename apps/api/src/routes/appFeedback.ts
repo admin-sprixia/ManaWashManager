@@ -23,7 +23,7 @@ const alreadyHandled = { error: 'already_handled' as const, message: 'Someone al
 
 const washers = (job: { washers: { user: { name: string } }[] } | null) => job?.washers.map((w) => w.user.name) ?? [];
 
-// What customers send from the MANA Car Wash app: problem reports, ratings, and vehicles they ask
+// What customers send from the Mana Wash app: problem reports, ratings, and vehicles they ask
 // to add. The whole team sees them and can act — the person at the counter is usually the one
 // who sorts it out.
 export const appFeedbackRoutes = new Hono<{ Bindings: Env }>()

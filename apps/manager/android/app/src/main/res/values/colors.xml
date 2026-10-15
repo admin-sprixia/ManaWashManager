@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The Android 12+ system splash colour: the middle of the launch gradient
+         (drawable/splash_window.xml), so the step from one to the other is soft. -->
+    <color name="splash_background">#0C1442</color>
+</resources>

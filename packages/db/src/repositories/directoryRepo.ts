@@ -20,9 +20,9 @@ export interface DirectoryEntry {
   lastVisit: string | null;
   /** Services on this vehicle's most recent non-void job. */
   lastServices: { serviceId: string; quantity: number }[];
-  /** Stamp cards with stamps or a free wash on them (Pro shops; empty otherwise). */
+  /** Stamp cards with stamps or a free wash on them. */
   rewardCards: RewardCardView[];
-  /** Welcome-gift items still owed to this vehicle (Pro shops; 0 otherwise). */
+  /** Welcome-gift items still owed to this vehicle. */
   giftsOwed: number;
   updatedAt: string;
 }

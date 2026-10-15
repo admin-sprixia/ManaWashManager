@@ -1,28 +1,7 @@
-import { createPlatformDb, createShopDb, menuRepo, platformSettingsRepo, shopRepo, userRepo } from '@mana/db';
-import { SHOP_CODE_LENGTH, SHOP_TRIAL_DAYS } from '@mana/domain';
+import { createPlatformDb, createShopDb, menuRepo, shopRepo, userRepo } from '@mana/db';
+import { SHOP_CODE_LENGTH } from '@mana/domain';
 import { randomDigits } from './random';
-import { isDevMode } from './recovery';
 import type { Env } from '../types';
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-export const SIGNUP_OPEN_SETTING = 'signup.open';
-
-/**
- * Whether a new number may start its own shop. MANA runs its own branches only, so this is off
- * on staging and production unless the platform setting says `true`; local dev (and CI) default
- * to on so the sign-up code stays tested. Joining an existing shop with its shop ID is unaffected.
- */
-export async function signupOpen(env: Env, requestUrl: string): Promise<boolean> {
-  const value = await platformSettingsRepo.get(createPlatformDb(env.DB), SIGNUP_OPEN_SETTING);
-  if (value != null) return value === 'true';
-  return isDevMode(env, requestUrl);
-}
-
-export const signupClosed = {
-  error: 'signup_closed' as const,
-  message: 'New shops can’t be started here. Ask your owner to add you to the team.',
-};
 
 /** A shop ID nobody has yet. Never starts with 0, so it reads as a normal number. */
 async function newShopCode(env: Env): Promise<string> {
@@ -36,9 +15,10 @@ async function newShopCode(env: Env): Promise<string> {
 }
 
 /**
- * A new shop with its owner, made together: if the owner can't be created the empty shop is
- * deleted again. Sign-up starts on the free trial; an owner's extra branch starts on Free and
- * joins the business it was opened from, getting that business's menu straight away.
+ * A new branch with its owner, made together: if the owner can't be created the empty shop is
+ * deleted again. Only HQ opens branches (routes/business.ts), so every branch belongs to a
+ * business and gets its menu straight away. An owner who already works at another branch keeps
+ * their PIN (`pin`); anyone else signs in with a WhatsApp code and picks one.
  */
 export async function createShopWithOwner(
   env: Env,
@@ -47,9 +27,8 @@ export async function createShopWithOwner(
     city: string | null;
     ownerName: string;
     phone: string;
-    pinHash: string;
-    trial: boolean;
-    businessId?: string | null;
+    pin: { hash: string | null; digits: number | null; setAt: Date | null };
+    businessId: string;
   },
 ) {
   const platform = createPlatformDb(env.DB);
@@ -57,10 +36,7 @@ export async function createShopWithOwner(
     code: await newShopCode(env),
     name: data.shopName,
     city: data.city,
-    businessId: data.businessId ?? null,
-    ...(data.trial
-      ? { plan: 'trial', trialEndsAt: new Date(Date.now() + SHOP_TRIAL_DAYS * DAY_MS) }
-      : { plan: 'free', trialEndsAt: null }),
+    businessId: data.businessId,
   });
   let owner;
   try {
@@ -68,13 +44,13 @@ export async function createShopWithOwner(
       name: data.ownerName,
       phone: data.phone,
       role: 'owner',
-      pinHash: data.pinHash,
+      pin: data.pin,
     });
   } catch (e) {
     await shopRepo.deleteEmpty(platform, shop.id);
     throw e;
   }
   // A failed first build is retried by the branch's first menu read or the nightly run.
-  if (data.businessId) await menuRepo.publish(env.DB, shop.id).catch((e) => console.error(e));
-  return owner;
+  await menuRepo.publish(env.DB, shop.id).catch((e) => console.error(e));
+  return { shop, owner };
 }

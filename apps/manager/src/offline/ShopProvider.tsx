@@ -6,6 +6,7 @@ import {
   toStockQuantity,
   type StockLevel,
   type StockUnit,
+  type UserRole,
 } from '@mana/domain';
 import { useAuth } from '../api/auth';
 import { api } from '../api/client';
@@ -26,14 +27,19 @@ export interface ShopInfo {
   city: string | null;
   /** 6-digit shop ID new teammates type to ask to join. */
   code: string;
+  /** Paused by Mana Wash HQ: no new washes; today's open ones can still be finished and paid. */
+  status?: 'active' | 'paused';
+  statusReason?: string | null;
 }
 
-/** One of the shops this person can open — owners running several branches see them all. */
+/** One of the branches this person works at (owners, managers and staff alike). */
 export interface MyShop {
   shopId: string;
   name: string;
   city: string | null;
   code: string;
+  role?: UserRole;
+  status?: 'active' | 'paused';
   current: boolean;
 }
 
@@ -44,7 +50,6 @@ interface ShopSnapshot {
   upiId?: string | null;
   roster: RosterMember[];
   myShops: MyShop[];
-  canAddShop: boolean;
 }
 
 const EMPTY: ShopSnapshot = {
@@ -53,7 +58,6 @@ const EMPTY: ShopSnapshot = {
   upiId: null,
   roster: [],
   myShops: [],
-  canAddShop: false,
 };
 
 export interface StockItemView {
@@ -85,7 +89,7 @@ export interface GiftItemView {
   balance: number;
 }
 
-/** The shop's stamp cards and welcome gift (Pro), cached so New Wash knows them offline. */
+/** The shop's stamp cards and welcome gift, cached so New Wash knows them offline. */
 export interface RewardSettings {
   rules: RewardRuleView[];
   gift: GiftItemView[];
@@ -132,16 +136,16 @@ interface ShopContextValue extends ShopSnapshot {
   /** Owner only: errors logged since the error log was last opened. */
   unseenErrors: number;
   markErrorsSeen: () => void;
-  /** Owner only: people waiting for approval to join the team. */
+  /** Owner or manager: people waiting for approval to join the team. */
   joinRequests: number;
-  /** Listed in the MANA Car Wash app (set by Sprixia), and what's waiting from its customers. */
+  /** Listed in the Mana Wash app (set by Sprixia), and what's waiting from its customers. */
   customerApp: CustomerAppSummary;
   /** Inventory, cached for offline, with unsynced entries from this phone applied. */
   stock: StockItemView[];
   /** Items at or under their alert level, or out. */
   lowStock: number;
   refreshStock: () => Promise<void>;
-  /** Stamp cards and welcome gift; null when the shop isn't on Pro (or not read yet). */
+  /** Stamp cards and welcome gift; null until first read. */
   rewards: RewardSettings | null;
   /** True when a stamp card or welcome gift is set up. */
   rewardsOn: boolean;
@@ -168,7 +172,7 @@ const ShopContext = createContext<ShopContextValue | null>(null);
  * comes to the foreground.
  */
 export function ShopProvider({ children }: { children: React.ReactNode }) {
-  const { user, isOwner } = useAuth();
+  const { user, isOwner, canManageTeam } = useAuth();
   const { online, items: outbox, version } = useSync();
   const [snapshot, setSnapshot] = useState<ShopSnapshot>(EMPTY);
   const [unseenErrors, setUnseenErrors] = useState(0);
@@ -197,11 +201,6 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
     if (!userId) return;
     try {
       const res = await api.rewards.settings.$get();
-      if (res.status === 402) {
-        // Rewards are Pro: forget cards cached during a trial so New Wash stops offering them.
-        setRewards(null);
-        return;
-      }
       if (!res.ok) return;
       const body = await res.json();
       setRewards({
@@ -224,12 +223,6 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
     if (!userId) return;
     try {
       const res = await api.stock.$get();
-      if (res.status === 402) {
-        // Inventory is Pro: drop stock cached during a trial so no low-stock nags linger.
-        setServerStock([]);
-        void writeCache(CacheKeys.stock, []);
-        return;
-      }
       if (!res.ok) return;
       const body = await res.json();
       const next = body.items.map((i) => ({
@@ -273,6 +266,10 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
           if (body) setUnseenErrors(body.count);
         })
         .catch(() => undefined);
+    } else {
+      setUnseenErrors(0);
+    }
+    if (canManageTeam) {
       api.team.requests
         .$get()
         .then((res) => (res.ok ? res.json() : null))
@@ -281,7 +278,6 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
         })
         .catch(() => undefined);
     } else {
-      setUnseenErrors(0);
       setJoinRequests(0);
     }
     api['service-requests'].summary
@@ -303,7 +299,7 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
         api.shop.info.$get(),
         api.shop.settings.$get(),
         api.shop.roster.$get(),
-        isOwner ? api.auth.shops.$get() : null,
+        api.auth.shops.$get(),
       ]);
       if (!infoRes.ok || !settingsRes.ok || !rosterRes.ok) return;
       const [info, settings, roster, shops] = await Promise.all([
@@ -313,17 +309,19 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
         shopsRes?.ok ? shopsRes.json() : null,
       ]);
       commit({
-        info: 'code' in info ? { name: info.name, city: info.city, code: info.code } : null,
+        info:
+          'code' in info
+            ? { name: info.name, city: info.city, code: info.code, status: info.status, statusReason: info.statusReason }
+            : null,
         googleReviewUrl: settings.googleReviewUrl ?? null,
         upiId: settings.upiId ?? null,
         roster,
         myShops: shops?.shops ?? [],
-        canAddShop: shops?.canAdd ?? false,
       });
     } catch {
       // Offline: keep the cached copy.
     }
-  }, [userId, isOwner, commit]);
+  }, [userId, isOwner, canManageTeam, commit]);
 
   const markErrorsSeen = useCallback(() => {
     setUnseenErrors(0);

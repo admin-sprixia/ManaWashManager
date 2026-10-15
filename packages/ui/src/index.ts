@@ -33,4 +33,5 @@ export { Notice } from './components/Notice';
 export { GradientHero } from './components/GradientHero';
 export { ScreenContainer } from './components/ScreenContainer';
 export { ScreenHeader } from './components/ScreenHeader';
+export { SPLASH_BACKGROUND, SplashIntro } from './components/SplashIntro';
 export { showToast, ToastHost } from './components/Toast';

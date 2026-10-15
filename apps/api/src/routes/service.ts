@@ -16,7 +16,6 @@ import {
 } from '@mana/domain';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { catalogError } from '../lib/catalog';
-import { requirePro } from '../lib/plan';
 import type { Env } from '../types';
 
 const modeSchema = z.enum(DELIVERY_MODES as unknown as ['hub', 'doorstep']);
@@ -321,7 +320,6 @@ export const serviceRoutes = new Hono<{ Bindings: Env }>()
   .put(
     '/commissions',
     requireRole('owner'),
-    requirePro('commission'),
     zValidator('json', setCommissionSchema),
     async (c) => {
       const body = c.req.valid('json');

@@ -1,12 +1,19 @@
 import { jwtVerify, SignJWT } from 'jose';
+import { toUserRole, type UserRole } from '@mana/domain';
 
 export interface SessionClaims {
   sub: string; // user id
   shopId: string;
-  role: 'owner' | 'staff';
+  role: UserRole;
   phone: string;
   /** The user's session_version when this token was issued; an older one is signed out. */
   sv: number;
+  /**
+   * The hash of the phone's device key this session was issued to. The session only works from
+   * that phone, and ends when the phone stops being trusted (signed out, removed from Your
+   * phones, or a PIN reset).
+   */
+  dv?: string;
 }
 
 /**
@@ -18,7 +25,13 @@ const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
 export async function createSessionToken(claims: SessionClaims, secret: string): Promise<string> {
   const key = new TextEncoder().encode(secret);
-  return new SignJWT({ shopId: claims.shopId, role: claims.role, phone: claims.phone, sv: claims.sv })
+  return new SignJWT({
+    shopId: claims.shopId,
+    role: claims.role,
+    phone: claims.phone,
+    sv: claims.sv,
+    ...(claims.dv ? { dv: claims.dv } : {}),
+  })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(claims.sub)
     .setIssuedAt()
@@ -37,8 +50,9 @@ export async function verifySessionToken(token: string, secret: string): Promise
   return {
     sub: payload.sub,
     shopId: payload.shopId,
-    role: payload.role as 'owner' | 'staff',
+    role: toUserRole(String(payload.role)),
     phone: payload.phone as string,
     sv: typeof payload.sv === 'number' ? payload.sv : 0,
+    ...(typeof payload.dv === 'string' ? { dv: payload.dv } : {}),
   };
 }

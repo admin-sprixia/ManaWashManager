@@ -7,10 +7,10 @@ import * as Keychain from 'react-native-keychain';
  * display data in AsyncStorage.
  */
 
-const TOKEN_SERVICE = 'com.sprixia.manacarwash.session';
-const TICKET_SERVICE = 'com.sprixia.manacarwash.request';
-const ACCOUNT_KEY = 'manacarwash.account';
-const LAST_PHONE_KEY = 'manacarwash.last_phone';
+const TOKEN_SERVICE = 'com.sprixia.manawash.session';
+const TICKET_SERVICE = 'com.sprixia.manawash.request';
+const ACCOUNT_KEY = 'manawash.account';
+const LAST_PHONE_KEY = 'manawash.last_phone';
 
 export interface Account {
   phone: string;

@@ -11,7 +11,6 @@ import {
   STAMP_EVERY_MIN,
 } from '@mana/domain';
 import { requireAuth, requireRole } from '../middleware/auth';
-import { reportWindowProblem, requirePro } from '../lib/plan';
 import { reportQuerySchema, resolveReportWindow, windowMeta } from '../lib/reportWindow';
 import type { Env } from '../types';
 
@@ -49,10 +48,10 @@ const vehicleQuerySchema = z.object({
     .refine((r) => r.length >= 4 && r.length <= 15, 'Enter a valid registration number'),
 });
 
-// Rewards are Pro. Everyone sees the cards and hands over owed gifts; setting up the stamp
+// Everyone sees the cards and hands over owed gifts; setting up the stamp
 // cards and the welcome gift, and the report, are the owner's.
 export const rewardRoutes = new Hono<{ Bindings: Env }>()
-  .use('*', requireAuth, requirePro('rewards'))
+  .use('*', requireAuth)
   // The shop's stamp cards and welcome gift, and how many gifts are owed — cached on phones.
   .get('/settings', async (c) => {
     const db = c.get('db');
@@ -205,7 +204,5 @@ export const rewardRoutes = new Hono<{ Bindings: Env }>()
     const query = c.req.valid('query');
     const window = resolveReportWindow(query);
     if ('error' in window) return c.json({ error: window.error }, 400);
-    const tooFarBack = reportWindowProblem(c.get('plan'), window.from);
-    if (tooFarBack) return c.json(tooFarBack, 402);
     return c.json({ ...(await rewardRepo.report(db, window.from, window.to)), ...windowMeta(query, window) });
   });

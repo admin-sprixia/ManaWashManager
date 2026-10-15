@@ -23,7 +23,6 @@ import { cashRoutes } from './routes/cash';
 import { photoRoutes } from './routes/photo';
 import { stockRoutes } from './routes/stock';
 import { rewardRoutes } from './routes/reward';
-import { billingRoutes } from './routes/billing';
 import { serviceRequestRoutes } from './routes/serviceRequest';
 import { serviceAreaRoutes } from './routes/serviceArea';
 import { customerAppRoutes } from './routes/customerApp';
@@ -44,7 +43,6 @@ app.use('*', cors());
 const TEN_MIN = 10 * 60;
 app.use('/auth/start', rateLimit('start', 60, TEN_MIN));
 app.use('/auth/pin/login', rateLimit('pin', 40, TEN_MIN));
-app.use('/auth/recover', rateLimit('recover', 10, TEN_MIN));
 app.use('/auth/code/*', rateLimit('code', 20, TEN_MIN));
 app.use('/auth/me/phone', rateLimit('phone', 10, TEN_MIN));
 app.use('/auth/me/phone/code', rateLimit('phone-code', 10, TEN_MIN));
@@ -125,7 +123,6 @@ const routes = app
   .route('/photos', photoRoutes)
   .route('/stock', stockRoutes)
   .route('/rewards', rewardRoutes)
-  .route('/billing', billingRoutes)
   .route('/service-requests', serviceRequestRoutes)
   .route('/service-area', serviceAreaRoutes)
   .route('/app-feedback', appFeedbackRoutes)

@@ -51,7 +51,7 @@ async function sendAlert(env: Env, latest: ErrorReport): Promise<void> {
     : null;
   const where = latest.context ? ` · ${latest.context.slice(0, 80)}` : '';
   const text = [
-    `⚠️ MANA Wash Manager: ${count > 1 ? `${count} new errors` : 'a new error'}`,
+    `⚠️ Mana Wash Partner: ${count > 1 ? `${count} new errors` : 'a new error'}`,
     `Shop: ${shop?.name ?? 'platform'}`,
     `Latest (${latest.source}${where}): ${latest.message.slice(0, 200)}`,
   ].join('\n');

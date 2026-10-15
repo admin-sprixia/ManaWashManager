@@ -1,7 +1,7 @@
 import { jwtVerify, SignJWT } from 'jose';
 
 /**
- * Sign-in for the MANA Car Wash app. Signed with a key derived from JWT_SECRET but different from
+ * Sign-in for the Mana Wash app. Signed with a key derived from JWT_SECRET but different from
  * the team's session key and the sign-up tickets', and with its own audience, so a customer
  * token can never open the team app's API (or the other way round).
  */

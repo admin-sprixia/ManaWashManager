@@ -8,7 +8,7 @@ export * from './commission';
 export * from './referrals';
 export * from './photos';
 export * from './stock';
-export * from './plans';
+export * from './branchStatus';
 export * from './rewards';
 export * from './serviceArea';
 export * from './serviceRequests';

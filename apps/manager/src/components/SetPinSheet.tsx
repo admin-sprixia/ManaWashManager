@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text } from 'react-native';
-import { checkPin, pinProblemMessage } from '@mana/domain';
+import { checkPin, pinProblemMessage, SENIOR_PIN_DIGITS } from '@mana/domain';
 import { colors, spacing, typography, BottomSheet, Button } from '@mana/ui';
 import { PinPad } from './PinPad';
 
@@ -12,6 +12,8 @@ interface SetPinSheetProps {
   onClose: () => void;
   /** Ask for the current PIN first (changing your own PIN). */
   askCurrent?: boolean;
+  /** Owners, managers and HQ: the new PIN must be 6 digits. */
+  senior?: boolean;
   /**
    * Resolve with an error message to stay open, or null on success. Return
    * `{ currentPinError }` when the server rejected the current PIN, to go back to that step.
@@ -22,11 +24,12 @@ interface SetPinSheetProps {
 type Step = 'current' | 'choose' | 'confirm';
 
 /**
- * (Current →) choose → confirm a 4–6 digit PIN. Weak PINs (1234, 0000) are caught before any
- * request.
+ * (Current →) choose → confirm a PIN: 4–6 digits, or 6 for `senior`. Weak PINs (1234, 0000)
+ * are caught before any request.
  */
-export function SetPinSheet({ visible, title, subtitle, onClose, askCurrent, onSubmit }: SetPinSheetProps) {
+export function SetPinSheet({ visible, title, subtitle, onClose, askCurrent, senior = false, onSubmit }: SetPinSheetProps) {
   const firstStep: Step = askCurrent ? 'current' : 'choose';
+  const minDigits = senior ? SENIOR_PIN_DIGITS : 4;
   const [step, setStep] = useState<Step>(firstStep);
   const [current, setCurrent] = useState('');
   const [first, setFirst] = useState('');
@@ -59,7 +62,7 @@ export function SetPinSheet({ visible, title, subtitle, onClose, askCurrent, onS
       return;
     }
     if (step === 'choose') {
-      const problem = checkPin(value);
+      const problem = checkPin(value, senior);
       if (problem) return fail(pinProblemMessage(problem));
       setFirst(value);
       setValue('');
@@ -91,7 +94,7 @@ export function SetPinSheet({ visible, title, subtitle, onClose, askCurrent, onS
     step === 'current'
       ? 'Enter your current PIN'
       : step === 'choose'
-        ? `Choose a ${askCurrent ? 'new ' : ''}4–6 digit PIN`
+        ? `Choose a ${askCurrent ? 'new ' : ''}${senior ? '6' : '4–6'} digit PIN`
         : 'Enter the same PIN again';
 
   return (
@@ -106,7 +109,7 @@ export function SetPinSheet({ visible, title, subtitle, onClose, askCurrent, onS
           label={step === 'confirm' ? 'Save PIN' : 'Next'}
           size="lg"
           loading={busy}
-          disabled={value.length < 4}
+          disabled={value.length < (step === 'current' ? 4 : minDigits)}
           onPress={() => void next()}
         />
       }

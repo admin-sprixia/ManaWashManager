@@ -24,12 +24,12 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
-        <!-- manacarwash://place/<code> (QR posters, invite links), manacarwash://payment/<id> (back from checkout). -->
+        <!-- manawash://place/<code> (QR posters, invite links), manawash://payment/<id> (back from checkout). -->
         <intent-filter>
             <action android:name="android.intent.action.VIEW" />
             <category android:name="android.intent.category.DEFAULT" />
             <category android:name="android.intent.category.BROWSABLE" />
-            <data android:scheme="manacarwash" />
+            <data android:scheme="manawash" />
         </intent-filter>
       </activity>
     </application>

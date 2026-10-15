@@ -1,5 +1,5 @@
 import { directoryRepo, rewardRepo, type DbClient } from '@mana/db';
-import { isRewardEligiblePlate, REWARD_DISCOUNT_REASON, type PlanStatus } from '@mana/domain';
+import { isRewardEligiblePlate, REWARD_DISCOUNT_REASON } from '@mana/domain';
 
 type Line = { serviceId: string; priceAtTime: number };
 
@@ -53,15 +53,9 @@ export async function checkFreeWashes(
 /**
  * Runs after a wash is paid (and again on a retried payment — every step is idempotent): a car's
  * first paid wash gets the welcome gift, and the car's cards changed, so phones re-pull it.
- * Pro only; walk-in plates are skipped. True when a welcome gift was written for this wash.
+ * Walk-in plates are skipped. True when a welcome gift was written for this wash.
  */
-export async function settleRewardsForPaidJob(
-  db: DbClient,
-  jobId: string,
-  plan: PlanStatus,
-  userId: string,
-): Promise<boolean> {
-  if (plan.tier !== 'pro') return false;
+export async function settleRewardsForPaidJob(db: DbClient, jobId: string, userId: string): Promise<boolean> {
   const job = await db.job.findUnique({
     where: { id: jobId },
     select: { id: true, status: true, vehicleId: true, customerId: true, createdAt: true, vehicle: { select: { registrationNumber: true } } },

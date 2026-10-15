@@ -41,9 +41,7 @@ import { api } from '../api/client';
 import { formatRupees } from '../utils/format';
 import { shareReportPdf } from '../utils/shareReportPdf';
 import type { ReportExportPayload } from '../utils/reportPdf';
-import { usePlan, useProPill } from '../offline/PlanProvider';
 import { useShop } from '../offline/ShopProvider';
-import { handlePlanError, showUpgrade } from '../components/UpgradeSheet';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 
 type ReportsScreenProps = NativeStackScreenProps<RootStackParamList, 'Reports'>;
@@ -113,13 +111,8 @@ function pct(part: number, total: number): number {
   return total > 0 ? Math.round((part / total) * 100) : 0;
 }
 
-/** Free plan reports cover today and the last 7 days; longer periods are Pro. */
-const PRO_PERIODS: ReadonlySet<Range> = new Set<Range>(['month', 'year', 'custom']);
-
 export function ReportsScreen({ navigation }: ReportsScreenProps) {
-  const { isPro } = usePlan();
   const { rewardsOn } = useShop();
-  const proPill = useProPill();
   const [rewardsReport, setRewardsReport] = useState<RewardsReport | null>(null);
   const [range, setRange] = useState<Range>('today');
   const [periodOpen, setPeriodOpen] = useState(false);
@@ -156,20 +149,13 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
     setError(null);
     setForbidden(false);
     try {
-      // Rewards are Pro and optional: their report never holds up or fails the main one.
-      const rewardsCall = isPro
-        ? api.rewards.report
-            .$get({ query })
-            .then(async (r) => (r.ok ? ((await r.json()) as RewardsReport) : null))
-            .catch(() => null)
-        : Promise.resolve(null);
+      // Rewards are optional: their report never holds up or fails the main one.
+      const rewardsCall = api.rewards.report
+        .$get({ query })
+        .then(async (r) => (r.ok ? ((await r.json()) as RewardsReport) : null))
+        .catch(() => null);
       const [res, rewardsBody] = await Promise.all([api.jobs.stats.$get({ query }), rewardsCall]);
       setRewardsReport(rewardsBody);
-      if (await handlePlanError(res)) {
-        setRange('today');
-        setAppliedCustom(null);
-        return;
-      }
       if (res.status === 403) {
         setForbidden(true);
         setStats(null);
@@ -188,7 +174,7 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
     } finally {
       setLoading(false);
     }
-  }, [query, isPro]);
+  }, [query]);
 
   useFocusEffect(
     useCallback(() => {
@@ -222,26 +208,16 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
   };
 
   const selectPeriod = (key: Range) => {
-    if (!isPro && PRO_PERIODS.has(key)) {
-      setPeriodOpen(false);
-      showUpgrade({ kind: 'feature', feature: 'fullReports' });
-      return;
-    }
     setRange(key);
     setPeriodOpen(false);
     setError(null);
     if (key !== 'custom') setAppliedCustom(null);
   };
 
-  const openExpenses = () =>
-    isPro ? navigation.navigate('Expenses') : showUpgrade({ kind: 'feature', feature: 'expenses' });
+  const openExpenses = () => navigation.navigate('Expenses');
 
   const onExport = async () => {
     if (exporting) return;
-    if (!isPro) {
-      showUpgrade({ kind: 'feature', feature: 'pdfExport' });
-      return;
-    }
     if (range === 'custom' && !appliedCustom) {
       setError('Apply a custom date range before exporting.');
       return;
@@ -250,7 +226,6 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
     setError(null);
     try {
       const res = await api.jobs.stats.export.$get({ query });
-      if (await handlePlanError(res)) return;
       if (res.status === 403) throw new Error('Only the owner can export reports.');
       if (!res.ok) throw new Error(`Could not export (${res.status}).`);
       const payload = (await res.json()) as ReportExportPayload;
@@ -668,10 +643,7 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
                 accessibilityState={{ selected: on }}
               >
                 <View style={styles.flex}>
-                  <View style={styles.sheetLabelRow}>
-                    <Text style={[styles.sheetRowLabel, on && styles.sheetRowLabelOn]}>{p.label}</Text>
-                    {PRO_PERIODS.has(p.key) ? proPill : null}
-                  </View>
+                  <Text style={[styles.sheetRowLabel, on && styles.sheetRowLabelOn]}>{p.label}</Text>
                   <Text style={styles.sheetRowHint}>{p.hint}</Text>
                 </View>
                 <View style={[styles.radio, on && styles.radioOn]}>
@@ -1045,7 +1017,6 @@ const styles = StyleSheet.create({
   },
   sheetDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   sheetRowOn: { backgroundColor: colors.waterPale },
-  sheetLabelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   sheetRowLabel: { ...typography.bodyStrong, fontSize: 16, color: colors.waterInk },
   sheetRowLabelOn: { color: colors.waterDeep, fontWeight: '700' },
   sheetRowHint: { ...typography.caption, fontSize: 12.5, color: colors.slateDeep, letterSpacing: 0, marginTop: 1 },

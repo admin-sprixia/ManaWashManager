@@ -32,22 +32,8 @@ model Shop {
   code             String    @unique
   name             String
   city             String?
-  /// Razorpay subscription status: trial | pending | active | past_due | cancelled | free.
-  /// Free vs Pro comes from the dates (planStatus in @mana/domain), not from this.
-  plan             String    @default("trial")
-  trialEndsAt      DateTime? @map("trial_ends_at")
-  paidUntil        DateTime? @map("paid_until")
   createdAt        DateTime  @default(now()) @map("created_at")
-  subscriptionId   String?   @map("subscription_id")
-  billingInterval  String?   @map("billing_interval") // "monthly" | "yearly"
-  pricePaise       Int?      @map("price_paise")
-  /// First founder-price payment. Holds one of the 50 founder slots for good.
-  founderAt        DateTime? @map("founder_at")
-  /// Founder slot held while the first founder-price charge is on its way; lapses if never paid.
-  founderHoldUntil DateTime? @map("founder_hold_until")
-  /// When that hold was taken — for the last slot, the earlier claim wins.
-  founderHoldAt    DateTime? @map("founder_hold_at")
-  /// Listed in the MANA Car Wash app. Set by Sprixia for MANA's own branches, never by an owner.
+  /// Listed in the Mana Wash app. Set by Sprixia for MANA's own branches, never by an owner.
   inCustomerApp    Boolean   @default(false) @map("in_customer_app")
   /// The hub, and how far from it the branch washes (null = only its service areas).
   latitude         Float?
@@ -67,13 +53,58 @@ model Shop {
   priceZoneId      String?   @map("price_zone_id")
   /// The business catalog_version this branch's menu was last generated from.
   menuVersion      Int       @default(0) @map("menu_version")
+  /// Set only by Mana Wash HQ: "active" | "paused" | "closed" (BranchStatus in @mana/domain).
+  status           String    @default("active")
+  statusReason     String?   @map("status_reason")
+  statusChangedAt  DateTime? @map("status_changed_at")
 
-  @@index([subscriptionId])
   @@index([businessId])
   @@map("shops")
 }
 
-/// One subscription charge, for the owner's payment history.
+/// A phone that proved it holds a number with a WhatsApp code; the PIN works only on these.
+model TrustedDevice {
+  id         String   @id @default(uuid())
+  phone      String
+  deviceHash String   @map("device_hash")
+  createdAt  DateTime @default(now()) @map("created_at")
+  lastUsedAt DateTime @default(now()) @map("last_used_at")
+  /// Make and model, shown in More → Your phones.
+  label      String?
+  /// When the right PIN was last used here; seniors can only self-reset on such a phone.
+  pinConfirmedAt DateTime? @map("pin_confirmed_at")
+
+  @@unique([phone, deviceHash])
+  @@map("trusted_devices")
+}
+
+/// A PIN reset: whose, who did it and from which branch (null = Sprixia support).
+model PinReset {
+  id        String   @id @default(uuid())
+  phone     String
+  shopId    String?  @map("shop_id")
+  byPhone   String?  @map("by_phone")
+  byLabel   String   @map("by_label")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([phone, createdAt])
+  @@map("pin_resets")
+}
+
+/// Every status HQ has set for a branch, who set it and why.
+model BranchStatusEvent {
+  id             String   @id @default(uuid())
+  shopId         String   @map("shop_id")
+  status         String
+  reason         String?
+  changedByPhone String   @map("changed_by_phone")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([shopId, createdAt])
+  @@map("branch_status_events")
+}
+
+/// A charge from the software subscriptions shops paid before migration 0012. Kept for the record.
 model BillingPayment {
   id             String    @id // Razorpay payment id
   shopId         String    @default("") @map("shop_id")
@@ -115,9 +146,9 @@ model User {
   shopId            String    @default("") @map("shop_id")
   name              String
   /// Unique per shop among users who aren't removed — a partial index in schema.sql, which Prisma
-  /// can't express. An owner running several branches has one row per shop, all sharing one PIN.
+  /// can't express. Someone working at several branches has one row per shop, all sharing one PIN.
   phone             String
-  role              String    @default("staff") // "owner" | "staff"
+  role              String    @default("staff") // "owner" | "manager" | "staff"
   active            Boolean   @default(true)
   pinHash           String?   @map("pin_hash")
   pinFailedAttempts Int       @default(0) @map("pin_failed_attempts")
@@ -127,6 +158,11 @@ model User {
   /// Removed from the team: the row stays for history, the phone number is free for another shop.
   removedAt         DateTime? @map("removed_at")
   createdAt         DateTime  @default(now()) @map("created_at")
+  /// Length of the current PIN (owners and managers need 6), and when it was chosen.
+  pinDigits         Int?      @map("pin_digits")
+  pinSetAt          DateTime? @map("pin_set_at")
+  /// Locks in a row; each lasts longer. Back to 0 after a right or new PIN.
+  pinLockCount      Int       @default(0) @map("pin_lock_count")
 
   jobsCreated        Job[]             @relation("JobCreatedBy")
   jobsPaid           Job[]             @relation("JobPaidBy")
@@ -329,7 +365,7 @@ model Customer {
   shopId           String   @default("") @map("shop_id")
   name             String?
   phone            String
-  source           String? // google | friend | board | instagram | other | app (MANA Car Wash request)
+  source           String? // google | friend | board | instagram | other | app (Mana Wash request)
   marketingConsent Boolean  @default(false) @map("marketing_consent")
   createdAt        DateTime @default(now()) @map("created_at")
 
@@ -361,7 +397,7 @@ model Vehicle {
   vehicleTypeId      String    @map("vehicle_type_id")
   /// Sync cursor for the phones' offline customer directory — see apps/api/schema.sql.
   updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at")
-  /// The customer removed it from their list in the MANA Car Wash app. Only hides it there.
+  /// The customer removed it from their list in the Mana Wash app. Only hides it there.
   appHiddenAt        DateTime? @map("app_hidden_at")
 
   customer       Customer         @relation(fields: [customerId], references: [id])
@@ -648,7 +684,7 @@ model ServiceArea {
   @@map("service_areas")
 }
 
-/// A phone number signed in to the MANA Car Wash app. Platform-level: the branches it belongs to
+/// A phone number signed in to the Mana Wash app. Platform-level: the branches it belongs to
 /// are the listed shops with a customer on this number, worked out on each request.
 model CustomerAccount {
   id             String    @id @default(uuid())

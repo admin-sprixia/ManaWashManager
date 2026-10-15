@@ -1,0 +1,269 @@
+<title>Mana Wash Business Model</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700;800&family=Hind:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: a top-to-bottom chain (Sprixia → owner → branches → customers) with labelled arrows between tiers; branch cards in a grid; the win-win loop and "who decides" below */
+:root{
+  --bg:#f3f4fa; --surface:#ffffff; --ink:#151a3a; --muted:#5b6080; --line:#d8dbec;
+  --sprixia:#2e2a8f; --sprixia-soft:#e7e6fb; --owner:#0b6e69; --owner-soft:#def1ee;
+  --hub:#2a5bd7; --hub-soft:#e5ecfd; --com:#11845b; --com-soft:#dff3ea; --door:#b8620f; --door-soft:#fcefdf;
+  --up:#b7791f; --money:#11845b;
+  --display:"Barlow Semi Condensed","Arial Narrow",Arial,sans-serif; --body:"Hind","Segoe UI",Roboto,Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f1124; --surface:#171a33; --ink:#e8e9f6; --muted:#a2a6c4; --line:#2c3053;
+  --sprixia:#a49dff; --sprixia-soft:#24224e; --owner:#57c9bf; --owner-soft:#14312f;
+  --hub:#8aa9ff; --hub-soft:#1c2650; --com:#5fd3a2; --com-soft:#143326; --door:#f0a95c; --door-soft:#3a2a17;
+  --up:#e9b45c; --money:#5fd3a2; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1124; --surface:#171a33; --ink:#e8e9f6; --muted:#a2a6c4; --line:#2c3053;
+  --sprixia:#a49dff; --sprixia-soft:#24224e; --owner:#57c9bf; --owner-soft:#14312f;
+  --hub:#8aa9ff; --hub-soft:#1c2650; --com:#5fd3a2; --com-soft:#143326; --door:#f0a95c; --door-soft:#3a2a17;
+  --up:#e9b45c; --money:#5fd3a2; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:17px;line-height:1.5}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:16px;padding-block:24px 56px;display:flex;flex-direction:column;gap:0}
+h1,h2,h3{font-family:var(--display);margin:0;line-height:1.1;text-wrap:balance}
+.top{display:flex;flex-direction:column;gap:6px;margin-bottom:22px}
+.eyebrow{font-family:var(--display);font-weight:700;letter-spacing:.1em;text-transform:uppercase;font-size:.82rem;color:var(--sprixia)}
+h1{font-size:clamp(2rem,7vw,3rem);font-weight:800}
+.lead{color:var(--muted);max-width:68ch}
+.legend{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.lg{display:inline-flex;align-items:center;gap:6px;font-size:.88rem;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px 12px}
+.sw{width:22px;height:4px;border-radius:2px;background:var(--c)}
+.tier{border-radius:18px;padding:18px;border:2px solid var(--c);background:var(--surface);display:flex;flex-direction:column;gap:12px}
+.tier-head{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px}
+.tier-head h2{font-size:clamp(1.5rem,5vw,2rem);font-weight:800;color:var(--c)}
+.role{font-family:var(--display);font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-size:.8rem;color:var(--bg);background:var(--c);border-radius:4px;padding:2px 10px}
+.tier p.note{color:var(--muted);font-size:.95rem}
+.global{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.g{background:var(--soft);border-radius:12px;padding:10px 12px;min-width:0}
+.g b{display:block;font-family:var(--display);font-size:1.05rem}
+.g span{font-size:.9rem;color:var(--muted)}
+.connector{display:flex;justify-content:center;gap:clamp(16px,6vw,80px);padding-block:10px;flex-wrap:wrap}
+.arrow{display:flex;flex-direction:column;align-items:center;gap:4px;max-width:260px;text-align:center}
+.arrow .line{width:4px;height:34px;background:var(--c);border-radius:2px;position:relative}
+.arrow.down .line::after,.arrow.up .line::before{content:"";position:absolute;left:50%;transform:translateX(-50%);border:9px solid transparent}
+.arrow.down .line::after{bottom:-14px;border-top-color:var(--c)}
+.arrow.up .line::before{top:-14px;border-bottom-color:var(--c)}
+.arrow .lab{font-size:.85rem;font-weight:600;color:var(--c);background:var(--surface);border:1px solid var(--c);border-radius:8px;padding:3px 10px;margin-top:8px}
+.arrow.up .lab{margin-top:0;margin-bottom:8px;order:-1}
+.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.ctl{display:flex;gap:10px;align-items:flex-start;background:var(--owner-soft);border-radius:12px;padding:10px 12px;min-width:0}
+.ctl .k{font-family:var(--display);font-weight:800;font-size:1.3rem;color:var(--owner);line-height:1}
+.cannot{background:var(--sprixia-soft);border-radius:12px;padding:10px 12px;font-size:.95rem}
+.cannot b{color:var(--sprixia)}
+.own{--c:var(--owner);--soft:var(--owner-soft)}.fr{--c:var(--up);--soft:var(--door-soft)}
+.pkg{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}
+.pk{background:var(--owner-soft);border-radius:10px;padding:8px 10px;font-size:.92rem;min-width:0}
+.pk b{display:block;font-family:var(--display);font-size:1rem;color:var(--owner)}
+.agree{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.ag{background:var(--surface);border:2px solid var(--c);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.ag h3{color:var(--c);font-size:1.25rem}
+.ag ul{margin:0;padding-left:18px;font-size:.95rem;display:flex;flex-direction:column;gap:3px}
+.ag .who{font-family:var(--display);font-weight:700;letter-spacing:.05em;text-transform:uppercase;font-size:.8rem;color:var(--muted)}
+.branches{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+.br{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.br h3{font-size:1.25rem}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-family:var(--display);font-weight:700;font-size:.8rem;letter-spacing:.05em;text-transform:uppercase;border-radius:4px;padding:2px 8px;border:1px solid var(--c);color:var(--c);background:var(--soft)}
+.chip.off{opacity:.4;text-decoration:line-through}
+.br ul{margin:0;padding-left:18px;font-size:.9rem;color:var(--muted);display:flex;flex-direction:column;gap:2px}
+.br .tag{font-size:.82rem;color:var(--muted)}
+.cust{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.cu{border-radius:14px;padding:14px;background:var(--soft);border:1px solid var(--c);display:flex;flex-direction:column;gap:4px;min-width:0}
+.cu h3{color:var(--c);font-size:1.3rem}
+.cu span{font-size:.92rem;color:var(--muted)}
+h2.sec{font-size:clamp(1.5rem,5vw,2rem);font-weight:800;margin-top:44px;margin-bottom:12px;padding-bottom:6px;border-bottom:3px solid var(--ink)}
+.loop{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;counter-reset:s}
+.ls{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:4px;position:relative;min-width:0}
+.ls::before{counter-increment:s;content:counter(s);font-family:var(--display);font-weight:800;font-size:1.4rem;color:var(--money)}
+.ls b{font-family:var(--display);font-size:1.1rem}
+.ls span{font-size:.92rem;color:var(--muted)}
+.loopnote{margin-top:10px;background:var(--com-soft);border-radius:12px;padding:12px 14px;font-weight:600}
+.table-box{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:620px;font-size:.95rem}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+th{font-family:var(--display);font-size:1rem}
+th.s{color:var(--sprixia);background:var(--sprixia-soft)}th.o{color:var(--owner);background:var(--owner-soft)}th.b{background:var(--bg)}
+td.y{font-weight:700}
+.timeline{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.ph{border-top:5px solid var(--c);background:var(--surface);border-radius:0 0 12px 12px;padding:12px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.ph b{font-family:var(--display);font-size:1.15rem}
+.ph span{font-size:.9rem;color:var(--muted)}
+.ph .when{font-family:var(--display);font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-size:.78rem;color:var(--c)}
+footer{margin-top:40px;color:var(--muted);font-size:.9rem;border-top:1px solid var(--line);padding-top:14px}
+@media (max-width:760px){.loop,.timeline{grid-template-columns:1fr 1fr}}
+@media (max-width:460px){.loop,.timeline{grid-template-columns:1fr}}
+</style>
+
+<div class="wrap">
+<header class="top">
+  <span class="eyebrow">Mana Wash · built by Sprixia Labs</span>
+  <h1>Mana Wash Business Model</h1>
+  <p class="lead">Sreenivasulu owns the Mana Wash brand and asked Sprixia to build its software. He runs his own branches and sells Mana Wash franchises, with the software included as a monthly package. Franchise owners pay Mana Wash. Mana Wash pays Sprixia for building and running the software.</p>
+  <div class="legend">
+    <span class="lg"><span class="sw" style="--c:var(--sprixia)"></span>Software and updates</span>
+    <span class="lg"><span class="sw" style="--c:var(--owner)"></span>Brand, rules and prices</span>
+    <span class="lg"><span class="sw" style="--c:var(--up)"></span>Requests</span>
+    <span class="lg"><span class="sw" style="--c:var(--money)"></span>Money</span>
+  </div>
+</header>
+
+<!-- Tier 1: Sprixia -->
+<section class="tier" style="--c:var(--sprixia)">
+  <div class="tier-head"><h2>Sprixia Labs</h2><span class="role">Technology partner</span></div>
+  <p class="note">Builds and runs the Mana Wash software for Sreenivasulu.</p>
+  <div class="global" style="--soft:var(--sprixia-soft)">
+    <div class="g"><b>Builds the apps</b><span>HQ admin dashboard, branch manager app, staff app, customer app</span></div>
+    <div class="g"><b>Runs the platform</b><span>Servers, backups, security, payments, WhatsApp</span></div>
+    <div class="g"><b>New features</b><span>Built when Mana Wash HQ asks</span></div>
+    <div class="g"><b>Support</b><span>Fixes, updates, help for HQ</span></div>
+  </div>
+</section>
+
+<div class="connector">
+  <div class="arrow down" style="--c:var(--sprixia)"><span class="line"></span><span class="lab">Software, updates and support</span></div>
+  <div class="arrow up" style="--c:var(--up)"><span class="line"></span><span class="lab">"Please build this feature"</span></div>
+  <div class="arrow up" style="--c:var(--money)"><span class="line"></span><span class="lab">Mana Wash pays Sprixia (as agreed)</span></div>
+</div>
+
+<!-- Tier 2: Mana Wash HQ -->
+<section class="tier" style="--c:var(--owner)">
+  <div class="tier-head"><h2>Mana Wash HQ · Sreenivasulu</h2><span class="role">Brand owner and franchisor</span></div>
+  <p class="note">Owns the Mana Wash brand and model. One global list for every branch. Only HQ can add or change these.</p>
+  <div class="global" style="--soft:var(--owner-soft)">
+    <div class="g"><b>Services and packages</b><span>Express, Basic, Premium, add-ons, anti-rust</span></div>
+    <div class="g"><b>Prices</b><span>Per service, vehicle type and channel (Hub, Community, Doorstep)</span></div>
+    <div class="g"><b>Plans and rewards</b><span>Monthly, 3 months + bonus wash, 12 months + 1 month free, stamp cards</span></div>
+    <div class="g"><b>Standards</b><span>Wavex kit, MW bottles, wash steps, cloth rules, photos, ratings</span></div>
+    <div class="g"><b>Brand</b><span>Name, logo, uniform, price menu, posters</span></div>
+    <div class="g"><b>Franchises</b><span>Signs agreements, opens branches, checks quality</span></div>
+  </div>
+  <p class="note" style="margin-top:4px"><b>Franchise package</b> (what a franchise owner gets from Mana Wash):</p>
+  <div class="pkg">
+    <div class="pk"><b>Brand</b>Mana Wash name, signboard, uniform</div>
+    <div class="pk"><b>Software</b>Branch app, staff app, customer app (monthly package)</div>
+    <div class="pk"><b>Ready menu</b>Services, prices, plans and offers</div>
+    <div class="pk"><b>Training</b>Wash steps, team setup, quality rules</div>
+    <div class="pk"><b>Supply standard</b>Products list, amounts, reorder rules</div>
+    <div class="pk"><b>Marketing</b>Customer app listing, posters, launch offers</div>
+  </div>
+</section>
+
+<div class="connector">
+  <div class="arrow down" style="--c:var(--owner)"><span class="line"></span><span class="lab">Brand, menu, prices, software access, training</span></div>
+  <div class="arrow up" style="--c:var(--up)"><span class="line"></span><span class="lab">"We need a new service or price" → ask HQ</span></div>
+  <div class="arrow up" style="--c:var(--money)"><span class="line"></span><span class="lab">Franchise fee + monthly package to Mana Wash</span></div>
+</div>
+
+<!-- Tier 3: Branches -->
+<section class="tier" style="--c:var(--ink)">
+  <div class="tier-head"><h2>Branches</h2><span class="role">Own or franchise</span></div>
+  <p class="note">Every branch uses the same services and prices. The branch owner only chooses its type, which services it offers, and which vehicles.</p>
+  <div class="branches">
+    <div class="br">
+      <h3>Kovur</h3>
+      <div class="chips"><span class="chip own">Own branch</span></div>
+      <div class="chips"><span class="chip" style="--c:var(--hub);--soft:var(--hub-soft)">Hub</span><span class="chip" style="--c:var(--com);--soft:var(--com-soft)">Community</span><span class="chip off" style="--c:var(--door);--soft:var(--door-soft)">Doorstep</span></div>
+      <ul><li>Run by Sreenivasulu</li><li>All services, including anti-rust</li><li>Training centre for new franchises</li></ul>
+    </div>
+    <div class="br">
+      <h3>Nellore · Branch 1</h3>
+      <div class="chips"><span class="chip own">Own branch</span></div>
+      <div class="chips"><span class="chip" style="--c:var(--hub);--soft:var(--hub-soft)">Hub</span><span class="chip off" style="--c:var(--com);--soft:var(--com-soft)">Community</span><span class="chip off" style="--c:var(--door);--soft:var(--door-soft)">Doorstep</span></div>
+      <ul><li>Run by Sreenivasulu</li><li>Express, Basic, Premium, add-ons</li><li>Cars only</li></ul>
+    </div>
+    <div class="br">
+      <h3>Nellore · Branch 2</h3>
+      <div class="chips"><span class="chip fr">Franchise · Partner A</span></div>
+      <div class="chips"><span class="chip off" style="--c:var(--hub);--soft:var(--hub-soft)">Hub</span><span class="chip" style="--c:var(--com);--soft:var(--com-soft)">Community</span><span class="chip off" style="--c:var(--door);--soft:var(--door-soft)">Doorstep</span></div>
+      <ul><li>Agreement with Mana Wash</li><li>Plans, Express, Basic, Premium</li><li>Hub-only add-ons off</li></ul>
+    </div>
+    <div class="br">
+      <h3>Nellore · Branch 3</h3>
+      <div class="chips"><span class="chip fr">Franchise · Partner B</span></div>
+      <div class="chips"><span class="chip off" style="--c:var(--hub);--soft:var(--hub-soft)">Hub</span><span class="chip off" style="--c:var(--com);--soft:var(--com-soft)">Community</span><span class="chip" style="--c:var(--door);--soft:var(--door-soft)">Doorstep</span></div>
+      <ul><li>Agreement with Mana Wash</li><li>Express and Basic at homes</li><li>Cars and bikes</li></ul>
+    </div>
+    <div class="br">
+      <h3>Nellore · Branch 4</h3>
+      <div class="chips"><span class="chip fr">Franchise · Partner C</span></div>
+      <div class="chips"><span class="chip" style="--c:var(--hub);--soft:var(--hub-soft)">Hub</span><span class="chip off" style="--c:var(--com);--soft:var(--com-soft)">Community</span><span class="chip" style="--c:var(--door);--soft:var(--door-soft)">Doorstep</span></div>
+      <ul><li>Agreement with Mana Wash</li><li>Shop + doorstep</li><li>Bikes off</li></ul>
+    </div>
+  </div>
+</section>
+
+<div class="connector">
+  <div class="arrow down" style="--c:var(--ink)"><span class="line"></span><span class="lab">Same quality and prices for every customer</span></div>
+  <div class="arrow up" style="--c:var(--money)"><span class="line"></span><span class="lab">Customers pay the branch</span></div>
+</div>
+
+<!-- Tier 4 -->
+<section class="cust">
+  <div class="cu" style="--c:var(--hub);--soft:var(--hub-soft)"><h3>Hub customers</h3><span>Drive in to the shop. Single washes, add-ons, anti-rust.</span></div>
+  <div class="cu" style="--c:var(--com);--soft:var(--com-soft)"><h3>Community customers</h3><span>Apartments and colonies. Weekly plans in their own parking.</span></div>
+  <div class="cu" style="--c:var(--door);--soft:var(--door-soft)"><h3>Doorstep customers</h3><span>Houses. Book a time, the team comes to the door.</span></div>
+</section>
+
+<h2 class="sec">The two agreements</h2>
+<div class="agree">
+  <div class="ag" style="--c:var(--sprixia)">
+    <span class="who">Sprixia ↔ Mana Wash (Sreenivasulu)</span>
+    <h3>Software agreement</h3>
+    <ul>
+      <li>Sprixia builds, runs and updates the Mana Wash software</li>
+      <li>Mana Wash pays Sprixia: build fee, monthly running and support</li>
+      <li>Clear on who owns the software and the data</li>
+      <li>Clear on response time for fixes and new features</li>
+    </ul>
+  </div>
+  <div class="ag" style="--c:var(--owner)">
+    <span class="who">Mana Wash ↔ franchise owner</span>
+    <h3>Franchise agreement</h3>
+    <ul>
+      <li>Use of the Mana Wash name, menu and model</li>
+      <li>Franchise fee + monthly package (brand + software)</li>
+      <li>Must follow HQ prices, services and quality rules</li>
+      <li>Area given to the branch, length of the agreement, exit rules</li>
+    </ul>
+  </div>
+</div>
+
+<h2 class="sec">How the money flows</h2>
+<div class="loop">
+  <div class="ls"><b>Customers</b><span>Pay the branch for washes, plans and add-ons</span></div>
+  <div class="ls"><b>Franchise owners</b><span>Keep their branch income and pay Mana Wash the franchise fee and monthly package</span></div>
+  <div class="ls"><b>Mana Wash (Sreenivasulu)</b><span>Earns from his own branches and from every franchise</span></div>
+  <div class="ls"><b>Sprixia</b><span>Paid by Mana Wash to build and run the software</span></div>
+</div>
+<p class="loopnote">More franchises → more income for Mana Wash → a bigger, steadier software business for Sprixia. Everyone wins when Mana Wash grows.</p>
+
+<h2 class="sec">Who decides what</h2>
+<div class="table-box"><table>
+  <thead><tr><th class="b">Decision</th><th class="s">Sprixia</th><th class="o">Mana Wash HQ (Sreenivasulu)</th><th class="b">Franchise owner</th><th class="b">Branch manager</th></tr></thead>
+  <tbody>
+    <tr><td>Build or change the software</td><td class="y">Yes</td><td>Asks Sprixia</td><td>Asks HQ</td><td>No</td></tr>
+    <tr><td>Create a service, package or add-on</td><td>Builds it in the software</td><td class="y">Yes</td><td>Asks HQ</td><td>No</td></tr>
+    <tr><td>Set or change prices and plan offers</td><td>No</td><td class="y">Yes</td><td>Asks HQ</td><td>No</td></tr>
+    <tr><td>Sign a franchise and open a branch</td><td>Sets it up in the software</td><td class="y">Yes</td><td>Signs the agreement</td><td>No</td></tr>
+    <tr><td>Choose branch type (Hub, Community, Doorstep)</td><td>No</td><td class="y">Approves</td><td class="y">Chooses</td><td>No</td></tr>
+    <tr><td>Switch services on or off, choose vehicles</td><td>No</td><td>Can limit</td><td class="y">Yes</td><td>Can suggest</td></tr>
+    <tr><td>Staff, attendance, bonuses, stock, cash</td><td>Provides the system</td><td>Sets the standard</td><td class="y">Yes</td><td>For their branch</td></tr>
+    <tr><td>Reports</td><td>Platform health only</td><td class="y">All branches</td><td>Their branches</td><td>Their branch</td></tr>
+  </tbody>
+</table></div>
+
+<h2 class="sec">How Mana Wash spreads across Nellore</h2>
+<div class="timeline">
+  <div class="ph" style="--c:var(--hub)"><span class="when">Step 1 · now</span><b>Kovur hub</b><span>Own branch. Prove the model and train teams.</span></div>
+  <div class="ph" style="--c:var(--com)"><span class="when">Step 2</span><b>Communities</b><span>Weekly plans in apartments and buildings.</span></div>
+  <div class="ph" style="--c:var(--door)"><span class="when">Step 3</span><b>Doorstep</b><span>Washes at customers' homes.</span></div>
+  <div class="ph" style="--c:var(--up)"><span class="when">Step 4</span><b>Nellore franchises</b><span>Own branches and partner franchises, all on one model and one software.</span></div>
+</div>
+
+<footer>Mana Wash, owned by Sreenivasulu · software by Sprixia Labs Private Limited. Branch names and partners above are examples.</footer>
+</div>

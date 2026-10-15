@@ -1,7 +1,7 @@
 # MANA Wash Manager
 
 MANA's own operations app: job tracking, customer history, payments — built per the
-[app build plan](./MANA-Wash-Manager-App-Build-Plan.md). Release 0.2.0: job board and new
+[app build plan](./docs/old-plan/MANA-Wash-Manager-App-Build-Plan.md). Release 0.2.0: job board and new
 wash entry (works offline), customer history, PIN sign-in, before/after photos, WhatsApp
 ready/thank-you messages with a Google review link, cash drawer close, staff commission on
 selected services and attendance, reminders with comeback and referral offers, reports and expenses.
@@ -338,7 +338,7 @@ builds a fresh local database, starts the API and runs every API end-to-end test
 Don't merge a red build.
 
 **Shop isolation test** — the platform runs many car washes on one database (see
-`MANA-Multi-Shop-Plan.md`). With the local API running (`cd apps/api && npm run dev`):
+`docs/old-plan/MANA-Multi-Shop-Plan.md`). With the local API running (`cd apps/api && npm run dev`):
 
 ```bash
 cd apps/api && npm run test:isolation   # adds a second shop and proves neither can see or change the other's data
@@ -354,7 +354,7 @@ cd apps/api && npm run test:places      # places, joining (flows A–E), plans, 
 These expect a fresh local database: run `npm run db:reset:local` first, and `npm run db:seed:demo`
 afterwards to get the demo data back. `test:places` checks the signed payment webhook when
 `RAZORPAY_WEBHOOK_SECRET` is set in the shell, the same way as `test:plans` below. Places, plans and
-payments are described in `MANA-Registration-and-Plans.md`.
+payments are described in `docs/old-plan/MANA-Registration-and-Plans.md`.
 
 `test:plans` checks a correctly signed webhook too when `RAZORPAY_WEBHOOK_SECRET` is set in the
 shell to the same value the local API uses (CI does this). It also runs a stand-in Razorpay on

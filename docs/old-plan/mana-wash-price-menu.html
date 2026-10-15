@@ -1,0 +1,177 @@
+<title>Mana Wash Price Menu</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700;800&family=Hind:wght@400;500;600;700&display=swap">
+<style>
+:root{--bg:#f4f7f7;--surface:#ffffff;--ink:#102321;--muted:#5a6563;--line:#d6e0de;--brand:#0b6e69;--brand-soft:#e0f0ee;--hub:#2a5bd7;--hub-soft:#e6edfc;--com:#0b6e69;--com-soft:#e0f0ee;--gold:#b7791f;
+--display:"Barlow Semi Condensed","Arial Narrow",Arial,sans-serif;--body:"Hind","Segoe UI",Roboto,Arial,sans-serif}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0e1716;--surface:#15201f;--ink:#e6eeec;--muted:#9eaba8;--line:#2b3b38;--brand:#4fc2b9;--brand-soft:#163633;--hub:#8aa9ff;--hub-soft:#1c2747;--com:#4fc2b9;--com-soft:#163633;--gold:#e9b45c;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0e1716;--surface:#15201f;--ink:#e6eeec;--muted:#9eaba8;--line:#2b3b38;--brand:#4fc2b9;--brand-soft:#163633;--hub:#8aa9ff;--hub-soft:#1c2747;--com:#4fc2b9;--com-soft:#163633;--gold:#e9b45c;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:17px;line-height:1.5}
+.wrap{max-width:900px;margin:0 auto;padding-inline:16px;padding-block:24px 56px;display:flex;flex-direction:column;gap:22px}
+h1,h2,h3{font-family:var(--display);margin:0;line-height:1.1;text-wrap:balance}
+.hero{background:var(--ink);color:var(--bg);border-radius:18px;padding:22px 20px;display:flex;flex-direction:column;gap:6px}
+.hero .brand{font-family:var(--display);font-weight:800;font-size:clamp(2.4rem,9vw,3.4rem);letter-spacing:.01em}
+.hero .tag{font-family:var(--display);font-weight:700;letter-spacing:.12em;text-transform:uppercase;font-size:.85rem;opacity:.85}
+.hero p{opacity:.9}
+.legend{display:flex;flex-wrap:wrap;gap:10px}
+.lg{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:6px 14px;font-weight:600}
+.dot{width:12px;height:12px;border-radius:50%}
+.dot.hub{background:var(--hub)}.dot.com{background:var(--com)}
+h2{font-size:clamp(1.6rem,6vw,2.1rem);font-weight:800;border-bottom:3px solid var(--ink);padding-bottom:6px}
+.pkg{background:var(--surface);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.pkg-head{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.pkg-head h3{font-size:1.7rem;font-weight:800}
+.pkg-head .time{color:var(--muted);font-size:.95rem}
+.pkg.star{border:2px solid var(--gold)}
+.badge{font-family:var(--display);font-weight:700;font-size:.8rem;letter-spacing:.08em;text-transform:uppercase;color:var(--gold);border:1px solid var(--gold);border-radius:4px;padding:1px 8px;margin-left:8px;vertical-align:middle}
+.pkg-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.6fr);gap:0}
+.inc{padding:14px 16px;border-right:1px solid var(--line)}
+.inc ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:3px;font-size:.98rem}
+.prices{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:380px;font-variant-numeric:tabular-nums}
+th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+tr:last-child td{border-bottom:0}
+th{font-family:var(--display);font-size:.95rem;letter-spacing:.03em}
+th.hub{color:var(--hub);background:var(--hub-soft);text-align:right}
+th.com{color:var(--com);background:var(--com-soft);text-align:right}
+td.p{text-align:right;font-family:var(--display);font-weight:800;font-size:1.3rem;white-space:nowrap}
+td.p.hub{color:var(--hub)}td.p.com{color:var(--com)}
+td .car{font-weight:700}
+td .ex{display:block;font-size:.78rem;color:var(--muted);font-weight:400}
+.per{display:block;font-family:var(--body);font-size:.75rem;font-weight:500;color:var(--muted)}
+.box{background:var(--surface);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.box-head{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;align-items:baseline}
+.box-head h3{font-size:1.4rem;font-weight:800}
+.box-head span{color:var(--muted);font-size:.95rem}
+.scroll{overflow-x:auto}
+table.wide{min-width:620px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.card h3{font-size:1.3rem}
+.big{font-family:var(--display);font-weight:800;font-size:2rem}
+.big.hub{color:var(--hub)}.big.com{color:var(--com)}
+.terms{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.terms ul{margin:6px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:4px;font-size:.95rem}
+.contact{background:var(--brand);color:var(--bg);border-radius:16px;padding:18px 20px;display:flex;flex-direction:column;gap:4px}
+.contact b{font-family:var(--display);font-size:1.5rem}
+.small{font-size:.85rem;color:var(--muted)}
+s{opacity:.75}
+.save{display:block;font-family:var(--body);font-size:.8rem;font-weight:700;margin-top:2px}
+.save.hub{color:var(--hub)}.save.com{color:var(--com)}
+.card.offer{border:2px solid var(--gold)}
+.kicker{font-family:var(--display);font-weight:700;letter-spacing:.1em;text-transform:uppercase;font-size:.8rem;color:var(--gold)}
+.hubonly{font-size:.7rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--hub);border:1px solid var(--hub);border-radius:4px;padding:0 5px;white-space:nowrap}
+table.addons td:nth-child(2){color:var(--muted);font-size:.92rem;min-width:220px}
+td.w{text-align:right;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+td.sv{text-align:right;font-family:var(--display);font-weight:800;font-size:1.15rem;white-space:nowrap}
+td.sv.hub{color:var(--hub)}td.sv.com{color:var(--com)}
+th.grp{text-align:center !important;font-size:1rem}
+.save{font-size:.9rem !important}
+@media (max-width:640px){.pkg-body{grid-template-columns:1fr}.inc{border-right:0;border-bottom:1px solid var(--line)}}
+</style>
+<div class="wrap">
+<header class="hero">
+  <span class="tag">Car wash · Kovur, Nellore</span>
+  <span class="brand">Mana Wash</span>
+  <p>Foam wash · two-bucket hand wash · soft microfiber drying. On time, no scratches, or your next wash is free.</p>
+</header>
+<div class="legend">
+  <span class="lg"><span class="dot hub"></span>Hub price: at our Kovur hub</span>
+  <span class="lg"><span class="dot com"></span>Community price: we come to your apartment (2+ cars per visit)</span>
+</div>
+
+<h2>Car washes</h2>
+<section class="pkg">
+  <div class="pkg-head"><h3>Express</h3><span class="time">20–30 min</span></div>
+  <div class="pkg-body">
+    <div class="inc"><ul><li>Wheel and tyre cleaning</li><li>Thick snow foam</li><li>Two-bucket hand wash</li><li>Soft towel drying + door edges</li><li>Outside glass</li><li>Tyre shine</li><li>Rubber mat wash</li></ul></div>
+    <div class="prices"><table><thead><tr><th>Car</th><th class="hub">Hub</th><th class="com">Community</th></tr></thead><tbody><tr><td><span class="car">Hatchback</span><span class="ex">Alto · Kwid · Swift · i20 · Tiago · Baleno</span></td><td class="p hub">₹299</td><td class="p com">₹269</td></tr><tr><td><span class="car">Sedan & Compact SUV</span><span class="ex">Dzire · City · Verna · Brezza · Venue · Nexon · Creta</span></td><td class="p hub">₹349</td><td class="p com">₹319</td></tr><tr><td><span class="car">Big SUV & MUV</span><span class="ex">XUV700 · Scorpio · Innova · Fortuner · Ertiga · Thar</span></td><td class="p hub">₹419</td><td class="p com">₹379</td></tr></tbody></table></div>
+  </div>
+</section>
+<section class="pkg star">
+  <div class="pkg-head"><h3>Basic<span class="badge">Most popular</span></h3><span class="time">35–50 min</span></div>
+  <div class="pkg-body">
+    <div class="inc"><ul><li>Everything in Express</li><li>Inside glass</li><li>Full vacuum: seats, floor, boot, mats</li><li>Dashboard and door panel shine</li></ul></div>
+    <div class="prices"><table><thead><tr><th>Car</th><th class="hub">Hub</th><th class="com">Community</th></tr></thead><tbody><tr><td><span class="car">Hatchback</span><span class="ex">Alto · Kwid · Swift · i20 · Tiago · Baleno</span></td><td class="p hub">₹499</td><td class="p com">₹449</td></tr><tr><td><span class="car">Sedan & Compact SUV</span><span class="ex">Dzire · City · Verna · Brezza · Venue · Nexon · Creta</span></td><td class="p hub">₹599</td><td class="p com">₹549</td></tr><tr><td><span class="car">Big SUV & MUV</span><span class="ex">XUV700 · Scorpio · Innova · Fortuner · Ertiga · Thar</span></td><td class="p hub">₹799</td><td class="p com">₹729</td></tr></tbody></table></div>
+  </div>
+</section>
+<section class="pkg">
+  <div class="pkg-head"><h3>Premium</h3><span class="time">60–85 min</span></div>
+  <div class="pkg-body">
+    <div class="inc"><ul><li>Everything in Basic</li><li>Spray wax on all paint</li><li>Inside deep clean: steering, plastics, leather, AC vents</li><li>Rain repellent on the front windscreen</li></ul></div>
+    <div class="prices"><table><thead><tr><th>Car</th><th class="hub">Hub</th><th class="com">Community</th></tr></thead><tbody><tr><td><span class="car">Hatchback</span><span class="ex">Alto · Kwid · Swift · i20 · Tiago · Baleno</span></td><td class="p hub">₹899</td><td class="p com">₹819</td></tr><tr><td><span class="car">Sedan & Compact SUV</span><span class="ex">Dzire · City · Verna · Brezza · Venue · Nexon · Creta</span></td><td class="p hub">₹1,099</td><td class="p com">₹999</td></tr><tr><td><span class="car">Big SUV & MUV</span><span class="ex">XUV700 · Scorpio · Innova · Fortuner · Ertiga · Thar</span></td><td class="p hub">₹1,399</td><td class="p com">₹1,279</td></tr></tbody></table></div>
+  </div>
+</section>
+<h2>Monthly plans</h2><p>One wash every week, paid at the start of the month. Same quality, every week, and you save every month.</p>
+<section class="box">
+  <div class="box-head"><h3>Express Plan</h3><span>4 Express washes a month</span></div>
+  <div class="scroll"><table class="wide"><thead>
+    <tr><th rowspan="2">Car</th><th class="hub grp" colspan="3">Hub · per month</th><th class="com grp" colspan="3">Community · per month</th></tr>
+    <tr><th class="hub">4 washes worth</th><th class="hub">Plan price</th><th class="hub">You save</th><th class="com">4 washes worth</th><th class="com">Plan price</th><th class="com">You save</th></tr>
+  </thead><tbody><tr><td><span class="car">Hatchback</span></td><td class="w hub"><s>₹1,196</s></td><td class="p hub">₹1,099</td><td class="sv hub">₹97</td><td class="w com"><s>₹1,076</s></td><td class="p com">₹999</td><td class="sv com">₹77</td></tr><tr><td><span class="car">Sedan & Compact SUV</span></td><td class="w hub"><s>₹1,396</s></td><td class="p hub">₹1,299</td><td class="sv hub">₹97</td><td class="w com"><s>₹1,276</s></td><td class="p com">₹1,179</td><td class="sv com">₹97</td></tr><tr><td><span class="car">Big SUV & MUV</span></td><td class="w hub"><s>₹1,676</s></td><td class="p hub">₹1,549</td><td class="sv hub">₹127</td><td class="w com"><s>₹1,516</s></td><td class="p com">₹1,399</td><td class="sv com">₹117</td></tr></tbody></table></div>
+</section>
+<section class="box" style="border:2px solid var(--gold)">
+  <div class="box-head"><h3>Basic Plan<span class="badge">Best value</span></h3><span>4 Basic washes a month</span></div>
+  <div class="scroll"><table class="wide"><thead>
+    <tr><th rowspan="2">Car</th><th class="hub grp" colspan="3">Hub · per month</th><th class="com grp" colspan="3">Community · per month</th></tr>
+    <tr><th class="hub">4 washes worth</th><th class="hub">Plan price</th><th class="hub">You save</th><th class="com">4 washes worth</th><th class="com">Plan price</th><th class="com">You save</th></tr>
+  </thead><tbody><tr><td><span class="car">Hatchback</span></td><td class="w hub"><s>₹1,996</s></td><td class="p hub">₹1,849</td><td class="sv hub">₹147</td><td class="w com"><s>₹1,796</s></td><td class="p com">₹1,649</td><td class="sv com">₹147</td></tr><tr><td><span class="car">Sedan & Compact SUV</span></td><td class="w hub"><s>₹2,396</s></td><td class="p hub">₹2,199</td><td class="sv hub">₹197</td><td class="w com"><s>₹2,196</s></td><td class="p com">₹1,999</td><td class="sv com">₹197</td></tr><tr><td><span class="car">Big SUV & MUV</span></td><td class="w hub"><s>₹3,196</s></td><td class="p hub">₹2,949</td><td class="sv hub">₹247</td><td class="w com"><s>₹2,916</s></td><td class="p com">₹2,699</td><td class="sv com">₹217</td></tr></tbody></table></div>
+</section>
+<section class="box">
+  <div class="box-head"><h3>Shine Plan</h3><span>3 Basic + 1 Premium wash a month</span></div>
+  <div class="scroll"><table class="wide"><thead>
+    <tr><th rowspan="2">Car</th><th class="hub grp" colspan="3">Hub · per month</th><th class="com grp" colspan="3">Community · per month</th></tr>
+    <tr><th class="hub">4 washes worth</th><th class="hub">Plan price</th><th class="hub">You save</th><th class="com">4 washes worth</th><th class="com">Plan price</th><th class="com">You save</th></tr>
+  </thead><tbody><tr><td><span class="car">Hatchback</span></td><td class="w hub"><s>₹2,396</s></td><td class="p hub">₹2,199</td><td class="sv hub">₹197</td><td class="w com"><s>₹2,166</s></td><td class="p com">₹1,999</td><td class="sv com">₹167</td></tr><tr><td><span class="car">Sedan & Compact SUV</span></td><td class="w hub"><s>₹2,896</s></td><td class="p hub">₹2,699</td><td class="sv hub">₹197</td><td class="w com"><s>₹2,646</s></td><td class="p com">₹2,449</td><td class="sv com">₹197</td></tr><tr><td><span class="car">Big SUV & MUV</span></td><td class="w hub"><s>₹3,796</s></td><td class="p hub">₹3,499</td><td class="sv hub">₹297</td><td class="w com"><s>₹3,466</s></td><td class="p com">₹3,199</td><td class="sv com">₹267</td></tr></tbody></table></div>
+</section>
+<h2>Pay longer, get more</h2>
+<div class="cards">
+  <div class="card offer"><span class="kicker">3 months</span><h3>Pay for 3 months, get a bonus wash</h3><p><b>12 washes + 1 bonus wash free</b> (13 washes)</p></div>
+  <div class="card offer"><span class="kicker">12 months</span><h3>1 month free, every year</h3><p><b>13 months of washes for the price of 12</b> + a <b>free rust check</b></p></div>
+</div>
+<section class="box"><div class="box-head"><h3>3-month and 12-month prices</h3><span>Paid in advance</span></div>
+<div class="scroll"><table class="wide"><thead><tr><th>Plan</th><th>Car</th><th class="hub">Hub · 3 months</th><th class="hub">Hub · 12 months</th><th class="com">Community · 3 months</th><th class="com">Community · 12 months</th></tr></thead><tbody><tr><td rowspan="3"><b>Express Plan</b></td><td><span class="car">Hatchback</span></td><td class="p hub">₹3,297<span class="per">13 washes · worth <s>₹3,887</s></span><span class="save hub">You save ₹590</span></td><td class="p hub">₹13,188<span class="per">13 months · worth <s>₹15,548</s></span><span class="save hub">You save ₹2,360</span></td><td class="p com">₹2,997<span class="per">13 washes · worth <s>₹3,497</s></span><span class="save com">You save ₹500</span></td><td class="p com">₹11,988<span class="per">13 months · worth <s>₹13,988</s></span><span class="save com">You save ₹2,000</span></td></tr><tr><td><span class="car">Sedan & Compact SUV</span></td><td class="p hub">₹3,897<span class="per">13 washes · worth <s>₹4,537</s></span><span class="save hub">You save ₹640</span></td><td class="p hub">₹15,588<span class="per">13 months · worth <s>₹18,148</s></span><span class="save hub">You save ₹2,560</span></td><td class="p com">₹3,537<span class="per">13 washes · worth <s>₹4,147</s></span><span class="save com">You save ₹610</span></td><td class="p com">₹14,148<span class="per">13 months · worth <s>₹16,588</s></span><span class="save com">You save ₹2,440</span></td></tr><tr><td><span class="car">Big SUV & MUV</span></td><td class="p hub">₹4,647<span class="per">13 washes · worth <s>₹5,447</s></span><span class="save hub">You save ₹800</span></td><td class="p hub">₹18,588<span class="per">13 months · worth <s>₹21,788</s></span><span class="save hub">You save ₹3,200</span></td><td class="p com">₹4,197<span class="per">13 washes · worth <s>₹4,927</s></span><span class="save com">You save ₹730</span></td><td class="p com">₹16,788<span class="per">13 months · worth <s>₹19,708</s></span><span class="save com">You save ₹2,920</span></td></tr><tr><td rowspan="3"><b>Basic Plan</b></td><td><span class="car">Hatchback</span></td><td class="p hub">₹5,547<span class="per">13 washes · worth <s>₹6,487</s></span><span class="save hub">You save ₹940</span></td><td class="p hub">₹22,188<span class="per">13 months · worth <s>₹25,948</s></span><span class="save hub">You save ₹3,760</span></td><td class="p com">₹4,947<span class="per">13 washes · worth <s>₹5,837</s></span><span class="save com">You save ₹890</span></td><td class="p com">₹19,788<span class="per">13 months · worth <s>₹23,348</s></span><span class="save com">You save ₹3,560</span></td></tr><tr><td><span class="car">Sedan & Compact SUV</span></td><td class="p hub">₹6,597<span class="per">13 washes · worth <s>₹7,787</s></span><span class="save hub">You save ₹1,190</span></td><td class="p hub">₹26,388<span class="per">13 months · worth <s>₹31,148</s></span><span class="save hub">You save ₹4,760</span></td><td class="p com">₹5,997<span class="per">13 washes · worth <s>₹7,137</s></span><span class="save com">You save ₹1,140</span></td><td class="p com">₹23,988<span class="per">13 months · worth <s>₹28,548</s></span><span class="save com">You save ₹4,560</span></td></tr><tr><td><span class="car">Big SUV & MUV</span></td><td class="p hub">₹8,847<span class="per">13 washes · worth <s>₹10,387</s></span><span class="save hub">You save ₹1,540</span></td><td class="p hub">₹35,388<span class="per">13 months · worth <s>₹41,548</s></span><span class="save hub">You save ₹6,160</span></td><td class="p com">₹8,097<span class="per">13 washes · worth <s>₹9,477</s></span><span class="save com">You save ₹1,380</span></td><td class="p com">₹32,388<span class="per">13 months · worth <s>₹37,908</s></span><span class="save com">You save ₹5,520</span></td></tr><tr><td rowspan="3"><b>Shine Plan</b></td><td><span class="car">Hatchback</span></td><td class="p hub">₹6,597<span class="per">13 washes · worth <s>₹7,787</s></span><span class="save hub">You save ₹1,190</span></td><td class="p hub">₹26,388<span class="per">13 months · worth <s>₹31,148</s></span><span class="save hub">You save ₹4,760</span></td><td class="p com">₹5,997<span class="per">13 washes · worth <s>₹7,040</s></span><span class="save com">You save ₹1,042</span></td><td class="p com">₹23,988<span class="per">13 months · worth <s>₹28,158</s></span><span class="save com">You save ₹4,170</span></td></tr><tr><td><span class="car">Sedan & Compact SUV</span></td><td class="p hub">₹8,097<span class="per">13 washes · worth <s>₹9,412</s></span><span class="save hub">You save ₹1,315</span></td><td class="p hub">₹32,388<span class="per">13 months · worth <s>₹37,648</s></span><span class="save hub">You save ₹5,260</span></td><td class="p com">₹7,347<span class="per">13 washes · worth <s>₹8,600</s></span><span class="save com">You save ₹1,252</span></td><td class="p com">₹29,388<span class="per">13 months · worth <s>₹34,398</s></span><span class="save com">You save ₹5,010</span></td></tr><tr><td><span class="car">Big SUV & MUV</span></td><td class="p hub">₹10,497<span class="per">13 washes · worth <s>₹12,337</s></span><span class="save hub">You save ₹1,840</span></td><td class="p hub">₹41,988<span class="per">13 months · worth <s>₹49,348</s></span><span class="save hub">You save ₹7,360</span></td><td class="p com">₹9,597<span class="per">13 washes · worth <s>₹11,264</s></span><span class="save com">You save ₹1,668</span></td><td class="p com">₹38,388<span class="per">13 months · worth <s>₹45,058</s></span><span class="save com">You save ₹6,670</span></td></tr></tbody></table></div></section>
+<h2>Add-ons</h2>
+<p>Add any of these to your wash. Prices are per car unless written.</p>
+<div class="scroll"><table class="wide addons"><thead><tr><th>Add-on</th><th>What you get</th><th class="hub">Hub</th><th class="com">Community</th></tr></thead><tbody>
+<tr><td><b>Spray wax shine</b></td><td>Wax on all paint: deep shine and water beading for 2–3 weeks</td><td class="p hub">₹249<span class="per">SUV ₹299</span></td><td class="p com">₹229<span class="per">SUV ₹279</span></td></tr>
+<tr><td><b>Rain repellent</b></td><td>Rain slides off the front windscreen. Clear view in the rain.</td><td class="p hub">₹299</td><td class="p com">₹269</td></tr>
+<tr><td><b>Black trim restore</b></td><td>Faded black bumpers, mirrors and mouldings turn deep black again</td><td class="p hub">₹349</td><td class="p com">₹319</td></tr>
+<tr><td><b>Leather seat care</b></td><td>Leather seats cleaned and conditioned: soft, no cracks</td><td class="p hub">₹399</td><td class="p com">₹369</td></tr>
+<tr><td><b>Water spot removal</b></td><td>White hard-water marks removed from the paint</td><td class="p hub">₹499</td><td class="p com">₹449</td></tr>
+<tr><td><b>Glass stain removal</b></td><td>Hard-water stains removed from glass</td><td class="p hub">₹299<span class="per">windscreen</span>₹599<span class="per">all glass</span></td><td class="p com">₹269<span class="per">windscreen</span>₹549<span class="per">all glass</span></td></tr>
+<tr><td><b>Iron fallout removal</b></td><td>Removes tiny metal dust from paint and wheels. Paint feels smooth.</td><td class="p hub">₹499</td><td class="p com">₹449</td></tr>
+<tr><td><b>Anti-fog</b></td><td>Inside windscreen stays clear in rain and AC</td><td class="p hub">₹199</td><td class="p com">₹179</td></tr>
+<tr><td><b>Chrome and metal polish</b></td><td>Chrome lines, logos and exhaust tips shine like new</td><td class="p hub">₹199</td><td class="p com">₹179</td></tr>
+<tr><td><b>Cloth mat shampoo</b></td><td>All fabric floor mats shampooed and dried</td><td class="p hub">₹199</td><td class="p com">₹179</td></tr>
+<tr><td><b>Car perfume</b></td><td>Fresh fragrance inside the car</td><td class="p hub">₹49</td><td class="p com">₹49</td></tr>
+<tr><td><b>Engine bay clean and dressing</b> <span class="hubonly">Hub only</span></td><td>Engine area degreased, cleaned and dressed with a protective shine</td><td class="p hub">₹399<span class="per">SUV ₹499</span></td><td class="p com">–</td></tr>
+<tr><td><b>Seat and carpet shampoo</b> <span class="hubonly">Hub only</span></td><td>Fabric seats and carpets deep shampooed and vacuum dried</td><td class="p hub">₹699<span class="per">SUV ₹899</span></td><td class="p com">–</td></tr>
+<tr><td><b>Clay bar treatment</b> <span class="hubonly">Hub only</span></td><td>Paint made glass-smooth by removing stuck dirt. Best before wax.</td><td class="p hub">₹999</td><td class="p com">–</td></tr>
+<tr><td><b>Underbody wash</b> <span class="hubonly">Hub only</span></td><td>Mud and salt washed from under the car</td><td class="p hub">₹299<span class="per">SUV ₹349</span></td><td class="p com">–</td></tr>
+</tbody></table></div>
+<div class="box"><div class="box-head"><h3>Bikes</h3><span>Add-on for bike owners</span></div>
+<div class="scroll"><table><thead><tr><th>Add-on</th><th>What you get</th><th class="hub">Hub</th><th class="com">Community</th></tr></thead><tbody>
+<tr><td><b>Chain clean and lube</b></td><td>Chain cleaned and lubricated: smooth, quiet ride, longer chain life</td><td class="p hub">₹149</td><td class="p com">₹129</td></tr>
+</tbody></table></div></div>
+
+
+<h2>Anti-rust protection</h2>
+<div class="cards">
+  <div class="card"><h3>At the Kovur hub</h3><span class="big hub">₹4,500</span><span class="small">All cars</span></div>
+  <div class="card"><h3>Community residents</h3><span class="big com">₹4,050</span><span class="small">All cars · free pick-up and drop</span></div>
+</div>
+
+<div class="terms"><b>Good to know</b><ul>
+<li>All prices are final. No extra charges.</li>
+<li>Community price applies when 2 or more cars are washed in the same community on the same visit.</li>
+<li>Plans: one car per plan, maximum 1 wash a week. Unused washes end with the month. Bonus washes and the free month must be used within the plan.</li>
+<li>Rain on your booked day? Your wash moves to the next dry day.</li>
+<li>Very muddy cars (after a trip or off-road): ₹100–200 extra.</li>
+<li>Second car in the same home: 10% off its plan.</li>
+<li>Add-ons can be added to any wash or plan wash. "Hub only" add-ons need water, power and drying time, so they're done at our Kovur hub.</li>
+</ul></div>
+
+<div class="contact"><span>Book on WhatsApp</span><b>[Your number]</b><span>Mana Wash Hub · [Address], Kovur, Nellore</span></div>
+</div>

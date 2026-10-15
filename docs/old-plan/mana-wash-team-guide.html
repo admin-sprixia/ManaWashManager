@@ -1,0 +1,659 @@
+<title>Mana Wash Team Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700;800&family=Hind:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one readable column, a contents strip at the top, numbered step cards for the real wash sequence, wide tables scroll inside their own box */
+:root{
+  --bg:#f6f8f8; --surface:#ffffff; --fg:#14211f; --muted:#56605e; --line:#d7e0de;
+  --accent:#0b6e69; --accent-soft:#e1f1ef; --warn:#a4570c; --warn-soft:#fbefe1; --bad:#a3262a; --bad-soft:#fbe7e7; --good:#2c6b2f;
+  --chip-grey:#8b9190; --chip-yellow:#e7c321; --chip-blue:#3c7fc4; --chip-white:#f2f2f2; --chip-dry:#5d6e8c; --chip-mitt:#7a5ab5;
+  --display:"Barlow Semi Condensed","Arial Narrow",Arial,sans-serif;
+  --body:"Hind","Segoe UI",Roboto,Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f1716; --surface:#16211f; --fg:#e4ecea; --muted:#9aa7a4; --line:#2a3a37;
+  --accent:#4fc2b9; --accent-soft:#163633; --warn:#f0a75a; --warn-soft:#3a2a17; --bad:#f08a8d; --bad-soft:#3d1c1d; --good:#8fd093;
+  --chip-white:#d9d9d9; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1716; --surface:#16211f; --fg:#e4ecea; --muted:#9aa7a4; --line:#2a3a37;
+  --accent:#4fc2b9; --accent-soft:#163633; --warn:#f0a75a; --warn-soft:#3a2a17; --bad:#f08a8d; --bad-soft:#3d1c1d; --good:#8fd093;
+  --chip-white:#d9d9d9; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:17px;line-height:1.6}
+.wrap{max-width:980px;margin:0 auto;padding-inline:16px;padding-block:28px 64px}
+h1,h2,h3{font-family:var(--display);line-height:1.15;text-wrap:balance;margin:0}
+h1{font-size:clamp(2rem,6vw,3rem);font-weight:800}
+h2{font-size:clamp(1.55rem,4.5vw,2.1rem);font-weight:800;margin-top:56px;padding-top:12px;border-top:3px solid var(--fg)}
+h3{font-size:1.3rem;font-weight:700}
+p{margin:0}
+a{color:var(--accent);font-weight:600;text-underline-offset:3px}
+a:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.stack{display:flex;flex-direction:column;gap:14px}
+.lead{font-size:1.1rem;color:var(--muted);max-width:65ch}
+.eyebrow{font-family:var(--display);font-weight:700;letter-spacing:.08em;text-transform:uppercase;font-size:.85rem;color:var(--accent)}
+header.top{display:flex;flex-direction:column;gap:12px}
+.meta{display:flex;flex-wrap:wrap;gap:8px}
+.tag{font-size:.85rem;background:var(--accent-soft);color:var(--fg);padding:3px 10px;border-radius:99px}
+nav.toc{margin-top:22px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+nav.toc ol{margin:6px 0 0;padding-left:22px;columns:2 240px;column-gap:28px}
+nav.toc li{break-inside:avoid;padding:2px 0}
+.note{border-left:4px solid var(--warn);background:var(--warn-soft);padding:12px 14px;border-radius:0 8px 8px 0}
+.note.good{border-color:var(--accent);background:var(--accent-soft)}
+.note.bad{border-color:var(--bad);background:var(--bad-soft)}
+.note strong:first-child{display:block;font-family:var(--display);font-size:1.05rem;letter-spacing:.02em}
+.table-box{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:.95rem}
+th,td{text-align:left;vertical-align:top;padding:9px 12px;border-bottom:1px solid var(--line)}
+th{font-family:var(--display);font-weight:700;font-size:.95rem;letter-spacing:.02em;background:var(--accent-soft)}
+tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+tr.total td{font-weight:700;background:var(--accent-soft)}
+.sku{display:block;font-size:.8rem;color:var(--muted)}
+.chip{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;font-weight:600}
+.chip::before{content:"";width:13px;height:13px;border-radius:50%;background:var(--c);border:1px solid var(--line);flex:none}
+.c-grey{--c:var(--chip-grey)} .c-yellow{--c:var(--chip-yellow)} .c-blue{--c:var(--chip-blue)} .c-white{--c:var(--chip-white)} .c-dry{--c:var(--chip-dry)} .c-mitt{--c:var(--chip-mitt)}
+.cloths{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.cloth{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.cloth .use{color:var(--muted);font-size:.95rem}
+.step{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.step-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.num-badge{font-family:var(--display);font-weight:800;font-size:1.3rem;min-width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--fg);color:var(--bg);flex:none}
+.step-head h3{flex:1;min-width:180px}
+.time{font-size:.9rem;color:var(--muted);white-space:nowrap}
+.pkgs{display:flex;gap:6px;flex-wrap:wrap}
+.pk{font-size:.75rem;font-weight:700;letter-spacing:.04em;padding:2px 8px;border-radius:4px;border:1px solid var(--line);color:var(--muted)}
+.pk.on{background:var(--accent);border-color:var(--accent);color:var(--bg)}
+dl.needs{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;margin:0;background:var(--accent-soft);padding:12px 14px;border-radius:8px}
+dl.needs dt{font-weight:700}
+dl.needs dd{margin:0;min-width:0}
+ol.do{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:4px}
+.dont{color:var(--bad);font-weight:600}
+.dont::before{content:"Don't: ";font-weight:700}
+.steps{display:flex;flex-direction:column;gap:14px}
+.phase{font-family:var(--display);font-weight:700;font-size:1.1rem;margin-top:10px;color:var(--accent)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.card ul{margin:0;padding-left:20px}
+.price-row{display:flex;justify-content:space-between;gap:10px;font-variant-numeric:tabular-nums;border-top:1px dashed var(--line);padding-top:6px}
+.price-row b{font-family:var(--display);font-size:1.2rem}
+.small{font-size:.88rem;color:var(--muted)}
+footer{margin-top:56px;color:var(--muted);font-size:.9rem;border-top:1px solid var(--line);padding-top:16px}
+.msg{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.msg pre{margin:0;white-space:pre-wrap;word-break:break-word;font-family:var(--body);font-size:.95rem;background:var(--accent-soft);padding:10px 12px;border-radius:8px}
+.copy{align-self:flex-start;font:inherit;font-weight:600;border:1px solid var(--accent);color:var(--accent);background:transparent;border-radius:6px;padding:4px 14px;cursor:pointer}
+.copy:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+ul.check{list-style:none;padding-left:0;margin:0;display:flex;flex-direction:column;gap:6px}
+ul.check li{padding-left:28px;position:relative}
+ul.check li::before{content:"";position:absolute;left:0;top:.3em;width:16px;height:16px;border:2px solid var(--accent);border-radius:3px}
+@media (max-width:520px){ body{font-size:16px} dl.needs{grid-template-columns:1fr} dl.needs dt{margin-top:6px} }
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+html{scroll-behavior:smooth}
+</style>
+
+<div class="wrap">
+<header class="top">
+  <span class="eyebrow">Mana Wash · For our team</span>
+  <h1>Mana Wash Team Guide</h1>
+  <p class="lead">How we wash every car, how we behave with customers, and how you grow and earn more at Mana Wash. Read it fully, and ask your Team Lead or the owner if anything isn't clear.</p>
+</header>
+
+<nav class="toc" aria-label="Contents">
+  <span class="eyebrow">Contents</span>
+  <ol>
+    <li><a href="#promise">Our promise and how we behave</a></li>
+    <li><a href="#grow">How you grow and earn more</a></li>
+    <li><a href="#routine">Your daily routine</a></li>
+    <li><a href="#packages">What each package includes</a></li>
+    <li><a href="#cloth-rules">Cloth colour rules</a></li>
+    <li><a href="#bottles">MW bottles and mixing chart</a></li>
+    <li><a href="#morning">Morning setup</a></li>
+    <li><a href="#process">The wash, step by step</a></li>
+    <li><a href="#premium">Premium extra steps</a></li>
+    <li><a href="#evening">After each car and end of day</a></li>
+    <li><a href="#photos">Photos, ratings and damage</a></li>
+    <li><a href="#safety">Safety</a></li>
+  </ol>
+</nav>
+
+<h2 id="promise">Our promise and how we behave</h2>
+<div class="stack">
+  <div class="note good"><strong>The Mana Wash promise</strong>"On time, no scratches, or your next wash is free." Every one of us keeps this promise on every car.</div>
+  <div class="grid2">
+    <div class="card">
+      <h3>How we look</h3>
+      <ul>
+        <li>Mana Wash T-shirt, cap and ID card, every day</li>
+        <li>Clean uniform, clean kit, MW bottles only</li>
+        <li>Put the small Mana Wash board at the wash spot</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>How we behave</h3>
+      <ul>
+        <li>Use the same greeting every time (below)</li>
+        <li>No phone use while washing, except photos and the software</li>
+        <li>No smoking, no loud music, no asking for tips</li>
+        <li><b>Never give customers your personal number.</b> All bookings go through Mana Wash.</li>
+        <li>Respect residents and security staff</li>
+        <li>Leave every wash spot cleaner than you found it</li>
+      </ul>
+    </div>
+  </div>
+  <div class="note"><strong>Greeting</strong>Start: "Good morning sir/madam, I'm [your name] from Mana Wash. I'll start your car's [package] wash now. It will take about [time]."<br>Finish: "Your car is ready. Please check it, and rate us on WhatsApp. Thank you."</div>
+</div>
+
+<h2 id="grow">How you grow and earn more</h2>
+<div class="stack">
+  <p>Everyone starts at the hub. You learn properly, pass the test, and then move to community work, where you earn a bonus on every car. <b>Your base salary is as written in your offer letter.</b></p>
+  <div class="table-box"><table>
+    <thead><tr><th>Level</th><th>Where</th><th>How you get there</th></tr></thead>
+    <tbody>
+      <tr><td><b>Hub trainee</b></td><td>Hub</td><td>Join Mana Wash and learn</td></tr>
+      <tr><td><b>Hub Lead</b></td><td>Hub</td><td>Great at hub and anti-rust work, helps train others</td></tr>
+      <tr><td><b>Community member</b></td><td>Communities</td><td>Pass the graduation test</td></tr>
+      <tr><td><b>Community Team Lead</b></td><td>Communities</td><td>Strong ratings, zero missed slots, leads a team</td></tr>
+      <tr><td><b>Supervisor</b></td><td>All communities</td><td>Checks quality for 4 teams and trains new staff</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Graduation test (to move to communities)</h3>
+  <ul class="check">
+    <li>Know the 15 steps, the cloth colour rules and the mixing chart by heart</li>
+    <li>Wash <b>40+ practice cars</b> with photo checks, averaging <b>4.5+</b></li>
+    <li><b>Zero paint damage</b> in your last 20 cars</li>
+    <li>Pass a short role-play: greet a "customer", explain the package, ask for a rating</li>
+    <li>Take before/after photos and record a wash in the software and on WhatsApp</li>
+    <li>Good attendance for 4 weeks (no unplanned leave)</li>
+    <li>The owner signs off</li>
+  </ul>
+
+  <h3>Community bonus</h3>
+  <div class="grid2">
+    <div class="table-box"><table style="min-width:0">
+      <thead><tr><th>Package</th><th class="num">Bonus per car (each person in the team)</th></tr></thead>
+      <tbody>
+        <tr><td>Express</td><td class="num">₹10</td></tr>
+        <tr><td>Basic</td><td class="num">₹15</td></tr>
+        <tr><td>Premium</td><td class="num">₹25</td></tr>
+      </tbody>
+    </table></div>
+    <div class="table-box"><table style="min-width:0">
+      <thead><tr><th>Team's average rating for the month</th><th class="num">Bonus paid</th></tr></thead>
+      <tbody>
+        <tr><td>4.8 – 5.0</td><td class="num"><b>1.5×</b></td></tr>
+        <tr><td>4.5 – 4.79</td><td class="num">Full bonus</td></tr>
+        <tr><td>4.0 – 4.49</td><td class="num">Half bonus</td></tr>
+        <tr><td>Below 4.0</td><td class="num">No bonus + retraining</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="table-box"><table>
+    <thead><tr><th>Extra bonus</th><th class="num">Amount</th><th>Rule</th></tr></thead>
+    <tbody>
+      <tr><td>Attendance</td><td class="num">₹500 a month</td><td>No unplanned leave. Weekly off doesn't count. Up to 2 days of leave told 2 days before is fine.</td></tr>
+      <tr><td>Zero complaints</td><td class="num">₹500 a month</td><td>No customer complaint in the month</td></tr>
+      <tr><td>New plan customer</td><td class="num">₹100 per plan</td><td>Shared by the team that signed the customer up</td></tr>
+      <tr><td>Trainer</td><td class="num">₹1,000 per trainee</td><td>When someone you trained passes the graduation test</td></tr>
+      <tr><td>Loyalty</td><td class="num">₹2,000 after 6 months · ₹5,000 after 12 months</td><td>Paid if you're still with Mana Wash on that date</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note bad"><strong>Bonus rules</strong>
+    1. Only washes recorded in the software <b>with before/after photos</b> count. No photo, no bonus.<br>
+    2. Free re-washes and missed slots get no bonus.<br>
+    3. Damage: a warning and retraining the first time. If it happens again, you share the repair cost up to ₹500.<br>
+    4. You get a bonus sheet with your salary showing cars washed, rating and bonus.
+  </div>
+</div>
+
+<h2 id="routine">Your daily routine</h2>
+<div class="stack">
+  <h3>Community team</h3>
+  <ol class="do">
+    <li><b>5:45 am:</b> come to the hub. Collect the charged Aquaforce, the filled MW bottles and clean cloths.</li>
+    <li><b>6–11 am:</b> community washes, in the booked order.</li>
+    <li><b>11:30 am:</b> back at the hub. Battery on charge, used cloths into the wash.</li>
+    <li><b>12–3:30 pm:</b> break (trainers teach at the hub during this time).</li>
+    <li><b>4–7 pm:</b> evening community washes.</li>
+    <li><b>7:30 pm:</b> return the kit. Check every wash is recorded in the software with photos.</li>
+  </ol>
+  <div class="note"><strong>Hub team</strong>Hub staff always stay at the hub. You go to communities only in an emergency, and only when the owner tells you. Everyone gets 1 day off a week by rotation, and the Team Lead makes sure no community's day is left uncovered.</div>
+</div>
+
+<h2 id="packages">What each package includes</h2>
+<div class="table-box"><table>
+  <thead><tr><th></th><th class="num">Express</th><th class="num">Basic</th><th class="num">Premium</th></tr></thead>
+  <tbody>
+    <tr><td>Wheels, tyres, snow foam, two-bucket hand wash, drying, door edges</td><td class="num">Yes</td><td class="num">Yes</td><td class="num">Yes</td></tr>
+    <tr><td>Outside glass and tyre shine, rubber mat wash</td><td class="num">Yes</td><td class="num">Yes</td><td class="num">Yes</td></tr>
+    <tr><td>Inside glass, full vacuum, dashboard and door panel shine</td><td class="num">No</td><td class="num">Yes</td><td class="num">Yes</td></tr>
+    <tr><td>Spray wax on all paint</td><td class="num">No</td><td class="num">No</td><td class="num">Yes</td></tr>
+    <tr><td>Inside deep clean: steering, handles, plastics, leather, AC vents</td><td class="num">No</td><td class="num">No</td><td class="num">Yes</td></tr>
+  </tbody>
+</table></div>
+<p class="small" style="margin-top:10px">Plan customers: <b>Express Plan</b> = 4 Express washes a month · <b>Basic Plan</b> = 4 Basic washes · <b>Shine Plan</b> = 3 Basic + 1 Premium. Always check the software for which package a car gets today.</p>
+
+<h2 id="cloth-rules">Cloth colour rules</h2>
+<div class="stack">
+  <p>Each cloth has <b>one job only</b>. A cloth used on wheels has sand and brake dust in it. If it touches paint, it will scratch the car, and the customer will blame you.</p>
+  <div class="cloths">
+    <div class="cloth"><span class="chip c-mitt">Wash mitt</span><span class="use">Paint only, with shampoo. Never wheels.</span></div>
+    <div class="cloth"><span class="chip c-dry">Drying towel (600 GSM)</span><span class="use">Drying paint and outside glass only.</span></div>
+    <div class="cloth"><span class="chip c-white">Edgeless buffing towel</span><span class="use">Spray wax on paint only. The cleanest cloth you own.</span></div>
+    <div class="cloth"><span class="chip c-blue">Glass towel</span><span class="use">Glass and mirrors only. Nothing else.</span></div>
+    <div class="cloth"><span class="chip c-yellow">Yellow cloth (350 GSM)</span><span class="use">Inside the car only: dashboard, doors, console, seats.</span></div>
+    <div class="cloth"><span class="chip c-grey">Grey cloth (350 GSM)</span><span class="use">Dirty jobs: wheels, tyres, door edges, engine, mats.</span></div>
+  </div>
+  <div class="note bad"><strong>Golden rules</strong>1. If any cloth falls on the ground, it becomes a <b>grey cloth</b> from that moment. Never use it on paint again.<br>2. Never wash grey cloths together with paint cloths.<br>3. Never use the wash mitt on wheels.</div>
+</div>
+
+
+<h2 id="bottles">MW bottles and mixing chart</h2>
+<div class="stack">
+  <div class="table-box"><table>
+    <thead><tr><th>Bottle</th><th>Sticker colour</th><th>Used for</th><th>How to use</th></tr></thead>
+    <tbody>
+      <tr><td><b>MW Foam</b></td><td><span class="chip" style="--c:#2f6fd0">Blue</span></td><td>Snow foam</td><td>100 ml + 900 ml water in the foam sprayer</td></tr>
+      <tr><td><b>MW Shampoo</b></td><td><span class="chip" style="--c:#2e9b4f">Green</span></td><td>Bucket hand wash</td><td>30 ml in 10 L water (40 ml for SUVs)</td></tr>
+      <tr><td><b>MW Cleaner Strong</b></td><td><span class="chip" style="--c:#c7372f">Red</span></td><td>Wheels, tyres, rubber mats, engine</td><td>Ready mixed, spray directly</td></tr>
+      <tr><td><b>MW Cleaner Light</b></td><td><span class="chip" style="--c:#e08a1e">Orange</span></td><td>Door edges, sills, boot edge</td><td>Ready mixed, spray directly</td></tr>
+      <tr><td><b>MW Glass</b></td><td><span class="chip" style="--c:#7cc4e8">Light blue</span></td><td>All glass and mirrors</td><td>Ready mixed. Inside glass: spray on the towel.</td></tr>
+      <tr><td><b>MW Tyre Shine</b></td><td><span class="chip" style="--c:#222222">Black</span></td><td>Tyre side walls only</td><td>Use as is, on the sponge</td></tr>
+      <tr><td><b>MW Dash</b></td><td><span class="chip" style="--c:#e7c321">Yellow</span></td><td>Dashboard, door panels, console</td><td>Use as is, on the cloth. Never on steering, pedals or gear knob.</td></tr>
+      <tr><td><b>MW Wax</b></td><td><span class="chip" style="--c:#7a5ab5">Purple</span></td><td>Paint (Premium only)</td><td>Use as is, 2–3 sprays per panel</td></tr>
+      <tr><td><b>MW Interior</b></td><td><span class="chip" style="--c:#8a5a2b">Brown</span></td><td>Inside deep clean (Premium only)</td><td>Use as is, on the brush or cloth</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note bad"><strong>Bottle rules</strong>
+    1. Use only the MW bottle with the right sticker. If a sticker is missing or unclear, don't use it. Tell your Team Lead.<br>
+    2. Only the owner or supervisor fills bottles from the big cans.<br>
+    3. Never pour chemicals into water, juice or oil bottles.<br>
+    4. Close every bottle after use and keep bottles out of the sun.<br>
+    5. Use the right amount. More liquid doesn't mean a better wash, only more waste.
+  </div>
+</div>
+
+<h2 id="morning">Morning setup (before the first car)</h2>
+<ol class="do">
+  <li><b>Night before:</b> fully charge the Aquaforce battery (and the spare, if you have one).</li>
+  <li>Fill the water drum, or confirm you can use the community tap. Check the Aquaforce hose, filter and gun for leaks.</li>
+  <li>Check the ready-mixed spray bottles are full: MW Cleaner Strong, MW Cleaner Light, MW Glass (see the mixing chart).</li>
+  <li>Fill Bucket 1 with 10 L water + 30 ml MW Shampoo. Fill Bucket 2 with 10 L clean water. Put a grit guard in both. Fill Bucket 3 (wheels) with clean water.</li>
+  <li>Lay out clean cloths by colour on a clean shelf or table, never on the floor.</li>
+  <li>Keep the MW Tyre Shine, MW Dash, MW Wax and MW Interior bottles ready with their applicators.</li>
+  <li>Charge your phone for taking photos of each car.</li>
+</ol>
+
+<h2 id="process">The wash, step by step</h2>
+<div class="stack">
+  <p>Follow these steps in this exact order for every car. The coloured labels under each step show which packages include it: <span class="pk on">EXPRESS</span> <span class="pk on">BASIC</span> <span class="pk on">PREMIUM</span>. Amounts are for a hatchback / sedan / SUV.</p>
+  <div class="note"><strong>Two rules for the whole wash</strong>Work in the shade: sun dries foam and shampoo on the paint and leaves marks. Always work from top to bottom: the roof is cleanest and the bottom is dirtiest.</div>
+  <div class="note good"><strong>In communities</strong>Wherever a step says "pressure washer", use the <b>Aquaforce</b>. Make the foam with the <b>hand foam sprayer</b>. Rinse quickly to save battery and water. The steps are otherwise the same.</div>
+</div>
+
+<div class="steps" style="margin-top:16px">
+
+<p class="phase">Part A: Receive the car</p>
+
+<section class="step" id="step-1">
+  <div class="step-head"><span class="num-badge">1</span><h3>Welcome the customer and check the car</h3><span class="time">3 min</span></div>
+  <div class="pkgs"><span class="pk on">EXPRESS</span><span class="pk on">BASIC</span><span class="pk on">PREMIUM</span></div>
+  <dl class="needs"><dt>You need</dt><dd>Your phone</dd></dl>
+  <ol class="do">
+    <li>Greet the customer. Ask which package they want and tell them the price and time.</li>
+    <li>Walk around the car <b>with the customer</b>. Point to any scratch, dent or broken part.</li>
+    <li>Take photos of all 4 sides, plus close-ups of any damage.</li>
+    <li>Ask the customer to take out money, phones and valuables.</li>
+    <li>Enter the customer's phone number, car number and package in your software (and attach the photos, if your software allows).</li>
+  </ol>
+  <p class="dont">start washing before the photos. Without photos, an old scratch becomes your problem.</p>
+</section>
+
+<section class="step" id="step-2">
+  <div class="step-head"><span class="num-badge">2</span><h3>Park and prepare</h3><span class="time">2 min</span></div>
+  <div class="pkgs"><span class="pk on">EXPRESS</span><span class="pk on">BASIC</span><span class="pk on">PREMIUM</span></div>
+  <ol class="do">
+    <li>Park the car in the shade. Engine off, handbrake on.</li>
+    <li>Close all windows and the sunroof fully.</li>
+    <li>Touch the bonnet. If it is hot, wait 10 minutes or rinse it with water first.</li>
+    <li>Take out the floor mats and keep them aside.</li>
+  </ol>
+</section>
+
+<p class="phase">Part B: Outside wash</p>
+
+<section class="step" id="step-3">
+  <div class="step-head"><span class="num-badge">3</span><h3>Clean the floor mats</h3><span class="time">3 min</span></div>
+  <div class="pkgs"><span class="pk on">EXPRESS</span><span class="pk on">BASIC</span><span class="pk on">PREMIUM</span></div>
+  <dl class="needs">
+    <dt>Product</dt><dd><b>MW Cleaner Strong</b> bottle (rubber mats only)</dd>
+    <dt>Brush</dt><dd>Tyre &amp; Heavy Duty Brush</dd>
+    <dt>Cloth</dt><dd><span class="chip c-grey">Grey cloth</span></dd>
+  </dl>
+  <ol class="do">
+    <li><b>Rubber mats:</b> spray MW Cleaner Strong, scrub with the heavy-duty brush, rinse with the pressure washer, and stand them up to dry.</li>
+    <li><b>Fabric mats:</b> shake them hard and vacuum them later in Step 13.</li>
+  </ol>
+</section>
+
+<section class="step" id="step-4">
+  <div class="step-head"><span class="num-badge">4</span><h3>Wheels and tyres (always before the body)</h3><span class="time">5–7 min</span></div>
+  <div class="pkgs"><span class="pk on">EXPRESS</span><span class="pk on">BASIC</span><span class="pk on">PREMIUM</span></div>
+  <dl class="needs">
+    <dt>Product</dt><dd><b>MW Cleaner Strong</b> bottle (ready mixed 1:5)</dd>
+    <dt>Amount</dt><dd>About 20 / 25 / 30 ml of cleaner concentrate per car</dd>
+    <dt>Brushes</dt><dd>Tyre &amp; Heavy Duty Brush (tyre rubber), Wheel Cleaning Brush (rim face), Wheel Woolies (inside the rim)</dd>
+    <dt>Bucket</dt><dd>Bucket 3 (wheels only)</dd>
+  </dl>
+  <ol class="do">
+    <li>Do <b>one wheel at a time</b>.</li>
+    <li>Rinse the wheel with water.</li>
+    <li>Spray MW Cleaner Strong on the tyre rubber, the rim and the wheel arch.</li>
+    <li>Scrub the <b>tyre rubber</b> first with the heavy-duty brush. Brown foam means old dirt is coming off.</li>
+    <li>Scrub the <b>rim face and spokes</b> with the Wheel Cleaning Brush.</li>
+    <li>Put the <b>Wheel Woolies</b> through the spokes to clean inside the rim.</li>
+    <li>Dip the brushes in Bucket 3 between wheels.</li>
+    <li>Rinse the wheel fully with the pressure washer. Move to the next wheel.</li>
+  </ol>
+  <p class="dont">let the cleaner dry on the rim in the sun, or use the wheel brushes on the paint.</p>
+</section>
+
+<section class="step" id="step-5">
+  <div class="step-head"><span class="num-badge">5</span><h3>Pre-rinse the whole car</h3><span class="time">3 min</span></div>
+  <div class="pkgs"><span class="pk on">EXPRESS</span><span class="pk on">BASIC</span><span class="pk on">PREMIUM</span></div>
+  <dl class="needs"><dt>Tool</dt><dd>Aquaforce (or any pressure washer), plain water</dd></dl>
+  <ol class="do">
+    <li>Hold the nozzle about <b>1–2 feet</b> (30–60 cm) away from the paint.</li>
+    <li>Rinse from the roof, then glass, then bonnet and boot, then sides, then the bottom.</li>
+    <li>Spray well under the wheel arches and the bottom edges to remove mud.</li>
+  </ol>
+  <p class="dont">go closer than 1 foot, or spray hard straight onto stickers, badges, rubber seals or peeling paint.</p>
+</section>
+
+<section class="step" id="step-6">
+  <div class="step-head"><span class="num-badge">6</span><h3>Snow foam</h3><span class="time">5 min + 3–5 min waiting</span></div>
+  <div class="pkgs"><span class="pk on">EXPRESS</span><span class="pk on">BASIC</span><span class="pk on">PREMIUM</span></div>
+  <dl class="needs">
+    <dt>Product</dt><dd><b>MW Foam</b></dd>
+    <dt>Mix</dt><dd>100 ml MW Foam + 900 ml water in the foam sprayer bottle (1:9)</dd>
+    <dt>Amount</dt><dd>About 50 / 70 / 100 ml of MW Foam per car</dd>
+    <dt>Tool</dt><dd>hand foam sprayer (or a foam cannon, if your machine takes one)</dd>
+  </dl>
+  <ol class="do">
+    <li>Pump the foam sprayer 20–30 times until it feels hard (or fix the foam cannon on the gun).</li>
+    <li>Spray foam from the <b>bottom of the car upward</b>, so the foam stays longer on the lower, dirtier parts.</li>
+    <li>Cover the whole car with thick foam, glass included.</li>
+    <li>Wait <b>3–5 minutes</b>. Clean the inside glass or prepare the next step meanwhile.</li>
+    <li>If the foam starts drying, rinse it at once.</li>
+  </ol>
+  <p class="dont">leave the foam until it dries, or foam in direct hot sun.</p>
+</section>
+
+<section class="step" id="step-7">
+  <div class="step-head"><span class="num-badge">7</span><h3>Rinse the foam</h3><span class="time">3 min</span></div>
+  <div class="pkgs"><span class="pk on">EXPRESS</span><span class="pk on">BASIC</span><span class="pk on">PREMIUM</span></div>
+  <ol class="do">
+    <li>Use the Aquaforce with its normal nozzle.</li>
+    <li>Rinse from the <b>top down</b>: roof, glass, bonnet and boot, sides, bottom.</li>
+  </ol>
+</section>
+
+<section class="step" id="step-8">
+  <div class="step-head"><span class="num-badge">8</span><h3>Two-bucket hand wash</h3><span class="time">8–12 min</span></div>
+  <div class="pkgs"><span class="pk on">EXPRESS</span><span class="pk on">BASIC</span><span class="pk on">PREMIUM</span></div>
+  <dl class="needs">
+    <dt>Product</dt><dd><b>MW Shampoo</b>, 30 ml in Bucket 1 (10 L water). For SUVs add 10 ml more.</dd>
+    <dt>Buckets</dt><dd>Bucket 1 = shampoo · Bucket 2 = clean water. Both with grit guards.</dd>
+    <dt>Cloth</dt><dd><span class="chip c-mitt">Wash mitt</span></dd>
+  </dl>
+  <ol class="do">
+    <li>Dip the mitt in <b>Bucket 1</b> (shampoo).</li>
+    <li>Wash <b>one small area</b> (half the roof, for example) in <b>straight lines</b>, not circles. Press softly. Let the mitt slide.</li>
+    <li>Rub the mitt on the grit guard in <b>Bucket 2</b> (clean water) to remove dirt.</li>
+    <li>Go back to Bucket 1 for fresh shampoo, then the next area.</li>
+    <li>Order: <b>roof → glass → bonnet → boot → upper doors → lower doors → bumpers last</b>.</li>
+    <li>If the mitt falls on the floor, stop. Take a new clean mitt.</li>
+    <li>Change the water in both buckets after every 3–4 cars, or sooner if it looks dirty.</li>
+  </ol>
+  <p class="dont">wash in circles, press hard, or use a single bucket. These cause the fine scratches (swirl marks) customers hate.</p>
+</section>
+
+<section class="step" id="step-9">
+  <div class="step-head"><span class="num-badge">9</span><h3>Final rinse</h3><span class="time">3 min</span></div>
+  <div class="pkgs"><span class="pk on">EXPRESS</span><span class="pk on">BASIC</span><span class="pk on">PREMIUM</span></div>
+  <ol class="do">
+    <li>Rinse every bit of shampoo off, top to bottom.</li>
+    <li>Rinse inside the fuel lid, mirrors, grille and badges, where shampoo hides.</li>
+    <li>Do a last quick rinse of the wheels.</li>
+  </ol>
+</section>
+
+<section class="step" id="step-10">
+  <div class="step-head"><span class="num-badge">10</span><h3>Dry the car</h3><span class="time">5–7 min</span></div>
+  <div class="pkgs"><span class="pk on">EXPRESS</span><span class="pk on">BASIC</span><span class="pk on">PREMIUM</span></div>
+  <dl class="needs">
+    <dt>Cloths</dt><dd><span class="chip c-dry">1 drying towel (600 GSM)</span> for the body · <span class="chip c-grey">1 grey cloth</span> for door edges and the boot edge</dd>
+    <dt>Product</dt><dd><b>MW Cleaner Light</b> bottle (for door edges)</dd>
+  </dl>
+  <ol class="do">
+    <li>Open the drying towel fully and <b>lay it flat</b> on the roof.</li>
+    <li>Hold two corners and <b>pull it slowly</b> towards you. Don't rub. The towel drinks the water.</li>
+    <li>Do the roof, glass, bonnet, boot, then the sides. Fold the towel when one side gets wet.</li>
+    <li>Open each door. Spray a little MW Cleaner Light on the door edges and sills, then wipe with the <b>grey cloth</b>. Do the same for the boot edge and the fuel lid.</li>
+    <li>Wipe the mirrors, handles and badges where water drips.</li>
+    <li><b>At the shop:</b> blow water out of mirrors, door handles, grille, badges and the fuel lid with the compressor air gun (low pressure), then wipe.</li>
+  </ol>
+  <p class="dont">let the car dry by itself. It leaves white water spots, especially with hard borewell water.</p>
+</section>
+
+<p class="phase">Part C: Finishing</p>
+
+<section class="step" id="step-11">
+  <div class="step-head"><span class="num-badge">11</span><h3>Glass and mirrors</h3><span class="time">4 min</span></div>
+  <div class="pkgs"><span class="pk on">EXPRESS</span><span class="pk on">BASIC</span><span class="pk on">PREMIUM</span></div>
+  <dl class="needs">
+    <dt>Product</dt><dd><b>MW Glass</b> bottle (ready mixed)</dd>
+    <dt>Amount</dt><dd>About 25 / 30 / 40 ml of mixed liquid per car</dd>
+    <dt>Cloths</dt><dd><span class="chip c-blue">2 glass towels</span>: towel 1 to clean, towel 2 to polish dry</dd>
+  </dl>
+  <ol class="do">
+    <li><b>Outside glass:</b> spray on the glass, wipe with towel 1, then polish with dry towel 2 until there are no lines.</li>
+    <li><b>Inside glass</b> (Basic and above): spray on the <b>towel</b>, not on the glass, so it doesn't drip on the dashboard. Wipe, then polish with towel 2.</li>
+    <li>Do the mirrors too. Lower each window 2 inches and clean the top edge.</li>
+  </ol>
+  <p class="dont">clean glass in hot sun (it streaks), or use a yellow or grey cloth on glass.</p>
+</section>
+
+<section class="step" id="step-12">
+  <div class="step-head"><span class="num-badge">12</span><h3>Tyre shine</h3><span class="time">3 min</span></div>
+  <div class="pkgs"><span class="pk on">EXPRESS</span><span class="pk on">BASIC</span><span class="pk on">PREMIUM</span></div>
+  <dl class="needs">
+    <dt>Product</dt><dd><b>MW Tyre Shine</b> (use as is)</dd>
+    <dt>Amount</dt><dd>About 15 / 20 / 25 ml per car (all 4 tyres)</dd>
+    <dt>Applicator</dt><dd>Foam Sponge Applicator</dd>
+    <dt>Cloth</dt><dd><span class="chip c-grey">Grey cloth</span> for mistakes</dd>
+  </dl>
+  <ol class="do">
+    <li>Make sure the tyre is <b>dry</b>.</li>
+    <li>Put a little MW Tyre Shine on the <b>sponge</b>, never straight onto the tyre.</li>
+    <li>Spread it evenly on the <b>side wall</b> of the tyre only.</li>
+    <li>If any goes on the rim or paint, wipe it off at once with the grey cloth.</li>
+  </ol>
+  <p class="dont">put tyre shine on the part that touches the road. It's slippery and dangerous, especially on bikes.</p>
+</section>
+
+<section class="step" id="step-13">
+  <div class="step-head"><span class="num-badge">13</span><h3>Vacuum the inside</h3><span class="time">6–10 min</span></div>
+  <div class="pkgs"><span class="pk">EXPRESS</span><span class="pk on">BASIC</span><span class="pk on">PREMIUM</span></div>
+  <dl class="needs">
+    <dt>Tool</dt><dd>Wet and dry vacuum · Horse Hair Brush for gaps</dd>
+  </dl>
+  <ol class="do">
+    <li>Take out any rubbish (ask the customer first if unsure).</li>
+    <li>Vacuum from <b>top to bottom</b>: seats first, then the floor.</li>
+    <li>Push the seats fully forward, vacuum behind; push them back, vacuum in front.</li>
+    <li>Use the horse hair brush to sweep dust out of gaps while vacuuming.</li>
+    <li>Vacuum the boot and the fabric mats.</li>
+    <li><b>At the shop:</b> before vacuuming, blow dust out of the seat rails and gaps (and the AC vents for Premium) with the compressor air gun, with the doors open.</li>
+  </ol>
+</section>
+
+<section class="step" id="step-14">
+  <div class="step-head"><span class="num-badge">14</span><h3>Dashboard and inside plastics</h3><span class="time">4–5 min</span></div>
+  <div class="pkgs"><span class="pk">EXPRESS</span><span class="pk on">BASIC</span><span class="pk on">PREMIUM</span></div>
+  <dl class="needs">
+    <dt>Product</dt><dd><b>MW Dash</b> (use as is)</dd>
+    <dt>Amount</dt><dd>About 10 / 15 / 20 ml per car</dd>
+    <dt>Cloth</dt><dd><span class="chip c-yellow">Yellow cloth</span> or Yellow Microfiber Applicator Sponge</dd>
+    <dt>Brush</dt><dd>Premium only: Horse Hair Brush for AC vents and buttons</dd>
+  </dl>
+  <ol class="do">
+    <li>First wipe off dust with a dry yellow cloth.</li>
+    <li>Spray MW Dash on the <b>applicator or cloth</b>, never on the dashboard.</li>
+    <li>Wipe the dashboard, centre console, door panels and door pockets.</li>
+    <li><b>Premium only:</b> brush the AC vents and buttons with the horse hair brush.</li>
+    <li>Wipe once more with a dry part of the cloth so it isn't oily.</li>
+  </ol>
+  <p class="dont">put MW Dash on the <b>steering wheel, pedals or gear knob</b> (they become slippery), or on any screen or glass.</p>
+</section>
+
+<section class="step" id="step-15">
+  <div class="step-head"><span class="num-badge">15</span><h3>Final check and hand over</h3><span class="time">3 min</span></div>
+  <div class="pkgs"><span class="pk on">EXPRESS</span><span class="pk on">BASIC</span><span class="pk on">PREMIUM</span></div>
+  <ol class="do">
+    <li>Put the mats back, dry side down.</li>
+    <li>Walk around once more. Check for water drips, foam left in gaps, glass streaks and tyre shine on the rims.</li>
+    <li>Check the inside for missed dust, and anything the customer left behind.</li>
+    <li>Take 2–3 "after" photos (good for WhatsApp status and Instagram).</li>
+    <li>Show the car to the customer, collect payment, and thank them. Ask them to come back in 7–10 days.</li>
+  </ol>
+</section>
+</div>
+
+<h2 id="premium">Premium extra steps</h2>
+<div class="stack">
+  <p>For the <span class="pk on">PREMIUM</span> package (and the Premium wash in the Shine Plan), add these two jobs to the normal steps.</p>
+</div>
+<div class="steps" style="margin-top:14px">
+<section class="step" id="step-p1">
+  <div class="step-head"><span class="num-badge">P1</span><h3>Spray wax (do it right after Step 10, drying)</h3><span class="time">8–12 min</span></div>
+  <dl class="needs">
+    <dt>Product</dt><dd><b>MW Wax</b> (use as is; works on a wet or dry car)</dd>
+    <dt>Amount</dt><dd>About 20 / 25 / 35 ml per car</dd>
+    <dt>Cloths</dt><dd><span class="chip c-white">2 edgeless buffing towels</span>: towel 1 spreads, towel 2 buffs to a shine</dd>
+  </dl>
+  <ol class="do">
+    <li>Work on <b>one panel at a time</b> (bonnet, then roof, then one door).</li>
+    <li>Spray 2–3 times on the panel.</li>
+    <li>Spread it evenly with towel 1 in straight lines.</li>
+    <li>Turn to towel 2 (dry) and buff until it shines and no lines are left.</li>
+    <li>Move to the next panel. Skip the glass and the black rough plastic.</li>
+  </ol>
+  <p class="dont">spray too much. More wax doesn't mean more shine, it only leaves greasy lines.</p>
+</section>
+
+<section class="step" id="step-p2">
+  <div class="step-head"><span class="num-badge">P2</span><h3>Interior plastic and leather cleaning (do it before Step 14)</h3><span class="time">12–15 min</span></div>
+  <dl class="needs">
+    <dt>Product</dt><dd><b>MW Interior</b> (use as is)</dd>
+    <dt>Amount</dt><dd>About 15 / 20 / 25 ml per car</dd>
+    <dt>Cloth</dt><dd><span class="chip c-yellow">2 yellow cloths</span></dd>
+    <dt>Brush</dt><dd>Horse Hair Brush</dd>
+  </dl>
+  <ol class="do">
+    <li>Spray MW Interior on the <b>brush or cloth</b>.</li>
+    <li>Clean the dashboard, steering wheel, gear knob, console, door panels and door handles.</li>
+    <li>For <b>leather or rexine seats</b>: spray on the horse hair brush, scrub gently in small circles, then wipe with a yellow cloth.</li>
+    <li>Wipe everything dry with the second yellow cloth.</li>
+    <li>Then do Step 14 (MW Dash) for the shine, but still not on the steering wheel or pedals.</li>
+  </ol>
+</section>
+</div>
+
+<h2 id="evening">After each car and end of day</h2>
+<div class="grid2">
+  <div class="card">
+    <h3>After every car</h3>
+    <ul>
+      <li>Put used cloths in <b>separate laundry buckets</b>: one for grey cloths, one for everything else.</li>
+      <li>Rinse the wash mitt in clean water.</li>
+      <li>Rinse the wheel brushes in Bucket 3.</li>
+      <li>Check the shampoo bucket. Change the water every 3–4 cars.</li>
+      <li>Refill the foam cannon bottle if it's low.</li>
+      <li>Enter the car in your software: car number, package, price paid, payment method.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>End of the day</h3>
+    <ul>
+      <li>Wash cloths in the washing machine with <b>the microfiber detergent</b> (follow the label amount). Wash grey cloths in a separate load.</li>
+      <li><b>No fabric softener, no bleach, no ironing.</b> They ruin microfiber.</li>
+      <li>Dry cloths in the shade. Fold and store them in closed boxes by colour.</li>
+      <li>Empty and wash all 3 buckets and grit guards.</li>
+      <li>Run clean water through the foam cannon so it doesn't block.</li>
+      <li>Close every chemical can tightly. Keep them out of the sun and away from children.</li>
+      <li>Count the cash and UPI and match them with today's total in your software.</li>
+    </ul>
+  </div>
+</div>
+
+
+<h2 id="photos">Photos, ratings and damage</h2>
+<div class="stack">
+  <h3>Photos for every car</h3>
+  <ul>
+    <li><b>Before:</b> 4 photos (front, back, both sides) plus close-ups of any old damage.</li>
+    <li><b>After:</b> 4 photos of the outside, plus 1 of the inside for Basic and Premium.</li>
+    <li>Save them in the software against the car. <b>No photo, no bonus.</b></li>
+  </ul>
+  <h3>Ratings</h3>
+  <ul>
+    <li>After every car, the customer gets a WhatsApp message asking for a rating from 1 to 5.</li>
+    <li>Your team's monthly average decides your bonus.</li>
+    <li>A rating below 4 means the owner or supervisor calls the customer, and the team fixes the problem free the same day.</li>
+  </ul>
+  <div class="note bad"><strong>If a car gets damaged</strong>
+    1. <b>Stop and tell your Team Lead or the owner at once.</b> Never hide it.<br>
+    2. Take clear photos of the damage.<br>
+    3. Don't argue with the customer. The owner or supervisor will talk to them.<br>
+    4. Hiding damage is the most serious mistake you can make at Mana Wash. Telling the truth at once is always better.
+  </div>
+</div>
+
+<h2 id="safety">Safety</h2>
+<div class="grid2">
+  <div class="card">
+    <h3>Chemicals</h3>
+    <ul>
+      <li>Wear gloves when using MW Cleaner Strong.</li>
+      <li><b>In the eyes:</b> wash with clean running water for 15 minutes, then tell the owner and see a doctor.</li>
+      <li><b>On skin:</b> wash with soap and water.</li>
+      <li><b>Swallowed:</b> don't vomit. Tell the owner at once and go to a doctor with the bottle.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Machines and power</h3>
+    <ul>
+      <li>Never point the Aquaforce, the pressure washer or the compressor air gun at a person.</li>
+      <li>Keep extension cables and plugs dry and away from water.</li>
+      <li>Charge batteries only at the hub, on the proper charger.</li>
+      <li>Lift full water drums with two people, or move them on the trolley.</li>
+      <li>Never wash a car with the engine running or a hot bonnet.</li>
+    </ul>
+  </div>
+</div>
+
+<footer>
+  Mana Wash Team Guide. Questions? Ask your Team Lead or the owner. Keep the promise on every car: on time, no scratches.
+</footer>
+</div>
+<script>
+document.querySelectorAll('.copy').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    var pre = btn.parentElement.querySelector('pre'); var text = pre.innerText;
+    function done(){ btn.textContent = 'Copied'; setTimeout(function(){ btn.textContent = 'Copy'; }, 1500); }
+    function fallback(){ try { var r = document.createRange(); r.selectNodeContents(pre); var s = window.getSelection(); s.removeAllRanges(); s.addRange(r); btn.textContent = 'Selected: copy it'; } catch(e){} }
+    try { navigator.clipboard.writeText(text).then(done, fallback); } catch(e){ fallback(); }
+  });
+});
+</script>

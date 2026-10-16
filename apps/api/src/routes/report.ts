@@ -1,13 +1,13 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { expenseRepo, jobRepo, opsRepo } from '@mana/db';
-import { daysWorked, type AttendanceStatus } from '@mana/domain';
+import { daysWorked, EXPENSE_CATEGORY_LABEL, type AttendanceStatus, type ExpenseCategory } from '@mana/domain';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { reportQuerySchema, resolveReportWindow, windowMeta } from '../lib/reportWindow';
 import type { Env } from '../types';
 import { windowDates } from './shop';
 
-type AuditKind = 'job_void' | 'payment_change' | 'expense_void';
+type AuditKind = 'job_void' | 'payment_change' | 'expense_void' | 'expense_edit';
 
 interface AuditItem {
   id: string;
@@ -21,6 +21,26 @@ interface AuditItem {
   fromValue: string | null;
   toValue: string | null;
   jobId: string | null;
+}
+
+const EDIT_FIELD_LABEL: Record<string, string> = {
+  amount: 'Amount',
+  category: 'Category',
+  itemName: 'Item',
+  quantity: 'Quantity',
+  unit: 'Unit',
+  description: 'Note',
+  paymentMethod: 'Paid with',
+  date: 'Date',
+};
+
+/** "Amount: ₹1,200" — one side of an expense edit, readable in the corrections feed. */
+function describeChange(field: string, value: unknown): string {
+  const label = EDIT_FIELD_LABEL[field] ?? field;
+  if (value == null || value === '') return `${label}: —`;
+  if (field === 'amount' && typeof value === 'number') return `${label}: ₹${(value / 100).toLocaleString('en-IN')}`;
+  if (field === 'category') return `${label}: ${EXPENSE_CATEGORY_LABEL[value as ExpenseCategory] ?? String(value)}`;
+  return `${label}: ${String(value)}`;
 }
 
 // Owner-only team reports. Chained in one expression, with every input declared via
@@ -69,9 +89,10 @@ export const reportRoutes = new Hono<{ Bindings: Env }>()
     const window = resolveReportWindow(query);
     if ('error' in window) return c.json({ error: window.error }, 400);
 
-    const [events, voidedExpenses] = await Promise.all([
+    const [events, voidedExpenses, expenseEdits] = await Promise.all([
       jobRepo.listCorrections(db, window.from, window.to),
       expenseRepo.listVoided(db, window.from, window.to),
+      expenseRepo.listEdits(db, window.from, window.to),
     ]);
 
     const items: AuditItem[] = [
@@ -99,6 +120,19 @@ export const reportRoutes = new Hono<{ Bindings: Env }>()
         subtitle: x.itemName ?? x.description ?? `Entered by ${x.createdBy.name}`,
         fromValue: null,
         toValue: null,
+        jobId: null,
+      })),
+      ...expenseEdits.map((x) => ({
+        id: x.id,
+        kind: 'expense_edit' as AuditKind,
+        at: x.createdAt.toISOString(),
+        by: x.editedBy,
+        reason: x.reason,
+        amount: x.expense.amount,
+        title: x.expense.category,
+        subtitle: x.expense.itemName ?? x.expense.description ?? 'Expense',
+        fromValue: x.changes.map((ch) => describeChange(ch.field, ch.from)).join(' · '),
+        toValue: x.changes.map((ch) => describeChange(ch.field, ch.to)).join(' · '),
         jobId: null,
       })),
     ].sort((a, b) => b.at.localeCompare(a.at));

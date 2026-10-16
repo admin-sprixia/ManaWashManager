@@ -10,6 +10,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import Svg, { ClipPath, Defs, G, LinearGradient, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
+import { colors } from '../theme';
 import { BRAND_MARK, BRAND_MARK_BOX } from './BrandMark';
 
 /**
@@ -27,9 +28,9 @@ import { BRAND_MARK, BRAND_MARK_BOX } from './BrandMark';
  * (drawable/splash_window.xml), so the app opens on it and the logo starts drawing straight away.
  */
 
-export const SPLASH_BACKGROUND = '#060A22';
+export const SPLASH_BACKGROUND = colors.nightDeep;
 /** The top of the background gradient, for the status bar above it. */
-const SPLASH_TOP = '#1B2878';
+const SPLASH_TOP = colors.indigo;
 
 /** Milliseconds from the start. Each step overlaps the next so the whole thing reads as one move. */
 const T = {
@@ -359,7 +360,7 @@ export function SplashIntro({ product, onReveal, onDone }: SplashIntroProps) {
           <Defs>
             <LinearGradient id="splashBg" x1="0.5" y1="0" x2="0.5" y2="1">
               <Stop offset="0" stopColor={SPLASH_TOP} />
-              <Stop offset="0.5" stopColor="#0C1442" />
+              <Stop offset="0.5" stopColor={colors.nightMid} />
               <Stop offset="1" stopColor={SPLASH_BACKGROUND} />
             </LinearGradient>
           </Defs>

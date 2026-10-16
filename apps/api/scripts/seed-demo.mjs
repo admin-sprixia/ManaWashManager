@@ -8,10 +8,11 @@
 //
 // What it makes (all PINs 258025; a new phone confirms with the dev code 000000 first):
 //   Mana Wash, Nellore — owner Hrushikesh 9888626111; staff Ravi 9300000011,
-//   Suresh 9300000012, Kiran 9300000013; Mahesh 9300000019 waiting to join.
+//   Suresh 9300000012, Kiran 9300000013.
 //   ~75 days of washes, customers and vehicles; reminders (due and comeback), coupons and
 //   referrals; expenses with bill photos; stock; attendance; cash drawer days; an error report;
 //   stamp cards (one free wash used today) and a welcome gift, some of it owed (out of stock).
+//   Customer feedback: open problems, vehicle-add requests, and wash ratings.
 //   A doorstep team for Nellore communities, beside the Kovur hub; the owner runs the business
 //   catalog (services, base prices by size, the doorstep extra) that every branch's menu comes from.
 //   A second branch, Mana Wash Kavali, on the same catalog in a cheaper town price zone, with
@@ -245,7 +246,7 @@ for (let d = 0; d <= 60; d++) {
     const r = rand();
     attendance[d][s.id] = r < 0.84 ? 'present' : r < 0.93 ? 'half' : 'absent';
   }
-  if (d > 0) attendance[d][OWNER.id] = chance(0.92) ? 'present' : 'half';
+  // The owner can't mark their own attendance, so they aren't in this map.
 }
 function workingStaff(d) {
   const joined = STAFF.filter((s) => s.joinedDaysAgo >= d);
@@ -308,7 +309,7 @@ const MODELS = {
   vt_bike: [['Royal Enfield', 'Classic 350'], ['Bajaj', 'Pulsar 150'], ['Yamaha', 'R15'], ['Hero', 'Splendor']],
   vt_scooter: [['Honda', 'Activa'], ['TVS', 'Jupiter'], ['Suzuki', 'Access'], ['Ather', '450X']],
 };
-const usedPhones = new Set([OWNER.phone, ...STAFF.map((s) => s.phone), '9300000019', '9300000021']);
+const usedPhones = new Set([OWNER.phone, ...STAFF.map((s) => s.phone), '9300000021']);
 const usedPlates = new Set();
 function newPhone() {
   for (;;) {
@@ -440,16 +441,6 @@ step(`Writing the team and ${visits.filter((v) => v.daysAgo > API_DAYS).length} 
       }),
     );
   }
-  sql.push(
-    insert('join_requests', {
-      id: 'jr_seed_mahesh',
-      shop_id: SHOP,
-      phone: '9300000019',
-      name: 'Mahesh',
-      status: 'pending',
-      created_at: ts(todayAt(45)),
-    }),
-  );
 
   for (const c of customers) {
     sql.push(
@@ -681,14 +672,46 @@ const VENDORS = {
   other: 'LAKSHMI STORES',
 };
 const STOCK = [
+  // Wash chemicals
   { name: 'Foam shampoo', unit: 'l', lowAt: 5, opening: 15, target: 9, use: [1, 'l'], buys: [[40, 5, 145000], [25, 5, 145000], [12, 5, 150000], [3, 5, 150000]] },
+  { name: 'Pre-wash spray', unit: 'l', lowAt: 3, opening: 8, target: 4.5, use: [500, 'ml'], buys: [[38, 5, 110000], [16, 5, 115000]] },
+  { name: 'Snow foam', unit: 'l', lowAt: 4, opening: 10, target: 6, use: [1, 'l'], buys: [[36, 5, 180000], [11, 5, 185000]] },
+  { name: 'Wheel cleaner', unit: 'l', lowAt: 2, opening: 4, target: 2.5, use: [250, 'ml'], buys: [[34, 2, 70000], [13, 2, 72000]] },
+  { name: 'Iron fallout remover', unit: 'l', lowAt: 1, opening: 2, target: 1.25, use: [200, 'ml'], buys: [[29, 1, 85000]] },
+  { name: 'Engine degreaser', unit: 'l', lowAt: 1, opening: 3, target: 1.8, use: [300, 'ml'], buys: [[31, 2, 60000], [9, 1, 32000]] },
+  { name: 'Glass cleaner', unit: 'l', lowAt: 1, opening: 2, target: 1.5, use: [250, 'ml'], buys: [[20, 1, 32000], [5, 2, 60000]] },
+  { name: 'Interior cleaner', unit: 'l', lowAt: 2, opening: 4, target: 2.2, use: [300, 'ml'], buys: [[27, 2, 55000], [8, 2, 56000]] },
+  { name: 'Upholstery shampoo', unit: 'l', lowAt: 1, opening: 2, target: 1.4, use: [250, 'ml'], buys: [[24, 1, 48000], [6, 1, 50000]] },
+  { name: 'Fabric protectant', unit: 'l', lowAt: 1, opening: 1.5, target: 0.9, use: [150, 'ml'], buys: [[22, 1, 75000]] },
+  // Finish and shine
   { name: 'Car wax', unit: 'kg', lowAt: 1, opening: 2, target: 1.5, use: [250, 'g'], buys: [[35, 1, 90000], [10, 1, 95000]] },
+  { name: 'Quick detailer', unit: 'l', lowAt: 2, opening: 3, target: 1.8, use: [200, 'ml'], buys: [[33, 2, 80000], [12, 2, 82000]] },
+  { name: 'Ceramic spray', unit: 'l', lowAt: 1, opening: 1.5, target: 0.8, use: [100, 'ml'], buys: [[26, 1, 220000]] },
   { name: 'Tyre shine', unit: 'l', lowAt: 2, opening: 3, target: 1.2, use: [500, 'ml'], buys: [[30, 2, 65000], [14, 2, 65000]] },
+  { name: 'Dashboard polish', unit: 'l', lowAt: 1, opening: 1, target: 1.25, use: [250, 'ml'], buys: [[18, 1, 50000], [4, 1, 52000]] },
+  { name: 'Plastic restorer', unit: 'l', lowAt: 1, opening: 1.5, target: 0.9, use: [150, 'ml'], buys: [[19, 1, 68000]] },
+  { name: 'Chrome polish', unit: 'kg', lowAt: 0.5, opening: 1, target: 0.6, use: [50, 'g'], buys: [[21, 1, 45000]] },
+  // Cloths, pads and tools
   { name: 'Microfibre cloth', unit: 'pcs', lowAt: 10, opening: 30, target: 34, use: [4, 'pcs'], buys: [[28, 20, 80000], [6, 20, 85000]] },
-  { name: 'Glass cleaner', unit: 'l', lowAt: 1, opening: 2, target: 1.5, use: [250, 'ml'], buys: [[20, 1, 32000]] },
-  { name: 'Dashboard polish', unit: 'l', lowAt: 1, opening: 1, target: 1.25, use: [250, 'ml'], buys: [[18, 1, 50000]] },
+  { name: 'Drying towel', unit: 'pcs', lowAt: 4, opening: 8, target: 5, use: [1, 'pcs'], buys: [[32, 6, 120000], [7, 4, 85000]] },
+  { name: 'Applicator pad', unit: 'pcs', lowAt: 6, opening: 15, target: 9, use: [2, 'pcs'], buys: [[25, 12, 36000], [5, 12, 38000]] },
+  { name: 'Foam pad', unit: 'pcs', lowAt: 3, opening: 6, target: 4, use: [1, 'pcs'], buys: [[23, 4, 48000]] },
+  { name: 'Clay bar', unit: 'pcs', lowAt: 2, opening: 4, target: 2, use: [1, 'pcs'], buys: [[17, 4, 60000]] },
+  { name: 'Wheel brush', unit: 'pcs', lowAt: 2, opening: 5, target: 3, use: [1, 'pcs'], buys: [[15, 4, 40000]] },
+  { name: 'Sponge', unit: 'pcs', lowAt: 5, opening: 12, target: 7, use: [2, 'pcs'], buys: [[20, 10, 25000], [3, 10, 26000]] },
+  { name: 'Bucket', unit: 'pcs', lowAt: 2, opening: 4, target: 4, use: [1, 'pcs'], buys: [[41, 2, 30000]], category: 'maintenance' },
+  // Consumables and counter
+  { name: 'Car fragrance', unit: 'pcs', lowAt: 5, opening: 24, target: 16, use: [2, 'pcs'], buys: [[14, 24, 72000]] },
+  { name: 'Seat cover (disposable)', unit: 'pcs', lowAt: 20, opening: 80, target: 42, use: [6, 'pcs'], buys: [[37, 100, 50000], [10, 100, 52000]], category: 'other' },
+  { name: 'Floor mat (paper)', unit: 'pcs', lowAt: 30, opening: 100, target: 55, use: [8, 'pcs'], buys: [[39, 100, 35000], [8, 100, 36000]], category: 'other' },
+  { name: 'Steering wheel cover', unit: 'pcs', lowAt: 15, opening: 50, target: 28, use: [4, 'pcs'], buys: [[30, 50, 40000]], category: 'other' },
+  { name: 'Masking tape', unit: 'pcs', lowAt: 3, opening: 8, target: 4, use: [1, 'pcs'], buys: [[16, 6, 18000]], category: 'other' },
   { name: 'Bill book', unit: 'pcs', lowAt: 2, opening: 4, target: 0, use: [1, 'pcs'], buys: [[33, 10, 30000]], category: 'other' },
-  { name: 'Car fragrance', unit: 'pcs', lowAt: 5, opening: 24, target: 16, use: [2, 'pcs'] },
+  { name: 'Thermal roll', unit: 'pcs', lowAt: 3, opening: 8, target: 3, use: [1, 'pcs'], buys: [[12, 10, 25000]], category: 'other' },
+  // Equipment parts (maintenance)
+  { name: 'Foam gun nozzle', unit: 'pcs', lowAt: 1, opening: 3, target: 2, use: [1, 'pcs'], buys: [[9, 2, 28000]], category: 'maintenance' },
+  { name: 'Hose washer', unit: 'pcs', lowAt: 5, opening: 20, target: 12, use: [2, 'pcs'], buys: [[18, 20, 10000]], category: 'maintenance' },
+  { name: 'Pressure washer oil', unit: 'l', lowAt: 0.5, opening: 1, target: 0.7, use: [100, 'ml'], buys: [[42, 1, 55000]] },
 ];
 const toBase = (qty, unit) => (unit === 'ml' || unit === 'g' ? qty / 1000 : qty);
 
@@ -956,6 +979,187 @@ await runWash(wash(friend2, minutesBack(20), { referralToken: quote2.token, serv
   });
 }
 
+// ─── Customer feedback (Mana Wash app → team inbox) ───────────────────────
+
+step('Customer feedback: problems, ratings and vehicle-add requests');
+{
+  // Recent paid washes give us real customers and jobs to hang ratings and problems on.
+  const jobs = query(`
+    SELECT j.id AS job_id, j.customer_id, j.vehicle_type_id, v.registration_number
+    FROM jobs j
+    JOIN vehicles v ON v.id = j.vehicle_id AND v.shop_id = j.shop_id
+    WHERE j.shop_id = '${SHOP}' AND j.status = 'paid' AND j.payment_status = 'paid'
+    ORDER BY j.created_at DESC
+    LIMIT 14
+  `);
+  const sql = [];
+  const job = (i) => jobs[i];
+
+  // Ratings — mix of stars so the 30-day summary looks real.
+  const ratingRows = [
+    [0, 5, 'Spotless — mats and dash too. Will come every week.'],
+    [1, 5, null],
+    [2, 4, 'Good wash, a bit slow at peak hour.'],
+    [3, 5, 'Bike looks brand new.'],
+    [4, 3, 'Exterior fine, interior still dusty near the seat belts.'],
+    [5, 2, 'Water spots on the black panels after drying.'],
+    [6, 5, null],
+    [7, 4, 'Friendly staff. Foam wash smelled great.'],
+    [8, 1, 'Scratch on the rear bumper we didn’t have before.'],
+    [9, 5, 'Best in Nellore.'],
+  ];
+  for (const [i, stars, comment] of ratingRows) {
+    const j = job(i);
+    if (!j) continue;
+    const when = ts(at(i === 0 || i === 1 ? 0 : Math.min(i, 12), 18, 10 + i));
+    sql.push(
+      insert('wash_ratings', {
+        job_id: j.job_id,
+        shop_id: SHOP,
+        customer_id: j.customer_id,
+        stars,
+        comment,
+        created_at: when,
+        updated_at: when,
+      }),
+    );
+  }
+
+  // Problems — a few open for the team, one already resolved.
+  const problems = [
+    {
+      i: 4,
+      kind: 'not_clean',
+      details: 'Seat belts and cup holders still had dust after the interior wash. Please check next time.',
+      status: 'open',
+      hoursAgo: 5,
+    },
+    {
+      i: 5,
+      kind: 'damage',
+      details: 'Small scratch on the left rear door — wasn’t there when I dropped the car.',
+      status: 'open',
+      hoursAgo: 28,
+    },
+    {
+      i: 2,
+      kind: 'billing',
+      details: 'App showed combo price but the bill charged AC hygiene separately. Can you check?',
+      status: 'open',
+      hoursAgo: 9,
+    },
+    {
+      i: 8,
+      kind: 'staff',
+      details: 'Washer was on a phone call while drying. Felt rushed.',
+      status: 'resolved',
+      hoursAgo: 72,
+      resolution: 'Spoke with the washer — apologised to the customer and offered a free exterior next visit.',
+    },
+    {
+      i: null,
+      kind: 'other',
+      details: 'Hard to find parking near the gate on Sundays. Any overflow spot we can use?',
+      status: 'open',
+      hoursAgo: 40,
+      customerId: job(6)?.customer_id,
+    },
+  ];
+  for (const [n, p] of problems.entries()) {
+    const j = p.i != null ? job(p.i) : null;
+    const customerId = j?.customer_id ?? p.customerId;
+    if (!customerId) continue;
+    const created = ts(addMin(NOW, -p.hoursAgo * 60));
+    sql.push(
+      insert('wash_problems', {
+        id: `prob_demo_${n + 1}`,
+        shop_id: SHOP,
+        customer_id: customerId,
+        job_id: j?.job_id ?? null,
+        kind: p.kind,
+        details: p.details,
+        status: p.status,
+        resolution: p.resolution ?? null,
+        resolved_by_user_id: p.status === 'resolved' ? OWNER.id : null,
+        resolved_at: p.status === 'resolved' ? ts(addMin(NOW, -(p.hoursAgo - 20) * 60)) : null,
+        created_at: created,
+      }),
+    );
+  }
+
+  // Vehicle-add requests — two waiting, one already added, one declined.
+  const vtSedan = 'vt_sedan';
+  const vtScooter = 'vt_scooter';
+  const asker = job(0);
+  const asker2 = job(3);
+  const asker3 = job(7);
+  if (asker) {
+    sql.push(
+      insert('vehicle_requests', {
+        id: 'vreq_demo_1',
+        shop_id: SHOP,
+        customer_id: asker.customer_id,
+        registration_number: 'AP39BM4410',
+        vehicle_type_id: vtSedan,
+        make: 'Hyundai',
+        model: 'Venue',
+        status: 'pending',
+        created_at: ts(addMin(NOW, -3 * 60)),
+      }),
+    );
+  }
+  if (asker2) {
+    sql.push(
+      insert('vehicle_requests', {
+        id: 'vreq_demo_2',
+        shop_id: SHOP,
+        customer_id: asker2.customer_id,
+        registration_number: 'AP39SK2208',
+        vehicle_type_id: vtScooter,
+        make: 'Honda',
+        model: 'Activa',
+        status: 'pending',
+        created_at: ts(addMin(NOW, -26 * 60)),
+      }),
+    );
+  }
+  if (asker3) {
+    sql.push(
+      insert('vehicle_requests', {
+        id: 'vreq_demo_3',
+        shop_id: SHOP,
+        customer_id: asker3.customer_id,
+        registration_number: 'AP39CK1199',
+        vehicle_type_id: vtSedan,
+        make: 'Maruti',
+        model: 'Baleno',
+        status: 'approved',
+        handled_by_user_id: ravi.id,
+        handled_at: ts(addMin(NOW, -48 * 60)),
+        created_at: ts(addMin(NOW, -50 * 60)),
+      }),
+    );
+    sql.push(
+      insert('vehicle_requests', {
+        id: 'vreq_demo_4',
+        shop_id: SHOP,
+        customer_id: asker3.customer_id,
+        registration_number: 'AP39XX0001',
+        vehicle_type_id: vtSedan,
+        make: 'Tata',
+        model: 'Nexon',
+        status: 'rejected',
+        reason: 'We haven’t washed this vehicle yet',
+        handled_by_user_id: OWNER.id,
+        handled_at: ts(addMin(NOW, -60 * 60)),
+        created_at: ts(addMin(NOW, -70 * 60)),
+      }),
+    );
+  }
+
+  if (sql.length) runSql(sql, 'customer-feedback');
+}
+
 // ─── Cash drawer ──────────────────────────────────────────────────────────
 
 step('Cash drawer: the last 30 days counted and closed, today open');
@@ -967,17 +1171,24 @@ for (let d = 30; d >= 1; d--) {
   await call(OWN, 'PUT', '/cash/day/float', { date, amount: float });
   if (d === 5) continue; // opened but never closed
   const summary = await call(OWN, 'GET', `/cash/day?date=${date}`);
-  let counted = summary.expected;
+  // Extra stock buys can leave expected low; the drawer never counts below zero.
+  let counted = Math.max(0, summary.expected);
   let note;
-  if (d === 12) (counted -= 20000), (note = '₹200 advance given to Ravi');
+  if (d === 12 && counted >= 20000) (counted -= 20000), (note = '₹200 advance given to Ravi');
   else if (d === 8) (counted += 10000), (note = 'Customer left ₹100 extra, will return');
-  else if (d === 3) (counted -= 5000), (note = 'Change mismatch at closing');
+  else if (d === 3 && counted >= 5000) (counted -= 5000), (note = 'Change mismatch at closing');
+  else if (counted !== summary.expected) note = 'Cash spent on stock; drawer emptied';
   const closer = d === 1 ? ravi : OWNER;
   await call(tokenOf(closer), 'POST', '/cash/day/close', { date, counted, ...(note ? { note } : {}) });
   if (d === 9) {
     await call(OWN, 'POST', '/cash/day/reopen', { date, reason: 'Recounting after a late UPI fix' });
     const again = await call(OWN, 'GET', `/cash/day?date=${date}`);
-    await call(OWN, 'POST', '/cash/day/close', { date, counted: again.expected });
+    const recounted = Math.max(0, again.expected);
+    await call(OWN, 'POST', '/cash/day/close', {
+      date,
+      counted: recounted,
+      ...(recounted !== again.expected ? { note: 'Cash spent on stock; drawer emptied' } : {}),
+    });
   }
   cashDays.push(date);
 }
@@ -1229,8 +1440,8 @@ const placesDemo = {};
 step('Second branch: Mana Wash Kavali');
 // HQ opens the branch, with the same owner (who keeps their PIN).
 const opened = await call(OWN, 'POST', '/business/branches', {
-  name: 'Mana Wash Kavali',
-  city: 'Kavali',
+  town: 'Kavali',
+  townCode: 'KVL',
   ownerName: OWNER.name,
   ownerPhone: OWNER.phone,
 });
@@ -1323,12 +1534,16 @@ const [counts] = query(`SELECT
   (SELECT COUNT(*) FROM cash_days WHERE shop_id = '${SHOP}') AS cash_days,
   (SELECT COUNT(*) FROM reward_claims WHERE shop_id = '${SHOP}') AS free_washes,
   (SELECT COUNT(*) FROM reward_gifts WHERE shop_id = '${SHOP}' AND status = 'given') AS gifts_given,
-  (SELECT COUNT(*) FROM reward_gifts WHERE shop_id = '${SHOP}' AND status = 'owed') AS gifts_owed`);
+  (SELECT COUNT(*) FROM reward_gifts WHERE shop_id = '${SHOP}' AND status = 'owed') AS gifts_owed,
+  (SELECT COUNT(*) FROM wash_problems WHERE shop_id = '${SHOP}' AND status = 'open') AS open_problems,
+  (SELECT COUNT(*) FROM vehicle_requests WHERE shop_id = '${SHOP}' AND status = 'pending') AS pending_vehicles,
+  (SELECT COUNT(*) FROM wash_ratings WHERE shop_id = '${SHOP}') AS ratings`);
 console.log(`
-Done. Mana Wash (Nellore), shop ID 482193:
+Done. Mana Wash (Nellore), branch code HYD-01:
   ${counts.customers} customers · ${counts.vehicles} vehicles · ${counts.jobs} washes · ${counts.expenses} expenses
   ${counts.photos} wash photos · ${counts.coupons} coupons · ${counts.cash_days} cash drawer days
   Rewards: ${counts.free_washes} free wash${counts.free_washes === 1 ? '' : 'es'} used · ${counts.gifts_given} welcome gifts given · ${counts.gifts_owed} owed
+  Feedback: ${counts.open_problems} open problem${counts.open_problems === 1 ? '' : 's'} · ${counts.pending_vehicles} vehicle${counts.pending_vehicles === 1 ? '' : 's'} to add · ${counts.ratings} rating${counts.ratings === 1 ? '' : 's'}
   Communities: ${placesDemo.towers.name} (code ${placesDemo.towers.code}, ${placesDemo.towers.units} flats) and ${placesDemo.colony.name} (code ${placesDemo.colony.code}) live
     Green Park Residency waiting for approval · Sai Krupa Apartments still a draft
     ${placesDemo.paid} plan${placesDemo.paid === 1 ? '' : 's'} paid · ${placesDemo.unpaid} not paid · ${placesDemo.pending} member waiting for the team · ${placesDemo.asking} people asking
@@ -1338,5 +1553,4 @@ Sign in (PIN ${PIN} for everyone):
   Staff   Ravi Kumar   ${ravi.phone}
   Staff   Suresh Babu  ${suresh.phone}
   Staff   Kiran Teja   ${kiran.phone}
-  Kavali  Venkat       9300000021
-  Waiting to join: Mahesh 9300000019 (approve or reject from Team)`);
+  Kavali  Venkat       9300000021`);

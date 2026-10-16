@@ -545,6 +545,20 @@ export function IconSearch({ size = 18, color = '#64748B' }: IconProps) {
   );
 }
 
+/** Funnel — open a list filter (e.g. Open / Resolved). */
+export function IconFilter({ size = 18, color = '#0369A1' }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M4 6h16l-5.5 6.5V18l-5 2.5v-8L4 6z"
+        stroke={color}
+        strokeWidth={1.9}
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
 export function IconTag({ size = 18, color = '#0369A1' }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
@@ -730,7 +744,7 @@ export function IconStore({ size = 20, color = '#0369A1' }: IconProps) {
   );
 }
 
-/** Person with a plus — asking to join, inviting teammates. */
+/** Person with a plus — adding a teammate. */
 export function IconUserPlus({ size = 20, color = '#0369A1' }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">

@@ -1,17 +1,15 @@
 import { createPlatformDb, createShopDb, menuRepo, shopRepo, userRepo } from '@mana/db';
-import { SHOP_CODE_LENGTH } from '@mana/domain';
-import { randomDigits } from './random';
+import { branchCode } from '@mana/domain';
 import type { Env } from '../types';
 
-/** A shop ID nobody has yet. Never starts with 0, so it reads as a normal number. */
-async function newShopCode(env: Env): Promise<string> {
-  const platform = createPlatformDb(env.DB);
-  for (let i = 0; i < 10; i++) {
-    const code = randomDigits(SHOP_CODE_LENGTH);
-    if (code.startsWith('0')) continue;
-    if (!(await shopRepo.findByCode(platform, code))) return code;
-  }
-  throw new Error('Could not find a free shop code');
+/** The next branch code in a town: KVR-01 for the first Kovur branch, then KVR-02. */
+async function nextBranchCode(env: Env, townCode: string): Promise<string> {
+  const taken = await createPlatformDb(env.DB).shop.findMany({
+    where: { code: { startsWith: `${townCode}-` } },
+    select: { code: true },
+  });
+  const highest = taken.reduce((max, s) => Math.max(max, Number(s.code.slice(townCode.length + 1)) || 0), 0);
+  return branchCode(townCode, highest + 1);
 }
 
 /**
@@ -23,8 +21,10 @@ async function newShopCode(env: Env): Promise<string> {
 export async function createShopWithOwner(
   env: Env,
   data: {
-    shopName: string;
-    city: string | null;
+    /** The branch's name: its town. */
+    town: string;
+    /** The town's 3-letter code (KVR), from which the branch code is made (KVR-01). */
+    townCode: string;
     ownerName: string;
     phone: string;
     pin: { hash: string | null; digits: number | null; setAt: Date | null };
@@ -32,12 +32,22 @@ export async function createShopWithOwner(
   },
 ) {
   const platform = createPlatformDb(env.DB);
-  const shop = await shopRepo.create(platform, {
-    code: await newShopCode(env),
-    name: data.shopName,
-    city: data.city,
-    businessId: data.businessId,
-  });
+  // Two branches opened in the same town at the same moment would want the same number: the
+  // code is unique, so the second try takes the next one.
+  let shop;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      shop = await shopRepo.create(platform, {
+        code: await nextBranchCode(env, data.townCode),
+        name: data.town,
+        city: data.town,
+        businessId: data.businessId,
+      });
+      break;
+    } catch (e) {
+      if (attempt >= 2) throw e;
+    }
+  }
   let owner;
   try {
     owner = await userRepo.createWithPin(createShopDb(env.DB, shop.id), {

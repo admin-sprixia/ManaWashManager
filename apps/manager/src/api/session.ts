@@ -7,7 +7,6 @@ const SESSION_USER_KEY = 'mana.session_user';
 const LAST_PHONE_KEY = 'mana.last_phone';
 const LAST_METHOD_KEY = 'mana.last_login_method';
 const CACHE_SHOP_KEY = 'mana.cache_shop';
-const JOIN_REQUEST_KEY = 'mana.join_request';
 const LAST_SHOP_KEY = 'mana.last_shop';
 
 export interface SessionUser {
@@ -133,23 +132,3 @@ export async function setLastShop(phone: string, shopId: string): Promise<void> 
   await AsyncStorage.setItem(LAST_SHOP_KEY, JSON.stringify({ phone, shopId }));
 }
 
-/** A request to join a shop that's waiting on the owner — reopens the waiting screen on launch. */
-export interface SavedJoinRequest {
-  phone: string;
-  requestToken: string;
-}
-
-export async function getJoinRequest(): Promise<SavedJoinRequest | null> {
-  const parsed = parseStored<SavedJoinRequest>(await AsyncStorage.getItem(JOIN_REQUEST_KEY));
-  return parsed?.phone && parsed.requestToken
-    ? { phone: parsed.phone, requestToken: parsed.requestToken }
-    : null;
-}
-
-export async function setJoinRequest(request: SavedJoinRequest): Promise<void> {
-  await AsyncStorage.setItem(JOIN_REQUEST_KEY, JSON.stringify(request));
-}
-
-export async function clearJoinRequest(): Promise<void> {
-  await AsyncStorage.removeItem(JOIN_REQUEST_KEY);
-}

@@ -5,16 +5,11 @@ import {
   BottomSheet,
   Button,
   ChoiceChips,
-  EdgeGroup,
-  EdgeRow,
   IconChevronDown,
   IconPlus,
   IconSparkle,
-  Notice,
-  Pill,
   ScreenContainer,
   ScreenHeader,
-  SectionLabel,
   TextField,
   colors,
   radius,
@@ -25,7 +20,16 @@ import { CATALOG_SERVICE_DESCRIPTION_MAX, CATALOG_SERVICE_NAME_MAX, type Service
 import { api } from '../../api/client';
 import { Fab } from '../../components/Fab';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
-import { ToggleChips, useCatalog, type Catalog, type CatalogService } from './shared';
+import {
+  Band,
+  BandRow,
+  CatalogHero,
+  SectionTitle,
+  ToggleChips,
+  useCatalog,
+  type Catalog,
+  type CatalogService,
+} from './shared';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BusinessServices'>;
 
@@ -37,8 +41,9 @@ const modeOptions = (homeWash: boolean): { value: ServiceModes; label: string }[
     { value: 'doorstep', label: homeWash ? 'Doorstep only' : 'Communities only' },
   ];
 };
-const modePill = (modes: ServiceModes, homeWash: boolean): string | null =>
-  modes === 'hub' ? 'SHOP ONLY' : modes === 'doorstep' ? (homeWash ? 'DOORSTEP ONLY' : 'COMMUNITIES ONLY') : null;
+
+const modeLabel = (modes: ServiceModes, homeWash: boolean): string | null =>
+  modes === 'hub' ? 'Shop only' : modes === 'doorstep' ? (homeWash ? 'Doorstep only' : 'Communities only') : null;
 
 /** The services every branch offers, in the order New Wash and the app list them. */
 export function CatalogServicesScreen({ navigation }: Props) {
@@ -49,6 +54,7 @@ export function CatalogServicesScreen({ navigation }: Props) {
   const className = useMemo(() => new Map(catalog?.classes.map((c) => [c.id, c.name]) ?? []), [catalog]);
   const active = catalog?.services.filter((s) => s.active) ?? [];
   const retired = catalog?.services.filter((s) => !s.active) ?? [];
+  const combos = active.filter((s) => s.includes.length > 0).length;
 
   const move = async (service: CatalogService, by: -1 | 1) => {
     if (!catalog) return;
@@ -60,19 +66,35 @@ export function CatalogServicesScreen({ navigation }: Props) {
     return run(() => api.business.services.order.$put({ json: { ids: [...ids, ...retired.map((s) => s.id)] } }));
   };
 
-  const row = (s: CatalogService) => {
+  const badge = (s: CatalogService) => {
+    if (!s.active) return { label: 'Retired', bg: '#F1F5F9', fg: colors.slateDeep };
+    if (s.includes.length > 0) return { label: 'Combo', bg: colors.indigoPale, fg: colors.indigo };
+    const mode = modeLabel(s.modes, catalog?.homeWash ?? false);
+    if (mode) return { label: mode, bg: '#FEF3C7', fg: colors.amberDeep };
+    return null;
+  };
+
+  const row = (s: CatalogService, last: boolean) => {
     const names = s.includes.map((id) => catalog?.services.find((x) => x.id === id)?.name).filter(Boolean);
-    const pill = !s.active ? 'RETIRED' : s.includes.length > 0 ? 'COMBO' : modePill(s.modes, catalog?.homeWash ?? false);
+    const pill = badge(s);
     return (
-      <EdgeRow
+      <BandRow
         key={s.id}
-        icon={<IconSparkle size={18} color={s.active ? colors.waterDeep : colors.slate} />}
+        icon={<IconSparkle size={18} color={s.active ? colors.indigo : colors.slate} />}
+        iconBg={s.active ? colors.indigoPale : '#F1F5F9'}
         title={s.name}
         subtitle={[s.classIds.map((id) => className.get(id)).join(', '), names.length ? names.join(' + ') : null]
           .filter(Boolean)
           .join(' · ')}
-        tone={s.active ? 'default' : 'muted'}
-        right={pill ? <Pill label={pill} tone={!s.active ? 'slate' : s.includes.length ? 'water' : 'amber'} /> : undefined}
+        muted={!s.active}
+        last={last}
+        right={
+          pill ? (
+            <View style={[styles.pill, { backgroundColor: pill.bg }]}>
+              <Text style={[styles.pillText, { color: pill.fg }]}>{pill.label}</Text>
+            </View>
+          ) : undefined
+        }
         onPress={() => setEditing(s)}
       />
     );
@@ -85,36 +107,51 @@ export function CatalogServicesScreen({ navigation }: Props) {
       </View>
       {!catalog ? (
         error ? (
-          <View style={styles.pad}>
-            <Notice tone="danger">{error}</Notice>
+          <View style={styles.centerPad}>
+            <Text style={styles.error}>{error}</Text>
             <Button label="Try again" variant="secondary" onPress={() => void load()} />
           </View>
         ) : (
-          <ActivityIndicator color={colors.water} style={styles.loading} />
+          <ActivityIndicator color={colors.indigo} style={styles.loading} />
         )
       ) : (
-        <ScrollView contentContainerStyle={styles.scroll}>
-          <Text style={[styles.help, styles.pad]}>
-            Every branch offers these, for the vehicles it washes. Set their prices in Base prices.
-          </Text>
+        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+          <CatalogHero
+            eyebrow="Business price list"
+            title="Services"
+            meta="Every branch offers these. Set their prices in Base prices."
+            chips={[
+              { label: 'Active', value: active.length },
+              { label: 'Combos', value: combos },
+              { label: 'Retired', value: retired.length },
+            ]}
+          />
+
+          <SectionTitle>On the menu</SectionTitle>
           {active.length === 0 ? (
-            <View style={styles.pad}>
-              <Notice tone="info" title="No services yet">
+            <View style={styles.empty}>
+              <Text style={styles.emptyTitle}>No services yet</Text>
+              <Text style={styles.emptyBody}>
                 Add your first service, or copy a branch’s menu in from the Business price list screen.
-              </Notice>
+              </Text>
             </View>
           ) : (
-            <EdgeGroup>{active.map(row)}</EdgeGroup>
+            <Band>{active.map((s, i) => row(s, i === active.length - 1))}</Band>
           )}
+
           {retired.length > 0 ? (
             <>
-              <Pressable onPress={() => setShowRetired((v) => !v)} style={styles.retiredToggle} accessibilityRole="button">
-                <SectionLabel>{`Retired (${retired.length})`}</SectionLabel>
+              <Pressable
+                onPress={() => setShowRetired((v) => !v)}
+                style={({ pressed }) => [styles.retiredToggle, pressed && styles.pressed]}
+                accessibilityRole="button"
+              >
+                <Text style={styles.retiredLabel}>{`Retired · ${retired.length}`}</Text>
                 <View style={[styles.chevron, showRetired && styles.chevronOpen]}>
                   <IconChevronDown size={16} color={colors.slateDeep} />
                 </View>
               </Pressable>
-              {showRetired ? <EdgeGroup>{retired.map(row)}</EdgeGroup> : null}
+              {showRetired ? <Band>{retired.map((s, i) => row(s, i === retired.length - 1))}</Band> : null}
             </>
           ) : null}
           <View style={styles.bottomPad} />
@@ -195,7 +232,6 @@ function ServiceSheet({
     setBusy(false);
   }, [visible, service, catalog.classes]);
 
-  // A combo bundles plain, active services that share one of its vehicle classes.
   const bundleable = catalog.services.filter(
     (s) => s.active && s.id !== service?.id && s.includes.length === 0 && s.classIds.some((id) => classIds.includes(id)),
   );
@@ -314,15 +350,41 @@ function ServiceSheet({
 const styles = StyleSheet.create({
   headerPad: { paddingHorizontal: spacing.md },
   loading: { marginTop: spacing.xl },
-  scroll: { paddingTop: spacing.sm },
-  pad: { paddingHorizontal: spacing.md, gap: spacing.md },
-  help: { ...typography.body, color: colors.slateDeep, fontSize: 14, lineHeight: 20, marginBottom: spacing.sm },
+  scroll: { paddingBottom: spacing.xxl, gap: spacing.md },
+  centerPad: { padding: spacing.lg, gap: spacing.md, alignItems: 'center' },
+  help: { ...typography.body, color: colors.slateDeep, fontSize: 14, lineHeight: 20 },
   footer: { gap: spacing.xs },
   error: { ...typography.label, color: colors.danger },
-  retiredToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingRight: spacing.md },
-  chevron: { marginTop: spacing.lg },
-  chevronOpen: { transform: [{ rotate: '180deg' }] },
+  pressed: { opacity: 0.7 },
   bottomPad: { height: 120 },
+  empty: {
+    marginHorizontal: spacing.md,
+    backgroundColor: colors.white,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+    gap: 6,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  emptyTitle: { ...typography.bodyStrong, fontSize: 16, color: colors.waterInk, fontWeight: '800' },
+  emptyBody: { ...typography.body, fontSize: 14, color: colors.slateDeep, lineHeight: 20 },
+  pill: {
+    paddingHorizontal: 9,
+    height: 22,
+    borderRadius: 11,
+    justifyContent: 'center',
+  },
+  pillText: { ...typography.caption, fontSize: 11, fontWeight: '800', letterSpacing: 0 },
+  retiredToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: spacing.xs,
+    paddingHorizontal: spacing.md,
+  },
+  retiredLabel: { ...typography.heading, fontSize: 16, color: colors.ink, letterSpacing: -0.2 },
+  chevron: {},
+  chevronOpen: { transform: [{ rotate: '180deg' }] },
   moveRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   moveLabel: { ...typography.label, color: colors.slateDeep, flex: 1 },
   moveBtn: {
@@ -335,5 +397,4 @@ const styles = StyleSheet.create({
   },
   moveOff: { opacity: 0.35 },
   flip: { transform: [{ rotate: '180deg' }] },
-  pressed: { opacity: 0.7 },
 });

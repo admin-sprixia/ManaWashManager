@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { InferResponseType } from 'hono/client';
@@ -7,8 +7,8 @@ import {
   BottomSheet,
   Button,
   ChoiceChips,
-  EdgeGroup,
-  EdgeRow,
+  IconAlert,
+  IconChevronRight,
   IconHome,
   IconMapPin,
   IconPlus,
@@ -16,12 +16,10 @@ import {
   Pill,
   ScreenContainer,
   ScreenHeader,
-  SectionLabel,
   TextField,
   colors,
   showToast,
   spacing,
-  typography,
 } from '@mana/ui';
 import { SERVICE_POINT_NAME_MAX, SERVICE_RADIUS_MAX_KM, SERVICE_RADIUS_MIN_KM, type DeliveryMode } from '@mana/domain';
 import { api, apiErrorMessage } from '../api/client';
@@ -29,6 +27,8 @@ import { NetworkError } from '../api/network';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { parsePoint } from '../utils/geo';
 import { ToggleChips } from './business/shared';
+import { Band, BandRow, ScreenHero, SectionTitle, TipBand } from '../components/ScreenChrome';
+import { SheetHead, SheetNotice, SheetPill } from '../components/SheetBits';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ServicePoints'>;
 type Data = InferResponseType<(typeof api)['branch']['points']['$get'], 200>;
@@ -90,6 +90,8 @@ export function ServicePointsScreen({ navigation }: Props) {
   const active = data?.points.filter((p) => p.active) ?? [];
   const homeWash = data?.homeWash ?? false;
   const hasTeam = data?.points.some((p) => p.kind === 'doorstep') ?? false;
+  const hubCount = data?.points.filter((p) => p.kind === 'hub').length ?? 0;
+  const teamCount = data?.points.filter((p) => p.kind === 'doorstep').length ?? 0;
 
   return (
     <ScreenContainer noPadding>
@@ -107,15 +109,29 @@ export function ServicePointsScreen({ navigation }: Props) {
         )
       ) : (
         <ScrollView contentContainerStyle={styles.scroll}>
-          <Text style={[styles.help, styles.pad]}>
+          <ScreenHero
+            eyebrow="HOW THIS BRANCH WASHES"
+            title={hubCount + teamCount === 0 ? 'No places yet' : `${active.length} working ${active.length === 1 ? 'place' : 'places'}`}
+            meta={
+              homeWash
+                ? 'Your shop, your doorstep teams, and the vehicles each one takes.'
+                : 'Your shop, your community team, and the vehicles each one takes.'
+            }
+            chips={[
+              { label: 'Shops', value: hubCount },
+              { label: homeWash ? 'Doorstep' : 'Community', value: teamCount },
+              { label: 'Off', value: data.points.length - active.length },
+            ]}
+          />
+          <TipBand>
             {homeWash
               ? 'Customers come to your shop, your team goes to them, or both. The vehicles each one takes decide your menu, and a doorstep team gets the doorstep prices.'
               : 'Customers come to your shop, and your community team washes plan cars at communities. The vehicles each one takes decide your menu. Washing at single homes is off for now.'}
-          </Text>
-          <SectionLabel>Where you wash</SectionLabel>
-          <EdgeGroup>
+          </TipBand>
+          <SectionTitle meta="Tap one to change it">Where you wash</SectionTitle>
+          <Band style={styles.band}>
             {data.points.map((p) => (
-              <EdgeRow
+              <BandRow
                 key={p.id}
                 icon={
                   p.kind === 'hub' ? (
@@ -133,25 +149,26 @@ export function ServicePointsScreen({ navigation }: Props) {
                 ]
                   .filter(Boolean)
                   .join(' · ')}
-                tone={p.active ? 'default' : 'muted'}
-                right={p.active ? undefined : <Pill label="OFF" tone="slate" />}
+                muted={!p.active}
+                right={p.active ? <IconChevronRight size={16} color={colors.slate} /> : <Pill label="OFF" tone="slate" />}
                 onPress={() => setEditing(p)}
               />
             ))}
             {!hasTeam ? (
-              <EdgeRow
+              <BandRow
                 icon={<IconPlus size={18} color={colors.waterDeep} />}
                 title={homeWash ? 'Add a doorstep team' : 'Add a community team'}
                 subtitle={homeWash ? 'Wash at customers’ homes and communities' : 'Wash plan cars at communities'}
                 onPress={() => setEditing('doorstep')}
               />
             ) : null}
-            <EdgeRow
+            <BandRow
               icon={<IconPlus size={18} color={colors.waterDeep} />}
               title={hasTeam ? 'Add another team or shop' : 'Add another shop'}
               onPress={() => setEditing(hasTeam ? 'doorstep' : 'hub')}
+              last
             />
-          </EdgeGroup>
+          </Band>
           <View style={styles.bottomPad} />
         </ScrollView>
       )}
@@ -258,6 +275,25 @@ function PointSheet({
       title={point ? point.name : kind === 'doorstep' ? (homeWash ? 'New doorstep team' : 'New community team') : 'New shop'}
       footer={<Button label={point ? 'Save' : 'Add'} size="lg" loading={busy} onPress={() => void save()} />}
     >
+      <SheetHead
+        tone={kind === 'doorstep' ? 'teal' : 'indigo'}
+        icon={
+          kind === 'doorstep' ? (
+            <IconMapPin size={22} color={colors.tealDeep} />
+          ) : (
+            <IconHome size={22} color={colors.indigo} />
+          )
+        }
+        title={kind === 'doorstep' ? (homeWash ? 'Doorstep team' : 'Community team') : 'Shop / hub'}
+        caption={
+          kind === 'doorstep'
+            ? homeWash
+              ? 'Washes at customers’ homes and communities.'
+              : 'Washes plan cars at communities.'
+            : 'Customers bring their vehicle to you.'
+        }
+        right={point && !point.active ? <SheetPill tone="amber" label="Off" /> : undefined}
+      />
       <ChoiceChips label="Kind" options={kindOptions(homeWash)} value={kind} onChange={setKind} />
       <TextField label="Name" value={name} onChangeText={setName} maxLength={SERVICE_POINT_NAME_MAX} autoCapitalize="words" />
       <ToggleChips
@@ -295,12 +331,16 @@ function PointSheet({
       />
       {point ? (
         lastActive ? (
-          <Text style={styles.help}>This is the branch’s only working place, so it stays on.</Text>
+          <SheetNotice tone="amber">This is the branch’s only working place, so it stays on.</SheetNotice>
         ) : (
           <ChoiceChips label="Working now" options={YES_NO} value={active} onChange={setActive} />
         )
       ) : null}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? (
+        <SheetNotice tone="danger" icon={<IconAlert size={14} color={colors.danger} />}>
+          {error}
+        </SheetNotice>
+      ) : null}
     </BottomSheet>
   );
 }
@@ -308,9 +348,8 @@ function PointSheet({
 const styles = StyleSheet.create({
   headerPad: { paddingHorizontal: spacing.md },
   loading: { marginTop: spacing.xl },
-  scroll: { paddingTop: spacing.sm },
+  scroll: { paddingTop: spacing.xs, gap: spacing.sm },
+  band: { marginTop: spacing.xs },
   pad: { paddingHorizontal: spacing.md, gap: spacing.md },
-  help: { ...typography.body, color: colors.slateDeep, fontSize: 14, lineHeight: 20 },
-  error: { ...typography.label, color: colors.danger },
   bottomPad: { height: spacing.xxl },
 });

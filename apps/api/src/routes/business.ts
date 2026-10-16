@@ -1,10 +1,11 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { catalogRepo, createPlatformDb, createShopDb, joinRequestRepo, menuRepo, planRepo, shopRepo, userRepo, type DbClient } from '@mana/db';
+import { catalogRepo, createPlatformDb, createShopDb, menuRepo, planRepo, shopRepo, userRepo, type DbClient } from '@mana/db';
 import {
   GSTIN_RE,
   isClockTime,
+  isValidTownCode,
   WASH_PLAN_MAX_DISCOUNT_BP,
   WASH_PLAN_MAX_MONTHS,
   WASH_PLAN_MAX_WASHES,
@@ -21,7 +22,7 @@ import {
   PRICE_BOOK_NAME_MAX,
   PRICE_ZONE_NAME_MAX,
   ROUND_TO_CHOICES_PAISE,
-  MAX_SHOPS_PER_OWNER,
+  MAX_BRANCHES_PER_PERSON,
   normalizePhone,
   BRANCH_STATUSES,
   BRANCH_STATUS_REASON_MAX,
@@ -154,8 +155,13 @@ const planRulesSchema = z.object({
 
 const personName = z.string().trim().min(1, 'Enter the owner’s name').max(60);
 const openBranchSchema = z.object({
-  name: z.string().trim().min(2, 'Enter the branch name').max(60),
-  city: z.string().trim().max(40).optional(),
+  /** The branch is named after its town. */
+  town: z.string().trim().min(2, 'Enter the town').max(40),
+  townCode: z
+    .string()
+    .trim()
+    .transform((s) => s.toUpperCase())
+    .refine(isValidTownCode, 'Town code is 3 letters, like KVR'),
   ownerName: personName,
   ownerPhone: phoneSchema,
 });
@@ -187,11 +193,11 @@ async function ownerCandidate(
   phone: string,
 ): Promise<{ problem: OwnerProblem } | { name: string | null; pin: PersonPin }> {
   const rows = await userRepo.listByPhone(platform, phone);
-  if (rows.length >= MAX_SHOPS_PER_OWNER) {
+  if (rows.length >= MAX_BRANCHES_PER_PERSON) {
     return {
       problem: {
         status: 409,
-        body: { error: 'too_many_shops', message: `One number can work at up to ${MAX_SHOPS_PER_OWNER} branches.` },
+        body: { error: 'too_many_shops', message: `One number can work at up to ${MAX_BRANCHES_PER_PERSON} branches.` },
       },
     };
   }
@@ -239,7 +245,11 @@ export const businessRoutes = new Hono<{ Bindings: Env }>()
 
   // ---------- Admins ----------
   .post('/admins', zValidator('json', z.object({ phone: phoneSchema })), async (c) => {
-    await catalogRepo.addAdmin(c.env.DB, c.get('businessId'), c.req.valid('json').phone);
+    try {
+      await catalogRepo.addAdmin(c.env.DB, c.get('businessId'), c.req.valid('json').phone);
+    } catch (e) {
+      return catalogError(c, e);
+    }
     return c.json({ ok: true as const }, 201);
   })
   .delete('/admins/:phone', zValidator('param', z.object({ phone: phoneSchema })), async (c) => {
@@ -361,14 +371,13 @@ export const businessRoutes = new Hono<{ Bindings: Env }>()
       const candidate = await ownerCandidate(platform, body.ownerPhone);
       if ('problem' in candidate) return candidate;
       const created = await createShopWithOwner(c.env, {
-        shopName: body.name,
-        city: body.city || null,
+        town: body.town,
+        townCode: body.townCode,
         ownerName: candidate.name ?? body.ownerName,
         phone: body.ownerPhone,
         pin: candidate.pin,
         businessId: c.get('businessId'),
       });
-      await joinRequestRepo.cancelOpenForPhone(platform, body.ownerPhone, new Date());
       return created;
     });
     if (result === null) return c.json(phoneBusy, 409);
@@ -399,7 +408,6 @@ export const businessRoutes = new Hono<{ Bindings: Env }>()
         role: 'owner',
         pin: candidate.pin,
       });
-      await joinRequestRepo.cancelOpenForPhone(platform, body.phone, new Date());
       return { id: owner.id };
     });
     forgetShop(id);

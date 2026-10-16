@@ -17,6 +17,7 @@ import {
   ChoiceChips,
   IconMapPin,
   Notice,
+  Pill,
   PhoneField,
   ScreenContainer,
   ScreenHeader,
@@ -28,7 +29,7 @@ import {
 } from '@mana/ui';
 import { api, apiErrorMessage } from '../api/client';
 import { NetworkError } from '../api/network';
-import { EdgeGroup, EdgeRow, Pill, SectionLabel } from '../components/EdgeList';
+import { Band, BandRow, ScreenHero, SectionTitle, TipBand } from '../components/ScreenChrome';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ServiceArea'>;
@@ -227,20 +228,31 @@ export function ServiceAreaScreen({ navigation }: Props) {
       ) : (
         <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-            <View style={styles.pad}>
-              {settings.inCustomerApp ? (
-                <Notice tone="success" title="Listed in the Mana Wash app">
-                  People nearby can find this branch, see your starting prices, join a community near them or ask you to start one.
-                </Notice>
-              ) : (
-                <Notice tone="info" title="Not listed in the app yet">
-                  Set your service area now. Sprixia lists your branch in the Mana Wash app when it’s ready.
-                </Notice>
-              )}
-            </View>
+            <ScreenHero
+              eyebrow="MANA WASH APP"
+              title={settings.inCustomerApp ? 'Listed in the app' : 'Not listed yet'}
+              tone={settings.inCustomerApp ? 'teal' : 'brand'}
+              meta={
+                settings.inCustomerApp
+                  ? 'People nearby can find this branch, see your starting prices, join a community near them or ask you to start one.'
+                  : 'Set your service area now. Sprixia lists your branch in the Mana Wash app when it’s ready.'
+              }
+              chips={[
+                { label: 'Listing', value: settings.inCustomerApp ? 'Live' : 'Pending' },
+                { label: 'Hub', value: settings.hub ? 'Set' : 'Not set' },
+                { label: 'Radius', value: settings.radiusKm != null ? `${settings.radiusKm} km` : '—' },
+                { label: 'Areas', value: settings.areas.filter((a) => a.active).length },
+              ]}
+            />
+            <TipBand tone={settings.inCustomerApp ? 'teal' : 'amber'}>
+              {settings.inCustomerApp
+                ? 'Keep your contact, hours and area up to date so customers can reach you.'
+                : 'Fill in your contact, hub and areas below so your branch is ready to list.'}
+            </TipBand>
 
-            <SectionLabel>Contact and hours</SectionLabel>
-            <View style={[styles.pad, styles.card]}>
+            <SectionTitle>Contact and hours</SectionTitle>
+            <Band style={styles.band}>
+              <View style={styles.form}>
               <Text style={styles.help}>
                 Customers see this on the branch page, with buttons to call you and get directions.
               </Text>
@@ -300,10 +312,12 @@ export function ServiceAreaScreen({ navigation }: Props) {
                 error={contactError}
               />
               <Button label="Save contact and hours" onPress={() => void saveContact()} loading={savingContact} />
-            </View>
+              </View>
+            </Band>
 
-            <SectionLabel>Hub and radius</SectionLabel>
-            <View style={[styles.pad, styles.card]}>
+            <SectionTitle>Hub and radius</SectionTitle>
+            <Band style={styles.band}>
+              <View style={styles.form}>
               <Text style={styles.help}>
                 In Google Maps, press and hold your shop to drop a pin, copy the numbers it shows, and paste them here.
               </Text>
@@ -334,21 +348,21 @@ export function ServiceAreaScreen({ navigation }: Props) {
               {settings.hub ? (
                 <Button label="Remove hub" variant="ghost" onPress={() => void saveHub(true)} disabled={savingHub} />
               ) : null}
-            </View>
+              </View>
+            </Band>
 
-            <SectionLabel>Areas</SectionLabel>
-            <Text style={[styles.help, styles.pad]}>
-              For people who don’t share their location: they pick their area from this list.
-            </Text>
+            <SectionTitle meta="For people who don’t share their location: they pick their area from this list.">
+              Areas
+            </SectionTitle>
             {settings.areas.length > 0 ? (
-              <EdgeGroup>
-                {settings.areas.map((a) => (
-                  <EdgeRow
+              <Band style={styles.band}>
+                {settings.areas.map((a, i) => (
+                  <BandRow
                     key={a.id}
                     icon={<IconMapPin size={19} color={a.active ? colors.waterDeep : colors.slate} />}
                     title={a.name}
                     subtitle={a.pincode ? `Pincode ${a.pincode}` : undefined}
-                    tone={a.active ? 'default' : 'muted'}
+                    muted={!a.active}
                     right={
                       togglingId === a.id ? (
                         <ActivityIndicator color={colors.water} />
@@ -356,36 +370,38 @@ export function ServiceAreaScreen({ navigation }: Props) {
                         <Pill label={a.active ? 'ON' : 'OFF'} tone={a.active ? 'teal' : 'slate'} />
                       )
                     }
-                    chevron={false}
+                    last={i === settings.areas.length - 1}
                     onPress={() => void toggleArea(a)}
                   />
                 ))}
-              </EdgeGroup>
+              </Band>
             ) : null}
-            <View style={[styles.pad, styles.card]}>
-              <TextField
-                label="Add an area"
-                placeholder="Kovur"
-                value={areaName}
-                onChangeText={(t) => {
-                  setAreaName(t);
-                  if (areaError) setAreaError(null);
-                }}
-                maxLength={SERVICE_AREA_NAME_MAX}
-                autoCapitalize="words"
-              />
-              <TextField
-                label="Pincode"
-                optional
-                placeholder="524137"
-                value={pincode}
-                onChangeText={(t) => setPincode(t.replace(/\D/g, '').slice(0, 6))}
-                keyboardType="number-pad"
-                error={areaError}
-              />
-              <Button label="Add area" variant="secondary" onPress={() => void addArea()} loading={addingArea} />
-              <Text style={styles.help}>Tap an area to turn it off or on.</Text>
-            </View>
+            <SectionTitle meta="Tap an area above to turn it off or on.">Add an area</SectionTitle>
+            <Band style={styles.band}>
+              <View style={styles.form}>
+                <TextField
+                  label="Area name"
+                  placeholder="Kovur"
+                  value={areaName}
+                  onChangeText={(t) => {
+                    setAreaName(t);
+                    if (areaError) setAreaError(null);
+                  }}
+                  maxLength={SERVICE_AREA_NAME_MAX}
+                  autoCapitalize="words"
+                />
+                <TextField
+                  label="Pincode"
+                  optional
+                  placeholder="524137"
+                  value={pincode}
+                  onChangeText={(t) => setPincode(t.replace(/\D/g, '').slice(0, 6))}
+                  keyboardType="number-pad"
+                  error={areaError}
+                />
+                <Button label="Add area" variant="secondary" onPress={() => void addArea()} loading={addingArea} />
+              </View>
+            </Band>
           </ScrollView>
         </KeyboardAvoidingView>
       )}
@@ -397,9 +413,10 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   headerPad: { paddingHorizontal: spacing.md },
   loading: { marginTop: spacing.xl },
-  scroll: { paddingBottom: spacing.xl },
+  scroll: { paddingTop: spacing.xs, paddingBottom: spacing.xl, gap: spacing.sm },
+  band: { marginTop: spacing.xs },
+  form: { paddingHorizontal: spacing.md, paddingVertical: spacing.md, gap: spacing.md },
   pad: { paddingHorizontal: spacing.md, gap: spacing.md },
-  card: { paddingVertical: spacing.md },
   help: { ...typography.body, color: colors.slateDeep, fontSize: 14, lineHeight: 20 },
   row: { flexDirection: 'row', gap: spacing.md },
 });

@@ -7,8 +7,7 @@ const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
  * and a request to localhost, so a flag left on by mistake can't open a deployed Worker.
  */
 export function isDevMode(env: Env, requestUrl: string): boolean {
-  const flag = env.DEV_MODE === 'true' || env.DEV_OTP_BYPASS === 'true';
-  return flag && LOCAL_HOSTS.has(new URL(requestUrl).hostname);
+  return env.DEV_MODE === 'true' && LOCAL_HOSTS.has(new URL(requestUrl).hostname);
 }
 
 /** Local dev, or the staging Worker with test codes switched on: fixed, reusable codes. */
@@ -17,8 +16,14 @@ export function usesTestCodes(env: Env, requestUrl: string): boolean {
   return env.ENVIRONMENT === 'staging' && env.STAGING_TEST_CODES === 'true';
 }
 
+/** Whether staging lets this number use the fixed test code (see STAGING_TEST_PHONES). */
+export function isStagingTestPhone(env: Env, phone: string): boolean {
+  const list = (env.STAGING_TEST_PHONES ?? '').split(',').map((p) => p.trim()).filter(Boolean);
+  return list.includes('*') || list.includes(phone);
+}
+
 export function devCode(env: Env): string {
-  return env.DEV_RECOVERY_CODE ?? env.DEV_OTP_CODE ?? '000000';
+  return env.DEV_RECOVERY_CODE ?? '000000';
 }
 
 export async function sha256Hex(value: string): Promise<string> {

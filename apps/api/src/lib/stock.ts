@@ -21,6 +21,8 @@ export async function addPurchaseToStock(
     quantity: number;
     unit: ExpenseUnit;
     userId: string;
+    /** The move's id; an edit re-adds a purchase under a new one (the first add is `exp-<id>`). */
+    moveId?: string;
   },
 ): Promise<StockResult | null> {
   const stockUnit = stockUnitOf(input.unit);
@@ -46,7 +48,7 @@ export async function addPurchaseToStock(
   const quantity = toStockQuantity(input.quantity, input.unit, item.unit as typeof stockUnit);
   if (quantity == null) return null;
   const applied = await stockRepo.applyMove(db, {
-    id: `exp-${input.expenseId}`,
+    id: input.moveId ?? `exp-${input.expenseId}`,
     itemId: item.id,
     kind: 'in',
     delta: quantity,
@@ -59,11 +61,12 @@ export async function addPurchaseToStock(
   return { itemId: after.id, name: after.name, unit: after.unit, balance: after.balance, created };
 }
 
-/** A voided purchase comes back off the balance it added to. Safe to call twice. */
+/** A deleted (or corrected) purchase comes back off the balance it added to. Safe to call twice. */
 export async function reverseExpenseStock(
   db: DbClient,
   expenseId: string,
   userId: string,
+  note = 'Expense deleted',
 ): Promise<void> {
   // Each reversal has a fixed id, so a retry (or two voids at once) reverses each line once:
   // lines already reversed are skipped, and losing the race to save one undoes our own bump.
@@ -79,7 +82,7 @@ export async function reverseExpenseStock(
         kind: 'void',
         quantity: m.quantity,
         expenseId,
-        note: 'Expense voided',
+        note,
         createdByUserId: userId,
       });
     } catch (e) {

@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { checkPin, pinProblemMessage, SENIOR_PIN_DIGITS } from '@mana/domain';
-import { colors, spacing, typography, BottomSheet, Button } from '@mana/ui';
+import { BottomSheet, Button, IconAlert, IconCheck, IconLock, colors, spacing } from '@mana/ui';
 import { PinPad } from './PinPad';
+import { SheetHead, SheetNotice } from './SheetBits';
 
 interface SetPinSheetProps {
   visible: boolean;
@@ -97,6 +98,12 @@ export function SetPinSheet({ visible, title, subtitle, onClose, askCurrent, sen
         ? `Choose a ${askCurrent ? 'new ' : ''}${senior ? '6' : '4–6'} digit PIN`
         : 'Enter the same PIN again';
 
+  const caption =
+    step === 'current' ? 'The PIN you sign in with today.' : 'Avoid easy ones like 1234 or 0000.';
+
+  const steps: Step[] = askCurrent ? ['current', 'choose', 'confirm'] : ['choose', 'confirm'];
+  const stepIndex = steps.indexOf(step);
+
   return (
     <BottomSheet
       visible={visible}
@@ -114,25 +121,36 @@ export function SetPinSheet({ visible, title, subtitle, onClose, askCurrent, sen
         />
       }
     >
-      <Text style={styles.step}>{heading}</Text>
+      <SheetHead
+        icon={
+          step === 'confirm' ? (
+            <IconCheck size={21} color={colors.teal} />
+          ) : (
+            <IconLock size={21} color={colors.indigo} />
+          )
+        }
+        title={heading}
+        caption={caption}
+        right={
+          <View style={styles.dots} accessibilityLabel={`Step ${stepIndex + 1} of ${steps.length}`}>
+            {steps.map((s, i) => (
+              <View key={s} style={[styles.dot, i <= stepIndex && styles.dotOn]} />
+            ))}
+          </View>
+        }
+      />
       <PinPad value={value} onChange={setValue} errorKey={errorKey} disabled={busy} />
-      <Text style={[styles.hint, error ? styles.error : null]}>
-        {error ??
-          (step === 'current'
-            ? 'The PIN you sign in with today.'
-            : 'Avoid easy ones like 1234 or 0000.')}
-      </Text>
+      {error ? (
+        <SheetNotice tone="danger" icon={<IconAlert size={14} color={colors.danger} />}>
+          {error}
+        </SheetNotice>
+      ) : null}
     </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  step: {
-    ...typography.bodyStrong,
-    color: colors.waterInk,
-    textAlign: 'center',
-    marginTop: spacing.xs,
-  },
-  hint: { ...typography.caption, color: colors.slate, textAlign: 'center', letterSpacing: 0 },
-  error: { color: colors.danger, fontWeight: '600' },
+  dots: { flexDirection: 'row', gap: 5, alignItems: 'center' },
+  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.indigoMist },
+  dotOn: { backgroundColor: colors.indigo, width: spacing.md },
 });

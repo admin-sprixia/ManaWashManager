@@ -10,7 +10,8 @@ import { JobDetailScreen } from '../screens/JobDetailScreen';
 import { MoreScreen } from '../screens/MoreScreen';
 import { TeamScreen } from '../screens/TeamScreen';
 import { StaffReportScreen } from '../screens/StaffReportScreen';
-import { ExpensesScreen } from '../screens/ExpensesScreen';
+import { ExpensesScreen, type ExpenseItem } from '../screens/ExpensesScreen';
+import { AddExpenseScreen } from '../screens/AddExpenseScreen';
 import { RemindersScreen } from '../screens/RemindersScreen';
 import { CashScreen } from '../screens/CashScreen';
 import { AttendanceScreen } from '../screens/AttendanceScreen';
@@ -27,6 +28,7 @@ import { PriceListScreen } from '../screens/business/PriceListScreen';
 import { PricingRulesScreen } from '../screens/business/PricingRulesScreen';
 import { VehicleSizesScreen } from '../screens/business/VehicleSizesScreen';
 import { BranchesScreen } from '../screens/business/BranchesScreen';
+import { BranchDetailScreen } from '../screens/business/BranchDetailScreen';
 import { WashPlansScreen } from '../screens/business/WashPlansScreen';
 import { AddMemberScreen } from '../screens/places/AddMemberScreen';
 import { CommunitiesScreen } from '../screens/places/CommunitiesScreen';
@@ -44,7 +46,9 @@ export type RootStackParamList = {
   JobDetail: { jobId: string };
   CustomerProfile: { customerId: string };
   More: undefined;
-  Expenses: undefined;
+  /** `added`: the date of an expense just saved, so the list shows the period it falls in. */
+  Expenses: { added?: string } | undefined;
+  AddExpense: { edit?: ExpenseItem } | undefined;
   Settings: undefined;
   Reports: undefined;
   Team: undefined;
@@ -65,6 +69,7 @@ export type RootStackParamList = {
   BusinessRules: undefined;
   BusinessVehicles: undefined;
   BusinessBranches: undefined;
+  BusinessBranch: { branchId: string };
   WashPlans: undefined;
   Communities: undefined;
   Place: { placeId: string };
@@ -108,6 +113,7 @@ export function RootNavigator() {
         <Stack.Screen name="CustomerProfile" component={CustomerProfileScreen} options={slide} />
         <Stack.Screen name="More" component={MoreScreen} options={slide} />
         <Stack.Screen name="Expenses" component={ExpensesScreen} options={slide} />
+        <Stack.Screen name="AddExpense" component={AddExpenseScreen} options={slide} />
         <Stack.Screen name="Reminders" component={RemindersScreen} options={slide} />
         <Stack.Screen name="Cash" component={CashScreen} options={slide} />
         <Stack.Screen name="Inventory" component={InventoryScreen} options={slide} />
@@ -121,6 +127,7 @@ export function RootNavigator() {
         <Stack.Screen name="BusinessRules" component={PricingRulesScreen} options={slide} />
         <Stack.Screen name="BusinessVehicles" component={VehicleSizesScreen} options={slide} />
         <Stack.Screen name="BusinessBranches" component={BranchesScreen} options={slide} />
+        <Stack.Screen name="BusinessBranch" component={BranchDetailScreen} options={slide} />
         <Stack.Screen name="WashPlans" component={WashPlansScreen} options={slide} />
         {/* Anyone can inspect and draft a community and work its wash days; the owner approves. */}
         <Stack.Screen name="Communities" component={CommunitiesScreen} options={slide} />

@@ -47,11 +47,15 @@ crons = ["30 21 * * *"]
 name = "mana-api-staging"
 routes = [{ pattern = "api-staging.manawashmanager.com", custom_domain = true }]
 
-# Until WhatsApp is live, staging accepts the fixed test code (000000) like local dev.
-# Remove STAGING_TEST_CODES once real WhatsApp codes work here. Never add it to production.
+# Until WhatsApp is live, staging accepts the fixed test code (000000) like local dev, but only
+# for the numbers in STAGING_TEST_PHONES (the demo team), so nobody can sign in to staging as
+# someone else. Add a tester's number to let them in; "*" allows every number for a full
+# test-script run (take it out right after). Remove both once real WhatsApp codes work here.
+# Never add them to production.
 [env.staging.vars]
 ENVIRONMENT = "staging"
 STAGING_TEST_CODES = "true"
+STAGING_TEST_PHONES = "9888626111,9300000011,9300000012,9300000013,9300000021"
 
 [env.staging.observability]
 enabled = true

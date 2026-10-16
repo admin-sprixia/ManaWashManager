@@ -195,7 +195,6 @@ const READS = [
   ['Inventory', 'Stock item moves', 'owner', `/stock/${stockItem.id}/moves`],
   ['Rewards', 'Gifts owed', 'owner', '/rewards/gifts/owed'],
   ['Team', 'Team', 'owner', '/team'],
-  ['Team', 'Join requests', 'owner', '/team/requests'],
   ['More', 'Error log', 'owner', '/shop/errors'],
   ...(photoId ? [['Job board', 'Wash photo (R2)', 'owner', `/photos/${photoId}`]] : []),
   ['Staff', 'My earnings: month (staff)', 'staff', '/shop/me/earnings?range=month'],

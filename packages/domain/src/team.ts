@@ -1,9 +1,9 @@
 import type { JobStatus, PaymentMethod } from './types';
 
 /**
- * owner: everything for the branch. manager: the team (staff only) and join requests, plus
- * everything staff do; no money fixes, prices or reports. staff: washes and payments. Only
- * Mana Wash HQ adds or removes owners.
+ * owner: everything for the branch. manager: the team (staff only), plus everything staff do; no
+ * money fixes, prices or reports. staff: washes and payments. Only Mana Wash HQ adds or removes
+ * owners.
  */
 export const USER_ROLES = ['owner', 'manager', 'staff'] as const;
 
@@ -50,25 +50,23 @@ export const LOGIN_CODE_TTL_MINUTES = 10;
 export const LOGIN_CODE_MAX_ATTEMPTS = 5;
 export const LOGIN_CODE_RESEND_SECONDS = 30;
 export const LOGIN_CODES_PER_HOUR = 5;
-/** Sign-up codes go to numbers without an account, so one device is also capped across numbers. */
+/** Codes to numbers that aren't a team sign-in (the customer app), so one device is also capped across numbers. */
 export const SIGNUP_CODES_PER_IP_PER_HOUR = 20;
 
-/** Every branch has a 6-digit branch ID staff use to ask to join. */
-export const SHOP_CODE_LENGTH = 6;
 /** Branches one person can work at on one number. */
-export const MAX_SHOPS_PER_OWNER = 10;
+export const MAX_BRANCHES_PER_PERSON = 10;
 
-/** Requests to join a shop wait this long for the owner, and a shop holds at most this many. */
-export const JOIN_REQUEST_TTL_DAYS = 7;
-export const JOIN_REQUESTS_PER_SHOP = 10;
-
-export function isValidShopCode(code: string): boolean {
-  return new RegExp(`^\\d{${SHOP_CODE_LENGTH}}$`).test(code);
+/**
+ * Every branch has a code from its town: the town's 3-letter code and a number, KVR-01, KVR-02,
+ * NLR-01. HQ picks the town code when opening a branch; the number is the next free one.
+ */
+export function isValidTownCode(code: string): boolean {
+  return /^[A-Z]{3}$/.test(code);
 }
 
-/** "482193" → "482 193", easier to read aloud. */
-export function formatShopCode(code: string): string {
-  return code.length === 6 ? `${code.slice(0, 3)} ${code.slice(3)}` : code;
+/** "KVR", 1 → "KVR-01". */
+export function branchCode(townCode: string, n: number): string {
+  return `${townCode}-${String(n).padStart(2, '0')}`;
 }
 
 export type PinProblem = 'format' | 'too_short' | 'repeated' | 'sequence';

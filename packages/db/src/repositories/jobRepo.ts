@@ -509,8 +509,8 @@ export const jobRepo = {
   /**
    * Today's job board / dashboard, newest first. `startOfDay` is resolved by the caller
    * (see `lib/istDate.ts`) — this repo has no opinion on timezones, only on the query.
-   * Unfinished jobs from earlier days are included too: a car still sitting "ready" from
-   * yesterday has to stay visible until someone closes it out.
+   * Includes: jobs opened today, open jobs from earlier days, and jobs paid today
+   * (even when the wash started yesterday — otherwise they vanish from "Paid today").
    */
   async listToday(db: DbClient, startOfDay: Date) {
     return loadBoard(
@@ -519,6 +519,7 @@ export const jobRepo = {
         OR: [
           { createdAt: { gte: startOfDay } },
           { status: { in: ['waiting', 'washing', 'ready'] } },
+          { status: 'paid', completedAt: { gte: startOfDay } },
         ],
       },
       { createdAt: 'desc' },
@@ -535,31 +536,32 @@ export const jobRepo = {
   },
 
   /**
-   * Aggregates for reports: cars washed, revenue, payment-method split, and new-vs-repeat
-   * customers for jobs with createdAt in `[from, to)`. "New" means this job is that
-   * customer's first-ever job; "repeat" means they'd visited before `from`.
+   * Aggregates for reports in `[from, to)`. Washes and money both count on the day the
+   * job was paid (`completedAt`) — same clock as the cash drawer — so a wash started
+   * yesterday and paid today shows under today. Voids still use `createdAt` (no pay time).
+   * "New" means this paid job is that customer's first-ever non-void job; "repeat" means
+   * they'd visited before `from`.
    */
   async getStats(db: DbClient, from: Date, to: Date) {
     const notVoid = { status: { not: 'void' } };
-    const [jobs, paid, firstVisits] = await Promise.all([
+    const paidInWindow = { status: 'paid' as const, completedAt: { gte: from, lt: to } };
+    const [paid, voided, firstVisits] = await Promise.all([
       db.job.findMany({
-        where: { createdAt: { gte: from, lt: to } },
-        select: { status: true, customerId: true },
+        where: paidInWindow,
+        select: { total: true, discount: true, paymentMethod: true, customerId: true },
       }),
-      // Money counts on the day it came in, like the cash drawer: yesterday's wash paid today is today's.
-      db.job.findMany({
-        where: { status: 'paid', completedAt: { gte: from, lt: to } },
-        select: { total: true, discount: true, paymentMethod: true },
-      }),
-      // First visit of every customer seen in the window, fetched alongside rather than after.
+      db.job.count({ where: { status: 'void', createdAt: { gte: from, lt: to } } }),
+      // First visit of every customer who paid in the window.
       db.job.groupBy({
         by: ['customerId'],
-        where: { ...notVoid, customer: { jobs: { some: { ...notVoid, createdAt: { gte: from, lt: to } } } } },
+        where: {
+          ...notVoid,
+          customer: { jobs: { some: paidInWindow } },
+        },
         _min: { createdAt: true },
       }),
     ]);
 
-    const real = jobs.filter((j) => j.status !== 'void');
     const sumWhere = (pred: (j: (typeof paid)[number]) => boolean) =>
       paid.filter(pred).reduce((sum, j) => sum + j.total, 0);
 
@@ -568,7 +570,7 @@ export const jobRepo = {
     let newCustomers = 0;
     let repeatCustomers = 0;
     const countedCustomers = new Set<string>();
-    for (const job of real) {
+    for (const job of paid) {
       if (countedCustomers.has(job.customerId)) continue;
       countedCustomers.add(job.customerId);
       const first = firstVisitAt.get(job.customerId);
@@ -577,13 +579,13 @@ export const jobRepo = {
     }
 
     return {
-      carsWashed: real.length,
+      carsWashed: paid.length,
       revenue: paid.reduce((sum, j) => sum + j.total, 0),
       cash: sumWhere((j) => j.paymentMethod === 'cash'),
       upi: sumWhere((j) => j.paymentMethod === 'upi'),
       other: sumWhere((j) => j.paymentMethod === 'other'),
       discounts: paid.reduce((sum, j) => sum + j.discount, 0),
-      voided: jobs.length - real.length,
+      voided,
       newCustomers,
       repeatCustomers,
     };
@@ -751,14 +753,23 @@ export const jobRepo = {
     });
   },
 
-  /** Job lines for a PDF / CSV export — newest first, only the columns the export prints. */
+  /**
+   * Job lines for a PDF / CSV export — newest first. Includes jobs opened in the window
+   * and jobs paid in the window (so overnight pays land on the payment day).
+   */
   async listForReport(db: DbClient, from: Date, to: Date) {
     return db.job.findMany({
-      where: { createdAt: { gte: from, lt: to } },
-      orderBy: { createdAt: 'desc' },
+      where: {
+        OR: [
+          { createdAt: { gte: from, lt: to } },
+          { status: 'paid', completedAt: { gte: from, lt: to } },
+        ],
+      },
+      orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }],
       select: {
         id: true,
         createdAt: true,
+        completedAt: true,
         status: true,
         total: true,
         discount: true,

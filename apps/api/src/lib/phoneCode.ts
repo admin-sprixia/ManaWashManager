@@ -69,7 +69,7 @@ export async function sendPhoneCode(req: CodeRequest) {
     return tooMany(60 * 60);
   }
 
-  const bypass = bypassWhatsAppOtp(req.env, req.requestUrl);
+  const bypass = bypassWhatsAppOtp(req.env, req.requestUrl, req.phone);
   if (!bypass && !whatsappConfigured(req.env)) {
     return {
       ok: false as const,

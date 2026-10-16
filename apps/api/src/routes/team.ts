@@ -1,11 +1,10 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { createPlatformDb, joinRequestRepo, userRepo, type DbClient } from '@mana/db';
+import { createPlatformDb, userRepo, type DbClient } from '@mana/db';
 import {
   canManageMember,
-  JOIN_REQUEST_TTL_DAYS,
-  MAX_SHOPS_PER_OWNER,
+  MAX_BRANCHES_PER_PERSON,
   normalizePhone,
   toUserRole,
   USER_ROLE_LABEL,
@@ -48,7 +47,7 @@ const alreadyHere = {
 
 const tooManyBranches = {
   error: 'too_many_shops' as const,
-  message: `One number can work at up to ${MAX_SHOPS_PER_OWNER} branches.`,
+  message: `One number can work at up to ${MAX_BRANCHES_PER_PERSON} branches.`,
 };
 
 const lastOwner = {
@@ -70,10 +69,6 @@ const otherBranchesReset = {
   error: 'works_elsewhere' as const,
   message: 'This person works at another branch too, so only Mana Wash HQ can reset their PIN.',
 };
-
-function joinRequestCutoff(now: Date) {
-  return new Date(now.getTime() - JOIN_REQUEST_TTL_DAYS * 24 * 60 * 60 * 1000);
-}
 
 /** Who's asking, and whether they're HQ — looked up only when an owner's row is involved. */
 async function actor(c: Ctx, involvesOwner: boolean) {
@@ -98,7 +93,7 @@ async function addPerson(
   const platform = createPlatformDb(c.env.DB);
   const rows = await userRepo.listByPhone(platform, data.phone);
   if (rows.some((r) => r.shopId === c.get('session').shopId)) return 'here';
-  if (rows.length >= MAX_SHOPS_PER_OWNER) return 'too_many';
+  if (rows.length >= MAX_BRANCHES_PER_PERSON) return 'too_many';
   const person = await userRepo.personPin(platform, data.phone);
   const user = await userRepo.createWithPin(db, {
     name: person?.name ?? data.name,
@@ -112,7 +107,7 @@ async function addPerson(
 // Chained in one expression, with every input declared via `zValidator` — see the comment
 // in routes/auth.ts for why both matter for Hono RPC's client typing.
 //
-// Owners run the whole team; managers handle staff and join requests only; owners themselves
+// Owners run the whole team; managers handle staff only; owners themselves
 // are added, changed and removed by Mana Wash HQ (`canManageMember`).
 export const teamRoutes = new Hono<{ Bindings: Env }>()
   .use('*', requireAuth, requireRole('owner', 'manager'))
@@ -126,83 +121,11 @@ export const teamRoutes = new Hono<{ Bindings: Env }>()
     const blocked = await mayManage(c, body.role);
     if (blocked) return c.json(notAllowed(blocked), 403);
 
-    const result = await withPhoneLock(c.env, body.phone, async () => {
-      const added = await addPerson(c, db, body);
-      if (typeof added !== 'string') {
-        await joinRequestRepo.cancelOpenForPhone(createPlatformDb(c.env.DB), body.phone, new Date());
-      }
-      return added;
-    });
+    const result = await withPhoneLock(c.env, body.phone, () => addPerson(c, db, body));
     if (result === null) return c.json(phoneBusy, 409);
     if (result === 'here') return c.json(alreadyHere, 409);
     if (result === 'too_many') return c.json(tooManyBranches, 409);
     return c.json({ id: result.id }, 201);
-  })
-  // People who typed this shop's ID and asked to join. Nothing exists in the team until approved.
-  .get('/requests', async (c) => {
-    const db = c.get('db');
-    const rows = await joinRequestRepo.listPending(db, joinRequestCutoff(new Date()));
-    return c.json(rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })));
-  })
-  // Approving adds them as staff; a new person's phone then asks them to pick a PIN.
-  .post('/requests/:id/approve', async (c) => {
-    const id = c.req.param('id');
-    const db = c.get('db');
-    const now = new Date();
-    const request = await joinRequestRepo.findById(db, id);
-    if (!request || request.status !== 'pending' || request.createdAt < joinRequestCutoff(now)) {
-      return c.json(
-        { error: 'not_found' as const, message: 'This request was cancelled or has expired.' },
-        404,
-      );
-    }
-
-    const result = await withPhoneLock(c.env, request.phone, async () => {
-      // Two people (or a double tap) approving at once: the second sees it's already done.
-      const fresh = await joinRequestRepo.findById(db, id);
-      if (fresh?.status === 'approved' && fresh.userId) {
-        const already = await userRepo.findMember(db, fresh.userId);
-        if (already) return { id: already.id, name: already.name };
-      }
-      if (fresh?.status !== 'pending') return 'gone' as const;
-      const added = await addPerson(c, db, { name: request.name, phone: request.phone, role: 'staff' });
-      if (typeof added === 'string') {
-        await joinRequestRepo.decide(db, id, { status: 'cancelled', now });
-        return added;
-      }
-      const decided = await joinRequestRepo.decide(db, id, {
-        status: 'approved',
-        now,
-        byUserId: c.get('session').sub,
-        userId: added.id,
-      });
-      if (!decided) {
-        // They cancelled at the same moment.
-        await userRepo.remove(db, added.id, now);
-        return 'gone' as const;
-      }
-      return added;
-    });
-    if (result === null) return c.json(phoneBusy, 409);
-    if (result === 'here') return c.json(alreadyHere, 409);
-    if (result === 'too_many') return c.json(tooManyBranches, 409);
-    if (result === 'gone') {
-      return c.json(
-        { error: 'not_found' as const, message: 'This request was just cancelled.' },
-        404,
-      );
-    }
-    return c.json(result);
-  })
-  .post('/requests/:id/reject', async (c) => {
-    const db = c.get('db');
-    const decided = await joinRequestRepo.decide(db, c.req.param('id'), {
-      status: 'rejected',
-      now: new Date(),
-      byUserId: c.get('session').sub,
-    });
-    if (!decided) return c.json({ error: 'not_found' as const }, 404);
-    return c.json({ ok: true as const });
   })
   // Name, role and access. Both the teammate's current role and any new one must be within what
   // the asker manages. Nobody changes their own role or access, and the last active owner can't
@@ -242,7 +165,7 @@ export const teamRoutes = new Hono<{ Bindings: Env }>()
     await userRepo.update(db, id, body);
     return c.json({ ok: true as const });
   })
-  // Off the team for good. Their past work keeps their name; their number can join another shop.
+  // Off the team for good. Their past work keeps their name; their number can be added at another branch.
   .delete('/:id', async (c) => {
     const id = c.req.param('id');
     const db = c.get('db');

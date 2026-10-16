@@ -40,6 +40,7 @@ import { VehiclePickerSheet } from '../components/VehiclePickerSheet';
 import { VehicleStack } from '../components/VehicleStack';
 import { vehicleImageFor } from '../components/VehicleTypeIcon';
 import { Fab } from '../components/Fab';
+import { Band, BandRow, ScreenHero, SectionTitle } from '../components/ScreenChrome';
 import { api, apiErrorMessage } from '../api/client';
 import { NetworkError } from '../api/network';
 import { formatRupees } from '../utils/format';
@@ -408,46 +409,75 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
   const openNewService = () => setPrompt({ kind: 'addService' });
   const vehicleCount = typesForCategory.length;
 
-  return (
-    <ScreenContainer>
-      <ScreenHeader title="Services & prices" onBack={() => navigation.goBack()} />
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Cars and two-wheelers keep separate vehicle lists and menus */}
-        <View style={styles.segment}>
-          {CATEGORIES.map((c) => {
-            const on = category === c.id;
-            return (
-              <Pressable
-                key={c.id}
-                onPress={() => switchCategory(c.id)}
-                style={[styles.segmentBtn, on && styles.segmentBtnOn]}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: on }}
-              >
-                <Text style={[styles.segmentLabel, on && styles.segmentLabelOn]}>{c.label}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
+  const offeredCount = servicesForCategory.filter((s) =>
+    typesForCategory.some((vt) => priceFor(s.id, vt.id) != null),
+  ).length;
+  const comboCount = servicesForCategory.filter(isCombo).length;
+  const categoryLabel = CATEGORIES.find((c) => c.id === category)?.label ?? '';
 
-        {(network?.modes.length ?? 0) > 1 ? (
+  return (
+    <ScreenContainer noPadding>
+      <View style={styles.headerPad}>
+        <ScreenHeader title="Services & prices" onBack={() => navigation.goBack()} />
+      </View>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScreenHero
+          eyebrow={`SERVICES & PRICES · ${categoryLabel.toUpperCase()}`}
+          title={
+            servicesForCategory.length === 0
+              ? 'No services yet'
+              : `${servicesForCategory.length} ${servicesForCategory.length === 1 ? 'service' : 'services'}`
+          }
+          meta={
+            mode === 'doorstep'
+              ? 'Doorstep prices for each vehicle you wash. Tap a service to set them.'
+              : 'Prices for each vehicle you wash. Tap a service to set them.'
+          }
+          chips={[
+            { label: 'Vehicles', value: vehicleCount },
+            { label: 'Priced', value: offeredCount },
+            { label: 'Combos', value: comboCount },
+          ]}
+        />
+
+        {/* Cars and two-wheelers keep separate vehicle lists and menus */}
+        <View style={styles.segmentWrap}>
           <View style={styles.segment}>
-            {MODES.map((m) => {
-              const on = mode === m.id;
+            {CATEGORIES.map((c) => {
+              const on = category === c.id;
               return (
                 <Pressable
-                  key={m.id}
-                  onPress={() => switchMode(m.id)}
+                  key={c.id}
+                  onPress={() => switchCategory(c.id)}
                   style={[styles.segmentBtn, on && styles.segmentBtnOn]}
                   accessibilityRole="tab"
                   accessibilityState={{ selected: on }}
                 >
-                  <Text style={[styles.segmentLabel, on && styles.segmentLabelOn]}>{m.label}</Text>
+                  <Text style={[styles.segmentLabel, on && styles.segmentLabelOn]}>{c.label}</Text>
                 </Pressable>
               );
             })}
           </View>
-        ) : null}
+
+          {(network?.modes.length ?? 0) > 1 ? (
+            <View style={styles.segment}>
+              {MODES.map((m) => {
+                const on = mode === m.id;
+                return (
+                  <Pressable
+                    key={m.id}
+                    onPress={() => switchMode(m.id)}
+                    style={[styles.segmentBtn, on && styles.segmentBtnOn]}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: on }}
+                  >
+                    <Text style={[styles.segmentLabel, on && styles.segmentLabelOn]}>{m.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
+        </View>
 
         {hasCatalog && policy ? (
           <View style={styles.banner}>
@@ -462,47 +492,45 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
           </View>
         ) : null}
 
-        {/* Vehicles: one compact card, the full grid lives in the picker */}
-        <Pressable
-          onPress={openPicker}
-          style={({ pressed }) => [styles.vehiclesCard, pressed && styles.cardPressed]}
-          accessibilityRole="button"
-          accessibilityLabel={`Vehicles you wash, ${vehicleCount}. Edit`}
-        >
-          <View style={styles.vehiclesTop}>
-            <View style={styles.vehiclesCopy}>
-              <Text style={styles.overline}>Vehicles you wash</Text>
-              <Text style={styles.vehiclesCount}>
-                {vehicleCount === 0
-                  ? `No ${familyWord}s yet`
-                  : `${vehicleCount} ${familyWord}${vehicleCount === 1 ? '' : 's'}`}
-              </Text>
-            </View>
-            <View style={styles.editPill}>
-              {vehicleCount === 0 ? <IconPlus size={14} color={colors.white} /> : null}
-              <Text style={styles.editPillText}>{vehicleCount === 0 ? 'Add' : 'Edit'}</Text>
-            </View>
-          </View>
+        {/* Vehicles: one compact band, the full grid lives in the picker */}
+        <SectionTitle>Vehicles you wash</SectionTitle>
+        <Band style={styles.band}>
+          <BandRow
+            title={
+              vehicleCount === 0
+                ? `No ${familyWord}s yet`
+                : `${vehicleCount} ${familyWord}${vehicleCount === 1 ? '' : 's'}`
+            }
+            subtitle={
+              vehicleCount === 0
+                ? `Pick the ${familyWord}s your shop washes. Staff choose one on every new wash.`
+                : undefined
+            }
+            right={
+              <View style={styles.editPill}>
+                {vehicleCount === 0 ? <IconPlus size={14} color={colors.white} /> : null}
+                <Text style={styles.editPillText}>{vehicleCount === 0 ? 'Add' : 'Edit'}</Text>
+              </View>
+            }
+            last={vehicleCount === 0}
+            onPress={openPicker}
+          />
           {vehicleCount > 0 ? (
-            <View style={styles.vehiclesBottom}>
+            <Pressable
+              onPress={openPicker}
+              style={styles.vehiclesStack}
+              accessibilityRole="button"
+              accessibilityLabel={`Vehicles you wash, ${vehicleCount}. Edit`}
+            >
               <VehicleStack names={typesForCategory.map((vt) => vt.name)} size={40} max={6} />
-            </View>
-          ) : (
-            <Text style={styles.vehiclesHint}>
-              Pick the {familyWord}s your shop washes. Staff choose one on every new wash.
-            </Text>
-          )}
-        </Pressable>
+            </Pressable>
+          ) : null}
+        </Band>
 
         {/* Services for this family */}
-        <View style={styles.servicesHead}>
-          <Text style={styles.sectionTitle}>Services</Text>
-          {servicesForCategory.length > 0 ? (
-            <View style={styles.countBadge}>
-              <Text style={styles.countBadgeText}>{servicesForCategory.length}</Text>
-            </View>
-          ) : null}
-        </View>
+        <SectionTitle meta={servicesForCategory.length > 0 ? 'Tap a service to see and change its prices' : undefined}>
+          Services
+        </SectionTitle>
 
         {servicesForCategory.length > 6 ? (
           <View style={styles.searchBand}>
@@ -537,7 +565,7 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
             </View>
           </View>
         ) : (
-          <View style={styles.edgeList}>
+          <Band style={styles.band}>
             {visibleServices.map((service, index) => {
               const expanded = expandedServiceId === service.id;
               const offered = typesForCategory.filter((vt) => priceFor(service.id, vt.id) != null);
@@ -710,34 +738,37 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
                 </View>
               );
             })}
-          </View>
+          </Band>
         )}
 
         {network && network.hidden.length > 0 ? (
-          <View style={styles.hiddenBlock}>
-            <Text style={styles.sectionTitle}>Not offered at this branch</Text>
-            <View style={styles.edgeList}>
+          <>
+            <SectionTitle>Not offered at this branch</SectionTitle>
+            <Band style={styles.band}>
               {network.hidden.map((h, i) => (
-                <View key={h.id} style={[styles.hiddenRow, i < network.hidden.length - 1 && styles.rowDivider]}>
-                  <Text style={styles.hiddenName} numberOfLines={1}>
-                    {h.name}
-                  </Text>
-                  <Pressable
-                    onPress={() => void bringBack(h.id)}
-                    style={({ pressed }) => [styles.offerPill, pressed && styles.cardPressed]}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Offer ${h.name} again`}
-                  >
-                    <IconPlus size={12} color={colors.waterDeep} />
-                    <Text style={styles.offerPillText}>Offer again</Text>
-                  </Pressable>
-                </View>
+                <BandRow
+                  key={h.id}
+                  title={h.name}
+                  muted
+                  last={i === network.hidden.length - 1}
+                  right={
+                    <Pressable
+                      onPress={() => void bringBack(h.id)}
+                      style={({ pressed }) => [styles.offerPill, pressed && styles.cardPressed]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Offer ${h.name} again`}
+                    >
+                      <IconPlus size={12} color={colors.waterDeep} />
+                      <Text style={styles.offerPillText}>Offer again</Text>
+                    </Pressable>
+                  }
+                />
               ))}
-            </View>
-          </View>
+            </Band>
+          </>
         ) : null}
 
-        {error ? <Text style={styles.error}>{error}</Text> : null}
+        {error ? <Text style={[styles.error, styles.pad]}>{error}</Text> : null}
         <View style={styles.bottomPad} />
       </ScrollView>
 
@@ -789,8 +820,20 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
 }
 
 const styles = StyleSheet.create({
+  headerPad: { paddingHorizontal: spacing.md },
+  pad: { paddingHorizontal: spacing.md },
   content: {
-    paddingTop: spacing.sm,
+    paddingTop: spacing.xs,
+    gap: spacing.sm,
+  },
+  segmentWrap: { paddingHorizontal: spacing.md, gap: spacing.sm },
+  band: { marginTop: spacing.xs },
+  vehiclesStack: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+    backgroundColor: colors.white,
   },
   cardPressed: { opacity: 0.85 },
   segment: {
@@ -798,7 +841,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#E8F1F8',
     borderRadius: radius.pill,
     padding: 4,
-    marginBottom: spacing.md,
   },
   segmentBtn: {
     flex: 1,
@@ -817,26 +859,6 @@ const styles = StyleSheet.create({
     color: colors.slateDeep,
   },
   segmentLabelOn: { color: colors.waterDeep, fontWeight: '700' },
-  vehiclesCard: {
-    backgroundColor: colors.white,
-    borderRadius: radius.lg,
-    padding: spacing.md,
-    gap: spacing.md,
-    marginBottom: spacing.lg,
-    ...shadow('sm'),
-  },
-  vehiclesTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  vehiclesCopy: { flex: 1, gap: 2 },
-  overline: {
-    ...typography.caption,
-    color: colors.slateDeep,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-  },
-  vehiclesCount: { ...typography.heading, color: colors.waterInk },
-  vehiclesBottom: { flexDirection: 'row', alignItems: 'center' },
-  vehiclesHint: { ...typography.body, fontSize: 14, color: colors.slateDeep, lineHeight: 20 },
   editPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -847,23 +869,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.water,
   },
   editPillText: { ...typography.label, color: colors.white, fontWeight: '700' },
-  servicesHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: spacing.sm + 2,
-  },
   sectionTitle: { ...typography.heading, color: colors.waterInk },
-  countBadge: {
-    minWidth: 24,
-    height: 24,
-    paddingHorizontal: 8,
-    borderRadius: 12,
-    backgroundColor: colors.waterPale,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  countBadgeText: { ...typography.caption, color: colors.waterDeep, fontWeight: '800', letterSpacing: 0 },
   searchBand: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -873,7 +879,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: radius.pill,
     paddingHorizontal: spacing.md,
-    marginBottom: spacing.sm + 2,
+    marginHorizontal: spacing.md,
     height: 44,
   },
   searchInput: {
@@ -891,6 +897,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xl,
     paddingHorizontal: spacing.lg,
     gap: spacing.sm,
+    marginHorizontal: spacing.md,
     ...shadow('sm'),
   },
   emptyIcon: {
@@ -911,13 +918,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   emptyCta: { alignSelf: 'stretch', marginTop: spacing.md },
-  edgeList: {
-    backgroundColor: colors.white,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    marginHorizontal: -spacing.md,
-  },
   rowDivider: {
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
@@ -1017,7 +1017,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#CCFBF1',
   },
   listTagText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.8, color: colors.tealDeep },
-  banner: { gap: spacing.sm, marginBottom: spacing.md },
+  banner: { gap: spacing.sm, paddingHorizontal: spacing.md },
   priceOwn: { ...typography.caption, color: colors.amberDeep, letterSpacing: 0 },
   catalogNote: {
     ...typography.caption,
@@ -1026,16 +1026,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,
   },
-  hiddenBlock: { marginTop: spacing.lg, gap: spacing.sm + 2 },
-  hiddenRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingHorizontal: spacing.md,
-    minHeight: 56,
-    backgroundColor: colors.white,
-  },
-  hiddenName: { ...typography.body, fontSize: 15, color: colors.slateDeep, flex: 1 },
   includesText: { ...typography.label, fontWeight: '600', color: '#5B21B6' },
   descText: { ...typography.label, fontWeight: '400', color: colors.slateDeep, lineHeight: 18 },
   actionsRow: {
@@ -1068,6 +1058,5 @@ const styles = StyleSheet.create({
   error: {
     color: colors.danger,
     ...typography.label,
-    marginTop: spacing.md,
   },
 });

@@ -63,6 +63,7 @@ export function applyOutbox(jobs: BoardJob[], items: OutboxItem[]): BoardJob[] {
     if (op.kind === 'job.pay') {
       job.status = 'paid';
       job.paymentMethod = op.payload.paymentMethod;
+      job.completedAt = op.payload.occurredAt;
       job.paidBy = { id: item.userId, name: item.userName };
     }
     if (op.kind === 'job.void') job.status = 'void';

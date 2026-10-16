@@ -9,6 +9,15 @@ export const DEVICE_HEADER = 'x-device-key';
 
 const DEVICE_KEY_RE = /^[A-Za-z0-9_-]{32,128}$/;
 
+/**
+ * Every session is tied to a phone (SessionClaims.dv), so a sign-in without the key is refused.
+ * The app always sends one; this only shows if its secure storage failed.
+ */
+export const noDeviceKey = {
+  error: 'device_key_required' as const,
+  message: 'This phone couldn’t be recognised. Close the app, open it again and try once more.',
+};
+
 /** The hash identifying this install, or null when the app sent no (or a malformed) key. */
 export async function deviceHash(c: Context): Promise<string | null> {
   const key = c.req.header(DEVICE_HEADER)?.trim();

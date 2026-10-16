@@ -23,7 +23,7 @@ const INLINE_PUBLISH = 3;
  */
 export async function requireBusinessAdmin(c: Ctx, next: Next): Promise<Response | void> {
   const session = c.get('session');
-  const businessId = await catalogRepo.ensureBusinessForShop(c.env.DB, session.shopId);
+  const businessId = await catalogRepo.businessForShop(c.env.DB, session.shopId);
   const platform = createPlatformDb(c.env.DB);
   if (!(await catalogRepo.isAdmin(platform, businessId, session.phone))) {
     return c.json({ error: 'forbidden' as const, message: 'Only Mana Wash HQ can change this.' }, 403);
@@ -46,7 +46,7 @@ export async function isHq(c: Ctx): Promise<boolean> {
 /** The repo's validation errors as API errors; anything else is a real failure. */
 export function catalogError(c: Ctx, e: unknown) {
   if (!(e instanceof CatalogError)) throw e;
-  const status = e.code === 'not_found' ? 404 : e.code === 'in_use' || e.code === 'last_admin' || e.code === 'default_book' ? 409 : 400;
+  const status = e.code === 'not_found' ? 404 : e.code === 'in_use' || e.code === 'last_admin' || e.code === 'not_on_team' || e.code === 'default_book' ? 409 : 400;
   return c.json({ error: e.code, message: e.message }, status);
 }
 

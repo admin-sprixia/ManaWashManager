@@ -5,14 +5,9 @@ import {
   BottomSheet,
   Button,
   ChoiceChips,
-  EdgeGroup,
-  EdgeRow,
   IconEdit,
-  Notice,
-  Pill,
   ScreenContainer,
   ScreenHeader,
-  SectionLabel,
   TextField,
   colors,
   radius,
@@ -23,7 +18,15 @@ import { CATALOG_NAME_MAX } from '@mana/domain';
 import { api } from '../../api/client';
 import { vehicleImageFor } from '../../components/VehicleTypeIcon';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
-import { NameSheet, useCatalog, type Catalog } from './shared';
+import {
+  Band,
+  BandRow,
+  CatalogHero,
+  NameSheet,
+  SectionTitle,
+  useCatalog,
+  type Catalog,
+} from './shared';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BusinessVehicles'>;
 type BodyType = Catalog['bodyTypes'][number];
@@ -50,50 +53,57 @@ export function VehicleSizesScreen({ navigation }: Props) {
           <ScreenHeader title="Vehicle sizes" onBack={() => navigation.goBack()} />
         </View>
         {error ? (
-          <View style={styles.pad}>
-            <Notice tone="danger">{error}</Notice>
+          <View style={styles.centerPad}>
+            <Text style={styles.error}>{error}</Text>
             <Button label="Try again" variant="secondary" onPress={() => void load()} />
           </View>
         ) : (
-          <ActivityIndicator color={colors.water} style={styles.loading} />
+          <ActivityIndicator color={colors.indigo} style={styles.loading} />
         )}
       </ScreenContainer>
     );
   }
 
   const sizeName = (id: string) => catalog.classes.flatMap((c) => c.sizes).find((z) => z.id === id);
+  const totalSizes = catalog.classes.reduce((n, c) => n + c.sizes.length, 0);
+  const activeKinds = catalog.bodyTypes.filter((b) => b.active).length;
 
   return (
     <ScreenContainer noPadding>
       <View style={styles.headerPad}>
         <ScreenHeader title="Vehicle sizes" onBack={() => navigation.goBack()} />
       </View>
-      <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={[styles.help, styles.pad]}>
-          Prices are set per size. Here you choose which size each kind of vehicle counts as — say a compact SUV priced as
-          Large. Branches pick these up on their own.
-        </Text>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <CatalogHero
+          eyebrow="Business price list"
+          title="Vehicle sizes"
+          meta="Prices are set per size. Choose which size each kind of vehicle counts as."
+          chips={[
+            { label: 'Classes', value: catalog.classes.length },
+            { label: 'Sizes', value: totalSizes },
+            { label: 'Kinds', value: activeKinds },
+          ]}
+        />
+
         {catalog.classes.map((cls) => {
           const kinds = catalog.bodyTypes.filter((b) => b.classId === cls.id);
           return (
-            <View key={cls.id}>
-              <SectionLabel
-                right={
-                  <Pressable
-                    onPress={() => setRenaming({ kind: 'class', id: cls.id, name: cls.name })}
-                    style={({ pressed }) => [styles.link, pressed && styles.pressed]}
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Rename ${cls.name}`}
-                  >
-                    <IconEdit size={14} color={colors.water} />
-                    <Text style={styles.linkText}>Rename</Text>
-                  </Pressable>
-                }
-              >
-                {cls.name}
-              </SectionLabel>
-              <View style={[styles.pad, styles.sizes]}>
+            <View key={cls.id} style={styles.classBlock}>
+              <View style={styles.classHead}>
+                <SectionTitle>{cls.name}</SectionTitle>
+                <Pressable
+                  onPress={() => setRenaming({ kind: 'class', id: cls.id, name: cls.name })}
+                  style={({ pressed }) => [styles.renameBtn, pressed && styles.pressed]}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Rename ${cls.name}`}
+                >
+                  <IconEdit size={13} color={colors.indigo} />
+                  <Text style={styles.renameText}>Rename</Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.sizeRow}>
                 {cls.sizes.map((z) => (
                   <Pressable
                     key={z.id}
@@ -102,29 +112,47 @@ export function VehicleSizesScreen({ navigation }: Props) {
                     accessibilityRole="button"
                     accessibilityLabel={`Rename size ${z.name}`}
                   >
-                    <Text style={styles.sizeKey}>{z.key}</Text>
+                    <View style={styles.sizeKey}>
+                      <Text style={styles.sizeKeyText}>{z.key}</Text>
+                    </View>
                     <Text style={styles.sizeName}>{z.name}</Text>
                     <IconEdit size={12} color={colors.slate} />
                   </Pressable>
                 ))}
               </View>
-              <EdgeGroup>
-                {kinds.map((b) => {
-                  const size = sizeName(b.sizeId);
-                  return (
-                    <EdgeRow
-                      key={b.id}
-                      icon={<Image source={vehicleImageFor(b.name)} style={styles.thumb} resizeMode="cover" />}
-                      iconBg="transparent"
-                      title={b.name}
-                      subtitle={size ? `Priced as ${size.name}` : undefined}
-                      tone={b.active ? 'default' : 'muted'}
-                      right={b.active ? <Pill label={size?.key ?? '?'} tone="water" /> : <Pill label="OFF" tone="slate" />}
-                      onPress={() => setBody(b)}
-                    />
-                  );
-                })}
-              </EdgeGroup>
+
+              {kinds.length === 0 ? (
+                <Text style={styles.help}>No vehicle kinds in this class yet.</Text>
+              ) : (
+                <Band>
+                  {kinds.map((b, i) => {
+                    const size = sizeName(b.sizeId);
+                    return (
+                      <BandRow
+                        key={b.id}
+                        icon={<Image source={vehicleImageFor(b.name)} style={styles.thumb} resizeMode="cover" />}
+                        iconBg="transparent"
+                        title={b.name}
+                        subtitle={size ? `Priced as ${size.name}` : undefined}
+                        muted={!b.active}
+                        last={i === kinds.length - 1}
+                        right={
+                          b.active ? (
+                            <View style={styles.keyPill}>
+                              <Text style={styles.keyPillText}>{size?.key ?? '?'}</Text>
+                            </View>
+                          ) : (
+                            <View style={styles.offPill}>
+                              <Text style={styles.offPillText}>Off</Text>
+                            </View>
+                          )
+                        }
+                        onPress={() => setBody(b)}
+                      />
+                    );
+                  })}
+                </Band>
+              )}
             </View>
           );
         })}
@@ -226,27 +254,59 @@ function BodyTypeSheet({
 const styles = StyleSheet.create({
   headerPad: { paddingHorizontal: spacing.md },
   loading: { marginTop: spacing.xl },
-  scroll: { paddingTop: spacing.sm },
-  pad: { paddingHorizontal: spacing.md, gap: spacing.md },
-  help: { ...typography.body, color: colors.slateDeep, fontSize: 14, lineHeight: 20 },
-  sizes: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
-  link: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  linkText: { ...typography.label, color: colors.water, fontWeight: '700' },
+  scroll: { paddingBottom: spacing.xxl, gap: spacing.md },
+  centerPad: { padding: spacing.lg, gap: spacing.md, alignItems: 'center' },
+  help: { ...typography.body, color: colors.slateDeep, fontSize: 13.5, lineHeight: 19, paddingHorizontal: spacing.md },
   pressed: { opacity: 0.7 },
+  error: { ...typography.label, color: colors.danger },
+  bottomPad: { height: spacing.xxl },
+  classBlock: { gap: spacing.sm },
+  classHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingRight: spacing.md,
+  },
+  renameBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4 },
+  renameText: { ...typography.label, color: colors.indigo, fontWeight: '700', fontSize: 13 },
+  sizeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, paddingHorizontal: spacing.md },
   sizeChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 8,
+    gap: 8,
+    paddingLeft: 6,
+    paddingRight: spacing.md,
+    paddingVertical: 6,
     borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.white,
   },
-  sizeKey: { ...typography.label, fontWeight: '800', color: colors.waterDeep },
-  sizeName: { ...typography.label, color: colors.waterInk },
-  thumb: { width: 48, height: 36, borderRadius: radius.sm, backgroundColor: colors.waterMidnight },
-  error: { ...typography.label, color: colors.danger },
-  bottomPad: { height: spacing.xxl },
+  sizeKey: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.indigoPale,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sizeKeyText: { ...typography.label, fontWeight: '800', color: colors.indigo, fontSize: 12 },
+  sizeName: { ...typography.label, color: colors.waterInk, fontWeight: '700' },
+  thumb: { width: 42, height: 32, borderRadius: 8, backgroundColor: colors.waterMidnight },
+  keyPill: {
+    paddingHorizontal: 9,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.indigoPale,
+    justifyContent: 'center',
+  },
+  keyPillText: { ...typography.caption, fontSize: 11, color: colors.indigo, fontWeight: '800', letterSpacing: 0 },
+  offPill: {
+    paddingHorizontal: 9,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#F1F5F9',
+    justifyContent: 'center',
+  },
+  offPillText: { ...typography.caption, fontSize: 11, color: colors.slateDeep, fontWeight: '800', letterSpacing: 0 },
 });

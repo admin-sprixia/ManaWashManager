@@ -1,21 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   BottomSheet,
   Button,
   ChoiceChips,
-  EdgeGroup,
-  EdgeRow,
-  EdgePanel,
   IconMapPin,
   IconPlus,
   IconRupee,
-  Notice,
-  Pill,
   ScreenContainer,
   ScreenHeader,
-  SectionLabel,
   TextField,
   colors,
   spacing,
@@ -33,7 +27,19 @@ import {
 import { api } from '../../api/client';
 import { formatRupees, parseRupees } from '../../utils/format';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
-import { bpToText, formatPercent, paiseToText, textToBp, useCatalog, type Catalog } from './shared';
+import {
+  Band,
+  BandRow,
+  CatalogHero,
+  SectionTitle,
+  bpToText,
+  formatPercent,
+  paiseToText,
+  plural,
+  textToBp,
+  useCatalog,
+  type Catalog,
+} from './shared';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BusinessRules'>;
 type Adjustment = Catalog['adjustments'][number];
@@ -67,12 +73,12 @@ export function PricingRulesScreen({ navigation }: Props) {
           <ScreenHeader title="Pricing rules" onBack={() => navigation.goBack()} />
         </View>
         {error ? (
-          <View style={styles.pad}>
-            <Notice tone="danger">{error}</Notice>
+          <View style={styles.centerPad}>
+            <Text style={styles.error}>{error}</Text>
             <Button label="Try again" variant="secondary" onPress={() => void load()} />
           </View>
         ) : (
-          <ActivityIndicator color={colors.water} style={styles.loading} />
+          <ActivityIndicator color={colors.indigo} style={styles.loading} />
         )}
       </ScreenContainer>
     );
@@ -82,42 +88,58 @@ export function PricingRulesScreen({ navigation }: Props) {
   const ruleFor = (mode: DeliveryMode, classId: string | null) =>
     catalog.adjustments.find((a) => a.mode === mode && a.classId === classId) ?? null;
   const editingRule = adjusting ? ruleFor(adjusting.mode, adjusting.classId) : null;
+  const activeZones = catalog.zones.filter((z) => z.active).length;
+  const doorstep = catalog.adjustments.find((a) => a.mode === 'doorstep' && a.classId == null);
 
   const modeSection = (mode: DeliveryMode) => {
-    const rules = catalog.adjustments.filter((a) => a.mode === mode).sort((a, b) => (a.classId == null ? -1 : b.classId == null ? 1 : 0));
+    const rules = catalog.adjustments
+      .filter((a) => a.mode === mode)
+      .sort((a, b) => (a.classId == null ? -1 : b.classId == null ? 1 : 0));
     const free = catalog.classes.filter((c) => !rules.some((r) => r.classId === c.id));
+    const showAll = !rules.some((r) => r.classId == null);
+    const extras = rules.length > 0 ? free : [];
+    const lastKey = extras.length
+      ? extras[extras.length - 1]!.id
+      : showAll
+        ? 'all'
+        : rules[rules.length - 1]?.id;
+
     return (
       <>
-        <SectionLabel>{modeTitle(mode, catalog.homeWash)}</SectionLabel>
-        <EdgeGroup>
+        <SectionTitle>{modeTitle(mode, catalog.homeWash)}</SectionTitle>
+        <Band>
           {rules.map((r) => (
-            <EdgeRow
+            <BandRow
               key={r.id}
-              icon={<IconRupee size={18} color={colors.waterDeep} />}
+              icon={<IconRupee size={18} color={colors.tealDeep} />}
+              iconBg="#CCFBF1"
               title={className(r.classId)}
               subtitle={describeAdjustment(r)}
+              last={r.id === lastKey}
               onPress={() => setAdjusting({ mode, classId: r.classId })}
             />
           ))}
-          {!rules.some((r) => r.classId == null) ? (
-            <EdgeRow
-              icon={<IconPlus size={18} color={colors.waterDeep} />}
+          {showAll ? (
+            <BandRow
+              icon={<IconPlus size={18} color={colors.indigo} />}
+              iconBg={colors.indigoPale}
               title="Add an extra for all vehicles"
+              last={lastKey === 'all'}
               onPress={() => setAdjusting({ mode, classId: null })}
             />
           ) : null}
-          {rules.length > 0
-            ? free.map((c) => (
-                <EdgeRow
-                  key={c.id}
-                  icon={<IconPlus size={18} color={colors.slate} />}
-                  title={`Different extra for ${c.name.toLowerCase()}`}
-                  tone="muted"
-                  onPress={() => setAdjusting({ mode, classId: c.id })}
-                />
-              ))
-            : null}
-        </EdgeGroup>
+          {extras.map((c) => (
+            <BandRow
+              key={c.id}
+              icon={<IconPlus size={18} color={colors.slate} />}
+              iconBg="#F1F5F9"
+              title={`Different extra for ${c.name.toLowerCase()}`}
+              muted
+              last={c.id === lastKey}
+              onPress={() => setAdjusting({ mode, classId: c.id })}
+            />
+          ))}
+        </Band>
       </>
     );
   };
@@ -128,50 +150,75 @@ export function PricingRulesScreen({ navigation }: Props) {
         <ScreenHeader title="Pricing rules" onBack={() => navigation.goBack()} />
       </View>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-          <Text style={[styles.help, styles.pad]}>
-            Each price is worked out in this order: base price → {catalog.homeWash ? 'doorstep' : 'community'} or shop extra →
-            the branch’s zone → rounded. A branch’s own price comes last, within the limits below.
-          </Text>
+        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <CatalogHero
+            eyebrow="Business price list"
+            title="Pricing rules"
+            meta={`Base → ${catalog.homeWash ? 'doorstep' : 'community'}/shop extra → zone → round. Branch prices come last.`}
+            chips={[
+              {
+                label: catalog.homeWash ? 'Doorstep' : 'Community',
+                value: doorstep ? formatPercent(doorstep.percentBp) : '—',
+              },
+              { label: 'Zones', value: activeZones },
+              {
+                label: 'Branches',
+                value: catalog.policy.branchOverrides
+                  ? `±${Math.max(catalog.policy.maxIncreasePct, catalog.policy.maxDecreasePct)}%`
+                  : 'Fixed',
+              },
+            ]}
+          />
 
           {modeSection('doorstep')}
           {catalog.adjustments.some((a) => a.mode === 'hub') ? (
             modeSection('hub')
           ) : (
-            <View style={[styles.pad, styles.linkPad]}>
-              <Button
-                label="Add an extra for washes at the shop"
-                variant="ghost"
-                onPress={() => setAdjusting({ mode: 'hub', classId: null })}
-              />
-            </View>
+            <Pressable
+              onPress={() => setAdjusting({ mode: 'hub', classId: null })}
+              style={({ pressed }) => [styles.addLink, pressed && styles.pressed]}
+              accessibilityRole="button"
+            >
+              <Text style={styles.addLinkText}>Add an extra for washes at the shop</Text>
+            </Pressable>
           )}
 
-          <SectionLabel>Price zones</SectionLabel>
-          <Text style={[styles.help, styles.pad]}>
-            A zone moves every price up or down for the branches in it — say −10% in small towns. Pick each branch’s zone in
-            Branches and price books.
+          <SectionTitle>Price zones</SectionTitle>
+          <Text style={styles.help}>
+            A zone moves every price for the branches in it — say −10% in small towns. Pick each branch’s zone in Branches.
           </Text>
-          <EdgeGroup>
-            {catalog.zones.map((z) => {
+          <Band>
+            {catalog.zones.map((z, i) => {
               const branches = catalog.branches.filter((b) => b.priceZoneId === z.id).length;
               return (
-                <EdgeRow
+                <BandRow
                   key={z.id}
                   icon={<IconMapPin size={18} color={z.active ? colors.tealDeep : colors.slate} />}
-                  iconBg="#CCFBF1"
+                  iconBg={z.active ? '#CCFBF1' : '#F1F5F9'}
                   title={z.name}
-                  subtitle={`${formatPercent(z.percentBp)} · ${branches} branch${branches === 1 ? '' : 'es'}`}
-                  tone={z.active ? 'default' : 'muted'}
-                  right={z.active ? undefined : <Pill label="OFF" tone="slate" />}
+                  subtitle={`${formatPercent(z.percentBp)} · ${plural(branches, 'branch')}`}
+                  muted={!z.active}
+                  right={
+                    !z.active ? (
+                      <View style={styles.offPill}>
+                        <Text style={styles.offPillText}>Off</Text>
+                      </View>
+                    ) : undefined
+                  }
                   onPress={() => setZone(z)}
                 />
               );
             })}
-            <EdgeRow icon={<IconPlus size={18} color={colors.waterDeep} />} title="Add a zone" onPress={() => setZone('new')} />
-          </EdgeGroup>
+            <BandRow
+              icon={<IconPlus size={18} color={colors.indigo} />}
+              iconBg={colors.indigoPale}
+              title="Add a zone"
+              last
+              onPress={() => setZone('new')}
+            />
+          </Band>
 
-          <SectionLabel>Branch prices</SectionLabel>
+          <SectionTitle>Branch prices</SectionTitle>
           <PolicyPanel catalog={catalog} run={run} />
           <View style={styles.bottomPad} />
         </ScrollView>
@@ -269,7 +316,7 @@ function PolicyPanel({ catalog, run }: { catalog: Catalog; run: ReturnType<typeo
   };
 
   return (
-    <EdgePanel>
+    <View style={styles.policy}>
       <ChoiceChips label="Branches may set their own prices" options={YES_NO} value={overrides} onChange={setOverrides} />
       {overrides === 'yes' ? (
         <View style={styles.row}>
@@ -281,7 +328,9 @@ function PolicyPanel({ catalog, run }: { catalog: Catalog; run: ReturnType<typeo
           </View>
         </View>
       ) : (
-        <Text style={styles.help}>Branches charge the list price. Prices they set before are kept and come back if you switch this on again.</Text>
+        <Text style={styles.help}>
+          Branches charge the list price. Prices they set before are kept and come back if you switch this on again.
+        </Text>
       )}
       <ChoiceChips label="Branches may stop offering a service" options={YES_NO} value={hide} onChange={setHide} />
       <ChoiceChips
@@ -292,7 +341,7 @@ function PolicyPanel({ catalog, run }: { catalog: Catalog; run: ReturnType<typeo
       />
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <Button label="Save branch price rules" loading={busy} onPress={() => void save()} />
-    </EdgePanel>
+    </View>
   );
 }
 
@@ -451,12 +500,30 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   headerPad: { paddingHorizontal: spacing.md },
   loading: { marginTop: spacing.xl },
-  scroll: { paddingTop: spacing.sm },
-  pad: { paddingHorizontal: spacing.md, gap: spacing.md },
-  linkPad: { marginTop: spacing.sm },
-  help: { ...typography.body, color: colors.slateDeep, fontSize: 14, lineHeight: 20, marginBottom: spacing.sm },
+  scroll: { paddingBottom: spacing.xxl, gap: spacing.md },
+  centerPad: { padding: spacing.lg, gap: spacing.md, alignItems: 'center' },
+  help: { ...typography.body, color: colors.slateDeep, fontSize: 13.5, lineHeight: 19, paddingHorizontal: spacing.md },
   row: { flexDirection: 'row', gap: spacing.md },
   footer: { gap: spacing.xs },
   error: { ...typography.label, color: colors.danger },
   bottomPad: { height: spacing.xxl },
+  pressed: { opacity: 0.7 },
+  addLink: { alignSelf: 'flex-start', paddingVertical: 4, paddingHorizontal: spacing.md },
+  addLinkText: { ...typography.label, color: colors.indigo, fontWeight: '700', fontSize: 14 },
+  offPill: {
+    paddingHorizontal: 9,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#F1F5F9',
+    justifyContent: 'center',
+  },
+  offPillText: { ...typography.caption, fontSize: 11, color: colors.slateDeep, fontWeight: '800', letterSpacing: 0 },
+  policy: {
+    backgroundColor: colors.white,
+    padding: spacing.md,
+    gap: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
 });

@@ -74,7 +74,8 @@ jobs:
           cat wrangler.log
           exit 1
       - run: npm run test:isolation
-      - run: npm run test:signup
+      - run: npm run test:expenses
+      - run: npm run test:team
       - run: npm run test:races
       - run: npm run test:rewards
       - run: npm run test:customer-app

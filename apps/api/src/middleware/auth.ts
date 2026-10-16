@@ -56,7 +56,7 @@ async function lookUp(env: Env, claims: SessionClaims): Promise<Lookup> {
       },
     }),
     platform.shop.findUnique({ where: { id: claims.shopId }, select: { status: true, statusReason: true } }),
-    claims.dv ? securityRepo.stillTrusted(platform, claims.phone, claims.dv) : Promise.resolve(true),
+    securityRepo.stillTrusted(platform, claims.phone, claims.dv),
   ]);
   if (!user || !shop || user.shopId !== claims.shopId || user.removedAt) {
     return { ok: false, status: 401, body: { error: 'unauthorized' } };
@@ -77,7 +77,7 @@ async function lookUp(env: Env, claims: SessionClaims): Promise<Lookup> {
     status,
     statusReason: shop.statusReason,
     pinUpgrade,
-    session: { sub: user.id, shopId: user.shopId, role, phone: user.phone, sv: user.sessionVersion, ...(claims.dv ? { dv: claims.dv } : {}) },
+    session: { sub: user.id, shopId: user.shopId, role, phone: user.phone, sv: user.sessionVersion, dv: claims.dv },
   };
 }
 
@@ -165,7 +165,7 @@ export async function requireAuth(
   }
 
   // A session only works from the phone it was issued to: a copied token alone is useless.
-  if (claims.dv && (await deviceHash(c)) !== claims.dv) {
+  if ((await deviceHash(c)) !== claims.dv) {
     return c.json({ error: 'unauthorized' }, 401);
   }
 

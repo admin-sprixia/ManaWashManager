@@ -1,10 +1,11 @@
 import type { DbClient } from '../client';
 
 /**
- * signup / join: a number without an account. phone: moving an account to this new number.
+ * Why a WhatsApp code went to a number that isn't a team sign-in:
+ * phone: moving an account to this new number.
  * customer: signing in to the Mana Wash app.
  */
-export type SignupPurpose = 'signup' | 'join' | 'phone' | 'customer';
+export type SignupPurpose = 'phone' | 'customer';
 
 /** Codes sent to numbers that don't belong to the account (yet). Always used with the platform client. */
 export const signupCodeRepo = {

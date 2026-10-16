@@ -36,7 +36,7 @@ const stale = (shopId: string): SqlStatement => ({ sql: 'UPDATE shops SET menu_v
 /** Classes must be the business's own; at least one. */
 async function checkClasses(d1: D1Database, shopId: string, classIds: string[]) {
   if (!classIds.length) throw new CatalogError('invalid', 'Pick at least one vehicle class.');
-  const businessId = await catalogRepo.ensureBusinessForShop(d1, shopId);
+  const businessId = await catalogRepo.businessForShop(d1, shopId);
   const data = await catalogRepo.load(d1, businessId);
   const known = new Set(data?.classes.map((c) => c.id) ?? []);
   if (classIds.some((id) => !known.has(id))) throw new CatalogError('invalid', 'Unknown vehicle class.');

@@ -221,7 +221,7 @@ export const serviceRoutes = new Hono<{ Bindings: Env }>()
       const shopId = c.get('session').shopId;
       const category = body.category ?? 'car';
       // Tie it to the business body type, so the business price list prices it.
-      const businessId = await catalogRepo.ensureBusinessForShop(c.env.DB, shopId);
+      const businessId = await catalogRepo.businessForShop(c.env.DB, shopId);
       const def = body.bodyKey ? (BODY_TYPES.find((b) => b.key === body.bodyKey) ?? null) : bodyTypeForName(body.name);
       if (body.bodyKey && !def) return c.json({ error: 'not_found' as const, message: 'Unknown body type.' }, 404);
       const bodyTypeId = def && categoryForClass(def.classKey) === category ? catalogIds.bodyType(businessId, def.key) : null;

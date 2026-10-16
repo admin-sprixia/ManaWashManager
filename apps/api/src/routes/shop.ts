@@ -79,6 +79,33 @@ export const shopRoutes = new Hono<{ Bindings: Env }>()
       statusReason: shop.statusReason,
     });
   })
+  // The branch details sheet: what HQ set when opening the branch (read-only for the branch).
+  .get('/details', async (c) => {
+    const platform = createPlatformDb(c.env.DB);
+    const shop = await platform.shop.findUnique({
+      where: { id: c.get('session').shopId },
+      select: { code: true, name: true, city: true, status: true, statusReason: true, createdAt: true, businessId: true },
+    });
+    if (!shop) return c.json({ error: 'not_found' as const }, 404);
+    const [business, owners] = await Promise.all([
+      shop.businessId ? platform.business.findUnique({ where: { id: shop.businessId }, select: { name: true } }) : null,
+      c.get('db').user.findMany({
+        where: { role: 'owner', active: true, removedAt: null },
+        orderBy: { createdAt: 'asc' },
+        select: { name: true },
+      }),
+    ]);
+    return c.json({
+      code: shop.code,
+      name: shop.name,
+      city: shop.city,
+      status: shop.status === 'paused' ? ('paused' as const) : ('active' as const),
+      statusReason: shop.statusReason,
+      business: business?.name ?? null,
+      openedAt: shop.createdAt.toISOString(),
+      owners: owners.map((o) => o.name),
+    });
+  })
   // The name customers see on WhatsApp messages, PDFs and every phone in the shop.
   .put('/info', requireRole('owner'), zValidator('json', shopInfoSchema), async (c) => {
     const body = c.req.valid('json');

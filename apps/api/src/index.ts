@@ -7,7 +7,6 @@ import { reportError } from './lib/alerts';
 import { rateLimit } from './lib/rateLimit';
 import type { SessionClaims } from './lib/jwt';
 import { authRoutes } from './routes/auth';
-import { signupRoutes } from './routes/signup';
 import { customerRoutes } from './routes/customer';
 import { serviceRoutes } from './routes/service';
 import { jobRoutes } from './routes/job';
@@ -46,7 +45,6 @@ app.use('/auth/pin/login', rateLimit('pin', 40, TEN_MIN));
 app.use('/auth/code/*', rateLimit('code', 20, TEN_MIN));
 app.use('/auth/me/phone', rateLimit('phone', 10, TEN_MIN));
 app.use('/auth/me/phone/code', rateLimit('phone-code', 10, TEN_MIN));
-app.use('/signup/*', rateLimit('signup', 60, TEN_MIN));
 app.use('/c/auth/*', rateLimit('c-auth', 30, TEN_MIN));
 const serviceRequestLimit = rateLimit('c-request', 30, TEN_MIN);
 app.use('/c/*', (c, next) =>
@@ -107,7 +105,6 @@ app.onError(async (err, c) => {
 
 const routes = app
   .route('/auth', authRoutes)
-  .route('/signup', signupRoutes)
   .route('/customers', customerRoutes)
   .route('/services', serviceRoutes)
   .route('/jobs', jobRoutes)

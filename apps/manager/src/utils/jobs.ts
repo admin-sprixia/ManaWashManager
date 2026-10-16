@@ -50,11 +50,25 @@ export function formatTime(input: string | Date): string {
   return date.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
 }
 
+/** IST midnight (same clock as the API board / reports), not the phone's local timezone. */
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+function startOfIstDay(reference = new Date()): Date {
+  const ist = new Date(reference.getTime() + IST_OFFSET_MS);
+  ist.setUTCHours(0, 0, 0, 0);
+  return new Date(ist.getTime() - IST_OFFSET_MS);
+}
+
+/** True when `input` falls on today's IST calendar day. */
 export function isToday(input: string | Date): boolean {
   const date = typeof input === 'string' ? new Date(input) : input;
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  return date.getTime() >= start.getTime();
+  return date.getTime() >= startOfIstDay().getTime();
+}
+
+/** Day a paid job counts on the board / reports: payment time, else open time. */
+export function activityAt(job: Pick<BoardJob, 'createdAt' | 'completedAt' | 'status'>): string {
+  if (job.status === 'paid' && job.completedAt) return job.completedAt;
+  return job.createdAt;
 }
 
 export function actionLabel(status: JobStatus): string | null {

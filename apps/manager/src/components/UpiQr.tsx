@@ -51,12 +51,12 @@ export function UpiQr({ upiId, payee, amount, note, size = 196 }: { upiId: strin
 const styles = StyleSheet.create({
   wrap: { alignItems: 'center', gap: 4 },
   card: {
-    padding: spacing.sm,
-    borderRadius: radius.md,
+    padding: spacing.sm + 2,
+    borderRadius: radius.lg,
     backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderWidth: 1.5,
+    borderColor: colors.indigoMist,
   },
-  amount: { ...typography.bodyStrong, color: colors.waterInk, marginTop: 4 },
+  amount: { ...typography.bodyStrong, color: colors.indigo, fontWeight: '800', marginTop: 4 },
   id: { ...typography.caption, color: colors.slateDeep, letterSpacing: 0.2 },
 });

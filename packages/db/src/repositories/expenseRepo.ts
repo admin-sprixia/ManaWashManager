@@ -82,6 +82,78 @@ export const expenseRepo = {
     return withPeople(db, rows);
   },
 
+  /**
+   * Changes a live expense and logs the edit with it, in one batch. `changes` is what moved, for
+   * the record. Returns false when the expense was voided meanwhile (nothing is changed then).
+   */
+  async edit(
+    db: DbClient,
+    id: string,
+    data: {
+      fields: {
+        category?: ExpenseCategory;
+        amount?: number;
+        description?: string | null;
+        itemName?: string;
+        quantity?: number | null;
+        unit?: ExpenseUnit | null;
+        paymentMethod?: PaymentMethod;
+        date?: Date;
+      };
+      edit: { id: string; userId: string; reason: string; changes: { field: string; from: unknown; to: unknown }[] };
+    },
+  ) {
+    const { count } = await db.expense.updateMany({ where: { id, voidedAt: null }, data: data.fields });
+    if (count !== 1) return false;
+    await db.expenseEdit.create({
+      data: {
+        id: data.edit.id,
+        expenseId: id,
+        editedByUserId: data.edit.userId,
+        reason: data.edit.reason,
+        changes: JSON.stringify(data.edit.changes),
+      },
+    });
+    return true;
+  },
+
+  /** An expense's edits, newest first, with who made each. */
+  async editsFor(db: DbClient, expenseId: string) {
+    const [rows, users] = await Promise.all([
+      db.expenseEdit.findMany({ where: { expenseId }, orderBy: { createdAt: 'desc' } }),
+      db.user.findMany(personSelect),
+    ]);
+    const byId = new Map(users.map((u) => [u.id, u]));
+    return rows.map((r) => ({
+      id: r.id,
+      reason: r.reason,
+      changes: JSON.parse(r.changes) as { field: string; from: unknown; to: unknown }[],
+      createdAt: r.createdAt,
+      editedBy: byId.get(r.editedByUserId) ?? { id: r.editedByUserId, name: 'Someone' },
+    }));
+  },
+
+  /** Every edit in `[from, to)`, newest first, with its expense and who made it — for the audit feed. */
+  async listEdits(db: DbClient, from: Date, to: Date) {
+    const [rows, users] = await Promise.all([
+      db.expenseEdit.findMany({
+        where: { createdAt: { gte: from, lt: to } },
+        orderBy: { createdAt: 'desc' },
+        include: { expense: { select: { id: true, category: true, amount: true, itemName: true, description: true } } },
+      }),
+      db.user.findMany(personSelect),
+    ]);
+    const byId = new Map(users.map((u) => [u.id, u]));
+    return rows.map((r) => ({
+      id: r.id,
+      reason: r.reason,
+      changes: JSON.parse(r.changes) as { field: string; from: unknown; to: unknown }[],
+      createdAt: r.createdAt,
+      expense: r.expense,
+      editedBy: byId.get(r.editedByUserId) ?? { id: r.editedByUserId, name: 'Someone' },
+    }));
+  },
+
   /** Only voids a live expense, so two voids at once keep the first one's reason and name. */
   async voidExpense(db: DbClient, id: string, data: { userId: string; reason: string }) {
     const { count } = await db.expense.updateMany({

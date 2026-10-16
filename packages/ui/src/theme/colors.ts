@@ -17,18 +17,21 @@ export const colors = {
   indigoPale: '#E8ECFF', // tinted fills, chips
   indigoMist: '#C4CCF0', // dashed outlines, dividers
   indigoSoft: '#9BAEF5', // glows, soft accents
-  indigoBright: '#5468D4', // gradient start, highlights
-  indigo: '#3A4DB0', // primary
-  indigoMid: '#2D3D9E', // pressed states, strong text on pale fills
-  indigoDeep: '#1B2878', // gradient end, deep accents
+  indigoBright: '#5468D4', // glows and highlights
+  indigo: '#1B2878', // primary: buttons, selected states, links (the splash's top colour)
+  indigoMid: '#142066', // pressed states, strong text on pale fills
+  indigoDeep: '#0C1442', // gradient end, deep accents
   ink: '#0F1743', // body text on white — reads as "ink", not pure black
   night: '#080E2B', // darkest
+  // The app icon's night tile, top to bottom: the splash and the top hero band use it
+  nightMid: '#0C1442',
+  nightDeep: '#060A22',
 
   // Historical names for the indigo family (see above)
   waterPale: '#E8ECFF',
   waterLight: '#9BAEF5',
-  water: '#3A4DB0',
-  waterDeep: '#1B2878',
+  water: '#1B2878',
+  waterDeep: '#0C1442',
   waterInk: '#0F1743',
   waterMidnight: '#080E2B',
 
@@ -64,39 +67,41 @@ export interface GradientSpec {
 }
 
 /** Named gradients. Keeping them central (not inlined per screen) is what makes a brand change a
- * one-file change. `hero` and `promo` run light to deep; `gold` is for rewards only. */
+ * one-file change. Everything indigo uses the splash's night indigo (#1B2878 → #0C1442 → #060A22),
+ * so the whole app reads as one; `gold` is for rewards only. */
 export const gradients = {
-  hero: [colors.indigoBright, colors.indigo, colors.indigoDeep] as const,
-  primaryButton: [colors.indigoBright, colors.indigo] as const,
-  primaryButtonPressed: [colors.indigo, colors.indigoDeep] as const,
+  hero: [colors.indigo, colors.nightMid, colors.nightDeep] as const,
+  primaryButton: [colors.indigo, colors.nightMid] as const,
+  primaryButtonPressed: [colors.nightMid, colors.nightDeep] as const,
   success: [colors.tealLight, colors.teal] as const,
   card: [colors.white, colors.surface] as const,
-  chipSelected: [colors.indigoBright, colors.indigo] as const,
-  fab: [colors.indigoBright, colors.indigo] as const,
+  chipSelected: [colors.indigo, colors.nightMid] as const,
+  fab: [colors.indigo, colors.nightMid] as const,
 } as const;
 
 /** The richer gradients the redesigned screens use, with their stop positions and direction. */
 export const brandGradients = {
+  /** The top hero band (sign-in, Home, Job Board): the splash's night indigo, top to bottom. */
   hero: {
     colors: gradients.hero,
-    locations: [0, 0.46, 1],
-    start: { x: 0.25, y: 0 },
-    end: { x: 0.75, y: 1 },
+    locations: [0, 0.5, 1],
+    start: { x: 0.5, y: 0 },
+    end: { x: 0.5, y: 1 },
   },
   promo: {
-    colors: [colors.indigoBright, colors.indigoMid, colors.indigoDeep],
+    colors: gradients.hero,
     locations: [0, 0.58, 1],
     start: { x: 0, y: 0 },
     end: { x: 1, y: 1 },
   },
   /** Buttons and the selected chip. */
   primary: {
-    colors: [colors.indigoBright, colors.indigo],
+    colors: gradients.primaryButton,
     start: { x: 0, y: 0 },
     end: { x: 0, y: 1 },
   },
   tabPill: {
-    colors: [colors.indigoBright, colors.indigoMid],
+    colors: gradients.primaryButton,
     start: { x: 0.2, y: 0 },
     end: { x: 0.8, y: 1 },
   },

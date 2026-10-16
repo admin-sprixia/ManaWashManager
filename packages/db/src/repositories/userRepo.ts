@@ -58,11 +58,6 @@ export const userRepo = {
     });
   },
 
-  /** A PIN from before lengths were kept: recorded once it has been typed correctly. */
-  async notePinDigits(db: DbClient, phone: string, digits: number) {
-    await db.user.updateMany({ where: { phone, removedAt: null, pinDigits: null }, data: { pinDigits: digits } });
-  },
-
   async updateForPhone(db: DbClient, phone: string, data: { name?: string; phone?: string }) {
     await db.user.updateMany({ where: { phone, removedAt: null }, data });
   },
@@ -164,24 +159,6 @@ export const userRepo = {
         pinFailedAttempts: 0,
         pinLockedUntil: null,
         removedAt: now,
-        sessionVersion: { increment: 1 },
-      },
-    });
-  },
-
-  /**
-   * A first PIN for someone in one branch only (a new teammate finishing their join request).
-   * Also clears any lockout and signs out older sessions.
-   */
-  async setPinHash(db: DbClient, id: string, pin: { hash: string; digits: number }, now = new Date()) {
-    return db.user.update({
-      where: { id },
-      data: {
-        pinHash: pin.hash,
-        pinDigits: pin.digits,
-        pinSetAt: now,
-        pinFailedAttempts: 0,
-        pinLockedUntil: null,
         sessionVersion: { increment: 1 },
       },
     });

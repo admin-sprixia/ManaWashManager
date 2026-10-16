@@ -17,6 +17,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   once again. Every screen, message, web page and logo uses the new names, and migration
   `0015_brand_names` renames the business row from "MANA Car Wash" to "Mana Wash".
 - **Launcher icon** drop is 25% smaller, so it no longer looks zoomed in on the home screen.
+- **Sign-in clean-up.** Every session is now tied to a phone: anything that signs in needs the
+  phone key (`device_key_required` otherwise), and tokens without one are refused. All of a
+  number's live rows are one person (the PIN-match check is gone). The business lookup no longer
+  makes a business for a branch without one (`catalogRepo.businessForShop`; HQ opens every
+  branch inside Mana Wash). Removed the old `DEV_OTP_BYPASS` / `DEV_OTP_CODE` setting names (use
+  `DEV_MODE` / `DEV_RECOVERY_CODE`), the unused `signup` code purpose and `notePinDigits`.
+  `MAX_SHOPS_PER_OWNER` is now `MAX_BRANCHES_PER_PERSON`.
+- **Staging test codes only for listed numbers.** Staging accepts the fixed test code only for
+  the numbers in `STAGING_TEST_PHONES` (the demo team), so nobody can sign in there as someone
+  else; `*` allows every number for a deliberate test-script run. Local dev is unchanged.
+- **No more join requests.** Nobody signs themselves up: the owner (or a manager, for staff) adds
+  people from Team, and HQ adds owners. A number on no team is told to ask them (`no_account`
+  from `POST /auth/start`). Removed the `/signup` routes, join tickets, the Team requests list and
+  approve/decline, the branch-ID invite, and the `join_requests` table (migration
+  `0016_remove_join_requests`). `test:signup` is now `test:team`.
+- **HQ only from the team.** A number can be made HQ only if it is already on a team at one of the
+  business's branches (`not_on_team` otherwise), so a mistyped or recycled number can't become HQ.
 
 ### Added
 

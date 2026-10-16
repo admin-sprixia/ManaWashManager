@@ -1,7 +1,7 @@
 import { LOGIN_CODE_LENGTH, LOGIN_CODE_TTL_MINUTES } from '@mana/domain';
 import type { Env } from '../types';
 import { randomDigits } from './random';
-import { sha256Hex, usesTestCodes } from './recovery';
+import { isDevMode, isStagingTestPhone, sha256Hex, usesTestCodes } from './recovery';
 
 const GRAPH_API = 'https://graph.facebook.com/v25.0';
 
@@ -22,13 +22,15 @@ export function whatsappConfigured(env: Env): boolean {
 }
 
 /**
- * Local testing without Meta: use the fixed DEV_RECOVERY_CODE and don't send WhatsApp.
+ * Testing without Meta: use the fixed DEV_RECOVERY_CODE and don't send WhatsApp.
  * True when WhatsApp isn't set up yet, or when WHATSAPP_OTP_BYPASS=true (e.g. template in review).
- * Always needs usesTestCodes (DEV_MODE + localhost, or the staging Worker's test-code switch),
- * so it can't open the production Worker.
+ * Always needs usesTestCodes (DEV_MODE + localhost, or the staging Worker's test-code switch), so
+ * it can't open the production Worker; on staging only for the numbers in STAGING_TEST_PHONES, so
+ * nobody can sign in there as someone else's number.
  */
-export function bypassWhatsAppOtp(env: Env, requestUrl: string): boolean {
+export function bypassWhatsAppOtp(env: Env, requestUrl: string, phone: string): boolean {
   if (!usesTestCodes(env, requestUrl)) return false;
+  if (!isDevMode(env, requestUrl) && !isStagingTestPhone(env, phone)) return false;
   return env.WHATSAPP_OTP_BYPASS === 'true' || !whatsappConfigured(env);
 }
 

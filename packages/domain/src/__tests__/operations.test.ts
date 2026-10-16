@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { cashDifference, closeNeedsNote, expectedCash } from '../cash';
-import { daysWorked, jobCommission, splitCommission } from '../commission';
+import { canMarkAttendance, daysWorked, jobCommission, noAbsences, splitCommission } from '../commission';
 import { checkReferral } from '../referrals';
 
 describe('cash close', () => {
@@ -46,6 +46,26 @@ describe('commission', () => {
 
   it('counts half days as half', () => {
     expect(daysWorked(['present', 'half', 'absent', 'present'])).toBe(2.5);
+  });
+});
+
+describe('attendance', () => {
+  it('lets the owner mark everyone and a manager mark staff, never themselves', () => {
+    expect(canMarkAttendance('owner', 'manager', false)).toBe(true);
+    expect(canMarkAttendance('owner', 'owner', false)).toBe(true);
+    expect(canMarkAttendance('owner', 'owner', true)).toBe(false);
+    expect(canMarkAttendance('manager', 'staff', false)).toBe(true);
+    expect(canMarkAttendance('manager', 'manager', false)).toBe(false);
+    expect(canMarkAttendance('manager', 'owner', false)).toBe(false);
+    expect(canMarkAttendance('manager', 'manager', true)).toBe(false);
+    expect(canMarkAttendance('staff', 'staff', false)).toBe(false);
+  });
+
+  it('spots a month with no absences or half days', () => {
+    expect(noAbsences(['present', 'present'])).toBe(true);
+    expect(noAbsences(['present', 'half'])).toBe(false);
+    expect(noAbsences(['present', 'absent'])).toBe(false);
+    expect(noAbsences([])).toBe(false);
   });
 });
 

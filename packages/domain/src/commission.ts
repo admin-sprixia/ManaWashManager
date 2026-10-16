@@ -5,6 +5,8 @@
  * earns nothing by itself; who washed is only recorded.
  */
 
+import type { UserRole } from './team';
+
 export type AttendanceStatus = 'present' | 'half' | 'absent';
 
 export const ATTENDANCE_STATUSES: readonly AttendanceStatus[] = ['present', 'half', 'absent'];
@@ -14,6 +16,24 @@ export const ATTENDANCE_LABEL: Record<AttendanceStatus, string> = {
   half: 'Half day',
   absent: 'Absent',
 };
+
+/**
+ * Who marks whose attendance: the owner marks everyone, a manager marks staff (the hub team they
+ * run). Nobody marks their own day.
+ */
+export function canMarkAttendance(actor: UserRole, target: UserRole, self: boolean): boolean {
+  if (self) return false;
+  if (actor === 'owner') return true;
+  return actor === 'manager' && target === 'staff';
+}
+
+/** Managers mark today and a forgotten yesterday; older days are the owner's to fix. */
+export const ATTENDANCE_MANAGER_DAYS = 1;
+
+/** A month with something marked and not a single absence or half day. */
+export function noAbsences(statuses: readonly AttendanceStatus[]): boolean {
+  return statuses.length > 0 && statuses.every((s) => s === 'present');
+}
 
 /** Days worked, counting a half day as 0.5. */
 export function daysWorked(statuses: readonly AttendanceStatus[]): number {

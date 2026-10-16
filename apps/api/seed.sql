@@ -7,7 +7,7 @@
 
 -- ─── Seed: MANA, the first shop on the platform ─────────────────────────────
 
-INSERT INTO shops (id, code, name, city) VALUES ('shop_mana', '482193', 'Mana Wash', 'Hyderabad');
+INSERT INTO shops (id, code, name, city) VALUES ('shop_mana', 'HYD-01', 'Mana Wash', 'Hyderabad');
 
 -- Listed in the Mana Wash app, washing within 8 km of the Kovur hub, plus two named areas
 -- for customers who don't share their location. Contact details and hours for the branch page.

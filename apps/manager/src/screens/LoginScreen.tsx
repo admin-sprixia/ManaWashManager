@@ -29,19 +29,17 @@ import {
   typography,
 } from '@mana/ui';
 import { PinPad } from '../components/PinPad';
-import { JoinShopFlow } from '../components/auth/JoinShopFlow';
 import { api } from '../api/client';
 import { NetworkError } from '../api/network';
 import { useAuth } from '../api/auth';
 import {
-  getJoinRequest,
   getLastShop,
   getLoginHints,
   setLoginHints,
   type SessionUser,
 } from '../api/session';
 
-type Step = 'phone' | 'pin' | 'forgot' | 'code' | 'join';
+type Step = 'phone' | 'pin' | 'forgot' | 'code';
 /** `device`: a new phone proves the number, then the PIN. `reset`: a forgotten PIN is cleared. */
 type CodePurpose = 'device' | 'reset';
 
@@ -83,7 +81,7 @@ function resetNotice(resetBy: { by: string; at: string }): string {
  * Day to day everyone signs in with phone + PIN on a phone their number trusts. A new phone is
  * confirmed once with a code sent on WhatsApp; a forgotten PIN is cleared the same way. A reset by
  * the owner or HQ never signs anyone in — the person still proves their number with a code. A
- * number with no account asks to join a branch with its branch ID; branches are opened by HQ.
+ * number on no team is told to ask their owner or manager, who add people from Team.
  */
 export function LoginScreen() {
   const { signIn, sessionNotice, setSignInNotice } = useAuth();
@@ -97,7 +95,6 @@ export function LoginScreen() {
   const [resendIn, setResendIn] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [hintsLoaded, setHintsLoaded] = useState(false);
-  const [resumeToken, setResumeToken] = useState<string | undefined>();
   const [codeBack, setCodeBack] = useState<Step>('phone');
   const [purpose, setPurpose] = useState<CodePurpose>('reset');
   const [info, setInfo] = useState<string | null>(null);
@@ -109,15 +106,10 @@ export function LoginScreen() {
     return () => clearTimeout(t);
   }, [resendIn]);
 
-  // A request to join a shop still waiting on the owner reopens its waiting screen. Otherwise, on a
-  // shared shop phone, jump straight to the PIN pad for whoever signed in last.
+  // On a shared shop phone, jump straight to the PIN pad for whoever signed in last.
   useEffect(() => {
-    void Promise.all([getJoinRequest(), getLoginHints()]).then(([request, hints]) => {
-      if (request) {
-        setPhone(request.phone);
-        setResumeToken(request.requestToken);
-        setStep('join');
-      } else if (hints.phone) {
+    void getLoginHints().then((hints) => {
+      if (hints.phone) {
         setPhone(hints.phone);
         setStep('pin');
       }
@@ -138,7 +130,7 @@ export function LoginScreen() {
 
   const accountError = (err?: string, message?: string) =>
     err === 'no_account'
-      ? `No team account for ${formatPhone(digits)}. Ask the owner to add you.`
+      ? (message ?? 'This number isn’t on a Mana Wash team yet. Ask your branch owner or manager to add you from Team.')
       : err === 'account_disabled'
         ? 'This account has been turned off. Ask the owner to re-enable it.'
         : err === 'branch_closed'
@@ -156,12 +148,6 @@ export function LoginScreen() {
     setInfo(null);
     setPin('');
     setCode('');
-  };
-
-  // A number with no account can only ask to join a branch with its branch ID.
-  const goToJoin = () => {
-    setResumeToken(undefined);
-    goTo('join');
   };
 
   const requestCode = async (why: CodePurpose = purpose) => {
@@ -197,11 +183,7 @@ export function LoginScreen() {
     try {
       const res = await api.auth.start.$post({ json: { phone: digits } });
       const body = (await res.json().catch(() => null)) as
-        (Omit<SignInBody, 'next'> & { next?: 'pin' | 'code' | 'verify_device' | 'new' }) | null;
-      if (body?.next === 'new') {
-        goToJoin();
-        return;
-      }
+        (Omit<SignInBody, 'next'> & { next?: 'pin' | 'code' | 'verify_device' }) | null;
       if (body?.next === 'code' || body?.next === 'verify_device') {
         setLoading(false);
         await requestCode(body.next === 'code' ? 'reset' : 'device');
@@ -301,19 +283,22 @@ export function LoginScreen() {
     if (value.length === 6) void verifyPin(value);
   };
 
-  // The remembered number may have lost its PIN since (a reset) or this phone may no longer be
-  // trusted: ask the server once, quietly, and move on to the WhatsApp code or joining a branch.
-  // Offline, stay on the pad.
+  // The remembered number may have lost its PIN since (a reset), this phone may no longer be
+  // trusted, or the number may have been taken off every team: ask the server once, quietly, and
+  // move on to the WhatsApp code, or back to the number with the reason. Offline, stay on the pad.
   useEffect(() => {
     if (!hintsLoaded || hintChecked.current || step !== 'pin' || !phoneOk) return;
     hintChecked.current = true;
     void api.auth.start
       .$post({ json: { phone: digits } })
-      .then((res) => res.json() as Promise<{ next?: string }>)
-      .then(({ next }) => {
+      .then((res) => res.json() as Promise<{ next?: string; error?: string; message?: string }>)
+      .then(({ next, error: err, message }) => {
         if (next === 'code') void requestCode('reset');
         else if (next === 'verify_device') void requestCode('device');
-        else if (next === 'new') goToJoin();
+        else if (err === 'no_account') {
+          goTo('phone');
+          setError(accountError(err, message));
+        }
       })
       .catch(() => undefined);
     // Runs once for the remembered number; requestCode/goTo are recreated every render.
@@ -337,13 +322,7 @@ export function LoginScreen() {
           subtitle: 'Use the mobile number your branch added you with.',
           tall: true,
         }
-      : step === 'join'
-            ? {
-                title: 'Join your branch',
-                subtitle: 'Your owner or manager approves you, then you’re in.',
-                phoneChip: resumeToken ? undefined : changeNumber,
-              }
-            : step === 'pin'
+      : step === 'pin'
               ? { title: 'Welcome back', subtitle: 'Enter your PIN to continue.', phoneChip: changeNumber }
               : step === 'forgot'
                 ? {
@@ -432,15 +411,6 @@ export function LoginScreen() {
                 <Text style={styles.trustText}>Your shop’s data stays private to your team.</Text>
               </View>
             </>
-          ) : step === 'join' ? (
-            <JoinShopFlow
-              phone={digits}
-              resumeToken={resumeToken}
-              onBack={() => {
-                setResumeToken(undefined);
-                goTo('phone');
-              }}
-            />
           ) : step === 'pin' ? (
             <>
               <View style={styles.pinWrap}>

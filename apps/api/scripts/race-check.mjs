@@ -85,12 +85,12 @@ if (!T1 || !T2) process.exit(1);
 
 const activeOwners = () =>
   rows(`SELECT COUNT(*) AS n FROM users WHERE shop_id = '${SHOP}' AND role = 'owner' AND active = 1`)[0]?.n;
-// Removal also clears the PIN; both owners use the same PIN, so the other's hash puts it back.
+// Removal also clears the PIN; both owners use the same PIN, so the other's hash (and its length) puts it back.
 const restoreOwners = () =>
   sql(
     `UPDATE users SET role = 'owner', active = 1, removed_at = NULL WHERE id IN ('${O1}', '${O2}');` +
-      `UPDATE users SET pin_hash = (SELECT pin_hash FROM users WHERE id = '${O2}') WHERE id = '${O1}' AND pin_hash IS NULL;` +
-      `UPDATE users SET pin_hash = (SELECT pin_hash FROM users WHERE id = '${O1}') WHERE id = '${O2}' AND pin_hash IS NULL;`,
+      `UPDATE users SET pin_hash = (SELECT pin_hash FROM users WHERE id = '${O2}'), pin_digits = ${PIN.length} WHERE id = '${O1}' AND pin_hash IS NULL;` +
+      `UPDATE users SET pin_hash = (SELECT pin_hash FROM users WHERE id = '${O1}'), pin_digits = ${PIN.length} WHERE id = '${O2}' AND pin_hash IS NULL;`,
   );
 
 // ─── Team: the shop always keeps an owner ─────────────────────────────────
@@ -151,35 +151,7 @@ check(
   `${pair.map(show).join(' | ')} rows=${withNumber(founderPhone)}`,
 );
 
-// Two owners approve the same join request at once.
-const joinPhone = `98${rand(8)}`;
-await call(null, 'POST', '/signup/code', { phone: joinPhone, purpose: 'join' });
-const joinTicket = (await call(null, 'POST', '/signup/verify', { phone: joinPhone, purpose: 'join', code: DEV_CODE })).body?.ticket;
-let r = await call(null, 'POST', '/signup/join', { ticket: joinTicket, shopCode: SHOP_CODE, name: 'New Joiner' });
-check('A new person asks to join', r.status === 201, show(r));
-const requestId = (await call(A, 'GET', '/team/requests')).body?.find?.((x) => x.phone === joinPhone)?.id;
-pair = await Promise.all([
-  call(A, 'POST', `/team/requests/${requestId}/approve`),
-  call(B, 'POST', `/team/requests/${requestId}/approve`),
-]);
-check(
-  'Two owners approve the same request at once: one teammate, both owners get a clean answer',
-  withNumber(joinPhone) === 1 && pair.every((x) => x.status === 200) && pair[0].body?.id === pair[1].body?.id,
-  `${pair.map(show).join(' | ')} rows=${withNumber(joinPhone)}`,
-);
-
-// A stray row on this number with a different PIN (not made through the app, which copies the
-// person's PIN onto every branch they join) can't be reached by switching.
-const STRAY = `shop_stray_${run}`;
-sql(
-  `INSERT INTO shops (id, code, name) VALUES ('${STRAY}', '${rand(6)}', 'Stray Shop');` +
-    `INSERT INTO users (id, shop_id, name, phone, role, pin_hash) VALUES ('user_stray_${run}', '${STRAY}', 'Stray', '${o1Phone}', 'owner', 'not-their-pin');`,
-);
-r = await call(A, 'POST', '/auth/switch', { shopId: STRAY });
-check('Switching to a shop where the number isn’t the same owner is refused', r.status === 404, show(r));
-r = await call(A, 'GET', '/auth/shops');
-check('…and that shop isn’t listed as theirs', r.status === 200 && !r.body?.shops?.some((s) => s.shopId === STRAY), show(r));
-sql(`DELETE FROM users WHERE id = 'user_stray_${run}'; DELETE FROM shops WHERE id = '${STRAY}';`);
+let r;
 
 // ─── Washes ───────────────────────────────────────────────────────────────
 
@@ -315,11 +287,14 @@ check('Two people use the last litre at once: the shelf ends at zero, not minus'
 
 // ─── Saves that create a row the first time ───────────────────────────────
 
+// Nobody marks their own day, so both owners mark a washer.
+const WASHER = `user_race_w_${run}`;
+sql(`INSERT INTO users (id, shop_id, name, phone, role) VALUES ('${WASHER}', '${SHOP}', 'Race Washer', '93${rand(8)}', 'staff');`);
 pair = await Promise.all([
-  call(A, 'PUT', '/attendance', { userId: O1, date: today, status: 'present' }),
-  call(B, 'PUT', '/attendance', { userId: O1, date: today, status: 'half' }),
+  call(A, 'PUT', '/attendance', { userId: WASHER, date: today, status: 'present' }),
+  call(B, 'PUT', '/attendance', { userId: WASHER, date: today, status: 'half' }),
 ]);
-const marks = rows(`SELECT COUNT(*) AS n FROM attendance WHERE user_id = '${O1}' AND date = '${today}'`)[0]?.n;
+const marks = rows(`SELECT COUNT(*) AS n FROM attendance WHERE user_id = '${WASHER}' AND date = '${today}'`)[0]?.n;
 check('Two owners mark the same person at once: one mark, no error', marks === 1 && pair.every((x) => x.status === 200), `${pair.map(show).join(' | ')} rows=${marks}`);
 
 pair = await Promise.all([
@@ -378,7 +353,7 @@ check('…the phone that moved stays signed in', r.status === 200 && r.body?.pho
 r = await call(null, 'POST', '/auth/start', { phone: movedPhone });
 check('…and is trusted for the new number (straight to the PIN)', r.status === 200 && r.body?.next === 'pin', show(r));
 r = await call(null, 'POST', '/auth/start', { phone: o2Phone });
-check('…while the old number is no longer an account', r.status === 200 && r.body?.next === 'new', show(r));
+check('…while the old number is no longer an account', r.status === 404 && r.body?.error === 'no_account', show(r));
 const hqNumbers = rows(`SELECT phone FROM business_admins WHERE phone IN ('${o2Phone}', '${movedPhone}')`).map((x) => x.phone);
 check(
   '…and HQ moves with them (the old number, which the telco may give someone else, isn’t HQ any more)',
@@ -399,7 +374,7 @@ const founderShop = rows(`SELECT shop_id FROM users WHERE phone = '${founderPhon
 const tables = [
   'job_photos', 'stock_moves', 'stock_items', 'cash_day_closes', 'cash_days', 'attendance', 'app_settings',
   'referrals', 'coupons', 'job_events', 'job_services', 'job_sellers', 'job_washers', 'jobs', 'vehicles',
-  'customers', 'join_requests', 'login_codes', 'service_prices', 'services', 'vehicle_types', 'users',
+  'customers', 'login_codes', 'service_prices', 'services', 'vehicle_types', 'users',
 ];
 for (const shop of [SHOP, founderShop].filter(Boolean)) {
   try {

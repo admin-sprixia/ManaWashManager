@@ -8,7 +8,7 @@ import { payableFirstWash, placeFail, shopContext } from './placeShared';
 /**
  * Customer payments for plans and place washes: Razorpay only (or the local test checkout). One
  * row per attempt to pay one part; money rows are never edited, a refund adds to `refunded`.
- * Receipt numbers (MCW-<branch code>/<FY>/<n>) are taken in the same batch that marks the payment
+ * Receipt numbers (MW-<branch code>/<FY>/<n>, e.g. MW-KVR-01/26-27/00001) are taken in the same batch that marks the payment
  * paid, so they never skip or repeat.
  */
 
@@ -147,7 +147,7 @@ export const paymentRepo = {
     if (payment.status === 'paid') return { result: 'already', shopId, orderId: payment.orderId, orderStatus: order?.status ?? null };
     const { shop, rules } = await shopContext(pdb, shopId);
     const fy = financialYear(istDay(data.now));
-    const prefix = `MCW-${shop.code}/${fy}/`;
+    const prefix = `MW-${shop.code}/${fy}/`;
     const firstWashOn = order ? payableFirstWash(order, parseWashDays(order.member.place.washDays), rules, data.now) : null;
     const iso = data.now.toISOString();
     const unpaid = `EXISTS (SELECT 1 FROM customer_payments WHERE id = ? AND status != 'paid')`;

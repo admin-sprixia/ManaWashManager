@@ -12,10 +12,12 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import LinearGradient from 'react-native-linear-gradient';
+import Svg, { Circle, G, Path } from 'react-native-svg';
 import {
   ScreenContainer,
   ScreenHeader,
   BottomSheet,
+  BRAND_MARK,
   IconAlert,
   IconBan,
   IconCalendar,
@@ -31,13 +33,15 @@ import {
   IconTag,
   IconUserPlus,
   IconUsers,
+  brandGradients,
   colors,
-  gradients,
   radius,
+  shadow,
   spacing,
   typography,
 } from '@mana/ui';
 import { api } from '../api/client';
+import { useAuth } from '../api/auth';
 import { formatRupees } from '../utils/format';
 import { shareReportPdf } from '../utils/shareReportPdf';
 import type { ReportExportPayload } from '../utils/reportPdf';
@@ -89,12 +93,18 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 
 const PAY_COLORS = { cash: colors.teal, upi: colors.water, other: colors.slate } as const;
 
+const STARS = [
+  [24, 26, 1.2, 0.5],
+  [88, 12, 0.9, 0.4],
+  [150, 40, 1.1, 0.3],
+  [214, 18, 1.2, 0.45],
+  [40, 86, 0.8, 0.3],
+  [190, 96, 1, 0.3],
+] as const;
+
+/** Today's IST calendar date (matches API report windows), not the phone's local TZ. */
 function todayIso(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 }
 
 function isIsoDate(value: string): boolean {
@@ -112,7 +122,9 @@ function pct(part: number, total: number): number {
 }
 
 export function ReportsScreen({ navigation }: ReportsScreenProps) {
-  const { rewardsOn } = useShop();
+  const { user } = useAuth();
+  const { rewardsOn, info } = useShop();
+  const shopName = info?.name?.trim() || 'Your shop';
   const [rewardsReport, setRewardsReport] = useState<RewardsReport | null>(null);
   const [range, setRange] = useState<Range>('today');
   const [periodOpen, setPeriodOpen] = useState(false);
@@ -149,7 +161,6 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
     setError(null);
     setForbidden(false);
     try {
-      // Rewards are optional: their report never holds up or fails the main one.
       const rewardsCall = api.rewards.report
         .$get({ query })
         .then(async (r) => (r.ok ? ((await r.json()) as RewardsReport) : null))
@@ -229,7 +240,30 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
       if (res.status === 403) throw new Error('Only the owner can export reports.');
       if (!res.ok) throw new Error(`Could not export (${res.status}).`);
       const payload = (await res.json()) as ReportExportPayload;
-      await shareReportPdf(payload);
+      await shareReportPdf(payload, {
+        name: payload.shop?.name ?? info?.name ?? shopName,
+        city: payload.shop?.city ?? info?.city,
+        code: payload.shop?.code ?? info?.code,
+        generatedBy: user
+          ? { name: user.name, phone: user.phone, role: user.role }
+          : null,
+        rewards:
+          payload.rewards ??
+          (rewardsReport
+            ? {
+                freeWashes: rewardsReport.freeWashes,
+                freeValue: rewardsReport.freeValue,
+                giftsGiven: rewardsReport.giftsGiven,
+                giftsOwedNow: rewardsReport.giftsOwedNow,
+                gifts: rewardsReport.gifts.map((g) => ({
+                  name: g.name,
+                  label: g.label,
+                  unit: g.unit,
+                  quantity: g.quantity,
+                })),
+              }
+            : null),
+      });
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Could not export PDF.';
       if (!/cancel|dismiss/i.test(message)) setError(message);
@@ -252,6 +286,8 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
 
   const exportDisabled = exporting || forbidden || !stats;
   const totalCustomers = stats ? stats.newCustomers + stats.repeatCustomers : 0;
+  const g = brandGradients.hero;
+  const profitTone = stats && stats.net < 0;
 
   return (
     <ScreenContainer noPadding>
@@ -268,10 +304,10 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
               accessibilityLabel="Export PDF"
             >
               {exporting ? (
-                <ActivityIndicator color={colors.waterDeep} size="small" />
+                <ActivityIndicator color={colors.indigo} size="small" />
               ) : (
                 <>
-                  <IconDownload size={15} color={colors.waterDeep} />
+                  <IconDownload size={15} color={colors.indigo} />
                   <Text style={styles.exportPillText}>PDF</Text>
                 </>
               )}
@@ -286,10 +322,14 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={colors.water} colors={[colors.water]} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => void refresh()}
+            tintColor={colors.indigo}
+            colors={[colors.indigo]}
+          />
         }
       >
-        {/* Period dropdown */}
         <Pressable
           onPress={() => setPeriodOpen(true)}
           style={({ pressed }) => [styles.period, pressed && styles.pressed]}
@@ -297,7 +337,7 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
           accessibilityLabel={`Period: ${selectedPeriod.label}`}
         >
           <View style={styles.periodIcon}>
-            <IconCalendar size={18} color={colors.waterDeep} />
+            <IconCalendar size={18} color={colors.indigo} />
           </View>
           <View style={styles.flex}>
             <Text style={styles.periodLabel}>{selectedPeriod.label}</Text>
@@ -306,13 +346,13 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
             </Text>
           </View>
           <View style={styles.periodChevron}>
-            <IconChevronDown size={16} color={colors.waterDeep} />
+            <IconChevronDown size={16} color={colors.indigo} />
           </View>
         </Pressable>
 
         {range === 'custom' ? (
-          <View style={[styles.card]}>
-            <Text style={styles.overline}>CUSTOM DATES</Text>
+          <View style={styles.bandPad}>
+            <Text style={styles.sectionTitle}>Custom dates</Text>
             <View style={styles.customFields}>
               <View style={styles.customField}>
                 <Text style={styles.customLabel}>From</Text>
@@ -363,61 +403,99 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
         ) : null}
 
         {forbidden ? (
-          <View style={[styles.card, styles.emptyCard]}>
-            <View style={[styles.emptyIcon, { backgroundColor: colors.waterPale }]}>
-              <IconBan size={22} color={colors.waterDeep} />
+          <View style={styles.emptyBand}>
+            <View style={[styles.emptyIcon, { backgroundColor: colors.indigoPale }]}>
+              <IconBan size={22} color={colors.indigo} />
             </View>
             <Text style={styles.emptyTitle}>Owner only</Text>
             <Text style={styles.emptyText}>Reports are only visible to the shop owner.</Text>
           </View>
         ) : stats ? (
           <>
-            {/* Revenue hero */}
             <LinearGradient
-              colors={gradients.hero as unknown as string[]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0.9, y: 1 }}
-              style={[styles.hero]}
+              colors={g.colors as unknown as string[]}
+              locations={g.locations as unknown as number[]}
+              start={g.start}
+              end={g.end}
+              style={[styles.hero, shadow('md')]}
             >
-              <View pointerEvents="none" style={styles.orbLarge} />
-              <View pointerEvents="none" style={styles.orbSmall} />
+              <Svg
+                style={StyleSheet.absoluteFill}
+                width="100%"
+                height="100%"
+                viewBox="0 0 340 220"
+                preserveAspectRatio="xMidYMid slice"
+              >
+                {STARS.map(([x, y, r, o]) => (
+                  <Circle key={`${x}-${y}`} cx={x} cy={y} r={r} fill="#FFFFFF" fillOpacity={o} />
+                ))}
+              </Svg>
+              <Svg style={styles.heroMark} width={150} height={150} viewBox="0 0 256 256">
+                <G>
+                  <Path d={BRAND_MARK.drop} fill="#FFFFFF" fillOpacity={0.07} />
+                  <Path d={BRAND_MARK.arms} fill="#FFFFFF" fillOpacity={0.1} />
+                  <Path d={BRAND_MARK.centre} fill="#FFFFFF" fillOpacity={0.15} />
+                </G>
+              </Svg>
+
               <View style={styles.heroTop}>
-                <Text style={styles.heroEyebrow}>Revenue</Text>
+                <View style={styles.flex}>
+                  <Text style={styles.heroEyebrow}>Business report</Text>
+                  <Text style={styles.heroShop} numberOfLines={1}>
+                    {shopName}
+                  </Text>
+                </View>
                 {loading ? <ActivityIndicator color={colors.white} size="small" /> : null}
               </View>
-              <Text style={styles.heroValue}>{formatRupees(stats.revenue)}</Text>
+
+              <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit>
+                {formatRupees(stats.revenue)}
+              </Text>
               <Text style={styles.heroMeta}>
-                {stats.carsWashed} wash{stats.carsWashed === 1 ? '' : 'es'}
-                {stats.carsWashed > 0 ? `  ·  ${formatRupees(avgTicket)} per vehicle` : ''}
+                Revenue · {stats.carsWashed} wash{stats.carsWashed === 1 ? '' : 'es'}
+                {stats.carsWashed > 0 ? ` · ${formatRupees(avgTicket)} avg` : ''}
               </Text>
               {stats.planIncome ? (
                 <Text style={styles.heroMeta}>+ {formatRupees(stats.planIncome)} from community plans</Text>
               ) : null}
-              <View style={styles.heroSplit}>
+
+              <View style={styles.heroChips}>
                 <Pressable
                   onPress={openExpenses}
-                  style={({ pressed }) => [styles.heroTile, pressed && styles.pressed]}
+                  style={({ pressed }) => [styles.heroChip, pressed && styles.pressed]}
                   accessibilityRole="button"
                   accessibilityLabel="Open expenses"
                 >
-                  <Text style={styles.heroTileLabel}>Expenses ›</Text>
-                  <Text style={styles.heroTileValue}>{formatRupees(stats.expenses)}</Text>
+                  <Text style={styles.heroChipLabel}>Expenses</Text>
+                  <Text style={styles.heroChipValue} numberOfLines={1} adjustsFontSizeToFit>
+                    {formatRupees(stats.expenses)}
+                  </Text>
                 </Pressable>
-                <View style={[styles.heroTile, styles.heroTileStrong]}>
-                  <Text style={[styles.heroTileLabel, styles.heroTileLabelStrong]}>Net profit</Text>
-                  <Text style={[styles.heroTileValue, styles.heroTileValueStrong, stats.net < 0 && styles.negative]}>
+                <View style={styles.heroChip}>
+                  <Text style={styles.heroChipLabel}>Net profit</Text>
+                  <Text
+                    style={[styles.heroChipValue, profitTone && styles.heroChipNeg]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                  >
                     {formatRupees(stats.net)}
+                  </Text>
+                </View>
+                <View style={styles.heroChip}>
+                  <Text style={styles.heroChipLabel}>Period</Text>
+                  <Text style={styles.heroChipValue} numberOfLines={1}>
+                    {selectedPeriod.label}
                   </Text>
                 </View>
               </View>
             </LinearGradient>
 
-            {/* Quick numbers */}
+            <Text style={styles.sectionTitle}>At a glance</Text>
             <View style={styles.grid}>
               <StatTile
                 index={0}
-                icon={<IconCar size={18} color={colors.waterDeep} />}
-                tint={colors.waterPale}
+                icon={<IconCar size={18} color={colors.indigo} />}
+                tint={colors.indigoPale}
                 value={String(stats.carsWashed)}
                 label="Vehicles washed"
               />
@@ -439,44 +517,45 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
               />
               <StatTile
                 index={3}
-                icon={<IconUsers size={18} color="#6D28D9" />}
-                tint="#EDE9FE"
+                icon={<IconUsers size={18} color={colors.indigo} />}
+                tint={colors.indigoPale}
                 value={String(stats.repeatCustomers)}
                 label="Repeat customers"
                 hint={totalCustomers > 0 ? `${pct(stats.repeatCustomers, totalCustomers)}% came back` : 'Came back'}
               />
             </View>
 
-            {/* How money came in */}
-            <View style={[styles.card]}>
-              <View style={styles.cardHeadRow}>
-                <Text style={styles.cardTitle}>How money came in</Text>
-                <Text style={styles.cardMeta}>{formatRupees(stats.revenue)}</Text>
+            <Text style={styles.sectionTitle}>How money came in</Text>
+            <View style={styles.band}>
+              <View style={styles.bandInner}>
+                <View style={styles.cardHeadRow}>
+                  <Text style={styles.cardTitle}>Payments</Text>
+                  <Text style={styles.cardMeta}>{formatRupees(stats.revenue)}</Text>
+                </View>
+                {stats.revenue === 0 ? (
+                  <Text style={styles.emptyInline}>No payments collected in this period.</Text>
+                ) : (
+                  <>
+                    <View style={styles.stackBar}>
+                      {(['cash', 'upi', 'other'] as const).map((k) =>
+                        stats[k] > 0 ? (
+                          <View key={k} style={{ flex: stats[k], backgroundColor: PAY_COLORS[k] }} />
+                        ) : null,
+                      )}
+                    </View>
+                    <PayRow label="Cash" amount={stats.cash} total={stats.revenue} color={PAY_COLORS.cash} />
+                    <PayRow label="UPI" amount={stats.upi} total={stats.revenue} color={PAY_COLORS.upi} />
+                    {stats.other > 0 ? (
+                      <PayRow label="Other" amount={stats.other} total={stats.revenue} color={PAY_COLORS.other} />
+                    ) : null}
+                  </>
+                )}
               </View>
-              {stats.revenue === 0 ? (
-                <Text style={styles.emptyInline}>No payments collected in this period.</Text>
-              ) : (
-                <>
-                  <View style={styles.stackBar}>
-                    {(['cash', 'upi', 'other'] as const).map((k) =>
-                      stats[k] > 0 ? (
-                        <View key={k} style={{ flex: stats[k], backgroundColor: PAY_COLORS[k] }} />
-                      ) : null,
-                    )}
-                  </View>
-                  <PayRow label="Cash" amount={stats.cash} total={stats.revenue} color={PAY_COLORS.cash} />
-                  <PayRow label="UPI" amount={stats.upi} total={stats.revenue} color={PAY_COLORS.upi} />
-                  {stats.other > 0 ? (
-                    <PayRow label="Other" amount={stats.other} total={stats.revenue} color={PAY_COLORS.other} />
-                  ) : null}
-                </>
-              )}
             </View>
 
-            {/* Profit breakdown */}
-            <View style={[styles.card]}>
-              <Text style={styles.cardTitle}>Profit</Text>
-              <View>
+            <Text style={styles.sectionTitle}>Profit</Text>
+            <View style={styles.band}>
+              <View style={styles.bandInner}>
                 <LineRow label="Revenue" hint="Washes paid in this period" value={formatRupees(stats.revenue)} />
                 {stats.planIncome ? (
                   <LineRow
@@ -493,42 +572,39 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
                   onPress={openExpenses}
                   last
                 />
-              </View>
-              <View style={[styles.netRow, stats.net < 0 && styles.netRowNegative]}>
-                <View style={styles.flex}>
-                  <Text style={styles.netLabel}>Net</Text>
-                  <Text style={styles.netHint}>
-                    {stats.planIncome ? 'Revenue and plans, minus expenses' : 'Revenue minus expenses'}
-                  </Text>
+                <View style={[styles.netRow, profitTone && styles.netRowNegative]}>
+                  <View style={styles.flex}>
+                    <Text style={styles.netLabel}>Net</Text>
+                    <Text style={styles.netHint}>
+                      {stats.planIncome ? 'Revenue and plans, minus expenses' : 'Revenue minus expenses'}
+                    </Text>
+                  </View>
+                  <Text style={[styles.netValue, profitTone && styles.minus]}>{formatRupees(stats.net)}</Text>
                 </View>
-                <Text style={[styles.netValue, stats.net < 0 && styles.minus]}>{formatRupees(stats.net)}</Text>
               </View>
             </View>
 
-            {/* Other details */}
-            <View style={[styles.card]}>
-              <Text style={styles.cardTitle}>More details</Text>
-              <View>
-                <DetailRow
-                  icon={<IconReceipt size={16} color={colors.waterDeep} />}
-                  tint={colors.waterPale}
-                  label="Average per vehicle"
-                  value={stats.carsWashed > 0 ? formatRupees(avgTicket) : '—'}
-                />
-                <DetailRow
-                  icon={<IconTag size={16} color={colors.amberDeep} />}
-                  tint="#FEF3C7"
-                  label="Discounts given"
-                  value={stats.discounts > 0 ? formatRupees(stats.discounts) : '—'}
-                />
-                <DetailRow
-                  icon={<IconBan size={16} color={colors.slateDeep} />}
-                  tint="#F1F5F9"
-                  label="Cancelled jobs"
-                  value={String(stats.voided)}
-                  last
-                />
-              </View>
+            <Text style={styles.sectionTitle}>More details</Text>
+            <View style={styles.band}>
+              <DetailRow
+                icon={<IconReceipt size={16} color={colors.indigo} />}
+                tint={colors.indigoPale}
+                label="Average per vehicle"
+                value={stats.carsWashed > 0 ? formatRupees(avgTicket) : '—'}
+              />
+              <DetailRow
+                icon={<IconTag size={16} color={colors.amberDeep} />}
+                tint="#FEF3C7"
+                label="Discounts given"
+                value={stats.discounts > 0 ? formatRupees(stats.discounts) : '—'}
+              />
+              <DetailRow
+                icon={<IconBan size={16} color={colors.slateDeep} />}
+                tint="#F1F5F9"
+                label="Cancelled jobs"
+                value={String(stats.voided)}
+                last
+              />
             </View>
 
             {rewardsReport &&
@@ -536,14 +612,14 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
               rewardsReport.freeWashes > 0 ||
               rewardsReport.giftsGiven > 0 ||
               rewardsReport.giftsOwedNow > 0) ? (
-              <View style={[styles.card]}>
-                <View style={styles.cardHeadRow}>
-                  <Text style={styles.cardTitle}>Rewards</Text>
+              <>
+                <View style={styles.sectionHead}>
+                  <Text style={styles.sectionTitle}>Rewards</Text>
                   <Pressable onPress={() => navigation.navigate('Rewards')} hitSlop={8} accessibilityRole="button">
                     <Text style={styles.cardLink}>Set up ›</Text>
                   </Pressable>
                 </View>
-                <View>
+                <View style={styles.band}>
                   <DetailRow
                     icon={<IconStar size={16} color={colors.amberDeep} />}
                     tint="#FEF3C7"
@@ -569,30 +645,33 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
                     value={String(rewardsReport.giftsOwedNow)}
                     last
                   />
-                </View>
-                {rewardsReport.gifts.length > 0 ? (
+                  {rewardsReport.gifts.length > 0 ? (
+                    <Text style={styles.cardFoot}>
+                      Handed over:{' '}
+                      {rewardsReport.gifts
+                        .map((g) => (g.unit === 'pcs' ? `${g.name} × ${g.quantity}` : `${g.name} ${g.label}`))
+                        .join(' · ')}
+                    </Text>
+                  ) : null}
                   <Text style={styles.cardFoot}>
-                    Handed over:{' '}
-                    {rewardsReport.gifts
-                      .map((g) => (g.unit === 'pcs' ? `${g.name} × ${g.quantity}` : `${g.name} ${g.label}`))
-                      .join(' · ')}
+                    Free washes are already inside “Discounts given”. Staff still earn their commission on them.
                   </Text>
-                ) : null}
-                <Text style={styles.cardFoot}>
-                  Free washes are already inside “Discounts given”. Staff still earn their commission on them.
-                </Text>
-              </View>
+                </View>
+              </>
             ) : null}
 
-            {/* Export */}
-            <View style={[styles.card]}>
+            <Text style={styles.sectionTitle}>Share</Text>
+            <View style={styles.band}>
               <View style={styles.exportHead}>
-                <View style={[styles.emptyIcon, styles.exportIcon]}>
+                <View style={styles.exportIcon}>
                   <IconDownload size={20} color={colors.white} />
                 </View>
                 <View style={styles.flex}>
-                  <Text style={styles.cardTitle}>Share a PDF report</Text>
-                  <Text style={styles.exportHint}>Summary, payment split and every job in this period.</Text>
+                  <Text style={styles.cardTitle}>PDF report</Text>
+                  <Text style={styles.exportHint}>
+                    Cover, GST, expenses, day-by-day, peak hours, staff, stock and the full job ledger for{' '}
+                    {shopName}.
+                  </Text>
                 </View>
               </View>
               <Pressable
@@ -609,11 +688,11 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
             </View>
           </>
         ) : loading ? (
-          <ActivityIndicator color={colors.water} size="large" style={styles.loader} />
+          <ActivityIndicator color={colors.indigo} size="large" style={styles.loader} />
         ) : (
-          <View style={[styles.card, styles.emptyCard]}>
-            <View style={[styles.emptyIcon, { backgroundColor: colors.waterPale }]}>
-              <IconCalendar size={22} color={colors.waterDeep} />
+          <View style={styles.emptyBand}>
+            <View style={[styles.emptyIcon, { backgroundColor: colors.indigoPale }]}>
+              <IconCalendar size={22} color={colors.indigo} />
             </View>
             <Text style={styles.emptyTitle}>{range === 'custom' ? 'Pick your dates' : 'No data yet'}</Text>
             <Text style={styles.emptyText}>
@@ -671,7 +750,6 @@ function StatTile({
   value: string;
   label: string;
   hint?: string;
-  /** Position in the 2-column grid, for the hairline dividers. */
   index: number;
 }) {
   return (
@@ -747,7 +825,7 @@ function DetailRow({
   last?: boolean;
 }) {
   return (
-    <View style={[styles.lineRow, !last && styles.lineDivider]}>
+    <View style={[styles.detailRow, !last && styles.lineDivider]}>
       <View style={[styles.detailIcon, { backgroundColor: tint }]}>{icon}</View>
       <Text style={[styles.lineLabel, styles.flex]}>{label}</Text>
       <Text style={styles.lineValue}>{value}</Text>
@@ -760,8 +838,9 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.75 },
   disabled: { opacity: 0.45 },
   headerPad: { paddingHorizontal: spacing.md },
-  scroll: { paddingTop: spacing.xs, paddingBottom: spacing.xxl, gap: spacing.md },
+  scroll: { paddingBottom: spacing.xxl, gap: spacing.md },
   loader: { marginTop: spacing.xxl },
+
   exportPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -771,9 +850,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 12,
     borderRadius: radius.pill,
-    backgroundColor: colors.waterPale,
+    backgroundColor: colors.indigoPale,
   },
-  exportPillText: { ...typography.label, fontSize: 13, color: colors.waterDeep, fontWeight: '700' },
+  exportPillText: { ...typography.label, fontSize: 13, color: colors.indigo, fontWeight: '700' },
+
   period: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -788,8 +868,8 @@ const styles = StyleSheet.create({
   periodIcon: {
     width: 40,
     height: 40,
-    borderRadius: 13,
-    backgroundColor: colors.waterPale,
+    borderRadius: 20,
+    backgroundColor: colors.indigoPale,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -803,28 +883,53 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  card: {
+
+  bandPad: { paddingHorizontal: spacing.md, gap: spacing.sm },
+  band: {
     backgroundColor: colors.white,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    gap: spacing.md,
   },
+  bandInner: { paddingHorizontal: spacing.md, paddingVertical: spacing.md, gap: spacing.md },
+
+  sectionTitle: {
+    ...typography.heading,
+    fontSize: 16,
+    color: colors.ink,
+    letterSpacing: -0.2,
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.xs,
+  },
+  sectionHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingRight: spacing.md,
+  },
+
   overline: { ...typography.caption, fontSize: 11, color: colors.slate, fontWeight: '800', letterSpacing: 1 },
   cardHeadRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
-  cardTitle: { ...typography.heading, fontSize: 18, color: colors.waterInk, letterSpacing: -0.2 },
+  cardTitle: { ...typography.heading, fontSize: 17, color: colors.waterInk, letterSpacing: -0.2 },
   cardMeta: { ...typography.label, fontSize: 14, color: colors.slateDeep },
-  cardLink: { ...typography.label, fontSize: 14, color: colors.water },
-  cardFoot: { ...typography.caption, fontSize: 12.5, lineHeight: 18, color: colors.slateDeep, letterSpacing: 0, marginTop: spacing.sm },
+  cardLink: { ...typography.label, fontSize: 14, color: colors.indigo, fontWeight: '700' },
+  cardFoot: {
+    ...typography.caption,
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: colors.slateDeep,
+    letterSpacing: 0,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+  },
+
   customFields: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm },
   customField: { flex: 1, gap: 6 },
   customLabel: { ...typography.caption, fontSize: 12, color: colors.slateDeep, fontWeight: '700', letterSpacing: 0 },
   customInput: {
     height: 46,
     borderRadius: radius.md,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: colors.border,
     paddingHorizontal: spacing.sm + 4,
@@ -836,11 +941,12 @@ const styles = StyleSheet.create({
   applyBtn: {
     height: 46,
     borderRadius: radius.pill,
-    backgroundColor: colors.waterInk,
+    backgroundColor: colors.indigo,
     alignItems: 'center',
     justifyContent: 'center',
   },
   applyBtnText: { ...typography.bodyStrong, fontSize: 15, color: colors.white, fontWeight: '700' },
+
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -861,52 +967,52 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   retryText: { ...typography.caption, fontSize: 12.5, color: colors.white, fontWeight: '700', letterSpacing: 0 },
+
   hero: {
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.md + 4,
+    marginHorizontal: spacing.md,
+    borderRadius: radius.xl,
+    padding: spacing.md + 2,
+    gap: 4,
     overflow: 'hidden',
   },
-  orbLarge: {
-    position: 'absolute',
-    width: 220,
-    height: 220,
-    borderRadius: 110,
+  heroMark: { position: 'absolute', right: -22, top: -14 },
+  heroTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.sm },
+  heroEyebrow: { ...typography.label, fontSize: 13, color: 'rgba(255,255,255,0.75)' },
+  heroShop: {
+    ...typography.bodyStrong,
+    fontSize: 15,
+    color: colors.white,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  heroValue: {
+    ...typography.display,
+    fontSize: 40,
+    color: colors.white,
+    letterSpacing: -1,
+    marginTop: 4,
+  },
+  heroMeta: { ...typography.label, fontSize: 13.5, color: 'rgba(255,255,255,0.9)', lineHeight: 18 },
+  heroChips: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
+  heroChip: {
+    flex: 1,
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: 8,
+    borderRadius: 14,
     backgroundColor: 'rgba(255,255,255,0.12)',
-    top: -80,
-    right: -60,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    gap: 2,
   },
-  orbSmall: {
-    position: 'absolute',
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: 'rgba(94,234,212,0.18)',
-    bottom: -40,
-    left: -30,
+  heroChipLabel: {
+    ...typography.caption,
+    fontSize: 10.5,
+    color: 'rgba(255,255,255,0.72)',
+    letterSpacing: 0.2,
   },
-  heroTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  heroEyebrow: { ...typography.label, fontSize: 14, color: 'rgba(255,255,255,0.88)' },
-  heroValue: { ...typography.display, fontSize: 44, color: colors.white, letterSpacing: -1, marginTop: 2 },
-  heroMeta: { ...typography.label, fontSize: 13.5, color: 'rgba(255,255,255,0.9)' },
-  heroSplit: {
-    flexDirection: 'row',
-    marginTop: spacing.md + 4,
-    paddingTop: spacing.md,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255,255,255,0.45)',
-  },
-  heroTile: { flex: 1, gap: 2 },
-  heroTileStrong: {
-    paddingLeft: spacing.md,
-    borderLeftWidth: StyleSheet.hairlineWidth,
-    borderLeftColor: 'rgba(255,255,255,0.45)',
-  },
-  heroTileLabel: { ...typography.caption, fontSize: 12, color: 'rgba(255,255,255,0.85)', fontWeight: '700', letterSpacing: 0 },
-  heroTileLabelStrong: {},
-  heroTileValue: { ...typography.heading, fontSize: 21, color: colors.white },
-  heroTileValueStrong: { fontSize: 21 },
-  negative: { color: '#FECACA' },
+  heroChipValue: { ...typography.bodyStrong, fontSize: 14.5, color: colors.white, fontWeight: '800' },
+  heroChipNeg: { color: '#FECACA' },
+
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -915,18 +1021,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
   },
-  tile: {
-    width: '50%',
-    padding: spacing.md,
-    gap: 2,
-    borderColor: colors.border,
-  },
+  tile: { width: '50%', padding: spacing.md, gap: 2, borderColor: colors.border },
   tileRight: { borderLeftWidth: StyleSheet.hairlineWidth },
   tileBottom: { borderTopWidth: StyleSheet.hairlineWidth },
   tileIcon: {
     width: 36,
     height: 36,
-    borderRadius: 12,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.sm,
@@ -934,6 +1035,7 @@ const styles = StyleSheet.create({
   tileValue: { ...typography.title, fontSize: 28, color: colors.waterInk, letterSpacing: -0.5 },
   tileLabel: { ...typography.bodyStrong, fontSize: 14, color: colors.waterInk },
   tileHint: { ...typography.caption, fontSize: 12, color: colors.slate, letterSpacing: 0 },
+
   stackBar: {
     flexDirection: 'row',
     height: 12,
@@ -957,9 +1059,29 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     overflow: 'hidden',
   },
-  payAmount: { ...typography.bodyStrong, fontSize: 15, color: colors.waterInk, fontWeight: '700', minWidth: 72, textAlign: 'right' },
+  payAmount: {
+    ...typography.bodyStrong,
+    fontSize: 15,
+    color: colors.waterInk,
+    fontWeight: '700',
+    minWidth: 72,
+    textAlign: 'right',
+  },
   emptyInline: { ...typography.body, fontSize: 14, color: colors.slateDeep },
-  lineRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm + 2, paddingVertical: spacing.sm + 4 },
+
+  lineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm + 2,
+    paddingVertical: spacing.sm + 4,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm + 2,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 6,
+  },
   lineDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   lineLabel: { ...typography.bodyStrong, fontSize: 15, color: colors.waterInk },
   lineHint: { ...typography.caption, fontSize: 12, color: colors.slate, letterSpacing: 0, marginTop: 1 },
@@ -969,38 +1091,73 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    marginTop: -spacing.md,
     paddingTop: spacing.sm + 4,
     borderTopWidth: 1.5,
-    borderTopColor: colors.waterInk,
+    borderTopColor: colors.indigo,
   },
   netRowNegative: { borderTopColor: colors.danger },
   netLabel: { ...typography.bodyStrong, fontSize: 16, color: colors.waterInk, fontWeight: '700' },
   netHint: { ...typography.caption, fontSize: 12, color: colors.slateDeep, letterSpacing: 0 },
   netValue: { ...typography.heading, fontSize: 22, color: colors.teal },
-  detailIcon: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  exportHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm + 4 },
-  exportIcon: { backgroundColor: colors.waterDeep, marginBottom: 0 },
-  exportHint: { ...typography.caption, fontSize: 13, lineHeight: 18, color: colors.slateDeep, letterSpacing: 0, marginTop: 2 },
+  detailIcon: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+
+  exportHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm + 4,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+  },
+  exportIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.indigo,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  exportHint: {
+    ...typography.caption,
+    fontSize: 13,
+    lineHeight: 18,
+    color: colors.slateDeep,
+    letterSpacing: 0,
+    marginTop: 2,
+  },
   exportFull: {
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
     height: 50,
     borderRadius: radius.pill,
-    backgroundColor: colors.waterDeep,
+    backgroundColor: colors.indigo,
     alignItems: 'center',
     justifyContent: 'center',
   },
   exportFullLabel: { ...typography.bodyStrong, fontSize: 15, color: colors.white, fontWeight: '700' },
-  emptyCard: { alignItems: 'center', paddingVertical: spacing.xl, gap: spacing.sm },
+
+  emptyBand: {
+    marginHorizontal: spacing.md,
+    backgroundColor: colors.white,
+    borderRadius: radius.xl,
+    alignItems: 'center',
+    paddingVertical: spacing.xl,
+    paddingHorizontal: spacing.lg,
+    gap: spacing.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
   emptyIcon: {
     width: 48,
     height: 48,
-    borderRadius: 16,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.xs,
   },
   emptyTitle: { ...typography.heading, fontSize: 18, color: colors.waterInk },
   emptyText: { ...typography.body, fontSize: 14, color: colors.slateDeep, textAlign: 'center' },
+
   sheetList: {
     borderRadius: radius.lg,
     borderWidth: 1,
@@ -1016,10 +1173,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
   },
   sheetDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
-  sheetRowOn: { backgroundColor: colors.waterPale },
+  sheetRowOn: { backgroundColor: colors.indigoPale },
   sheetRowLabel: { ...typography.bodyStrong, fontSize: 16, color: colors.waterInk },
-  sheetRowLabelOn: { color: colors.waterDeep, fontWeight: '700' },
-  sheetRowHint: { ...typography.caption, fontSize: 12.5, color: colors.slateDeep, letterSpacing: 0, marginTop: 1 },
+  sheetRowLabelOn: { color: colors.indigo, fontWeight: '700' },
+  sheetRowHint: {
+    ...typography.caption,
+    fontSize: 12.5,
+    color: colors.slateDeep,
+    letterSpacing: 0,
+    marginTop: 1,
+  },
   radio: {
     width: 22,
     height: 22,
@@ -1029,5 +1192,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  radioOn: { backgroundColor: colors.water, borderColor: colors.water },
+  radioOn: { backgroundColor: colors.indigo, borderColor: colors.indigo },
 });

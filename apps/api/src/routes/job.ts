@@ -2,14 +2,19 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import {
+  businessRules,
+  catalogRepo,
   couponRepo,
+  createPlatformDb,
   customerRepo,
   expenseRepo,
   jobRepo,
   placeOrderRepo,
   referralRepo,
   rewardRepo,
+  serviceAreaRepo,
   serviceRepo,
+  stockRepo,
   type D1Database,
   type DbClient,
 } from '@mana/db';
@@ -21,6 +26,8 @@ import {
   canVoidJob,
   COUPON_CODE_PATTERN,
   couponDiscount,
+  EXPENSE_CATEGORY_LABEL,
+  gstBreakup,
   MAX_SELLERS_PER_JOB,
   MAX_WASHERS_PER_JOB,
   MIN_REASON_LENGTH,
@@ -28,6 +35,8 @@ import {
   normalizePhone,
   PriceNotFoundError,
   referralProblemMessage,
+  stockLevel,
+  type ExpenseCategory,
   type JobStatus,
   type PaymentMethod,
 } from '@mana/domain';
@@ -41,7 +50,7 @@ import {
 import { checkFreeWashes, settleRewardsForPaidJob } from '../lib/rewards';
 import { occurredAt } from '../lib/clientTime';
 import { requireAuth, requireRole } from '../middleware/auth';
-import { startOfIstDay } from '../lib/istDate';
+import { formatIstDateOnly, startOfIstDay } from '../lib/istDate';
 import { reportQuerySchema, resolveReportWindow, windowMeta } from '../lib/reportWindow';
 import type { Env } from '../types';
 
@@ -635,20 +644,91 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       ...windowMeta(query, window),
     });
   })
-  // Full export payload for PDF — same window as /stats, plus every job line in the period.
+  // Full export payload for PDF — stats, ledger, expenses, staff, stock, GST, prior period, shop contact.
   .get('/stats/export', requireRole('owner'), zValidator('query', reportQuerySchema), async (c) => {
     const db = c.get('db');
+    const session = c.get('session');
     const query = c.req.valid('query');
     const window = resolveReportWindow(query);
     if ('error' in window) return c.json({ error: window.error }, 400);
 
-    const [stats, pendingNow, expenses, jobs, plans] = await Promise.all([
+    const durationMs = window.to.getTime() - window.from.getTime();
+    const prevFrom = new Date(window.from.getTime() - durationMs);
+    const prevTo = window.from;
+
+    const platform = createPlatformDb(c.env.DB);
+    const businessId = await catalogRepo.businessForShop(c.env.DB, session.shopId);
+
+    const [
+      stats,
+      pendingNow,
+      expenses,
+      jobs,
+      plans,
+      prevStats,
+      prevExpenses,
+      prevPlans,
+      expenseRows,
+      staffRows,
+      stockItems,
+      rewards,
+      area,
+      shopRow,
+      owners,
+      rules,
+    ] = await Promise.all([
       jobRepo.getStats(db, window.from, window.to),
       jobRepo.countPending(db),
       expenseRepo.total(db, window.from, window.to),
       jobRepo.listForReport(db, window.from, window.to),
       placeOrderRepo.income(db, window.from, window.to),
+      jobRepo.getStats(db, prevFrom, prevTo),
+      expenseRepo.total(db, prevFrom, prevTo),
+      placeOrderRepo.income(db, prevFrom, prevTo),
+      expenseRepo.list(db, window.from, window.to),
+      jobRepo.getStaffStats(db, window.from, window.to),
+      stockRepo.list(db),
+      rewardRepo.report(db, window.from, window.to),
+      serviceAreaRepo.get(db),
+      platform.shop.findUnique({
+        where: { id: session.shopId },
+        select: { name: true, city: true, code: true, businessId: true },
+      }),
+      db.user.findMany({
+        where: { role: 'owner', active: true, removedAt: null },
+        orderBy: { createdAt: 'asc' },
+        select: { name: true, phone: true },
+      }),
+      businessRules(platform, businessId),
     ]);
+
+    const business =
+      shopRow?.businessId != null
+        ? await platform.business.findUnique({
+            where: { id: shopRow.businessId },
+            select: { name: true },
+          })
+        : null;
+
+    const byCategory = new Map<string, { category: string; amount: number; count: number }>();
+    for (const row of expenseRows) {
+      if (row.voidedAt) continue;
+      const key = row.category;
+      const cur = byCategory.get(key) ?? { category: key, amount: 0, count: 0 };
+      cur.amount += row.amount;
+      cur.count += 1;
+      byCategory.set(key, cur);
+    }
+    const expensesByCategory = [...byCategory.values()]
+      .map((r) => ({
+        category: r.category,
+        label: EXPENSE_CATEGORY_LABEL[r.category as ExpenseCategory] ?? r.category,
+        amount: r.amount,
+        count: r.count,
+      }))
+      .sort((a, b) => b.amount - a.amount);
+
+    const gst = gstBreakup(stats.revenue + plans.amount, rules.gstRateBp);
 
     return c.json({
       generatedAt: new Date().toISOString(),
@@ -661,9 +741,85 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
         planPayments: plans.count,
         net: stats.revenue + plans.amount - expenses,
       },
+      previous: {
+        from: formatIstDateOnly(prevFrom),
+        to: formatIstDateOnly(new Date(prevTo.getTime() - 1)),
+        carsWashed: prevStats.carsWashed,
+        revenue: prevStats.revenue,
+        expenses: prevExpenses,
+        planIncome: prevPlans.amount,
+        planPayments: prevPlans.count,
+        net: prevStats.revenue + prevPlans.amount - prevExpenses,
+        cash: prevStats.cash,
+        upi: prevStats.upi,
+        other: prevStats.other,
+        discounts: prevStats.discounts,
+        voided: prevStats.voided,
+      },
+      shop: {
+        name: shopRow?.name ?? null,
+        city: shopRow?.city ?? null,
+        code: shopRow?.code ?? null,
+        address: area.contact.address,
+        phone: area.contact.phone,
+        businessName: business?.name ?? null,
+        owners: owners.map((o) => ({ name: o.name, phone: o.phone })),
+      },
+      gst: {
+        rateBp: rules.gstRateBp,
+        gstin: rules.gstin,
+        legalName: rules.legalName,
+        taxable: gst.taxable,
+        cgst: gst.cgst,
+        sgst: gst.sgst,
+      },
+      expensesByCategory,
+      staff: staffRows
+        .filter(
+          (r) =>
+            r.washesDone +
+              r.communityWashes +
+              r.servicesSold +
+              r.jobsCollected +
+              r.commission +
+              r.collected >
+            0,
+        )
+        .map((r) => ({
+          name: r.name,
+          role: r.role,
+          washesDone: r.washesDone,
+          communityWashes: r.communityWashes,
+          servicesSold: r.servicesSold,
+          commission: r.commission,
+          jobsCollected: r.jobsCollected,
+          collected: r.collected,
+          cash: r.cash,
+          upi: r.upi,
+        })),
+      stock: stockItems.map((item) => ({
+        name: item.name,
+        unit: item.unit,
+        balance: item.balance,
+        lowAt: item.lowAt,
+        low: stockLevel(item.balance, item.lowAt) !== 'ok',
+      })),
+      rewards: {
+        freeWashes: rewards.freeWashes,
+        freeValue: rewards.freeValue,
+        giftsGiven: rewards.giftsGiven,
+        giftsOwedNow: rewards.giftsOwedNow,
+        gifts: rewards.gifts.map((g) => ({
+          name: g.name,
+          label: g.label,
+          unit: g.unit,
+          quantity: g.quantity,
+        })),
+      },
       jobs: jobs.map((job) => ({
         id: job.id,
         createdAt: job.createdAt.toISOString(),
+        completedAt: job.completedAt?.toISOString() ?? null,
         status: job.status,
         total: job.total,
         discount: job.discount,

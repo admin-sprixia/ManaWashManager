@@ -56,6 +56,7 @@ export function EditServiceSheet({ service, plainServices, onClose, onSave }: Ed
       onClose={onClose}
       dismissable={!busy}
       title={isCombo ? 'Edit combo' : 'Edit service'}
+      subtitle={service?.name}
       footer={
         <View style={styles.footer}>
           {error ? <Text style={styles.error}>{error}</Text> : null}

@@ -52,7 +52,7 @@ export const branchRoutes = new Hono<{ Bindings: Env }>()
   /** The branch's service points, and the business's vehicle classes to pick from. */
   .get('/points', async (c) => {
     const shopId = c.get('session').shopId;
-    const businessId = await catalogRepo.ensureBusinessForShop(c.env.DB, shopId);
+    const businessId = await catalogRepo.businessForShop(c.env.DB, shopId);
     // The first menu build makes the branch's hub, so there is always something to show.
     await menuRepo.publishIfStale(c.env.DB, shopId);
     const [points, catalog, rules] = await Promise.all([

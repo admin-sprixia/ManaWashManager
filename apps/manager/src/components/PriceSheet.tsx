@@ -89,6 +89,7 @@ export function PriceSheet({
       onClose={onClose}
       dismissable={!busy}
       title={title}
+      subtitle="Price and what staff earn"
       footer={
         <View style={styles.footer}>
           <Button label="Save" size="lg" loading={busy} disabled={!priceOk || !commissionOk} onPress={() => void save()} />

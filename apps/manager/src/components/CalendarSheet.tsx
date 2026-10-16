@@ -139,7 +139,7 @@ export function CalendarSheet({
           style={({ pressed }) => [styles.navBtn, atMinMonth && styles.navBtnOff, pressed && styles.pressed]}
           accessibilityLabel="Previous month"
         >
-          <IconChevronLeft size={18} color={colors.waterDeep} />
+          <IconChevronLeft size={18} color={colors.indigo} />
         </Pressable>
         <View style={styles.monthCopy}>
           <Text style={styles.monthTitle}>
@@ -162,7 +162,7 @@ export function CalendarSheet({
           style={({ pressed }) => [styles.navBtn, atMaxMonth && styles.navBtnOff, pressed && styles.pressed]}
           accessibilityLabel="Next month"
         >
-          <IconChevronRight size={18} color={colors.waterDeep} />
+          <IconChevronRight size={18} color={colors.indigo} />
         </Pressable>
       </View>
 
@@ -254,20 +254,29 @@ export function CalendarSheet({
 
 const styles = StyleSheet.create({
   pressed: { opacity: 0.6 },
-  monthBar: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  monthBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.sm,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.indigoMist,
+    backgroundColor: colors.indigoPale,
+  },
   navBtn: {
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: colors.waterPale,
+    backgroundColor: colors.white,
     alignItems: 'center',
     justifyContent: 'center',
   },
   navBtnOff: { opacity: 0.35 },
   monthCopy: { flex: 1, alignItems: 'center', gap: 2 },
-  monthTitle: { ...typography.heading, fontSize: 19, color: colors.waterInk },
-  monthMeta: { ...typography.caption, fontSize: 12, color: colors.slate, letterSpacing: 0 },
-  weekRow: { flexDirection: 'row', marginTop: spacing.xs },
+  monthTitle: { ...typography.heading, fontSize: 18, color: colors.indigo },
+  monthMeta: { ...typography.caption, fontSize: 12, color: colors.slateDeep, letterSpacing: 0 },
+  weekRow: { flexDirection: 'row', marginTop: spacing.sm },
   weekday: {
     ...typography.caption,
     fontSize: 11.5,
@@ -277,7 +286,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   weekend: { color: colors.danger },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: -spacing.xs },
+  grid: { flexDirection: 'row', flexWrap: 'wrap' },
   cell: { alignItems: 'center', justifyContent: 'center' },
   dayCircle: {
     width: 42,
@@ -285,20 +294,26 @@ const styles = StyleSheet.create({
     borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
+    gap: 3,
   },
-  todayCircle: { borderWidth: 1.5, borderColor: colors.water },
-  selectedCircle: { backgroundColor: colors.waterInk },
-  pressedCircle: { backgroundColor: colors.waterPale },
-  dayText: { ...typography.bodyStrong, fontSize: 15, color: colors.waterInk },
-  dayFuture: { color: colors.border },
-  todayText: { color: colors.water, fontWeight: '800' },
+  todayCircle: { borderWidth: 1.5, borderColor: colors.indigoBright, backgroundColor: colors.indigoPale },
+  selectedCircle: { backgroundColor: colors.indigo },
+  pressedCircle: { backgroundColor: colors.indigoPale },
+  dayText: { ...typography.bodyStrong, fontSize: 15, color: colors.ink },
+  dayFuture: { color: colors.indigoMist },
+  todayText: { color: colors.indigo, fontWeight: '800' },
   selectedText: { color: colors.white, fontWeight: '800' },
   dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: 'transparent' },
   dotFull: { backgroundColor: colors.teal },
   dotPartial: { backgroundColor: colors.amber },
   dotOnSelected: { borderWidth: 1, borderColor: colors.white },
-  legend: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.lg },
+  legend: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.lg,
+    marginTop: spacing.xs,
+  },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendDot: { width: 8, height: 8, borderRadius: 4 },
   legendText: { ...typography.caption, fontSize: 12.5, color: colors.slateDeep, letterSpacing: 0 },
@@ -307,8 +322,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     height: 40,
     borderRadius: radius.pill,
-    backgroundColor: colors.waterPale,
+    backgroundColor: colors.indigoPale,
     justifyContent: 'center',
   },
-  todayBtnText: { ...typography.label, fontSize: 14, color: colors.waterDeep, fontWeight: '700' },
+  todayBtnText: { ...typography.label, fontSize: 14, color: colors.indigo, fontWeight: '800' },
 });

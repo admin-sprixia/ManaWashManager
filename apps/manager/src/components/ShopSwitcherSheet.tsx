@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
-import { formatShopCode, USER_ROLE_LABEL } from '@mana/domain';
+import { USER_ROLE_LABEL } from '@mana/domain';
 import {
   colors,
   spacing,
@@ -119,7 +119,7 @@ export function ShopSwitcherSheet({ visible, onClose }: { visible: boolean; onCl
                   {[
                     shop.role ? USER_ROLE_LABEL[shop.role] : null,
                     shop.city,
-                    `ID ${formatShopCode(shop.code)}`,
+                    `${shop.code}`,
                     shop.status === 'paused' ? 'Paused' : null,
                   ]
                     .filter(Boolean)

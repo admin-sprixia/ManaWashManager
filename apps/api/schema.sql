@@ -26,7 +26,7 @@
 -- One car wash on the platform.
 CREATE TABLE shops (
   id TEXT PRIMARY KEY,
-  code TEXT NOT NULL UNIQUE,         -- 6-digit shop ID staff type to ask to join; not a secret
+  code TEXT NOT NULL UNIQUE,         -- branch code from its town: KVR-01, KVR-02, NLR-01
   name TEXT NOT NULL,
   city TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
@@ -103,7 +103,7 @@ CREATE TABLE users (
   shop_id TEXT NOT NULL REFERENCES shops(id),
   name TEXT NOT NULL,
   phone TEXT NOT NULL,                -- one person; working at several branches = one row each, same PIN
-  -- owner: everything for the branch; manager: the team and join requests, no money fixes;
+  -- owner: everything for the branch; manager: the team (staff only), no money fixes;
   -- staff: washes and payments. Only Mana Wash HQ adds or removes owners.
   role TEXT NOT NULL DEFAULT 'staff' CHECK (role IN ('owner', 'manager', 'staff')),
   active INTEGER NOT NULL DEFAULT 1,  -- deactivated users can't sign in or call the API
@@ -534,7 +534,7 @@ CREATE TABLE login_codes (
 CREATE TABLE signup_codes (
   id TEXT PRIMARY KEY,
   phone TEXT NOT NULL,
-  purpose TEXT NOT NULL, -- signup | join | phone | customer
+  purpose TEXT NOT NULL, -- phone | customer
   code_hash TEXT NOT NULL,
   attempts INTEGER NOT NULL DEFAULT 0,
   ip TEXT,
@@ -657,24 +657,6 @@ CREATE TABLE wash_problems (
   FOREIGN KEY (shop_id, resolved_by_user_id) REFERENCES users(shop_id, id)
 );
 
--- Someone asking to join a shop with its shop ID. Nothing is created in the team until the owner
--- approves; approval creates the user, who then picks their own PIN. Pending requests older than
--- JOIN_REQUEST_TTL_DAYS count as expired.
-CREATE TABLE join_requests (
-  id TEXT PRIMARY KEY,
-  shop_id TEXT NOT NULL REFERENCES shops(id),
-  phone TEXT NOT NULL,
-  name TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending'
-    CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled')),
-  user_id TEXT,                           -- set on approval
-  decided_by_user_id TEXT,
-  decided_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
-  FOREIGN KEY (shop_id, user_id) REFERENCES users(shop_id, id),
-  FOREIGN KEY (shop_id, decided_by_user_id) REFERENCES users(shop_id, id)
-);
-
 -- Crashes from the app and unhandled API errors. Each owner sees their own shop's; shop_id is
 -- NULL for platform errors (nightly job, requests before sign-in), which only Sprixia sees.
 CREATE TABLE app_errors (
@@ -722,6 +704,20 @@ CREATE TABLE stock_items (
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
   UNIQUE (shop_id, id),
   FOREIGN KEY (shop_id, created_by_user_id) REFERENCES users(shop_id, id)
+);
+
+-- Every edit of an expense, append-only: who changed it, why, and each field's old and new value
+-- (`changes` is a JSON list of {field, from, to}). Deleting stays a void on the expense itself.
+CREATE TABLE expense_edits (
+  id TEXT PRIMARY KEY,
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  expense_id TEXT NOT NULL,
+  edited_by_user_id TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  changes TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  FOREIGN KEY (shop_id, expense_id) REFERENCES expenses(shop_id, id),
+  FOREIGN KEY (shop_id, edited_by_user_id) REFERENCES users(shop_id, id)
 );
 
 -- Every change to a balance, append-only: bought (from an expense or by hand), used, counted,
@@ -1305,7 +1301,7 @@ CREATE TABLE customer_refunds (
   FOREIGN KEY (shop_id, order_id) REFERENCES place_orders(shop_id, id)
 );
 
--- Receipt numbers per branch per financial year: MCW-<shop code>/26-27/00001. Taken in the same
+-- Receipt numbers per branch per financial year: MW-<branch code>/26-27/00001. Taken in the same
 -- batch as the payment, so they never skip or repeat.
 CREATE TABLE receipt_series (
   shop_id TEXT NOT NULL REFERENCES shops(id),
@@ -1359,6 +1355,8 @@ CREATE INDEX idx_jobs_vehicle_created ON jobs(vehicle_id, created_at);
 CREATE INDEX idx_job_events_job_id ON job_events(job_id);
 CREATE INDEX idx_job_events_shop_created_at ON job_events(shop_id, created_at);
 CREATE INDEX idx_expenses_shop_date ON expenses(shop_id, date);
+CREATE INDEX idx_expense_edits_shop_created ON expense_edits(shop_id, created_at);
+CREATE INDEX idx_expense_edits_expense ON expense_edits(shop_id, expense_id);
 CREATE UNIQUE INDEX idx_stock_items_name_live ON stock_items(shop_id, name_key) WHERE active = 1;
 CREATE INDEX idx_stock_moves_item_created ON stock_moves(item_id, created_at);
 CREATE INDEX idx_stock_moves_shop_kind_created ON stock_moves(shop_id, kind, created_at);
@@ -1401,9 +1399,6 @@ CREATE INDEX idx_app_errors_created_at ON app_errors(created_at);
 CREATE INDEX idx_login_codes_user_created ON login_codes(user_id, created_at);
 CREATE INDEX idx_signup_codes_phone_created ON signup_codes(phone, created_at);
 CREATE INDEX idx_signup_codes_ip_created ON signup_codes(ip, created_at);
-CREATE INDEX idx_join_requests_shop_status ON join_requests(shop_id, status);
--- One open request per number, even across shops.
-CREATE UNIQUE INDEX idx_join_requests_one_pending ON join_requests(phone) WHERE status = 'pending';
 CREATE INDEX idx_service_areas_shop ON service_areas(shop_id);
 CREATE UNIQUE INDEX idx_service_areas_name_live ON service_areas(shop_id, name_key) WHERE active = 1;
 CREATE INDEX idx_service_requests_shop_status ON service_requests(shop_id, status, created_at);

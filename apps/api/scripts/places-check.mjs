@@ -345,7 +345,7 @@ r = await call(C1, 'POST', `/c/orders/${order1.id}/pay`);
 check('…tapping again reuses the same checkout', r.body?.payment?.id === pay1?.id, show(r));
 check('The customer pays', await pay(pay1, C1));
 r = await call(C1, 'GET', `/c/payments/${pay1.id}`);
-check('The payment is confirmed with a numbered receipt', r.body?.payment?.status === 'paid' && new RegExp(`^MCW-${SHOP_CODE}/\\d{2}-\\d{2}/00001$`).test(r.body?.payment?.receiptNo ?? ''), show(r));
+check('The payment is confirmed with a numbered receipt', r.body?.payment?.status === 'paid' && new RegExp(`^MW-${SHOP_CODE}/\\d{2}-\\d{2}/00001$`).test(r.body?.payment?.receiptNo ?? ''), show(r));
 r = await call(C1, 'GET', `/c/receipts/${pay1.id}`);
 const rc = r.body?.receipt;
 check('The receipt shows GST (18% inside the price) and the seller’s GSTIN', rc?.gst?.taxable + rc?.gst?.cgst + rc?.gst?.sgst === pay1.amount && rc?.gst?.rateBp === 1800 && rc?.seller?.gstin === '36ABCDE1234F1Z5', show(r));
@@ -628,7 +628,7 @@ check('The invite link opens a page that opens the app on the place', r.status =
 r = await call(null, 'GET', `/p/${CODE}/poster`);
 check('The poster has a QR and the code', r.status === 200 && r.body.includes('<svg') && r.body.includes(CODE), `${r.status}`);
 r = await call(null, 'GET', '/p/ZZZZZZZ');
-check('An unknown code shows a friendly page', r.status === 404 && r.body.includes('isn’t on MANA'), `${r.status}`);
+check('An unknown code shows a friendly page', r.status === 404 && r.body.includes('isn’t on Mana Wash'), `${r.status}`);
 
 // ─── Webhook (Razorpay mode only) ────────────────────────────────────────────
 r = await call(STF, 'POST', `/places/orders/${eOrder.id}/payment-link`);

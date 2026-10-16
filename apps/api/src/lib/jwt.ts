@@ -13,7 +13,7 @@ export interface SessionClaims {
    * that phone, and ends when the phone stops being trusted (signed out, removed from Your
    * phones, or a PIN reset).
    */
-  dv?: string;
+  dv: string;
 }
 
 /**
@@ -30,7 +30,7 @@ export async function createSessionToken(claims: SessionClaims, secret: string):
     role: claims.role,
     phone: claims.phone,
     sv: claims.sv,
-    ...(claims.dv ? { dv: claims.dv } : {}),
+    dv: claims.dv,
   })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(claims.sub)
@@ -43,7 +43,13 @@ export async function verifySessionToken(token: string, secret: string): Promise
   const key = new TextEncoder().encode(secret);
   const { payload } = await jwtVerify(token, key, { algorithms: ['HS256'] });
 
-  if (typeof payload.sub !== 'string' || typeof payload.shopId !== 'string') {
+  if (
+    typeof payload.sub !== 'string' ||
+    typeof payload.shopId !== 'string' ||
+    typeof payload.phone !== 'string' ||
+    typeof payload.sv !== 'number' ||
+    typeof payload.dv !== 'string'
+  ) {
     throw new Error('Malformed session token');
   }
 
@@ -51,8 +57,8 @@ export async function verifySessionToken(token: string, secret: string): Promise
     sub: payload.sub,
     shopId: payload.shopId,
     role: toUserRole(String(payload.role)),
-    phone: payload.phone as string,
-    sv: typeof payload.sv === 'number' ? payload.sv : 0,
-    ...(typeof payload.dv === 'string' ? { dv: payload.dv } : {}),
+    phone: payload.phone,
+    sv: payload.sv,
+    dv: payload.dv,
   };
 }

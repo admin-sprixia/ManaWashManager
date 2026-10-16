@@ -19,7 +19,7 @@ function check(name, ok, detail = '') {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${!ok && detail ? `\n      ${detail}` : ''}`);
 }
 
-/** `device` is the phone's key; 'none' sends none, like an old app. */
+/** `device` is the phone's key; 'none' sends none, which the API refuses for anything that signs in. */
 async function call(token, method, path, body, device) {
   const headers = {};
   if (token) headers.authorization = `Bearer ${token}`;
@@ -79,7 +79,7 @@ async function startWash(token) {
 
 const hq = (await session(HQ_PHONE)).token;
 const ownerPhone = newPhone();
-const opened = await call(hq, 'POST', '/business/branches', { name: 'Access Wash', city: 'Ongole', ownerName: 'Lakshmi', ownerPhone });
+const opened = await call(hq, 'POST', '/business/branches', { town: 'Ongole', townCode: 'ONG', ownerName: 'Lakshmi', ownerPhone });
 check('HQ opens a branch', opened.status === 201, show(opened));
 const branchId = opened.body.id;
 const branchCode = opened.body.code;
@@ -133,8 +133,8 @@ r = await call(manager, 'PATCH', `/team/${ownerId}`, { active: false });
 check('The manager can’t turn the owner off', r.status === 403, show(r));
 r = await call(manager, 'PATCH', `/team/${managerId}`, { active: false });
 check('The manager can’t change their own access', r.status === 403 || r.status === 400, show(r));
-r = await call(manager, 'GET', '/team/requests');
-check('The manager sees join requests', r.status === 200, show(r));
+r = await call(manager, 'GET', '/team');
+check('The manager sees the team', r.status === 200 && Array.isArray(r.body), show(r));
 r = await call(manager, 'GET', '/reports/audit');
 check('The manager can’t open reports (owner only)', r.status === 403 || r.status === 404, show(r));
 
@@ -154,6 +154,53 @@ r = await call(manager, 'POST', `/jobs/${jobId}/void`, { reason: 'Testing money 
 check('The manager can’t void a paid wash', r.status === 403, show(r));
 r = await call(manager, 'PATCH', `/jobs/${jobId}/payment-method`, { paymentMethod: 'upi', reason: 'Testing money fixes' });
 check('The manager can’t change how it was paid', r.status === 403, show(r));
+
+// ─── Attendance ───────────────────────────────────────────────────────────
+
+const istDay = (daysAgo) => new Date(Date.now() + 5.5 * 3600_000 - daysAgo * 86_400_000).toISOString().slice(0, 10);
+const [todayIst, yesterdayIst, threeDaysAgo, tomorrowIst] = [istDay(0), istDay(1), istDay(3), istDay(-1)];
+r = await call(manager, 'PUT', '/attendance', { userId: staffId, date: todayIst, status: 'present' });
+check('The manager marks staff for today', r.status === 200, show(r));
+r = await call(manager, 'PUT', '/attendance', { userId: staffId, date: yesterdayIst, status: 'half' });
+check('…and for a forgotten yesterday', r.status === 200, show(r));
+r = await call(manager, 'PUT', '/attendance', { userId: staffId, date: threeDaysAgo, status: 'present' });
+check('…but not older days (owner only)', r.status === 400 && r.body?.error === 'date_not_allowed', show(r));
+r = await call(manager, 'PUT', '/attendance', { userId: managerId, date: todayIst, status: 'present' });
+check('The manager can’t mark their own day', r.status === 403, show(r));
+r = await call(manager, 'PUT', '/attendance', { userId: ownerId, date: todayIst, status: 'present' });
+check('…nor the owner’s', r.status === 403, show(r));
+r = await call(owner, 'PUT', '/attendance', { userId: managerId, date: threeDaysAgo, status: 'absent' });
+check('The owner marks the manager, even an older day', r.status === 200, show(r));
+r = await call(owner, 'PUT', '/attendance', { userId: ownerId, date: todayIst, status: 'present' });
+check('The owner can’t mark their own day either', r.status === 403, show(r));
+r = await call(owner, 'PUT', '/attendance', { userId: staffId, date: tomorrowIst, status: 'present' });
+check('Nobody marks a future day', r.status === 400 && r.body?.error === 'future_date', show(r));
+r = await call(staff, 'PUT', '/attendance', { userId: staffId, date: todayIst, status: 'present' });
+check('Staff can’t mark attendance', r.status === 403, show(r));
+r = await call(staff, 'GET', `/attendance?date=${todayIst}`);
+check('…or open the sheet', r.status === 403, show(r));
+r = await call(manager, 'GET', `/attendance?date=${todayIst}`);
+const managerSheet = r.body?.rows ?? [];
+check(
+  'The manager’s sheet says whom they can mark (staff yes, the owner no) and leaves out their own day',
+  r.status === 200 &&
+    managerSheet.find((x) => x.userId === staffId)?.canMark === true &&
+    managerSheet.find((x) => x.userId === ownerId)?.canMark === false &&
+    !managerSheet.some((x) => x.userId === managerId),
+  show(r),
+);
+r = await call(manager, 'GET', `/attendance?date=${threeDaysAgo}`);
+check('An older day is locked for the manager, with the reason', r.status === 200 && typeof r.body?.locked === 'string' && r.body.rows.every((x) => !x.canMark), show(r));
+r = await call(owner, 'GET', `/attendance/summary?month=${todayIst.slice(0, 7)}`);
+const staffMonth = r.body?.people?.find((p) => p.userId === staffId);
+const sameMonth = yesterdayIst.slice(0, 7) === todayIst.slice(0, 7);
+check(
+  'The month summary counts each person’s days (a half day is 0.5) and spots absences',
+  r.status === 200 && staffMonth?.present === 1 && (sameMonth ? staffMonth?.half === 1 && staffMonth?.daysWorked === 1.5 && staffMonth?.noAbsences === false : staffMonth?.noAbsences === true),
+  show(r),
+);
+r = await call(owner, 'PUT', '/attendance', { userId: staffId, date: todayIst, status: null });
+check('Clearing a day', r.status === 200, show(r));
 
 // ─── PIN resets ───────────────────────────────────────────────────────────
 
@@ -214,6 +261,8 @@ const after = d1Rows(`SELECT pin_failed_attempts FROM users WHERE id = '${manage
 check('…so it uses up no tries', after?.pin_failed_attempts === before?.pin_failed_attempts, `${JSON.stringify(before)} → ${JSON.stringify(after)}`);
 r = await call(null, 'POST', '/auth/pin/login', { phone: managerPhone, pin: PIN }, 'none');
 check('An app that sends no phone key can’t use the PIN', r.status === 403, show(r));
+r = await call(null, 'POST', '/auth/code/verify', { phone: managerPhone, code: DEV_CODE, purpose: 'reset' }, 'none');
+check('…nor a WhatsApp code: every session is tied to a phone', r.status === 400 && r.body?.error === 'device_key_required', show(r));
 await requestCode(managerPhone);
 r = await call(null, 'POST', '/auth/code/verify', { phone: managerPhone, code: DEV_CODE, purpose: 'device' }, newPhoneKey);
 check('The WhatsApp code trusts the new phone (and keeps the PIN)', r.body?.next === 'pin', show(r));
@@ -375,8 +424,8 @@ r = await call(owner, 'POST', `/jobs/${openJobId}/pay`, { paymentMethod: 'cash' 
 check('Paused: a wash already open can be finished and paid', r.status === 200, show(r));
 r = await call(null, 'POST', '/auth/start', { phone: staffPhone });
 check('Paused: the team can still sign in', r.body?.next !== undefined, show(r));
-r = await call(null, 'GET', `/signup/shops/${branchCode}`);
-check('Paused: nobody new can ask to join', r.status === 409, show(r));
+r = await call(owner, 'POST', '/team', { name: 'New Washer', phone: newPhone() });
+check('Paused: nobody new is added to the team', r.status === 403 && r.body?.error === 'branch_paused', show(r));
 
 r = await call(hq, 'PATCH', `/business/branches/${branchId}/status`, { status: 'active' });
 check('HQ reopens it', r.status === 200 && r.body?.changed === true, show(r));
@@ -391,8 +440,6 @@ r = await call(owner, 'GET', '/jobs/today');
 check('Closed: signed-in phones stop working', r.status === 403 && r.body?.error === 'branch_closed', show(r));
 r = await call(null, 'POST', '/auth/start', { phone: ownerPhone });
 check('Closed: nobody can sign in', r.status === 403 && r.body?.error === 'branch_closed', show(r));
-r = await call(null, 'GET', `/signup/shops/${branchCode}`);
-check('Closed: the branch ID isn’t found for joining', r.status === 404, show(r));
 
 r = await call(hq, 'GET', `/business/branches/${branchId}/status`);
 check(

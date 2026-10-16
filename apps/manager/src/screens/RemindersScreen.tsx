@@ -26,11 +26,11 @@ import {
   colors,
   gradients,
   radius,
-  shadow,
   spacing,
   typography,
 } from '@mana/ui';
 import { PlateBadge } from '../components/newWash/Highlight';
+import { Band, BandRow, ScreenHero, SectionTitle, TipBand } from '../components/ScreenChrome';
 import { api, apiErrorMessage } from '../api/client';
 import { useAuth } from '../api/auth';
 import { formatRelativeDate } from '../utils/format';
@@ -331,25 +331,41 @@ export function RemindersScreen({ navigation }: RemindersScreenProps) {
             />
           }
         >
-          <View style={styles.summary}>
-            <SummaryFigure value={data.due.length} label="Due for a wash" />
-            <View style={styles.summaryDivider} />
-            <SummaryFigure value={data.comeback.length} label="Win back" tone="amber" />
-            <View style={styles.summaryDivider} />
-            <SummaryFigure value={data.coupons.active.length} label="Offers live" tone="teal" />
-          </View>
+          <ScreenHero
+            eyebrow="Customer reminders"
+            title={
+              data.actionable > 0
+                ? `${data.actionable} to message`
+                : nothing
+                  ? 'All caught up'
+                  : 'Nobody to chase today'
+            }
+            meta={`Cars show up ${data.rules.dueDays} days after their last wash, and as a win-back after ${data.rules.comebackDays} days.`}
+            alert={data.actionable > 0}
+            chips={[
+              { label: 'Due', value: data.due.length },
+              { label: 'Win back', value: data.comeback.length },
+              { label: 'To send', value: data.actionable },
+              { label: 'Offers live', value: data.coupons.active.length },
+            ]}
+          />
 
           {nothing ? (
             <View style={styles.allClear}>
               <View style={styles.allClearIcon}>
-                <IconSparkle size={30} color={colors.water} />
+                <IconSparkle size={30} color={colors.indigo} />
               </View>
               <Text style={styles.emptyTitle}>All caught up</Text>
               <Text style={styles.emptyBody}>
                 Vehicles show up here {data.rules.dueDays} days after their last wash.
               </Text>
             </View>
-          ) : null}
+          ) : (
+            <TipBand>
+              Tap Remind to open WhatsApp with the message ready. Snooze hides a car for 3 days; Dismiss
+              hides it until its next visit.
+            </TipBand>
+          )}
 
           {rewards.length > 0 ? (
             <>
@@ -362,7 +378,7 @@ export function RemindersScreen({ navigation }: RemindersScreenProps) {
                 }
                 count={rewards.length}
               />
-              <View style={styles.edgeList}>
+              <Band>
                 {rewards.map((c, i) => (
                   <RewardRow
                     key={c.id}
@@ -374,7 +390,7 @@ export function RemindersScreen({ navigation }: RemindersScreenProps) {
                     onSend={() => void sendReward(c)}
                   />
                 ))}
-              </View>
+              </Band>
             </>
           ) : null}
 
@@ -385,7 +401,7 @@ export function RemindersScreen({ navigation }: RemindersScreenProps) {
                 caption={`Last wash ${data.rules.dueDays}+ days ago`}
                 count={data.due.length}
               />
-              <View style={styles.edgeList}>
+              <Band>
                 {data.due.map((item, i) => (
                   <ReminderRow
                     key={item.vehicleId}
@@ -400,7 +416,7 @@ export function RemindersScreen({ navigation }: RemindersScreenProps) {
                     onDismiss={() => void hide(item, 'dismiss')}
                   />
                 ))}
-              </View>
+              </Band>
             </>
           ) : null}
 
@@ -411,7 +427,7 @@ export function RemindersScreen({ navigation }: RemindersScreenProps) {
                 caption={`No visit in ${data.rules.comebackDays}+ days${isOwner ? ' · send a one-time offer' : ''}`}
                 count={data.comeback.length}
               />
-              <View style={styles.edgeList}>
+              <Band>
                 {data.comeback.map((item, i) => (
                   <ReminderRow
                     key={item.vehicleId}
@@ -429,7 +445,7 @@ export function RemindersScreen({ navigation }: RemindersScreenProps) {
                     onDismiss={() => void hide(item, 'dismiss')}
                   />
                 ))}
-              </View>
+              </Band>
             </>
           ) : null}
 
@@ -440,18 +456,18 @@ export function RemindersScreen({ navigation }: RemindersScreenProps) {
                 caption="Valid once · this vehicle or the owner’s others"
                 count={offers.length}
               />
-              <View style={styles.edgeList}>
+              <Band>
                 {offers.map((c, i) => (
                   <CouponLine key={c.id} coupon={c} last={i === offers.length - 1} />
                 ))}
-              </View>
+              </Band>
             </>
           ) : null}
 
           {redeemed.length > 0 ? (
             <>
               <SectionHeader title="Used recently" caption="Last 30 days" count={redeemed.length} />
-              <View style={styles.edgeList}>
+              <Band>
                 {visibleRedeemed.map((c, i) => (
                   <CouponLine key={c.id} coupon={c} last={i === visibleRedeemed.length - 1} used />
                 ))}
@@ -471,37 +487,12 @@ export function RemindersScreen({ navigation }: RemindersScreenProps) {
                     </View>
                   </Pressable>
                 ) : null}
-              </View>
+              </Band>
             </>
           ) : null}
         </ScrollView>
       )}
     </ScreenContainer>
-  );
-}
-
-function SummaryFigure({
-  value,
-  label,
-  tone,
-}: {
-  value: number;
-  label: string;
-  tone?: 'amber' | 'teal';
-}) {
-  return (
-    <View style={styles.summaryFigure}>
-      <Text
-        style={[
-          styles.summaryValue,
-          tone === 'amber' && { color: colors.amberDeep },
-          tone === 'teal' && { color: colors.teal },
-        ]}
-      >
-        {value}
-      </Text>
-      <Text style={styles.summaryLabel}>{label}</Text>
-    </View>
   );
 }
 
@@ -514,17 +505,7 @@ function SectionHeader({
   caption: string;
   count: number;
 }) {
-  return (
-    <View style={styles.sectionHeader}>
-      <View style={styles.sectionTitleRow}>
-        <Text style={styles.sectionTitle}>{title}</Text>
-        <View style={styles.sectionCount}>
-          <Text style={styles.sectionCountText}>{count}</Text>
-        </View>
-      </View>
-      <Text style={styles.sectionCaption}>{caption}</Text>
-    </View>
-  );
+  return <SectionTitle meta={`${count} · ${caption}`}>{title}</SectionTitle>;
 }
 
 interface ReminderRowProps {
@@ -756,38 +737,37 @@ function CouponLine({ coupon, last, used }: { coupon: CouponRow; last: boolean; 
   const name = coupon.customer.name?.trim() || coupon.customer.phone;
   const left = daysLeft(coupon.expiresAt);
   return (
-    <View style={[styles.couponRow, !last && styles.rowBorder]}>
-      <View style={[styles.couponIcon, used && styles.couponIconUsed]}>
-        {used ? (
-          <IconCheck size={16} color={colors.teal} />
+    <BandRow
+      last={last}
+      icon={
+        used ? (
+          <IconCheck size={17} color={colors.tealDeep} />
         ) : (
-          <IconGift size={17} color={colors.waterDeep} />
-        )}
-      </View>
-      <View style={styles.rowCopy}>
-        <Text style={styles.couponRowCode}>{coupon.code}</Text>
-        <Text style={styles.rowMetaText} numberOfLines={1}>
-          {coupon.kind === 'referral' ? 'Referral · ' : ''}
-          {name} · {coupon.registrationNumber}
-        </Text>
-      </View>
-      <View style={styles.couponRight}>
-        <Text style={styles.couponPercent}>{coupon.percent}% off</Text>
-        <Text style={[styles.couponWhen, !used && left <= 3 && styles.couponWhenSoon]}>
-          {used
-            ? `Used ${coupon.redeemedAt ? shortDate(coupon.redeemedAt) : ''}`
-            : left <= 1
-              ? 'Expires today'
-              : `${left} days left`}
-        </Text>
-      </View>
-    </View>
+          <IconGift size={18} color={colors.indigo} />
+        )
+      }
+      iconBg={used ? colors.tealPale : colors.indigoPale}
+      title={coupon.code}
+      subtitle={`${coupon.kind === 'referral' ? 'Referral · ' : ''}${name} · ${coupon.registrationNumber}`}
+      right={
+        <View style={styles.couponRight}>
+          <Text style={styles.couponPercent}>{coupon.percent}% off</Text>
+          <Text style={[styles.couponWhen, !used && left <= 3 && styles.couponWhenSoon]}>
+            {used
+              ? `Used ${coupon.redeemedAt ? shortDate(coupon.redeemedAt) : ''}`
+              : left <= 1
+                ? 'Expires today'
+                : `${left} days left`}
+          </Text>
+        </View>
+      }
+    />
   );
 }
 
 const styles = StyleSheet.create({
   headerPad: { paddingHorizontal: spacing.md },
-  scroll: { paddingBottom: spacing.xxl },
+  scroll: { paddingBottom: spacing.xxl, gap: spacing.sm },
   center: {
     flex: 1,
     alignItems: 'center',
@@ -797,24 +777,6 @@ const styles = StyleSheet.create({
   },
   flex: { flex: 1 },
   pressed: { opacity: 0.8 },
-  summary: {
-    flexDirection: 'row',
-    marginHorizontal: spacing.md,
-    marginTop: spacing.sm,
-    backgroundColor: colors.white,
-    borderRadius: radius.lg,
-    paddingVertical: spacing.md,
-    ...shadow('sm'),
-  },
-  summaryFigure: { flex: 1, alignItems: 'center', gap: 2 },
-  summaryValue: {
-    ...typography.heading,
-    color: colors.waterDeep,
-    fontSize: 24,
-    letterSpacing: -0.4,
-  },
-  summaryLabel: { ...typography.caption, color: colors.slateDeep, fontSize: 11 },
-  summaryDivider: { width: StyleSheet.hairlineWidth, backgroundColor: colors.border },
   allClear: {
     alignItems: 'center',
     gap: 6,
@@ -825,7 +787,7 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: colors.waterPale,
+    backgroundColor: colors.indigoPale,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.sm,
@@ -840,31 +802,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   retryText: { ...typography.label, color: colors.white },
-  sectionHeader: {
-    paddingHorizontal: spacing.md,
-    marginTop: spacing.lg,
-    marginBottom: spacing.sm,
-    gap: 2,
-  },
-  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  sectionTitle: { ...typography.heading, color: colors.waterInk, fontSize: 18 },
-  sectionCount: {
-    minWidth: 22,
-    height: 22,
-    paddingHorizontal: 7,
-    borderRadius: 11,
-    backgroundColor: colors.waterPale,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sectionCountText: { ...typography.caption, color: colors.waterDeep, fontWeight: '700' },
-  sectionCaption: { ...typography.caption, color: colors.slateDeep, letterSpacing: 0 },
-  edgeList: {
-    backgroundColor: colors.white,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-  },
   row: { paddingHorizontal: spacing.md, paddingVertical: 14, gap: 10 },
   rowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   rowTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
@@ -955,28 +892,6 @@ const styles = StyleSheet.create({
     marginLeft: 54,
     marginTop: -4,
     letterSpacing: 0,
-  },
-  couponRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 12,
-  },
-  couponIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: colors.waterPale,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  couponIconUsed: { backgroundColor: '#ECFDF5' },
-  couponRowCode: {
-    ...typography.bodyStrong,
-    color: colors.waterInk,
-    fontSize: 14,
-    letterSpacing: 0.8,
   },
   couponRight: { alignItems: 'flex-end', gap: 2 },
   couponPercent: { ...typography.bodyStrong, color: colors.teal, fontSize: 15 },

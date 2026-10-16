@@ -1,5 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ATTENDANCE_LABEL, ATTENDANCE_STATUSES, type AttendanceStatus } from '@mana/domain';
 import {
@@ -13,6 +21,7 @@ import {
   IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
+  IconLock,
   IconSync,
   IconUsers,
   colors,
@@ -20,6 +29,7 @@ import {
   spacing,
   typography,
 } from '@mana/ui';
+import { Band, BandRow, ScreenHero, SectionTitle, TipBand } from '../components/ScreenChrome';
 import { CalendarSheet, markTone, type DayMarks } from '../components/CalendarSheet';
 import { api, apiErrorMessage } from '../api/client';
 import { NetworkError } from '../api/network';
@@ -34,7 +44,27 @@ interface Row {
   role: string;
   status: AttendanceStatus | null;
   markedBy: string | null;
+  /** The owner marks everyone; a manager marks staff (today and yesterday); nobody marks themselves. */
+  canMark: boolean;
 }
+
+/** One person's month, for the summary under the day's sheet. */
+interface MonthPerson {
+  userId: string;
+  name: string;
+  role: string;
+  present: number;
+  half: number;
+  absent: number;
+  daysWorked: number;
+  noAbsences: boolean;
+}
+
+const MONTH_NAME = new Intl.DateTimeFormat('en-IN', {
+  month: 'long',
+  year: 'numeric',
+  timeZone: 'UTC',
+});
 
 const TONE: Record<AttendanceStatus, { bg: string; fg: string; solid: string }> = {
   present: { bg: '#CCFBF1', fg: colors.tealDeep, solid: colors.teal },
@@ -42,7 +72,11 @@ const TONE: Record<AttendanceStatus, { bg: string; fg: string; solid: string }> 
   absent: { bg: '#FEE2E2', fg: colors.danger, solid: colors.danger },
 };
 
-const SHORT: Record<AttendanceStatus, string> = { present: 'Present', half: 'Half day', absent: 'Absent' };
+const SHORT: Record<AttendanceStatus, string> = {
+  present: 'Present',
+  half: 'Half day',
+  absent: 'Absent',
+};
 const WEEK_LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
 function shiftDate(date: string, days: number): string {
@@ -70,6 +104,9 @@ export function AttendanceScreen({ navigation }: Props) {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [monthDays, setMonthDays] = useState<Record<string, DayMarks>>({});
   const [members, setMembers] = useState(0);
+  const [locked, setLocked] = useState<string | null>(null);
+  const [monthPeople, setMonthPeople] = useState<MonthPerson[]>([]);
+  const month = date.slice(0, 7);
 
   // A week can straddle two months; the strip needs both for its dots.
   const weekMonths = [...new Set(weekOf(date).map((d) => d.slice(0, 7)))].join(',');
@@ -80,9 +117,14 @@ export function AttendanceScreen({ navigation }: Props) {
       if (!res.ok) throw new Error(await apiErrorMessage(res, 'Couldn’t load attendance.'));
       const data = await res.json();
       setRows(data.rows as Row[]);
+      setLocked(data.locked);
       setError(null);
     } catch (e) {
-      setError(e instanceof NetworkError ? 'Attendance needs a connection. Pull down to retry.' : (e as Error).message);
+      setError(
+        e instanceof NetworkError
+          ? 'Attendance needs a connection. Pull down to retry.'
+          : (e as Error).message,
+      );
     } finally {
       setLoading(false);
     }
@@ -114,6 +156,19 @@ export function AttendanceScreen({ navigation }: Props) {
     void loadMonth();
   }, [loadMonth]);
 
+  const loadSummary = useCallback(async () => {
+    try {
+      const res = await api.attendance.summary.$get({ query: { month } });
+      if (res.ok) setMonthPeople((await res.json()).people as MonthPerson[]);
+    } catch {
+      // The month summary just doesn't show offline.
+    }
+  }, [month]);
+
+  useEffect(() => {
+    void loadSummary();
+  }, [loadSummary]);
+
   const mark = async (row: Row, status: AttendanceStatus) => {
     const next = row.status === status ? null : status;
     setSaving(row.userId);
@@ -123,28 +178,38 @@ export function AttendanceScreen({ navigation }: Props) {
       if (!res.ok) throw new Error(await apiErrorMessage(res, 'Couldn’t save.'));
     } catch (e) {
       setRows((prev) => prev.map((r) => (r.userId === row.userId ? row : r)));
-      showToast(e instanceof NetworkError ? 'Attendance needs a connection.' : (e as Error).message, 'error');
+      showToast(
+        e instanceof NetworkError ? 'Attendance needs a connection.' : (e as Error).message,
+        'error',
+      );
     } finally {
       setSaving(null);
     }
   };
 
   const markAllPresent = async () => {
-    const unmarked = rows.filter((r) => r.status == null);
+    const unmarked = rows.filter((r) => r.status == null && r.canMark);
     for (const r of unmarked) await mark(r, 'present');
     void loadMonth();
+    void loadSummary();
   };
 
   const markAndRefresh = async (row: Row, status: AttendanceStatus) => {
     await mark(row, status);
     void loadMonth();
+    void loadSummary();
   };
 
-  const counts = ATTENDANCE_STATUSES.map((s) => ({ s, n: rows.filter((r) => r.status === s).length }));
+  const counts = ATTENDANCE_STATUSES.map((s) => ({
+    s,
+    n: rows.filter((r) => r.status === s).length,
+  }));
   const unmarkedCount = rows.filter((r) => r.status == null).length;
   const markedCount = rows.length - unmarkedCount;
   const allDone = rows.length > 0 && unmarkedCount === 0;
-  const dayTitle = date === today ? 'Today' : date === shiftDate(today, -1) ? 'Yesterday' : formatDay(date);
+  const markableUnmarked = rows.filter((r) => r.status == null && r.canMark).length;
+  const dayTitle =
+    date === today ? 'Today' : date === shiftDate(today, -1) ? 'Yesterday' : formatDay(date);
 
   return (
     <ScreenContainer noPadding>
@@ -173,13 +238,49 @@ export function AttendanceScreen({ navigation }: Props) {
             refreshing={refreshing}
             onRefresh={() => {
               setRefreshing(true);
-              void Promise.all([load(), loadMonth()]).finally(() => setRefreshing(false));
+              void Promise.all([load(), loadMonth(), loadSummary()]).finally(() =>
+                setRefreshing(false),
+              );
             }}
             tintColor={colors.water}
             colors={[colors.water]}
           />
         }
       >
+        <ScreenHero
+          eyebrow="Attendance"
+          title={dayTitle}
+          meta={
+            rows.length > 0
+              ? `${formatDay(date)} · ${allDone ? 'everyone marked' : `${markedCount} of ${rows.length} marked`}`
+              : formatDay(date)
+          }
+          right={
+            allDone ? (
+              <View style={styles.doneChip}>
+                <IconCheck size={12} color={colors.white} />
+                <Text style={styles.doneChipText}>Done</Text>
+              </View>
+            ) : rows.length > 0 ? (
+              <Text style={styles.heroLeft}>{unmarkedCount} left</Text>
+            ) : undefined
+          }
+          chips={
+            rows.length > 0
+              ? counts.map(({ s, n }) => ({ label: ATTENDANCE_LABEL[s], value: n }))
+              : undefined
+          }
+        >
+          {rows.length > 0 ? (
+            <View style={styles.progressBar}>
+              {counts.map(({ s, n }) =>
+                n > 0 ? <View key={s} style={{ flex: n, backgroundColor: TONE[s].solid }} /> : null,
+              )}
+              {unmarkedCount > 0 ? <View style={{ flex: unmarkedCount }} /> : null}
+            </View>
+          ) : null}
+        </ScreenHero>
+
         {/* Day picker */}
         <View style={styles.dayBand}>
           <View style={styles.dateBar}>
@@ -198,16 +299,20 @@ export function AttendanceScreen({ navigation }: Props) {
               accessibilityLabel={`${dayTitle}, open calendar`}
             >
               <View style={styles.dateTitleRow}>
-                <Text style={styles.dateTitle}>{dayTitle}</Text>
+                <Text style={styles.dateTitle}>{formatDay(date)}</Text>
                 <IconChevronDown size={15} color={colors.waterDeep} />
               </View>
-              <Text style={styles.dateMeta}>{formatDay(date)} · tap for calendar</Text>
+              <Text style={styles.dateMeta}>Tap for calendar</Text>
             </Pressable>
             <Pressable
               onPress={() => setDate(shiftDate(date, 1))}
               disabled={date >= today}
               hitSlop={10}
-              style={({ pressed }) => [styles.dateBtn, date >= today && styles.dateBtnOff, pressed && styles.pressed]}
+              style={({ pressed }) => [
+                styles.dateBtn,
+                date >= today && styles.dateBtnOff,
+                pressed && styles.pressed,
+              ]}
               accessibilityLabel="Next day"
             >
               <IconChevronRight size={18} color={colors.waterDeep} />
@@ -224,11 +329,21 @@ export function AttendanceScreen({ navigation }: Props) {
                   key={d}
                   disabled={future}
                   onPress={() => setDate(d)}
-                  style={({ pressed }) => [styles.weekDay, on && styles.weekDayOn, pressed && !on && styles.weekDayPressed]}
+                  style={({ pressed }) => [
+                    styles.weekDay,
+                    on && styles.weekDayOn,
+                    pressed && !on && styles.weekDayPressed,
+                  ]}
                   accessibilityRole="button"
                   accessibilityState={{ selected: on, disabled: future }}
                 >
-                  <Text style={[styles.weekLetter, on && styles.weekTextOn, future && styles.weekFuture]}>
+                  <Text
+                    style={[
+                      styles.weekLetter,
+                      on && styles.weekTextOn,
+                      future && styles.weekFuture,
+                    ]}
+                  >
                     {WEEK_LETTERS[i]}
                   </Text>
                   <Text
@@ -271,45 +386,18 @@ export function AttendanceScreen({ navigation }: Props) {
               <IconUsers size={26} color={colors.waterDeep} />
             </View>
             <Text style={styles.stateTitle}>No team yet</Text>
-            <Text style={styles.stateText}>Add people in More → Team, then mark their days here.</Text>
+            <Text style={styles.stateText}>
+              Add people in More → Team, then mark their days here.
+            </Text>
           </View>
         ) : (
           <>
-            {/* Progress + counts */}
-            <View style={styles.summary}>
-              <View style={styles.progressHead}>
-                <Text style={styles.progressTitle}>
-                  {allDone ? 'All marked' : `${markedCount} of ${rows.length} marked`}
-                </Text>
-                {allDone ? (
-                  <View style={styles.doneChip}>
-                    <IconCheck size={12} color={colors.white} />
-                    <Text style={styles.doneChipText}>Done</Text>
-                  </View>
-                ) : (
-                  <Text style={styles.progressMeta}>{unmarkedCount} left</Text>
-                )}
-              </View>
-              <View style={styles.progressBar}>
-                {counts.map(({ s, n }) =>
-                  n > 0 ? <View key={s} style={{ flex: n, backgroundColor: TONE[s].solid }} /> : null,
-                )}
-                {unmarkedCount > 0 ? <View style={{ flex: unmarkedCount }} /> : null}
-              </View>
-              <View style={styles.counts}>
-                {counts.map(({ s, n }, i) => (
-                  <View key={s} style={[styles.countCell, i > 0 && styles.countDivider]}>
-                    <Text style={[styles.countValue, { color: n > 0 ? TONE[s].fg : colors.slate }]}>{n}</Text>
-                    <Text style={styles.countLabel}>{ATTENDANCE_LABEL[s]}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-
             {/* Team */}
-            <View style={styles.sectionHead}>
-              <Text style={styles.sectionTitle}>Team</Text>
-              {unmarkedCount > 0 ? (
+            <View style={styles.sectionRow}>
+              <View style={styles.sectionRowTitle}>
+                <SectionTitle meta={`${markedCount} of ${rows.length} marked`}>Team</SectionTitle>
+              </View>
+              {markableUnmarked > 0 ? (
                 <Pressable
                   onPress={() => void markAllPresent()}
                   hitSlop={8}
@@ -320,34 +408,49 @@ export function AttendanceScreen({ navigation }: Props) {
                 </Pressable>
               ) : null}
             </View>
-            <View style={styles.list}>
+            {locked ? <TipBand>{locked}</TipBand> : null}
+            <Band>
               {rows.map((r, i) => (
-                <View key={r.userId} style={[styles.row, i < rows.length - 1 && styles.divider]}>
-                  <View style={styles.rowTop}>
-                    <View>
-                      <Avatar name={r.name} id={r.userId} size={42} />
-                      {r.status ? (
-                        <View style={[styles.statusBadge, { backgroundColor: TONE[r.status].solid }]}>
-                          {r.status === 'present' ? (
-                            <IconCheck size={10} color={colors.white} />
-                          ) : (
-                            <Text style={styles.statusBadgeText}>{r.status === 'half' ? '½' : '✕'}</Text>
-                          )}
+                <View key={r.userId} style={i < rows.length - 1 && styles.divider}>
+                  <BandRow
+                    last
+                    icon={
+                      <View>
+                        <Avatar name={r.name} id={r.userId} size={42} />
+                        {r.status ? (
+                          <View
+                            style={[styles.statusBadge, { backgroundColor: TONE[r.status].solid }]}
+                          >
+                            {r.status === 'present' ? (
+                              <IconCheck size={10} color={colors.white} />
+                            ) : (
+                              <Text style={styles.statusBadgeText}>
+                                {r.status === 'half' ? '½' : '✕'}
+                              </Text>
+                            )}
+                          </View>
+                        ) : null}
+                      </View>
+                    }
+                    iconBg="transparent"
+                    title={r.name}
+                    subtitle={
+                      (r.status ? SHORT[r.status] : 'Not marked yet') +
+                      (r.status && r.markedBy ? ` · by ${r.markedBy}` : '') +
+                      (r.role === 'owner' ? ' · Owner' : '')
+                    }
+                    right={
+                      saving === r.userId ? (
+                        <ActivityIndicator size="small" color={colors.water} />
+                      ) : r.status ? (
+                        <View style={[styles.statusPill, { backgroundColor: TONE[r.status].bg }]}>
+                          <Text style={[styles.statusPillText, { color: TONE[r.status].fg }]}>
+                            {SHORT[r.status]}
+                          </Text>
                         </View>
-                      ) : null}
-                    </View>
-                    <View style={styles.rowCopy}>
-                      <Text style={styles.name} numberOfLines={1}>
-                        {r.name}
-                      </Text>
-                      <Text style={[styles.meta, r.status && { color: TONE[r.status].fg }]} numberOfLines={1}>
-                        {r.status ? SHORT[r.status] : 'Not marked yet'}
-                        {r.status && r.markedBy ? ` · by ${r.markedBy}` : ''}
-                        {r.role === 'owner' ? ' · Owner' : ''}
-                      </Text>
-                    </View>
-                    {saving === r.userId ? <ActivityIndicator size="small" color={colors.water} /> : null}
-                  </View>
+                      ) : undefined
+                    }
+                  />
                   <View style={styles.choices}>
                     {ATTENDANCE_STATUSES.map((s) => {
                       const on = r.status === s;
@@ -355,28 +458,65 @@ export function AttendanceScreen({ navigation }: Props) {
                         <Pressable
                           key={s}
                           onPress={() => void markAndRefresh(r, s)}
-                          disabled={saving === r.userId}
+                          disabled={saving === r.userId || !r.canMark}
                           style={({ pressed }) => [
                             styles.choice,
                             on && { backgroundColor: TONE[s].solid, borderColor: TONE[s].solid },
+                            !r.canMark && !on && styles.choiceOff,
                             pressed && !on && styles.choicePressed,
                           ]}
                           accessibilityRole="radio"
-                          accessibilityState={{ selected: on }}
+                          accessibilityState={{ selected: on, disabled: !r.canMark }}
                           accessibilityLabel={`${r.name} ${ATTENDANCE_LABEL[s]}`}
                         >
                           {on ? <IconCheck size={13} color={colors.white} /> : null}
-                          <Text style={[styles.choiceText, on && styles.choiceTextOn]}>{SHORT[s]}</Text>
+                          <Text style={[styles.choiceText, on && styles.choiceTextOn]}>
+                            {SHORT[s]}
+                          </Text>
                         </Pressable>
                       );
                     })}
                   </View>
                 </View>
               ))}
-            </View>
+            </Band>
             <Text style={styles.footnote}>
-              Tap a choice again to clear it. A half day counts as 0.5 days worked. Staff see their own days in More.
+              Tap a choice again to clear it. A half day counts as 0.5 days worked. The owner marks
+              everyone; a manager marks staff for today and yesterday; nobody marks their own day.
+              Staff see their own days in More.
             </Text>
+
+            {monthPeople.length > 0 ? (
+              <>
+                <SectionTitle meta="Days worked this month">
+                  {MONTH_NAME.format(new Date(`${month}-01T00:00:00Z`))}
+                </SectionTitle>
+                <Band>
+                  {monthPeople.map((p, i) => (
+                    <BandRow
+                      key={p.userId}
+                      last={i === monthPeople.length - 1}
+                      title={p.name}
+                      subtitle={`${p.present} present · ${p.half} half · ${p.absent} absent`}
+                      right={
+                        <View style={styles.monthRightRow}>
+                          {p.noAbsences ? (
+                            <View style={styles.fullChip}>
+                              <IconCheck size={11} color={colors.white} />
+                              <Text style={styles.fullChipText}>No absences</Text>
+                            </View>
+                          ) : null}
+                          <View style={styles.monthRight}>
+                            <Text style={styles.monthDays}>{p.daysWorked}</Text>
+                            <Text style={styles.monthDaysLabel}>days</Text>
+                          </View>
+                        </View>
+                      }
+                    />
+                  ))}
+                </Band>
+              </>
+            ) : null}
           </>
         )}
       </ScrollView>
@@ -397,7 +537,7 @@ export function AttendanceScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   headerPad: { paddingHorizontal: spacing.md },
-  scroll: { paddingBottom: spacing.xxl, paddingTop: spacing.sm, gap: spacing.md },
+  scroll: { paddingBottom: spacing.xxl, paddingTop: spacing.xs, gap: spacing.sm + 2 },
   pressed: { opacity: 0.65 },
   loader: { marginTop: spacing.xxl },
   calendarBtn: {
@@ -436,7 +576,13 @@ const styles = StyleSheet.create({
   weekDay: { width: 42, alignItems: 'center', paddingVertical: 6, borderRadius: radius.md, gap: 3 },
   weekDayOn: { backgroundColor: colors.waterInk },
   weekDayPressed: { backgroundColor: colors.waterPale },
-  weekLetter: { ...typography.caption, fontSize: 11, fontWeight: '700', color: colors.slate, letterSpacing: 0.3 },
+  weekLetter: {
+    ...typography.caption,
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.slate,
+    letterSpacing: 0.3,
+  },
   weekNum: { ...typography.bodyStrong, fontSize: 16, color: colors.waterInk, fontWeight: '700' },
   weekToday: { color: colors.water },
   weekTextOn: { color: colors.white },
@@ -445,19 +591,6 @@ const styles = StyleSheet.create({
   dotFull: { backgroundColor: colors.teal },
   dotPartial: { backgroundColor: colors.amber },
   dotOnSelected: { borderWidth: 1, borderColor: colors.white },
-  summary: {
-    backgroundColor: colors.white,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.sm + 4,
-    gap: spacing.sm + 4,
-  },
-  progressHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  progressTitle: { ...typography.heading, fontSize: 18, color: colors.waterInk },
-  progressMeta: { ...typography.label, fontSize: 13, color: colors.amberDeep },
   doneChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -467,47 +600,43 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     backgroundColor: colors.teal,
   },
-  doneChipText: { ...typography.caption, fontSize: 12, color: colors.white, fontWeight: '800', letterSpacing: 0.2 },
+  doneChipText: {
+    ...typography.caption,
+    fontSize: 12,
+    color: colors.white,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  heroLeft: { ...typography.label, fontSize: 13, color: 'rgba(255,255,255,0.9)' },
   progressBar: {
     flexDirection: 'row',
     height: 8,
     borderRadius: 4,
     overflow: 'hidden',
-    backgroundColor: colors.surface,
+    backgroundColor: 'rgba(255,255,255,0.18)',
     gap: 2,
+    marginTop: spacing.sm,
   },
-  counts: { flexDirection: 'row', paddingTop: spacing.xs },
-  countCell: { flex: 1, alignItems: 'center', gap: 1 },
-  countDivider: { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: colors.border },
-  countValue: { ...typography.heading, fontSize: 22 },
-  countLabel: { ...typography.caption, fontSize: 11.5, color: colors.slateDeep, letterSpacing: 0 },
-  sectionHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.md,
-    marginBottom: -spacing.sm,
-  },
-  sectionTitle: { ...typography.heading, fontSize: 18, color: colors.waterInk, letterSpacing: -0.2 },
+  sectionRow: { flexDirection: 'row', alignItems: 'flex-end', paddingRight: spacing.md },
+  sectionRowTitle: { flex: 1 },
   restBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
     paddingHorizontal: 12,
     height: 32,
+    marginBottom: 2,
     borderRadius: radius.pill,
     backgroundColor: colors.teal,
   },
-  restBtnText: { ...typography.caption, fontSize: 12.5, color: colors.white, fontWeight: '700', letterSpacing: 0 },
-  list: {
-    backgroundColor: colors.white,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
+  restBtnText: {
+    ...typography.caption,
+    fontSize: 12.5,
+    color: colors.white,
+    fontWeight: '700',
+    letterSpacing: 0,
   },
-  row: { paddingHorizontal: spacing.md, paddingVertical: spacing.md, gap: spacing.sm + 4 },
   divider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-  rowTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm + 4 },
   statusBadge: {
     position: 'absolute',
     right: -2,
@@ -521,10 +650,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   statusBadgeText: { fontSize: 9, fontWeight: '900', color: colors.white },
-  rowCopy: { flex: 1, gap: 2 },
-  name: { ...typography.bodyStrong, fontSize: 16, color: colors.waterInk, fontWeight: '700' },
-  meta: { ...typography.caption, fontSize: 12.5, color: colors.slate, letterSpacing: 0, fontWeight: '600' },
-  choices: { flexDirection: 'row', gap: spacing.sm },
+  choices: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+    backgroundColor: colors.white,
+  },
+  statusPill: {
+    paddingHorizontal: 10,
+    height: 24,
+    borderRadius: radius.pill,
+    justifyContent: 'center',
+  },
+  statusPillText: { ...typography.caption, fontSize: 11.5, fontWeight: '800', letterSpacing: 0 },
+  monthRightRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   choice: {
     flex: 1,
     flexDirection: 'row',
@@ -538,6 +678,26 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   choicePressed: { backgroundColor: colors.waterPale },
+  choiceOff: { opacity: 0.45 },
+  monthRight: { alignItems: 'flex-end' },
+  monthDays: { ...typography.heading, fontSize: 18, color: colors.waterInk },
+  monthDaysLabel: { ...typography.caption, fontSize: 11, color: colors.slate, letterSpacing: 0 },
+  fullChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    height: 24,
+    borderRadius: radius.pill,
+    backgroundColor: colors.teal,
+  },
+  fullChipText: {
+    ...typography.caption,
+    fontSize: 11,
+    color: colors.white,
+    fontWeight: '700',
+    letterSpacing: 0,
+  },
   choiceText: { ...typography.label, fontSize: 13.5, color: colors.slateDeep },
   choiceTextOn: { color: colors.white, fontWeight: '800' },
   footnote: {
@@ -548,7 +708,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
     lineHeight: 18,
   },
-  stateBox: { alignItems: 'center', paddingHorizontal: spacing.xl, paddingVertical: spacing.xl, gap: spacing.sm },
+  stateBox: {
+    alignItems: 'center',
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.xl,
+    gap: spacing.sm,
+  },
   stateIcon: {
     width: 64,
     height: 64,
@@ -559,5 +724,11 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   stateTitle: { ...typography.heading, fontSize: 19, color: colors.waterInk },
-  stateText: { ...typography.body, fontSize: 14.5, color: colors.slateDeep, textAlign: 'center', lineHeight: 21 },
+  stateText: {
+    ...typography.body,
+    fontSize: 14.5,
+    color: colors.slateDeep,
+    textAlign: 'center',
+    lineHeight: 21,
+  },
 });

@@ -29,6 +29,7 @@ export type CatalogErrorCode =
   | 'nested_combo'
   | 'in_use'
   | 'last_admin'
+  | 'not_on_team'
   | 'default_book';
 
 export class CatalogError extends Error {
@@ -252,26 +253,11 @@ export const catalogRepo = {
     });
   },
 
-  /**
-   * The branch's business. Branches are only opened by HQ, inside its business; a legacy shop
-   * with none (started through the old public sign-up) gets an empty business of its own on the
-   * spot, with no admins — its owner can't make it a separate brand.
-   */
-  async ensureBusinessForShop(d1: D1Database, shopId: string): Promise<string> {
-    const pdb = createPlatformDb(d1);
-    const shop = await pdb.shop.findUnique({ where: { id: shopId }, select: { name: true, businessId: true } });
-    if (!shop) return fail('not_found', 'Shop not found.');
-    if (shop.businessId) return shop.businessId;
-    const businessId = `biz_${shopId}`;
-    await runStatements(d1, [
-      {
-        sql: 'INSERT OR IGNORE INTO businesses (id, name) VALUES (?, ?)',
-        params: [businessId, shop.name.slice(0, 80) || 'My business'],
-      },
-      { sql: 'UPDATE shops SET business_id = ? WHERE id = ? AND business_id IS NULL', params: [businessId, shopId] },
-    ]);
-    const after = await pdb.shop.findUnique({ where: { id: shopId }, select: { businessId: true } });
-    return after?.businessId ?? businessId;
+  /** The branch's business. HQ opens every branch inside the Mana Wash business, so there is always one. */
+  async businessForShop(d1: D1Database, shopId: string): Promise<string> {
+    const shop = await createPlatformDb(d1).shop.findUnique({ where: { id: shopId }, select: { businessId: true } });
+    if (!shop?.businessId) return fail('not_found', 'This branch isn’t part of the business.');
+    return shop.businessId;
   },
 
   /**
@@ -385,7 +371,15 @@ export const catalogRepo = {
     return (await pdb.businessAdmin.findFirst({ where: { phone }, select: { phone: true } })) != null;
   },
 
+  /**
+   * Only someone already on a team at one of the business's branches can be made HQ: a mistyped
+   * number, or one the telco later gives to a stranger, must never become HQ when it joins later.
+   */
   async addAdmin(d1: D1Database, businessId: string, phone: string) {
+    const pdb = createPlatformDb(d1);
+    const rows = await pdb.user.findMany({ where: { phone, removedAt: null, active: true }, select: { shopId: true } });
+    const onTeam = rows.length > 0 && (await pdb.shop.count({ where: { id: { in: rows.map((r) => r.shopId) }, businessId } })) > 0;
+    if (!onTeam) fail('not_on_team', 'Add this person to a branch team first (as an owner or manager), then make them HQ.');
     await runStatements(d1, [
       { sql: 'INSERT OR IGNORE INTO business_admins (business_id, phone) VALUES (?, ?)', params: [businessId, phone] },
     ]);

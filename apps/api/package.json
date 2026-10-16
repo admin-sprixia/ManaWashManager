@@ -11,7 +11,8 @@
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
     "test:isolation": "node scripts/isolation-check.mjs",
-    "test:signup": "node scripts/signup-check.mjs",
+    "test:expenses": "node scripts/expense-check.mjs",
+    "test:team": "node scripts/team-check.mjs",
     "test:access": "node scripts/access-check.mjs",
     "test:races": "node scripts/race-check.mjs",
     "test:rewards": "node scripts/rewards-check.mjs",
@@ -30,7 +31,8 @@
     "db:seed:demo": "node scripts/seed-demo.mjs",
     "db:seed:staging": "node scripts/seed-demo.mjs --staging",
     "backup:restore": "node scripts/restore-backup.mjs",
-    "support:reset-pin": "node scripts/reset-pin.mjs"
+    "support:reset-pin": "node scripts/reset-pin.mjs",
+    "setup:business": "node scripts/setup-business.mjs"
   },
   "dependencies": {
     "@hono/zod-validator": "^0.2.2",

@@ -70,6 +70,9 @@ export function ReasonSheet({
         />
       }
     >
+      <View style={styles.requiredRow}>
+        <Text style={styles.requiredText}>A reason is required — it’s saved in the staff report.</Text>
+      </View>
       <View style={styles.quickList}>
         {quickReasons.map((q, i) => {
           const on = reason === q;
@@ -85,7 +88,7 @@ export function ReasonSheet({
               accessibilityRole="radio"
               accessibilityState={{ selected: on }}
             >
-              <View style={[styles.radio, on && styles.radioOn]}>
+              <View style={[styles.radio, on && styles.radioOn, on && confirmVariant === 'primary' && styles.radioOnPrimary]}>
                 {on ? <IconCheck size={12} color={colors.white} /> : null}
               </View>
               <Text style={[styles.quickText, on && styles.quickTextOn]}>{q}</Text>
@@ -94,7 +97,9 @@ export function ReasonSheet({
         })}
       </View>
       <View style={styles.inputBlock}>
-        <Text style={styles.inputLabel}>{quickReasons.length ? 'Or write a reason' : 'Note'}</Text>
+        <Text style={styles.inputLabel}>
+          {quickReasons.length ? 'Or write a reason' : 'Reason'} <Text style={styles.star}>*</Text>
+        </Text>
         <TextInput
           style={styles.input}
           value={reason}
@@ -137,6 +142,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   radioOn: { backgroundColor: colors.danger, borderColor: colors.danger },
+  radioOnPrimary: { backgroundColor: colors.indigo, borderColor: colors.indigo },
+  requiredRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: 8,
+    borderRadius: radius.md,
+    backgroundColor: '#FFF7ED',
+  },
+  requiredText: { ...typography.caption, flex: 1, fontSize: 12.5, color: colors.amberDeep, letterSpacing: 0 },
+  star: { color: colors.danger, fontWeight: '800' },
   quickText: { ...typography.body, color: colors.waterInk, fontSize: 15 },
   quickTextOn: { fontWeight: '600' },
   inputBlock: { gap: 6 },

@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
+import Svg, { Circle, G, Path } from 'react-native-svg';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   GIFT_ITEMS_MAX,
@@ -24,6 +25,8 @@ import {
   type StockUnit,
 } from '@mana/domain';
 import {
+  BRAND_MARK,
+  brandGradients,
   ScreenContainer,
   ScreenHeader,
   BottomSheet,
@@ -38,6 +41,7 @@ import {
   IconStar,
   colors,
   radius,
+  shadow,
   spacing,
   typography,
 } from '@mana/ui';
@@ -66,6 +70,30 @@ interface ServiceOption {
 
 const EVERY_PRESETS = [3, 5, 6, 8, 10];
 
+/** Same alert colours as Inventory / Cash — amber when gifts are waiting, teal when clear. */
+const HERO_OWED = ['#F59E0B', '#D97706', '#92400E'] as const;
+const HERO_OK = ['#0F766E', '#0B4F4A', '#062B28'] as const;
+
+const STARS = [
+  [24, 26, 1.2, 0.5],
+  [88, 12, 0.9, 0.4],
+  [150, 40, 1.1, 0.3],
+  [214, 18, 1.2, 0.45],
+  [40, 86, 0.8, 0.3],
+  [190, 96, 1, 0.3],
+  [118, 132, 0.9, 0.25],
+] as const;
+
+const CARD_SHADOW = {
+  shadowColor: '#0C1442',
+  shadowOpacity: 0.06,
+  shadowRadius: 12,
+  shadowOffset: { width: 0, height: 4 },
+  elevation: 2,
+} as const;
+
+type RewardsTab = 'owed' | 'cards' | 'gift';
+
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
@@ -85,6 +113,7 @@ export function RewardsScreen({ navigation }: Props) {
   const [ruleSheet, setRuleSheet] = useState<{ rule: RewardRuleView | null } | null>(null);
   const [giftSheet, setGiftSheet] = useState(false);
   const [services, setServices] = useState<ServiceOption[]>([]);
+  const [tab, setTab] = useState<RewardsTab>('owed');
 
   const loadOwed = useCallback(async () => {
     try {
@@ -145,13 +174,76 @@ export function RewardsScreen({ navigation }: Props) {
   const rules = rewards?.rules ?? [];
   const gift = rewards?.gift ?? [];
   const owedCount = owed?.length ?? rewards?.giftsOwed ?? 0;
+  const giftShort = gift.filter((g) => g.balance < g.quantity).length;
   const nothingSetUp = rules.length === 0 && gift.length === 0;
+  const needsAction = owedCount > 0 || giftShort > 0;
   const unusedServices = services.filter((s) => !rules.some((r) => r.serviceId === s.id));
+
+  useEffect(() => {
+    if (owed == null) return;
+    if (tab === 'owed' && owed.length === 0 && (rules.length > 0 || gift.length > 0)) {
+      setTab(rules.length > 0 ? 'cards' : 'gift');
+    }
+  }, [owed, rules.length, gift.length, tab]);
+
+  const g = brandGradients.hero;
+  const heroColors = nothingSetUp
+    ? (g.colors as unknown as string[])
+    : needsAction
+      ? (HERO_OWED as unknown as string[])
+      : (HERO_OK as unknown as string[]);
+  const heroValue = nothingSetUp
+    ? 'Not set up yet'
+    : owedCount > 0
+      ? `${plural(owedCount, 'gift')} to hand over`
+      : giftShort > 0
+        ? `${plural(giftShort, 'gift')} running low`
+        : 'Rewards are on';
+  const heroMeta = nothingSetUp
+    ? 'Stamp cards earn a free wash; new cars get a welcome gift on their first paid visit.'
+    : owedCount > 0
+      ? 'Hand these over when the customer comes in — they come out of stock then.'
+      : giftShort > 0
+        ? 'Welcome gift stock is low — new cars will be owed it until you restock.'
+        : 'Stamp cards and welcome gifts are ready for the next wash.';
+
+  const tabs: { key: RewardsTab; label: string; count: number }[] = [
+    { key: 'owed', label: 'Gifts owed', count: owedCount },
+    { key: 'cards', label: 'Stamp cards', count: rules.length },
+    { key: 'gift', label: 'Welcome gift', count: gift.length },
+  ];
 
   return (
     <ScreenContainer noPadding>
       <View style={styles.headerPad}>
-        <ScreenHeader title="Rewards" onBack={() => navigation.goBack()} />
+        <ScreenHeader
+          title="Rewards"
+          onBack={() => navigation.goBack()}
+          right={
+            isOwner && tab === 'cards' && unusedServices.length > 0 ? (
+              <Pressable
+                onPress={() => setRuleSheet({ rule: null })}
+                disabled={!online}
+                style={({ pressed }) => [styles.addBtn, !online && styles.btnOff, pressed && styles.pressed]}
+                accessibilityRole="button"
+                accessibilityLabel="Add a stamp card"
+              >
+                <IconPlus size={16} color={colors.white} />
+                <Text style={styles.addBtnText}>Card</Text>
+              </Pressable>
+            ) : isOwner && tab === 'gift' ? (
+              <Pressable
+                onPress={() => setGiftSheet(true)}
+                disabled={!online}
+                style={({ pressed }) => [styles.addBtn, !online && styles.btnOff, pressed && styles.pressed]}
+                accessibilityRole="button"
+                accessibilityLabel={gift.length ? 'Change the welcome gift' : 'Set up the welcome gift'}
+              >
+                <Text style={styles.addBtnText}>{gift.length ? 'Change' : 'Set up'}</Text>
+              </Pressable>
+            ) : undefined
+          }
+        />
       </View>
 
       <ScrollView
@@ -163,36 +255,53 @@ export function RewardsScreen({ navigation }: Props) {
               setRefreshing(true);
               void reload().finally(() => setRefreshing(false));
             }}
-            tintColor={colors.water}
-            colors={[colors.water]}
+            tintColor={colors.indigo}
+            colors={[colors.indigo]}
           />
         }
       >
         <LinearGradient
-          colors={['#F59E0B', '#D97706'] as unknown as string[]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0.9, y: 1 }}
-          style={styles.hero}
+          colors={heroColors}
+          locations={nothingSetUp || !needsAction ? (g.locations as unknown as number[]) : undefined}
+          start={g.start}
+          end={g.end}
+          style={[styles.hero, shadow('md')]}
         >
-          <View pointerEvents="none" style={styles.orbLarge} />
+          <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" viewBox="0 0 340 200" preserveAspectRatio="xMidYMid slice">
+            {STARS.map(([x, y, r, o]) => (
+              <Circle key={`${x}-${y}`} cx={x} cy={y} r={r} fill="#FFFFFF" fillOpacity={o} />
+            ))}
+          </Svg>
+          <Svg style={styles.heroMark} width={150} height={150} viewBox="0 0 256 256">
+            <G>
+              <Path d={BRAND_MARK.drop} fill="#FFFFFF" fillOpacity={0.07} />
+              <Path d={BRAND_MARK.arms} fill="#FFFFFF" fillOpacity={0.1} />
+              <Path d={BRAND_MARK.centre} fill="#FFFFFF" fillOpacity={0.15} />
+            </G>
+          </Svg>
           <Text style={styles.heroEyebrow}>Bring them back</Text>
-          <Text style={styles.heroValue}>{nothingSetUp ? 'Not set up yet' : 'Rewards are on'}</Text>
-          <Text style={styles.heroMeta}>
-            Stamp cards earn a free wash; new cars get a welcome gift on their first paid visit.
+          <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit>
+            {heroValue}
           </Text>
-          <View style={styles.heroSplit}>
-            <View style={styles.heroCell}>
-              <Text style={styles.heroCellValue}>{rules.length}</Text>
-              <Text style={styles.heroCellLabel}>Stamp cards</Text>
-            </View>
-            <View style={[styles.heroCell, styles.heroCellDivider]}>
-              <Text style={styles.heroCellValue}>{gift.length}</Text>
-              <Text style={styles.heroCellLabel}>Gift items</Text>
-            </View>
-            <View style={[styles.heroCell, styles.heroCellDivider]}>
-              <Text style={styles.heroCellValue}>{owedCount}</Text>
-              <Text style={styles.heroCellLabel}>Gifts owed</Text>
-            </View>
+          <Text style={styles.heroMeta}>{heroMeta}</Text>
+          <View style={styles.heroChips}>
+            {[
+              { label: 'Stamp cards', value: rules.length, dot: null as string | null },
+              { label: 'Gift items', value: gift.length, dot: giftShort > 0 ? '#FCA5A5' : null },
+              {
+                label: 'Gifts owed',
+                value: owedCount,
+                dot: owedCount > 0 ? colors.amberLight : null,
+              },
+            ].map((c) => (
+              <View key={c.label} style={styles.heroChip}>
+                <View style={styles.heroChipTop}>
+                  {c.dot ? <View style={[styles.heroDot, { backgroundColor: c.dot }]} /> : null}
+                  <Text style={styles.heroChipLabel}>{c.label}</Text>
+                </View>
+                <Text style={styles.heroChipValue}>{c.value}</Text>
+              </View>
+            ))}
           </View>
         </LinearGradient>
 
@@ -203,179 +312,204 @@ export function RewardsScreen({ navigation }: Props) {
           </View>
         ) : null}
 
-        {/* Gifts owed — everyone hands these over */}
-        <View>
-          <View style={styles.sectionHead}>
-            <Text style={styles.sectionTitle}>Gifts owed</Text>
-            <Text style={styles.sectionMeta}>{owed ? plural(owed.length, 'item') : ''}</Text>
-          </View>
-          {owed == null && !owedError ? (
-            <ActivityIndicator style={styles.loader} color={colors.water} />
-          ) : owedError && owed == null ? (
-            <Text style={styles.empty}>{owedError}</Text>
-          ) : owed && owed.length === 0 ? (
-            <View style={styles.band}>
-              <View style={styles.row}>
-                <View style={[styles.rowIcon, { backgroundColor: '#CCFBF1' }]}>
-                  <IconCheck size={18} color={colors.tealDeep} />
+        <View style={styles.tabs}>
+          {tabs.map((t) => {
+            const on = tab === t.key;
+            return (
+              <Pressable
+                key={t.key}
+                onPress={() => setTab(t.key)}
+                style={({ pressed }) => [styles.tab, on && styles.tabOn, pressed && !on && styles.pressed]}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: on }}
+              >
+                <Text style={[styles.tabText, on && styles.tabTextOn]} numberOfLines={1}>
+                  {t.label}
+                  {t.count > 0 ? ` · ${t.count}` : ''}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {tab === 'owed' ? (
+          <>
+            {owed == null && !owedError ? (
+              <ActivityIndicator style={styles.loader} color={colors.indigo} />
+            ) : owedError && owed == null ? (
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>Couldn’t load</Text>
+                <Text style={styles.emptyBody}>{owedError}</Text>
+              </View>
+            ) : owed && owed.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <View style={[styles.emptyIcon, { backgroundColor: '#CCFBF1' }]}>
+                  <IconCheck size={28} color={colors.tealDeep} />
                 </View>
-                <Text style={[styles.rowMeta, styles.flex]}>
-                  Nobody is waiting. When a welcome gift is out of stock, it’s saved here until it’s handed over.
+                <Text style={styles.emptyTitle}>Nobody is waiting</Text>
+                <Text style={styles.emptyBody}>
+                  When a welcome gift is out of stock, it’s saved here until it’s handed over.
                 </Text>
               </View>
-            </View>
-          ) : (
-            <View style={[styles.band, styles.bandWarn]}>
-              {owed?.map((g, i) => (
-                <Pressable
-                  key={g.id}
-                  onPress={() => navigation.navigate('CustomerProfile', { customerId: g.customerId })}
-                  style={({ pressed }) => [styles.row, i > 0 && styles.rowDivider, pressed && styles.pressedRow]}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${giftLine(g)} owed to ${g.customerName || g.registrationNumber}`}
-                >
-                  <View style={[styles.rowIcon, { backgroundColor: '#FFEDD5' }]}>
-                    <IconGift size={18} color="#C2410C" />
-                  </View>
-                  <View style={styles.rowCopy}>
-                    <Text style={styles.rowTitle} numberOfLines={1}>
-                      {giftLine(g)}
-                    </Text>
-                    <Text style={styles.rowMeta} numberOfLines={1}>
-                      {g.customerName || 'Customer'} · {g.registrationNumber} · since {formatDateTime(g.createdAt)}
-                    </Text>
-                  </View>
+            ) : (
+              <View style={styles.band}>
+                {owed?.map((item, i) => (
                   <Pressable
-                    onPress={() => void give(g)}
-                    disabled={!online || giving != null}
-                    hitSlop={6}
-                    style={({ pressed }) => [styles.giveBtn, !online && styles.btnOff, pressed && styles.pressed]}
+                    key={item.id}
+                    onPress={() => navigation.navigate('CustomerProfile', { customerId: item.customerId })}
+                    android_ripple={{ color: colors.waterPale }}
+                    style={({ pressed }) => [
+                      styles.row,
+                      i < (owed?.length ?? 0) - 1 && styles.rowDivider,
+                      pressed && styles.pressedRow,
+                    ]}
                     accessibilityRole="button"
-                    accessibilityLabel={`Mark ${g.itemName} given`}
+                    accessibilityLabel={`${giftLine(item)} owed to ${item.customerName || item.registrationNumber}`}
                   >
-                    {giving === g.id ? (
-                      <ActivityIndicator size="small" color={colors.white} />
-                    ) : (
-                      <Text style={styles.giveText}>Given</Text>
-                    )}
-                  </Pressable>
-                </Pressable>
-              ))}
-            </View>
-          )}
-          {owed && owed.length > 0 ? (
-            <Text style={[styles.footnote, styles.footnoteTop]}>
-              Tap Given when the customer gets it — it comes out of stock then. Owed gifts never expire.
-            </Text>
-          ) : null}
-        </View>
-
-        {/* Stamp cards */}
-        <View>
-          <View style={styles.sectionHead}>
-            <Text style={styles.sectionTitle}>Stamp cards</Text>
-            {isOwner && unusedServices.length > 0 ? (
-              <Pressable
-                onPress={() => setRuleSheet({ rule: null })}
-                disabled={!online}
-                style={({ pressed }) => [styles.addBtn, !online && styles.btnOff, pressed && styles.pressed]}
-                accessibilityRole="button"
-                accessibilityLabel="Add a stamp card"
-              >
-                <IconPlus size={14} color={colors.white} />
-                <Text style={styles.addBtnText}>Card</Text>
-              </Pressable>
-            ) : null}
-          </View>
-          {rules.length === 0 ? (
-            <Text style={styles.empty}>
-              {isOwner
-                ? 'Pick a service and how many paid washes earn one free — e.g. every 5th Foam Wash is free.'
-                : 'The owner hasn’t set up any stamp cards.'}
-            </Text>
-          ) : (
-            <View style={styles.band}>
-              {rules.map((r, i) => (
-                <Pressable
-                  key={r.serviceId}
-                  onPress={isOwner ? () => setRuleSheet({ rule: r }) : undefined}
-                  disabled={!isOwner}
-                  style={({ pressed }) => [styles.row, i > 0 && styles.rowDivider, pressed && styles.pressedRow]}
-                  accessibilityRole={isOwner ? 'button' : undefined}
-                >
-                  <View style={[styles.rowIcon, { backgroundColor: '#FEF3C7' }]}>
-                    <IconStar size={18} color={colors.amberDeep} />
-                  </View>
-                  <View style={styles.rowCopy}>
-                    <Text style={styles.rowTitle} numberOfLines={1}>
-                      {r.serviceName}
-                    </Text>
-                    <Text style={styles.rowMeta}>{stampRuleLabel(r.every)}</Text>
-                  </View>
-                  {isOwner ? <Text style={styles.editLink}>Edit</Text> : null}
-                </Pressable>
-              ))}
-            </View>
-          )}
-          <Text style={[styles.footnote, styles.footnoteTop]}>
-            A stamp lands when a wash is paid (combos that include the service count too). Staff see “Free wash
-            ready” on New Wash; the customer can use it or save it. A card resets if the car doesn’t get that
-            service for {REWARD_RESET_MONTHS} months — staff are warned {REWARD_EXPIRY_WARN_DAYS} days before.
-          </Text>
-        </View>
-
-        {/* Welcome gift */}
-        <View>
-          <View style={styles.sectionHead}>
-            <Text style={styles.sectionTitle}>Welcome gift</Text>
-            {isOwner ? (
-              <Pressable
-                onPress={() => setGiftSheet(true)}
-                disabled={!online}
-                style={({ pressed }) => [styles.addBtn, !online && styles.btnOff, pressed && styles.pressed]}
-                accessibilityRole="button"
-                accessibilityLabel={gift.length ? 'Change the welcome gift' : 'Set up the welcome gift'}
-              >
-                <Text style={styles.addBtnText}>{gift.length ? 'Change' : 'Set up'}</Text>
-              </Pressable>
-            ) : null}
-          </View>
-          {gift.length === 0 ? (
-            <Text style={styles.empty}>
-              {isOwner
-                ? 'Give every new car something from Inventory on its first paid wash — a cloth, an air freshener.'
-                : 'The owner hasn’t set up a welcome gift.'}
-            </Text>
-          ) : (
-            <View style={styles.band}>
-              {gift.map((g, i) => {
-                const short = g.balance < g.quantity;
-                return (
-                  <View key={g.stockItemId} style={[styles.row, i > 0 && styles.rowDivider]}>
-                    <View style={[styles.rowIcon, { backgroundColor: short ? '#FEE2E2' : '#CCFBF1' }]}>
-                      <IconGift size={18} color={short ? colors.danger : colors.tealDeep} />
+                    <View style={[styles.rowIcon, { backgroundColor: '#FFEDD5' }]}>
+                      <IconGift size={18} color="#C2410C" />
                     </View>
                     <View style={styles.rowCopy}>
                       <Text style={styles.rowTitle} numberOfLines={1}>
-                        {giftLine(g)}
+                        {giftLine(item)}
                       </Text>
-                      <Text style={[styles.rowMeta, short && styles.rowMetaDanger]}>
-                        {short
-                          ? `Only ${formatStock(g.balance, g.unit)} left — new cars will be owed it`
-                          : `${formatStock(g.balance, g.unit)} in stock`}
+                      <Text style={styles.rowMeta} numberOfLines={1}>
+                        {item.customerName || 'Customer'} · {item.registrationNumber} · since{' '}
+                        {formatDateTime(item.createdAt)}
                       </Text>
                     </View>
-                  </View>
-                );
-              })}
-            </View>
-          )}
-          <Text style={[styles.footnote, styles.footnoteTop]}>
-            Every new car gets it once, on its first paid wash — even a regular customer’s new car. It comes out
-            of stock when the wash is paid and goes back if the wash is voided. Out of stock? The wash still
-            goes ahead and the gift is saved as owed.
-          </Text>
-        </View>
+                    <Pressable
+                      onPress={() => void give(item)}
+                      disabled={!online || giving != null}
+                      hitSlop={6}
+                      style={({ pressed }) => [styles.giveBtn, !online && styles.btnOff, pressed && styles.pressed]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Mark ${item.itemName} given`}
+                    >
+                      {giving === item.id ? (
+                        <ActivityIndicator size="small" color={colors.white} />
+                      ) : (
+                        <Text style={styles.giveText}>Given</Text>
+                      )}
+                    </Pressable>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+            {owed && owed.length > 0 ? (
+              <Text style={styles.footnote}>
+                Tap Given when the customer gets it — it comes out of stock then. Owed gifts never expire.
+              </Text>
+            ) : null}
+          </>
+        ) : null}
+
+        {tab === 'cards' ? (
+          <>
+            {rules.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <View style={[styles.emptyIcon, { backgroundColor: '#FEF3C7' }]}>
+                  <IconStar size={28} color={colors.amberDeep} />
+                </View>
+                <Text style={styles.emptyTitle}>No stamp cards yet</Text>
+                <Text style={styles.emptyBody}>
+                  {isOwner
+                    ? 'Pick a service and how many paid washes earn one free — e.g. every 5th Foam Wash is free.'
+                    : 'The owner hasn’t set up any stamp cards.'}
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.band}>
+                {rules.map((r, i) => (
+                  <Pressable
+                    key={r.serviceId}
+                    onPress={isOwner ? () => setRuleSheet({ rule: r }) : undefined}
+                    disabled={!isOwner}
+                    android_ripple={isOwner ? { color: colors.waterPale } : undefined}
+                    style={({ pressed }) => [
+                      styles.row,
+                      i < rules.length - 1 && styles.rowDivider,
+                      pressed && styles.pressedRow,
+                    ]}
+                    accessibilityRole={isOwner ? 'button' : undefined}
+                  >
+                    <View style={[styles.rowIcon, { backgroundColor: '#FEF3C7' }]}>
+                      <IconStar size={18} color={colors.amberDeep} />
+                    </View>
+                    <View style={styles.rowCopy}>
+                      <Text style={styles.rowTitle} numberOfLines={1}>
+                        {r.serviceName}
+                      </Text>
+                      <Text style={styles.rowMeta}>{stampRuleLabel(r.every)}</Text>
+                    </View>
+                    {isOwner ? <Text style={styles.editLink}>Edit</Text> : null}
+                  </Pressable>
+                ))}
+              </View>
+            )}
+            <Text style={styles.footnote}>
+              A stamp lands when a wash is paid (combos that include the service count too). Staff see “Free wash
+              ready” on New Wash; the customer can use it or save it. A card resets if the car doesn’t get that
+              service for {REWARD_RESET_MONTHS} months — staff are warned {REWARD_EXPIRY_WARN_DAYS} days before.
+            </Text>
+          </>
+        ) : null}
+
+        {tab === 'gift' ? (
+          <>
+            {gift.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <View style={[styles.emptyIcon, { backgroundColor: '#FCE7F3' }]}>
+                  <IconGift size={28} color="#BE185D" />
+                </View>
+                <Text style={styles.emptyTitle}>No welcome gift yet</Text>
+                <Text style={styles.emptyBody}>
+                  {isOwner
+                    ? 'Give every new car something from Inventory on its first paid wash — a cloth, an air freshener.'
+                    : 'The owner hasn’t set up a welcome gift.'}
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.band}>
+                {gift.map((item, i) => {
+                  const short = item.balance < item.quantity;
+                  return (
+                    <View
+                      key={item.stockItemId}
+                      style={[styles.row, i < gift.length - 1 && styles.rowDivider]}
+                    >
+                      <View style={[styles.rowIcon, { backgroundColor: short ? '#FEE2E2' : '#CCFBF1' }]}>
+                        <IconGift size={18} color={short ? colors.danger : colors.tealDeep} />
+                      </View>
+                      <View style={styles.rowCopy}>
+                        <View style={styles.rowTitleLine}>
+                          <Text style={styles.rowTitle} numberOfLines={1}>
+                            {giftLine(item)}
+                          </Text>
+                          {short ? (
+                            <View style={[styles.levelPill, { backgroundColor: '#FEE2E2' }]}>
+                              <Text style={[styles.levelPillText, { color: colors.danger }]}>Low</Text>
+                            </View>
+                          ) : null}
+                        </View>
+                        <Text style={[styles.rowMeta, short && styles.rowMetaDanger]}>
+                          {short
+                            ? `Only ${formatStock(item.balance, item.unit)} left — new cars will be owed it`
+                            : `${formatStock(item.balance, item.unit)} in stock`}
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+            <Text style={styles.footnote}>
+              Every new car gets it once, on its first paid wash — even a regular customer’s new car. It comes out
+              of stock when the wash is paid and goes back if the wash is voided. Out of stock? The wash still
+              goes ahead and the gift is saved as owed.
+            </Text>
+          </>
+        ) : null}
       </ScrollView>
 
       {isOwner ? (
@@ -775,72 +909,105 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   headerPad: { paddingHorizontal: spacing.md },
   scroll: { paddingBottom: spacing.xxl, gap: spacing.lg },
-  pressed: { opacity: 0.8 },
+  pressed: { opacity: 0.75 },
   pressedRow: { backgroundColor: colors.surface },
-  loader: { marginTop: spacing.md },
+  loader: { marginTop: spacing.lg },
+  addBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.indigo,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md - 2,
+    height: 36,
+  },
+  addBtnText: { ...typography.label, color: colors.white, fontWeight: '700' },
+  btnOff: { opacity: 0.45 },
+
   hero: {
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.md + 4,
+    marginHorizontal: spacing.md,
+    borderRadius: radius.xl,
+    padding: spacing.md + 2,
+    gap: 4,
     overflow: 'hidden',
   },
-  orbLarge: {
-    position: 'absolute',
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    backgroundColor: 'rgba(255,255,255,0.14)',
-    top: -80,
-    right: -60,
+  heroMark: { position: 'absolute', right: -22, top: -14 },
+  heroEyebrow: { ...typography.label, fontSize: 14, color: 'rgba(255,255,255,0.88)' },
+  heroValue: {
+    ...typography.display,
+    fontSize: 34,
+    color: colors.white,
+    letterSpacing: -0.8,
   },
-  heroEyebrow: { ...typography.label, fontSize: 14, color: 'rgba(255,255,255,0.9)' },
-  heroValue: { ...typography.display, fontSize: 32, color: colors.white, letterSpacing: -0.8, marginTop: 2 },
-  heroMeta: { ...typography.label, fontSize: 13.5, color: 'rgba(255,255,255,0.94)', lineHeight: 19 },
-  heroSplit: {
-    flexDirection: 'row',
-    marginTop: spacing.md + 4,
-    paddingTop: spacing.md,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255,255,255,0.5)',
+  heroMeta: { ...typography.label, fontSize: 13.5, color: 'rgba(255,255,255,0.9)', lineHeight: 19 },
+  heroChips: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
+  heroChip: {
+    flex: 1,
+    padding: spacing.sm + 2,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
-  heroCell: { flex: 1, gap: 2 },
-  heroCellDivider: {
-    paddingLeft: spacing.md,
-    borderLeftWidth: StyleSheet.hairlineWidth,
-    borderLeftColor: 'rgba(255,255,255,0.5)',
-  },
-  heroCellValue: { ...typography.heading, fontSize: 18, color: colors.white },
-  heroCellLabel: { ...typography.caption, fontSize: 11.5, color: 'rgba(255,255,255,0.9)', fontWeight: '700', letterSpacing: 0 },
+  heroChipTop: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  heroDot: { width: 7, height: 7, borderRadius: 4 },
+  heroChipLabel: { ...typography.caption, fontSize: 11, color: 'rgba(255,255,255,0.75)', letterSpacing: 0.3 },
+  heroChipValue: { ...typography.bodyStrong, fontSize: 18, color: colors.white, fontWeight: '800', marginTop: 2 },
+
   notice: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing.sm,
-    alignItems: 'center',
-    backgroundColor: '#FFFBEB',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: '#FDE68A',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 2,
-    marginTop: -spacing.sm,
+    marginHorizontal: spacing.md,
+    padding: spacing.sm + 4,
+    borderRadius: 14,
+    backgroundColor: colors.amberPale,
+    borderWidth: 1,
+    borderColor: colors.amberLight,
   },
-  noticeText: { ...typography.caption, color: colors.amberDeep, flex: 1, letterSpacing: 0, fontSize: 13 },
-  sectionHead: {
+  noticeText: { ...typography.caption, flex: 1, fontSize: 12.5, color: colors.amberDeep, letterSpacing: 0 },
+
+  tabs: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.md,
-    marginBottom: spacing.sm,
-    minHeight: 36,
+    marginHorizontal: spacing.md,
+    padding: 4,
+    gap: 4,
+    borderRadius: radius.pill,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  sectionTitle: { ...typography.heading, fontSize: 17, color: colors.waterInk, letterSpacing: -0.2 },
-  sectionMeta: { ...typography.caption, fontSize: 12, color: colors.slate, letterSpacing: 0 },
+  tab: { flex: 1, height: 36, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  tabOn: { backgroundColor: colors.indigo },
+  tabText: { ...typography.label, fontSize: 12.5, color: colors.slateDeep },
+  tabTextOn: { color: colors.white, fontWeight: '800' },
+
+  emptyCard: {
+    marginHorizontal: spacing.md,
+    backgroundColor: colors.white,
+    borderRadius: 22,
+    padding: spacing.lg,
+    alignItems: 'center',
+    gap: spacing.sm,
+    ...CARD_SHADOW,
+  },
+  emptyIcon: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: colors.indigoPale,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyTitle: { ...typography.heading, fontSize: 18, color: colors.ink },
+  emptyBody: { ...typography.body, fontSize: 13.5, color: colors.slateDeep, textAlign: 'center' },
+
   band: {
     backgroundColor: colors.white,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
   },
-  bandWarn: { borderColor: '#FDBA74' },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -849,40 +1016,30 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm + 6,
     backgroundColor: colors.white,
   },
-  rowDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  rowDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   rowIcon: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
-  rowCopy: { flex: 1, gap: 3 },
-  rowTitle: { ...typography.bodyStrong, color: colors.waterInk, fontSize: 15.5, fontWeight: '700' },
+  rowCopy: { flex: 1, gap: 3, minWidth: 0 },
+  rowTitleLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  rowTitle: {
+    ...typography.bodyStrong,
+    flexShrink: 1,
+    color: colors.waterInk,
+    fontSize: 15.5,
+    fontWeight: '700',
+  },
+  levelPill: { paddingHorizontal: 8, height: 20, borderRadius: 10, justifyContent: 'center' },
+  levelPillText: { ...typography.caption, fontSize: 11, fontWeight: '800', letterSpacing: 0 },
   rowMeta: { ...typography.caption, fontSize: 12.5, color: colors.slateDeep, letterSpacing: 0 },
   rowMetaDanger: { color: colors.danger, fontWeight: '700' },
-  editLink: { ...typography.label, color: colors.water, fontSize: 14 },
-  empty: {
-    ...typography.body,
-    color: colors.slateDeep,
-    fontSize: 14,
-    lineHeight: 20,
-    paddingHorizontal: spacing.md,
-  },
+  editLink: { ...typography.label, color: colors.indigo, fontSize: 14, fontWeight: '700' },
   footnote: {
     ...typography.caption,
     fontSize: 12.5,
     color: colors.slate,
-    paddingHorizontal: spacing.md,
     letterSpacing: 0,
     lineHeight: 18,
+    paddingHorizontal: spacing.md,
   },
-  footnoteTop: { marginTop: spacing.sm },
-  addBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: colors.water,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.md - 2,
-    height: 34,
-  },
-  addBtnText: { ...typography.label, color: colors.white },
-  btnOff: { opacity: 0.45 },
   giveBtn: {
     minWidth: 72,
     alignItems: 'center',
@@ -891,7 +1048,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     backgroundColor: '#EA580C',
   },
-  giveText: { ...typography.label, color: colors.white },
+  giveText: { ...typography.label, color: colors.white, fontWeight: '700' },
   sheetFooter: { gap: spacing.sm },
   sheetLabel: {
     ...typography.label,

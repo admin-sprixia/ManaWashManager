@@ -224,7 +224,7 @@ export const placeRoutes = new Hono<{ Bindings: Env }>()
   .get('/menu', async (c) => {
     const shopId = c.get('session').shopId;
     const pdb = createPlatformDb(c.env.DB);
-    const businessId = await catalogRepo.ensureBusinessForShop(c.env.DB, shopId);
+    const businessId = await catalogRepo.businessForShop(c.env.DB, shopId);
     const rules = await businessRules(pdb, businessId);
     return c.json({ menu: await planRepo.menu(pdb, shopId, businessId, rules.priceMode), rules });
   })

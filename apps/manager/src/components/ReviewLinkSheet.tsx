@@ -19,6 +19,7 @@ import {
 import { api, apiErrorMessage } from '../api/client';
 import { NetworkError } from '../api/network';
 import { useShop } from '../offline/ShopProvider';
+import { SheetHead, SheetNotice, SheetPill } from './SheetBits';
 
 const GOOGLE_HOSTS = /(^|\.)(g\.page|goo\.gl|google\.[a-z.]+|maps\.app\.goo\.gl|search\.google\.com)$/i;
 
@@ -104,19 +105,17 @@ export function ReviewLinkSheet({ visible, onClose }: { visible: boolean; onClos
         />
       }
     >
-      <View style={styles.status}>
-        <View style={styles.stars}>
-          {[0, 1, 2, 3, 4].map((i) => (
-            <IconStar key={i} size={18} color={colors.amber} />
-          ))}
-        </View>
-        <View style={[styles.statusChip, saved ? styles.chipOn : styles.chipOff]}>
-          <View style={[styles.statusDot, { backgroundColor: saved ? colors.teal : colors.amber }]} />
-          <Text style={[styles.statusText, { color: saved ? colors.tealDeep : colors.amberDeep }]}>
-            {saved ? 'Link is on' : 'Not set yet'}
-          </Text>
-        </View>
-      </View>
+      <SheetHead
+        tone={saved ? 'teal' : 'amber'}
+        icon={<IconStar size={22} color={saved ? colors.teal : colors.amber} />}
+        title={saved ? 'Review ask is on' : 'Review ask is off'}
+        caption={
+          saved
+            ? 'Every thank-you message ends with your Google review link.'
+            : 'Add your Google link to turn happy washes into reviews.'
+        }
+        right={<SheetPill tone={saved ? 'teal' : 'amber'} label={saved ? 'On' : 'Not set'} />}
+      />
 
       <View style={styles.field}>
         <Text style={styles.label}>Your review link</Text>
@@ -242,10 +241,9 @@ export function ReviewLinkSheet({ visible, onClose }: { visible: boolean; onClos
       </View>
 
       {error ? (
-        <View style={styles.hintRow}>
-          <IconAlert size={14} color={colors.danger} />
-          <Text style={styles.error}>{error}</Text>
-        </View>
+        <SheetNotice tone="danger" icon={<IconAlert size={14} color={colors.danger} />}>
+          {error}
+        </SheetNotice>
       ) : null}
     </BottomSheet>
   );
@@ -253,31 +251,16 @@ export function ReviewLinkSheet({ visible, onClose }: { visible: boolean; onClos
 
 const styles = StyleSheet.create({
   pressed: { opacity: 0.7 },
-  status: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  stars: { flexDirection: 'row', gap: 3 },
-  statusChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    height: 26,
-    borderRadius: radius.pill,
-  },
-  chipOn: { backgroundColor: '#CCFBF1' },
-  chipOff: { backgroundColor: '#FEF3C7' },
-  statusDot: { width: 7, height: 7, borderRadius: 4 },
-  statusText: { ...typography.caption, fontSize: 12, fontWeight: '800', letterSpacing: 0 },
-
-  field: { gap: 6 },
-  label: { ...typography.caption, color: colors.slateDeep },
+  field: { gap: 8 },
+  label: { ...typography.caption, fontSize: 12.5, color: colors.slateDeep, fontWeight: '700', letterSpacing: 0.1 },
   inputWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    height: 54,
+    height: 56,
     borderWidth: 1.5,
     borderColor: colors.border,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     backgroundColor: colors.surface,
     paddingLeft: spacing.sm + 2,
     paddingRight: spacing.sm + 4,
@@ -343,11 +326,14 @@ const styles = StyleSheet.create({
   bubbleTime: { fontSize: 10.5, color: '#667781', alignSelf: 'flex-end', marginTop: 2 },
 
   steps: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
+    borderRadius: radius.lg,
     borderColor: colors.border,
+    backgroundColor: colors.white,
+    paddingHorizontal: spacing.sm + 4,
+    overflow: 'hidden',
   },
-  stepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm + 2, paddingVertical: spacing.sm + 2 },
+  stepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm + 2, paddingVertical: spacing.sm + 4 },
   stepDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   stepNum: {
     width: 22,

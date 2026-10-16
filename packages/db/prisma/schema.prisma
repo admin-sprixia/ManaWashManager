@@ -170,6 +170,7 @@ model User {
   jobEvents          JobEvent[]
   expenses           Expense[]         @relation("ExpenseCreatedBy")
   expensesVoided     Expense[]         @relation("ExpenseVoidedBy")
+  expenseEdits       ExpenseEdit[]     @relation("ExpenseEditedBy")
   couponsIssued      Coupon[]          @relation("CouponIssuedBy")
   couponsRedeemed    Coupon[]          @relation("CouponRedeemedBy")
   washes             JobWasher[]       @relation("JobWasher")
@@ -188,8 +189,6 @@ model User {
   stockItems         StockItem[]       @relation("StockItemCreatedBy")
   stockMoves         StockMove[]       @relation("StockMoveCreatedBy")
   settingsUpdated    AppSetting[]      @relation("AppSettingUpdatedBy")
-  joinRequests       JoinRequest[]     @relation("JoinRequestUser")
-  joinDecisions      JoinRequest[]     @relation("JoinRequestDecidedBy")
   remindersSent      VehicleReminder[] @relation("VehicleReminderRemindedBy")
   remindersDismissed VehicleReminder[] @relation("VehicleReminderDismissedBy")
   rewardRules        RewardRule[]
@@ -630,11 +629,12 @@ model LoginCode {
   @@map("login_codes")
 }
 
-/// WhatsApp codes for people without an account yet (new shop, or asking to join one). Platform-level.
+/// WhatsApp codes for numbers that aren't a team sign-in: moving to a new number, and the Mana Wash
+/// customer app. Platform-level.
 model SignupCode {
   id        String    @id @default(uuid())
   phone     String
-  purpose   String // signup | join
+  purpose   String // phone | customer
   codeHash  String    @map("code_hash")
   attempts  Int       @default(0)
   ip        String?
@@ -645,25 +645,6 @@ model SignupCode {
   @@index([phone, createdAt])
   @@index([ip, createdAt])
   @@map("signup_codes")
-}
-
-/// Asking to join a shop with its shop ID. Approval creates the user; one pending request per phone.
-model JoinRequest {
-  id              String    @id @default(uuid())
-  shopId          String    @default("") @map("shop_id")
-  phone           String
-  name            String
-  status          String    @default("pending") // pending | approved | rejected | cancelled
-  userId          String?   @map("user_id")
-  decidedByUserId String?   @map("decided_by_user_id")
-  decidedAt       DateTime? @map("decided_at")
-  createdAt       DateTime  @default(now()) @map("created_at")
-
-  user      User? @relation("JoinRequestUser", fields: [userId], references: [id])
-  decidedBy User? @relation("JoinRequestDecidedBy", fields: [decidedByUserId], references: [id])
-
-  @@index([shopId, status])
-  @@map("join_requests")
 }
 
 /// A named place a branch serves ("Kovur") — the backup when a customer doesn't share a location.
@@ -926,9 +907,28 @@ model Expense {
   createdBy  User        @relation("ExpenseCreatedBy", fields: [createdByUserId], references: [id])
   voidedBy   User?       @relation("ExpenseVoidedBy", fields: [voidedByUserId], references: [id])
   stockMoves StockMove[]
+  edits      ExpenseEdit[]
 
   @@index([shopId, date])
   @@map("expenses")
+}
+
+/// An edit of an expense, append-only: who, why, and each field's old and new value (JSON).
+model ExpenseEdit {
+  id              String   @id @default(uuid())
+  shopId          String   @default("") @map("shop_id")
+  expenseId       String   @map("expense_id")
+  editedByUserId  String   @map("edited_by_user_id")
+  reason          String
+  changes         String // JSON: [{ field, from, to }]
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  expense  Expense @relation(fields: [expenseId], references: [id])
+  editedBy User    @relation("ExpenseEditedBy", fields: [editedByUserId], references: [id])
+
+  @@index([shopId, createdAt])
+  @@index([shopId, expenseId])
+  @@map("expense_edits")
 }
 
 /// A consumable the shop keeps. `balance` (base unit) always equals the sum of its moves; one live

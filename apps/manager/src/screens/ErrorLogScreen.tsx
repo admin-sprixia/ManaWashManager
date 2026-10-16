@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
-import LinearGradient from 'react-native-linear-gradient';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   ScreenContainer,
@@ -17,6 +16,7 @@ import {
   spacing,
   typography,
 } from '@mana/ui';
+import { Band, ScreenHero, SectionTitle, TipBand } from '../components/ScreenChrome';
 import { api, apiErrorMessage } from '../api/client';
 import { NetworkError } from '../api/network';
 import { useShop } from '../offline/ShopProvider';
@@ -197,27 +197,44 @@ export function ErrorLogScreen({ navigation }: Props) {
             <Button label="Try again" variant="secondary" onPress={() => void load()} />
           </View>
         ) : rows.length === 0 ? (
-          <LinearGradient colors={['#14B8A6', '#0D9488']} start={{ x: 0, y: 0 }} end={{ x: 0.9, y: 1 }} style={styles.cleanHero}>
-            <View pointerEvents="none" style={styles.orbLarge} />
-            <View style={styles.cleanIcon}>
-              <IconShield size={30} color={colors.white} />
-            </View>
-            <Text style={styles.cleanTitle}>All clear</Text>
-            <Text style={styles.cleanBody}>
-              Nothing has gone wrong in the app or on the server in the last 90 days.
-            </Text>
-            <Text style={styles.cleanMeta}>App version {APP_VERSION}</Text>
-          </LinearGradient>
+          <>
+            <ScreenHero
+              tone="teal"
+              eyebrow="Error log"
+              title="All clear"
+              meta="Nothing has gone wrong in the app or on the server in the last 90 days."
+              right={<IconShield size={22} color="rgba(255,255,255,0.9)" />}
+              chips={[
+                { label: 'App', value: 0 },
+                { label: 'Server', value: 0 },
+                { label: 'Version', value: APP_VERSION },
+              ]}
+            />
+            <TipBand tone="teal">
+              App errors are saved on the phone and sent when it’s back online. Pull down to check again.
+            </TipBand>
+          </>
         ) : (
           <>
+            <ScreenHero
+              tone="danger"
+              eyebrow="Error log"
+              title={`${rows.length} error${rows.length === 1 ? '' : 's'}`}
+              meta={`Last one ${ago(rows[0]!.createdAt)} · past 90 days`}
+              right={<IconAlert size={22} color="rgba(255,255,255,0.9)" />}
+              chips={[
+                { label: 'App', value: counts.app },
+                { label: 'Server', value: counts.api },
+                { label: 'This week', value: weekTotal },
+              ]}
+            />
+
             {/* Summary */}
-            <View style={styles.summary}>
+            <Band style={styles.summary}>
               <View style={styles.summaryTop}>
                 <View style={styles.summaryCopy}>
-                  <Text style={styles.summaryValue}>{rows.length}</Text>
-                  <Text style={styles.summaryLabel}>
-                    error{rows.length === 1 ? '' : 's'} in 90 days · last {ago(rows[0]!.createdAt)}
-                  </Text>
+                  <Text style={styles.summaryValue}>{weekTotal}</Text>
+                  <Text style={styles.summaryLabel}>in the last 7 days</Text>
                 </View>
                 <View style={styles.chart}>
                   {week.map((d) => (
@@ -238,7 +255,7 @@ export function ErrorLogScreen({ navigation }: Props) {
                 </View>
               </View>
               <Text style={styles.weekNote}>
-                {weekTotal === 0 ? 'None in the last 7 days 🎉' : `${weekTotal} in the last 7 days`}
+                {weekTotal === 0 ? 'None in the last 7 days 🎉' : 'Daily errors, oldest to newest'}
               </Text>
               <View style={styles.segment}>
                 {(['all', 'app', 'api'] as Filter[]).map((f) => {
@@ -264,7 +281,7 @@ export function ErrorLogScreen({ navigation }: Props) {
                   );
                 })}
               </View>
-            </View>
+            </Band>
 
             {visible.length === 0 ? (
               <Text style={styles.emptyFilter}>
@@ -273,14 +290,11 @@ export function ErrorLogScreen({ navigation }: Props) {
               </Text>
             ) : (
               groups.map((g) => (
-                <View key={g.date}>
-                  <View style={styles.sectionHead}>
-                    <Text style={styles.sectionTitle}>{dayTitle(g.date)}</Text>
-                    <Text style={styles.sectionMeta}>
-                      {g.items.length} error{g.items.length === 1 ? '' : 's'}
-                    </Text>
-                  </View>
-                  <View style={styles.band}>
+                <View key={g.date} style={styles.group}>
+                  <SectionTitle meta={`${g.items.length} error${g.items.length === 1 ? '' : 's'}`}>
+                    {dayTitle(g.date)}
+                  </SectionTitle>
+                  <Band>
                     {g.items.map((r, i) => {
                       const expanded = open === r.id;
                       const tone = SOURCE[r.source];
@@ -360,7 +374,7 @@ export function ErrorLogScreen({ navigation }: Props) {
                         </Pressable>
                       );
                     })}
-                  </View>
+                  </Band>
                 </View>
               ))
             )}
@@ -377,7 +391,8 @@ export function ErrorLogScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   headerPad: { paddingHorizontal: spacing.md },
-  scroll: { paddingBottom: spacing.xxl, gap: spacing.lg },
+  scroll: { paddingBottom: spacing.xxl, gap: spacing.sm },
+  group: { gap: spacing.sm },
   pressed: { opacity: 0.7 },
   loader: { marginTop: spacing.xxl },
   headerBtn: {
@@ -403,45 +418,11 @@ const styles = StyleSheet.create({
   },
   stateText: { ...typography.body, fontSize: 14.5, color: colors.slateDeep, textAlign: 'center', lineHeight: 21 },
 
-  cleanHero: {
-    alignItems: 'center',
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.xl + 4,
-    gap: spacing.sm,
-    overflow: 'hidden',
-  },
-  orbLarge: {
-    position: 'absolute',
-    width: 240,
-    height: 240,
-    borderRadius: 120,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    top: -90,
-    right: -70,
-  },
-  cleanIcon: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    backgroundColor: 'rgba(255,255,255,0.22)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.xs,
-  },
-  cleanTitle: { ...typography.display, fontSize: 30, color: colors.white },
-  cleanBody: { ...typography.body, fontSize: 15, color: 'rgba(255,255,255,0.92)', textAlign: 'center', lineHeight: 21 },
-  cleanMeta: { ...typography.caption, fontSize: 12, color: 'rgba(255,255,255,0.75)', letterSpacing: 0, marginTop: 4 },
-
   summary: {
-    backgroundColor: colors.white,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
     paddingHorizontal: spacing.md,
     paddingTop: spacing.md,
     paddingBottom: spacing.md,
     gap: spacing.sm,
-    marginTop: spacing.sm,
   },
   summaryTop: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.md },
   summaryCopy: { flex: 1, gap: 2 },
@@ -500,21 +481,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
   },
 
-  sectionHead: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  sectionTitle: { ...typography.heading, fontSize: 17, color: colors.waterInk, letterSpacing: -0.2 },
-  sectionMeta: { ...typography.caption, fontSize: 12, color: colors.slate, letterSpacing: 0 },
-  band: {
-    backgroundColor: colors.white,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-  },
   row: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 6, gap: spacing.sm + 4 },
   rowOpen: { backgroundColor: '#FAFCFF' },
   divider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },

@@ -1,7 +1,12 @@
 import ReactNativeBlobUtil from 'react-native-blob-util';
 import Share from 'react-native-share';
 import { SHOP } from '../config/shop';
-import { buildReportPdf, reportFilename, type ReportExportPayload } from './reportPdf';
+import {
+  buildReportPdf,
+  reportFilename,
+  type ReportExportPayload,
+  type ReportShopMeta,
+} from './reportPdf';
 
 /** Encode PDF bytes to base64 without relying on Hermes `btoa` (not always present). */
 function bytesToBase64(bytes: Uint8Array): string {
@@ -18,9 +23,19 @@ function bytesToBase64(bytes: Uint8Array): string {
 }
 
 /** Write the report PDF to cache and open the native share sheet. */
-export async function shareReportPdf(data: ReportExportPayload): Promise<void> {
-  const bytes = await buildReportPdf(data);
-  const filename = reportFilename(data);
+export async function shareReportPdf(
+  data: ReportExportPayload,
+  shop?: ReportShopMeta,
+): Promise<void> {
+  const meta: ReportShopMeta = {
+    name: shop?.name?.trim() || SHOP.name,
+    city: shop?.city ?? null,
+    code: shop?.code ?? null,
+    generatedBy: shop?.generatedBy ?? null,
+    rewards: shop?.rewards ?? null,
+  };
+  const bytes = await buildReportPdf(data, meta);
+  const filename = reportFilename(data, meta.name);
   const path = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/${filename}`;
 
   const base64 = bytesToBase64(bytes);
@@ -30,7 +45,7 @@ export async function shareReportPdf(data: ReportExportPayload): Promise<void> {
     url: `file://${path}`,
     type: 'application/pdf',
     filename,
-    title: `Export ${SHOP.name} report`,
+    title: `Export ${meta.name} report`,
     failOnCancel: false,
   });
 }

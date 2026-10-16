@@ -8,82 +8,63 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
-  Switch,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
+import Svg, { Circle, G, Path } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
-  MAX_PHOTO_BYTES,
   type ExpensePhotoKind,
   EXPENSE_CATEGORIES,
   EXPENSE_CATEGORY_LABEL,
   EXPENSE_CATEGORY_SETUP,
   EXPENSE_UNIT_LABEL,
   EXPENSE_UNITS,
-  defaultExpenseUnit,
   formatExpenseQuantity,
   normalizeExpenseQuantity,
-  STOCK_CATEGORIES,
-  STOCK_UNIT_LABEL,
-  formatStock,
-  roundStock,
-  stockKey,
-  stockUnitOf,
-  toStockQuantity,
   type ExpenseCategory,
   type ExpenseUnit,
-  type StockUnit,
 } from '@mana/domain';
 import {
+  BRAND_MARK,
+  brandGradients,
   ScreenContainer,
   ScreenHeader,
   BottomSheet,
   Button,
   showToast,
   IconAlert,
-  IconBox,
-  IconCalendar,
   IconCamera,
-  IconCash,
   IconCheck,
   IconClose,
   IconCloudOff,
   IconEdit,
+  IconTrash,
   IconPlus,
   IconReceipt,
   IconSync,
-  IconUpi,
-  IconWallet,
   colors,
-  gradients,
   radius,
   spacing,
   typography,
 } from '@mana/ui';
 import { PeriodSelect, PERIOD_OPTIONS, type PeriodKey } from '../components/PeriodSelect';
 import { rangeLabel, type DateRange } from '../components/RangeCalendar';
-import { CalendarSheet } from '../components/CalendarSheet';
 import { ReasonSheet } from '../components/ReasonSheet';
-import { pickPhotos } from '../utils/photoPicker';
 import { ExpenseCategoryIcon } from '../components/ExpenseCategoryIcon';
 import { api, apiErrorMessage, expensePhotoSource } from '../api/client';
 import { NetworkError } from '../api/network';
 import { useAuth } from '../api/auth';
 import { useSync } from '../offline/SyncProvider';
-import { useShop } from '../offline/ShopProvider';
-import { deleteLocalCopy, keepLocalCopy } from '../offline/photoFiles';
-import type { ExpensePayload, ExpensePaymentMethod, LocalPhoto } from '../offline/types';
-import { newId } from '../utils/id';
+import type { ExpensePaymentMethod } from '../offline/types';
 import { formatRupees } from '../utils/format';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Expenses'>;
 
-interface ExpenseItem {
+export interface ExpenseItem {
   id: string;
   category: string;
   amount: number;
@@ -101,15 +82,16 @@ interface ExpenseItem {
   paymentMethod?: string;
   hasBillPhoto?: boolean;
   hasItemPhoto?: boolean;
+  edited?: boolean;
 }
 
-const PAID_WITH: { key: ExpensePaymentMethod; label: string; hint: string }[] = [
+export const PAID_WITH: { key: ExpensePaymentMethod; label: string; hint: string }[] = [
   { key: 'cash', label: 'Cash', hint: 'From the drawer' },
   { key: 'upi', label: 'UPI', hint: 'GPay, PhonePe…' },
   { key: 'other', label: 'Other', hint: 'Card, bank…' },
 ];
 
-const CATEGORY_TONE: Record<ExpenseCategory, { fg: string; bg: string }> = {
+export const CATEGORY_TONE: Record<ExpenseCategory, { fg: string; bg: string }> = {
   chemicals: { fg: '#0369A1', bg: '#E0F2FE' },
   labour: { fg: '#5B21B6', bg: '#EDE9FE' },
   electricity: { fg: '#B45309', bg: '#FEF3C7' },
@@ -118,7 +100,33 @@ const CATEGORY_TONE: Record<ExpenseCategory, { fg: string; bg: string }> = {
   other: { fg: '#475569', bg: '#F1F5F9' },
 };
 
-const QUICK_ADD = [100, 500, 1000];
+/** Bright versions of each category's colour, for the bar on the night-indigo summary card. */
+const CATEGORY_BAR: Record<ExpenseCategory, string> = {
+  chemicals: '#38BDF8',
+  labour: '#A78BFA',
+  electricity: '#FBBF24',
+  water: '#22D3EE',
+  maintenance: '#F472B6',
+  other: '#CBD5E1',
+};
+
+/** The list under the summary card: one at a time, so the screen stays short. */
+const VIEW_TABS: { key: 'entries' | 'where' | 'items'; label: string }[] = [
+  { key: 'entries', label: 'Entries' },
+  { key: 'where', label: 'Where it went' },
+  { key: 'items', label: 'Items bought' },
+];
+
+/** [x, y, radius, opacity] in the summary card's 340 × 200 box. */
+const HERO_STARS = [
+  [24, 28, 1.3, 0.5],
+  [90, 14, 1, 0.4],
+  [156, 44, 1.2, 0.35],
+  [64, 150, 1.1, 0.3],
+  [200, 22, 1.4, 0.55],
+] as const;
+
+export const QUICK_ADD = [100, 500, 1000];
 
 const VOID_EXPENSE_REASONS = [
   'Entered twice',
@@ -133,7 +141,7 @@ function asCategory(value: string): ExpenseCategory {
     : 'other';
 }
 
-function isoDaysAgo(days: number): string {
+export function isoDaysAgo(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() - days);
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -141,7 +149,7 @@ function isoDaysAgo(days: number): string {
   return `${d.getFullYear()}-${m}-${day}`;
 }
 
-function periodStart(period: PeriodKey): string {
+export function periodStart(period: PeriodKey): string {
   const today = isoDaysAgo(0);
   if (period === 'week') return isoDaysAgo(6);
   if (period === 'month') return `${today.slice(0, 8)}01`;
@@ -150,7 +158,7 @@ function periodStart(period: PeriodKey): string {
 }
 
 /** The smallest view that shows `date`, so an entry saved for an earlier day never seems to vanish. */
-function viewFor(date: string): { period: PeriodKey; custom: DateRange | null } {
+export function viewFor(date: string): { period: PeriodKey; custom: DateRange | null } {
   const today = isoDaysAgo(0);
   for (const period of ['today', 'week', 'month', 'year'] as const) {
     if (date >= periodStart(period)) return { period, custom: null };
@@ -158,7 +166,7 @@ function viewFor(date: string): { period: PeriodKey; custom: DateRange | null } 
   return { period: 'today', custom: { from: date, to: today } };
 }
 
-function formatDay(iso: string): string {
+export function formatDay(iso: string): string {
   if (iso === isoDaysAgo(0)) return 'Today';
   if (iso === isoDaysAgo(1)) return 'Yesterday';
   const [y, m, d] = iso.split('-').map(Number);
@@ -169,13 +177,13 @@ function formatDay(iso: string): string {
   });
 }
 
-function dayParts(iso: string): { weekday: string; day: number } {
+export function dayParts(iso: string): { weekday: string; day: number } {
   const [y, m, d] = iso.split('-').map(Number);
   const date = new Date(y!, (m ?? 1) - 1, d);
   return { weekday: date.toLocaleDateString('en-IN', { weekday: 'short' }), day: d ?? 1 };
 }
 
-function paidLabel(method: string | undefined): string {
+export function paidLabel(method: string | undefined): string {
   return method === 'upi' ? 'UPI' : method === 'other' ? 'Other' : 'Cash';
 }
 
@@ -186,22 +194,21 @@ function asUnit(value: string | null | undefined): ExpenseUnit | null {
 }
 
 /** "₹130 per L" — price per base unit (ml and g are shown per L and kg). */
-function ratePerUnit(paise: number, quantity: number, unit: ExpenseUnit): string | null {
+export function ratePerUnit(paise: number, quantity: number, unit: ExpenseUnit): string | null {
   const n = normalizeExpenseQuantity(quantity, unit);
   if (!(n.quantity > 0) || !(paise > 0)) return null;
   const perUnit = Math.round(paise / n.quantity / 100) * 100;
   return `${formatRupees(perUnit)} per ${EXPENSE_UNIT_LABEL[n.unit] === 'pcs' ? 'piece' : EXPENSE_UNIT_LABEL[n.unit].replace(/s$/, '')}`;
 }
 
-function parseQuantity(text: string): number | null {
+export function parseQuantity(text: string): number | null {
   const n = Number(text.replace(/,/g, ''));
   return text.trim() && Number.isFinite(n) && n > 0 ? n : null;
 }
 
-export function ExpensesScreen({ navigation }: Props) {
-  const { user, isOwner } = useAuth();
-  const { myItems, submit, version } = useSync();
-  const { refreshStock } = useShop();
+export function ExpensesScreen({ navigation, route }: Props) {
+  const { isOwner, canManageTeam } = useAuth();
+  const { myItems, version } = useSync();
   const [period, setPeriod] = useState<PeriodKey>('today');
   const [customRange, setCustomRange] = useState<DateRange | null>(null);
   const [items, setItems] = useState<ExpenseItem[]>([]);
@@ -210,9 +217,10 @@ export function ExpensesScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
   const [voiding, setVoiding] = useState<ExpenseItem | null>(null);
   const [viewing, setViewing] = useState<ExpenseItem | null>(null);
+  const [tab, setTab] = useState<'entries' | 'where' | 'items'>('entries');
+  const [pendingOpen, setPendingOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -244,6 +252,23 @@ export function ExpensesScreen({ navigation }: Props) {
     setLoading(true);
     void load();
   }, [load, version]);
+
+  // Back from New expense: show the period the new entry falls in, and read it fresh.
+  const added = route.params?.added;
+  useEffect(() => {
+    if (!added) return;
+    const inView = customRange ? added >= customRange.from && added <= customRange.to : added >= periodStart(period);
+    if (!inView) {
+      const next = viewFor(added);
+      setPeriod(next.period);
+      setCustomRange(next.custom);
+    } else {
+      void load();
+    }
+    navigation.setParams({ added: undefined });
+    // Only when a new entry comes back; the period itself is handled by `load`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [added]);
 
   const pending = useMemo(
     () =>
@@ -317,11 +342,8 @@ export function ExpensesScreen({ navigation }: Props) {
     return out;
   }, [items]);
 
-  const canVoid = (e: ExpenseItem) => {
-    if (e.voidedAt) return false;
-    if (isOwner) return true;
-    return e.createdByUserId === user?.id && e.date === isoDaysAgo(0);
-  };
+  // Only the owner or a manager fixes or deletes an entry; staff ask them.
+  const canManage = (e: ExpenseItem) => canManageTeam && !e.voidedAt;
 
   const periodLabel = customRange
     ? rangeLabel(customRange)
@@ -335,7 +357,7 @@ export function ExpensesScreen({ navigation }: Props) {
           onBack={() => navigation.goBack()}
           right={
             <Pressable
-              onPress={() => setAdding(true)}
+              onPress={() => navigation.navigate('AddExpense')}
               style={({ pressed }) => [styles.addBtn, pressed && styles.pressed]}
               accessibilityRole="button"
               accessibilityLabel="Add expense"
@@ -356,50 +378,69 @@ export function ExpensesScreen({ navigation }: Props) {
               setRefreshing(true);
               void load().finally(() => setRefreshing(false));
             }}
-            tintColor={colors.water}
-            colors={[colors.water]}
+            tintColor={colors.indigo}
+            colors={[colors.indigo]}
           />
         }
       >
-        <View>
-          <PeriodSelect
-            value={period}
-            onChange={(next) => {
-              setCustomRange(null);
-              setPeriod(next);
-            }}
-            menuTitle="Show expenses for"
-            custom={{ range: customRange, onApply: setCustomRange }}
-          />
+        <PeriodSelect
+          value={period}
+          onChange={(next) => {
+            setCustomRange(null);
+            setPeriod(next);
+          }}
+          menuTitle="Show expenses for"
+          custom={{ range: customRange, onApply: setCustomRange }}
+        />
 
-          <LinearGradient
-            colors={gradients.hero as unknown as string[]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0.9, y: 1 }}
-            style={styles.hero}
-          >
-            <View pointerEvents="none" style={styles.orbLarge} />
-            <View pointerEvents="none" style={styles.orbSmall} />
-            <Text style={styles.heroEyebrow}>
-              {isOwner ? 'Shop spending' : 'You logged'} · {periodLabel}
-            </Text>
-            <Text style={styles.heroValue}>{formatRupees(total)}</Text>
-            <Text style={styles.heroMeta}>
-              {live.length} entr{live.length === 1 ? 'y' : 'ies'}
-              {categories[0] ? ` · most on ${EXPENSE_CATEGORY_LABEL[categories[0]]}` : ''}
-            </Text>
-            <View style={styles.heroSplit}>
-              {PAID_WITH.map((m, i) => (
-                <View key={m.key} style={[styles.heroCell, i > 0 && styles.heroCellDivider]}>
-                  <Text style={styles.heroCellValue}>{formatRupees(byMethod[m.key])}</Text>
-                  <Text style={styles.heroCellLabel}>
-                    {m.key === 'cash' ? 'Cash from drawer' : m.label}
-                  </Text>
-                </View>
+        {/* Spending at a glance: total, where it went, and how it was paid */}
+        <LinearGradient
+          colors={brandGradients.hero.colors as unknown as string[]}
+          locations={brandGradients.hero.locations as unknown as number[]}
+          start={brandGradients.hero.start}
+          end={brandGradients.hero.end}
+          style={styles.hero}
+        >
+          <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" viewBox="0 0 340 200" preserveAspectRatio="xMidYMid slice">
+            {HERO_STARS.map(([x, y, r, o]) => (
+              <Circle key={`${x}-${y}`} cx={x} cy={y} r={r} fill="#FFFFFF" fillOpacity={o} />
+            ))}
+          </Svg>
+          <Svg style={styles.heroMark} width={140} height={140} viewBox="0 0 256 256">
+            <G>
+              <Path d={BRAND_MARK.drop} fill="#FFFFFF" fillOpacity={0.07} />
+              <Path d={BRAND_MARK.arms} fill="#FFFFFF" fillOpacity={0.1} />
+              <Path d={BRAND_MARK.centre} fill="#FFFFFF" fillOpacity={0.15} />
+            </G>
+          </Svg>
+          <Text style={styles.heroEyebrow}>
+            {isOwner ? 'Shop spending' : 'You logged'} · {periodLabel}
+          </Text>
+          <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit>
+            {formatRupees(total)}
+          </Text>
+          <Text style={styles.heroMeta}>
+            {live.length} entr{live.length === 1 ? 'y' : 'ies'}
+            {categories[0] ? ` · most on ${EXPENSE_CATEGORY_LABEL[categories[0]]}` : ''}
+          </Text>
+          {categories.length > 0 ? (
+            <View style={styles.heroBar}>
+              {categories.map((c) => (
+                <View key={c} style={{ flex: byCategory[c] ?? 0, backgroundColor: CATEGORY_BAR[c] }} />
               ))}
             </View>
-          </LinearGradient>
-        </View>
+          ) : null}
+          <View style={styles.heroChips}>
+            {PAID_WITH.map((m) => (
+              <View key={m.key} style={styles.heroChip}>
+                <Text style={styles.heroChipLabel}>{m.key === 'cash' ? 'Drawer cash' : m.label}</Text>
+                <Text style={styles.heroChipValue} numberOfLines={1} adjustsFontSizeToFit>
+                  {formatRupees(byMethod[m.key])}
+                </Text>
+              </View>
+            ))}
+          </View>
+        </LinearGradient>
 
         {error ? (
           <View style={styles.notice}>
@@ -408,105 +449,20 @@ export function ExpensesScreen({ navigation }: Props) {
           </View>
         ) : null}
 
-        {categories.length > 0 ? (
-          <View>
-            <View style={styles.sectionHead}>
-              <Text style={styles.sectionTitle}>Where it went</Text>
-              <Text style={styles.sectionMeta}>
-                {categories.length} categor{categories.length === 1 ? 'y' : 'ies'}
-              </Text>
-            </View>
-            <View style={[styles.band, styles.breakdown]}>
-              <View style={styles.stack}>
-                {categories.map((c) => (
-                  <View
-                    key={c}
-                    style={{ flex: byCategory[c] ?? 0, backgroundColor: CATEGORY_TONE[c].fg }}
-                  />
-                ))}
-              </View>
-              {categories.map((c) => {
-                const amount = byCategory[c] ?? 0;
-                const pct = total > 0 ? Math.round((amount / total) * 100) : 0;
-                return (
-                  <View key={c} style={styles.catRow}>
-                    <View style={[styles.catIconSm, { backgroundColor: CATEGORY_TONE[c].bg }]}>
-                      <ExpenseCategoryIcon category={c} size={16} color={CATEGORY_TONE[c].fg} />
-                    </View>
-                    <View style={styles.catCopy}>
-                      <View style={styles.catTop}>
-                        <Text style={styles.catName}>{EXPENSE_CATEGORY_LABEL[c]}</Text>
-                        <Text style={styles.catAmount}>{formatRupees(amount)}</Text>
-                      </View>
-                      <View style={styles.catTrackRow}>
-                        <View style={styles.catTrack}>
-                          <View
-                            style={[
-                              styles.catFill,
-                              { width: `${pct}%`, backgroundColor: CATEGORY_TONE[c].fg },
-                            ]}
-                          />
-                        </View>
-                        <Text style={styles.catPct}>{pct}%</Text>
-                      </View>
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-          </View>
-        ) : null}
-
-        {bought.length > 0 ? (
-          <View>
-            <View style={styles.sectionHead}>
-              <Text style={styles.sectionTitle}>Items bought</Text>
-              <Text style={styles.sectionMeta}>Quantity · price per unit</Text>
-            </View>
-            <View style={styles.band}>
-              {bought.slice(0, 8).map((b, i, list) => {
-                const tone = CATEGORY_TONE[b.category];
-                const rate =
-                  b.unit && b.quantity > 0 ? ratePerUnit(b.amount, b.quantity, b.unit) : null;
-                return (
-                  <View
-                    key={`${b.name}|${b.unit ?? ''}`}
-                    style={[styles.row, i < list.length - 1 && styles.divider]}
-                  >
-                    <View style={[styles.catIconSm, { backgroundColor: tone.bg }]}>
-                      <ExpenseCategoryIcon category={b.category} size={16} color={tone.fg} />
-                    </View>
-                    <View style={styles.rowCopy}>
-                      <Text style={styles.rowTitle} numberOfLines={1}>
-                        {b.name}
-                      </Text>
-                      <Text style={styles.rowMeta} numberOfLines={1}>
-                        {b.unit && b.quantity > 0
-                          ? `${formatExpenseQuantity(b.quantity, b.unit)} · `
-                          : ''}
-                        bought {b.times} time{b.times === 1 ? '' : 's'}
-                      </Text>
-                    </View>
-                    <View style={styles.boughtRight}>
-                      <Text style={styles.rowAmount}>{formatRupees(b.amount)}</Text>
-                      {rate ? <Text style={styles.rateText}>{rate}</Text> : null}
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-          </View>
-        ) : null}
-
         {pending.length > 0 ? (
           <View>
-            <View style={styles.sectionHead}>
-              <Text style={styles.sectionTitle}>Waiting to sync</Text>
-              <View style={styles.syncChip}>
-                <IconSync size={12} color={colors.amberDeep} />
-                <Text style={styles.syncChipText}>{pending.length}</Text>
-              </View>
-            </View>
+            <Pressable
+              onPress={() => setPendingOpen((v) => !v)}
+              style={({ pressed }) => [styles.syncBar, pressed && styles.pressed]}
+              accessibilityRole="button"
+            >
+              <IconSync size={15} color={colors.amberDeep} />
+              <Text style={styles.syncBarText}>
+                {pending.length} saved on this phone · waiting to sync
+              </Text>
+              <Text style={styles.syncBarAction}>{pendingOpen ? 'Hide' : 'Show'}</Text>
+            </Pressable>
+            {pendingOpen ? (
             <View style={styles.band}>
               {pending.map(({ item, payload }, i) => {
                 const cat = asCategory(payload.category);
@@ -545,24 +501,21 @@ export function ExpensesScreen({ navigation }: Props) {
                 );
               })}
             </View>
+            ) : null}
           </View>
         ) : null}
 
         {loading ? (
-          <ActivityIndicator style={styles.loader} color={colors.water} />
+          <ActivityIndicator style={styles.loader} color={colors.indigo} />
         ) : items.length === 0 ? (
-          <View style={styles.emptyBox}>
+          <View style={styles.emptyCard}>
             <View style={styles.emptyIcon}>
-              <IconReceipt size={28} color={colors.waterDeep} />
+              <IconReceipt size={28} color={colors.indigo} />
             </View>
-            <Text style={styles.emptyTitle}>
-              No expenses {period === 'today' ? 'today' : 'in this period'}
-            </Text>
-            <Text style={styles.emptyBody}>
-              Bought chemicals or paid a bill? Log it so the profit numbers stay right.
-            </Text>
+            <Text style={styles.emptyTitle}>No expenses {period === 'today' ? 'today' : 'in this period'}</Text>
+            <Text style={styles.emptyBody}>Bought chemicals or paid a bill? Log it so the profit numbers stay right.</Text>
             <Pressable
-              onPress={() => setAdding(true)}
+              onPress={() => navigation.navigate('AddExpense')}
               style={({ pressed }) => [styles.emptyBtn, pressed && styles.pressed]}
               accessibilityRole="button"
             >
@@ -571,7 +524,103 @@ export function ExpensesScreen({ navigation }: Props) {
             </Pressable>
           </View>
         ) : (
-          groups.map((g) => (
+          <>
+            {/* One list at a time, so the screen stays short */}
+            <View style={styles.tabs}>
+              {VIEW_TABS.filter((t) => t.key === 'entries' || (t.key === 'where' ? categories.length > 0 : bought.length > 0)).map((t) => {
+                const on = tab === t.key;
+                return (
+                  <Pressable
+                    key={t.key}
+                    onPress={() => setTab(t.key)}
+                    style={({ pressed }) => [styles.tab, on && styles.tabOn, pressed && !on && styles.pressed]}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: on }}
+                  >
+                    <Text style={[styles.tabText, on && styles.tabTextOn]}>{t.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {tab === 'where' && categories.length > 0 ? (
+            <View style={[styles.band, styles.breakdown]}>
+              <View style={styles.stack}>
+                {categories.map((c) => (
+                  <View
+                    key={c}
+                    style={{ flex: byCategory[c] ?? 0, backgroundColor: CATEGORY_TONE[c].fg }}
+                  />
+                ))}
+              </View>
+              {categories.map((c) => {
+                const amount = byCategory[c] ?? 0;
+                const pct = total > 0 ? Math.round((amount / total) * 100) : 0;
+                return (
+                  <View key={c} style={styles.catRow}>
+                    <View style={[styles.catIconSm, { backgroundColor: CATEGORY_TONE[c].bg }]}>
+                      <ExpenseCategoryIcon category={c} size={16} color={CATEGORY_TONE[c].fg} />
+                    </View>
+                    <View style={styles.catCopy}>
+                      <View style={styles.catTop}>
+                        <Text style={styles.catName}>{EXPENSE_CATEGORY_LABEL[c]}</Text>
+                        <Text style={styles.catAmount}>{formatRupees(amount)}</Text>
+                      </View>
+                      <View style={styles.catTrackRow}>
+                        <View style={styles.catTrack}>
+                          <View
+                            style={[
+                              styles.catFill,
+                              { width: `${pct}%`, backgroundColor: CATEGORY_TONE[c].fg },
+                            ]}
+                          />
+                        </View>
+                        <Text style={styles.catPct}>{pct}%</Text>
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+            ) : tab === 'items' && bought.length > 0 ? (
+              <>
+                <Text style={styles.tabHint}>Same item bought more than once adds up · price per unit</Text>
+            <View style={styles.band}>
+              {bought.map((b, i, list) => {
+                const tone = CATEGORY_TONE[b.category];
+                const rate =
+                  b.unit && b.quantity > 0 ? ratePerUnit(b.amount, b.quantity, b.unit) : null;
+                return (
+                  <View
+                    key={`${b.name}|${b.unit ?? ''}`}
+                    style={[styles.row, i < list.length - 1 && styles.divider]}
+                  >
+                    <View style={[styles.catIconSm, { backgroundColor: tone.bg }]}>
+                      <ExpenseCategoryIcon category={b.category} size={16} color={tone.fg} />
+                    </View>
+                    <View style={styles.rowCopy}>
+                      <Text style={styles.rowTitle} numberOfLines={1}>
+                        {b.name}
+                      </Text>
+                      <Text style={styles.rowMeta} numberOfLines={1}>
+                        {b.unit && b.quantity > 0
+                          ? `${formatExpenseQuantity(b.quantity, b.unit)} · `
+                          : ''}
+                        bought {b.times} time{b.times === 1 ? '' : 's'}
+                      </Text>
+                    </View>
+                    <View style={styles.boughtRight}>
+                      <Text style={styles.rowAmount}>{formatRupees(b.amount)}</Text>
+                      {rate ? <Text style={styles.rateText}>{rate}</Text> : null}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+              </>
+            ) : (
+              <>
+                {groups.map((g) => (
             <View key={g.date}>
               <View style={styles.sectionHead}>
                 <Text style={styles.sectionTitle}>{formatDay(g.date)}</Text>
@@ -581,7 +630,7 @@ export function ExpensesScreen({ navigation }: Props) {
                 {g.items.map((e, i) => {
                   const cat = asCategory(e.category);
                   const voided = Boolean(e.voidedAt);
-                  const allowed = canVoid(e);
+                  const allowed = canManage(e);
                   const unit = asUnit(e.unit);
                   const qty = unit && e.quantity ? formatExpenseQuantity(e.quantity, unit) : null;
                   const rate = unit && e.quantity ? ratePerUnit(e.amount, e.quantity, unit) : null;
@@ -593,7 +642,7 @@ export function ExpensesScreen({ navigation }: Props) {
                       android_ripple={{ color: colors.waterPale }}
                       accessibilityRole="button"
                       accessibilityHint={
-                        allowed ? 'Opens details, photos and void' : 'Opens details and photos'
+                        allowed ? 'Opens details, photos, edit and delete' : 'Opens details and photos'
                       }
                       style={({ pressed }) => [
                         styles.row,
@@ -656,14 +705,19 @@ export function ExpensesScreen({ navigation }: Props) {
                           >
                             {EXPENSE_CATEGORY_LABEL[cat]}
                           </Text>
+                          {e.edited && !voided ? (
+                            <View style={styles.editedTag}>
+                              <Text style={styles.editedTagText}>Edited</Text>
+                            </View>
+                          ) : null}
                           <Text style={styles.rowMeta} numberOfLines={1}>
                             · {paidLabel(e.paymentMethod)}
-                            {isOwner ? ` · ${e.createdBy.name}` : ''}
+                            {canManageTeam ? ` · ${e.createdBy.name}` : ''}
                           </Text>
                         </View>
                         {voided ? (
                           <Text style={styles.voidLine} numberOfLines={2}>
-                            Voided{e.voidedBy ? ` by ${e.voidedBy.name}` : ''}
+                            Deleted{e.voidedBy ? ` by ${e.voidedBy.name}` : ''}
                             {e.voidReason ? ` — “${e.voidReason}”` : ''}
                           </Text>
                         ) : null}
@@ -679,69 +733,27 @@ export function ExpensesScreen({ navigation }: Props) {
                 })}
               </View>
             </View>
-          ))
+                ))}
+                <Text style={styles.footnote}>
+                  Tap an entry to see its bill and photo
+                  {items.some(canManage) ? ', or edit or delete it with a reason' : ''}. Deleted entries stay visible for the record.
+                </Text>
+              </>
+            )}
+          </>
         )}
-        {items.length > 0 ? (
-          <Text style={styles.footnote}>
-            Tap an entry to see its bill and photo
-            {items.some(canVoid) ? ', or void it with a reason' : ''}. Voided entries stay visible
-            for the record.
-          </Text>
-        ) : null}
       </ScrollView>
-
-      <AddExpenseSheet
-        visible={adding}
-        isOwner={isOwner}
-        onClose={() => setAdding(false)}
-        onSave={async (payload) => {
-          const result = await submit({ kind: 'expense.create', payload });
-          if (result.status === 'rejected') return result.message;
-          setAdding(false);
-          const stock =
-            result.status === 'sent'
-              ? (
-                  result.data as {
-                    stock?: { name: string; unit: string; balance: number } | null;
-                  } | null
-                )?.stock
-              : null;
-          const date = payload.date ?? isoDaysAgo(0);
-          const inView = customRange
-            ? date >= customRange.from && date <= customRange.to
-            : date >= periodStart(period);
-          const dayNote =
-            date === isoDaysAgo(0)
-              ? ''
-              : date === isoDaysAgo(1)
-                ? ' for yesterday'
-                : ` for ${formatDay(date)}`;
-          showToast(
-            result.status === 'queued'
-              ? `Expense saved offline${dayNote} — will sync automatically`
-              : stock
-                ? `Expense added${dayNote} · ${stock.name} now ${formatStock(stock.balance, stock.unit as StockUnit)} in stock`
-                : `Expense added${dayNote}`,
-            result.status === 'queued' ? 'offline' : 'success',
-          );
-          if (!inView) {
-            const next = viewFor(date);
-            setPeriod(next.period);
-            setCustomRange(next.custom);
-          } else if (result.status === 'sent') {
-            void load();
-          }
-          if (result.status === 'sent') void refreshStock();
-          return null;
-        }}
-      />
 
       <ExpenseDetailSheet
         expense={viewing}
-        canVoid={viewing != null && canVoid(viewing)}
-        isOwner={isOwner}
+        canManage={viewing != null && canManage(viewing)}
+        showEnteredBy={canManageTeam}
         onClose={() => setViewing(null)}
-        onVoid={(e) => {
+        onEdit={(e) => {
+          setViewing(null);
+          navigation.navigate('AddExpense', { edit: e });
+        }}
+        onDelete={(e) => {
           setViewing(null);
           setVoiding(e);
         }}
@@ -749,13 +761,13 @@ export function ExpensesScreen({ navigation }: Props) {
 
       <ReasonSheet
         visible={voiding != null}
-        title="Void this expense?"
+        title="Delete this expense?"
         subtitle={
           voiding
             ? `${voiding.itemName || voiding.description || EXPENSE_CATEGORY_LABEL[asCategory(voiding.category)]} · ${formatRupees(voiding.amount)}`
             : ''
         }
-        confirmLabel="Void expense"
+        confirmLabel="Delete expense"
         quickReasons={VOID_EXPENSE_REASONS}
         onClose={() => setVoiding(null)}
         onConfirm={async (reason) => {
@@ -765,15 +777,15 @@ export function ExpensesScreen({ navigation }: Props) {
               param: { id: voiding.id },
               json: { reason },
             });
-            if (!res.ok) return apiErrorMessage(res, 'Couldn’t void this expense.');
+            if (!res.ok) return apiErrorMessage(res, 'Couldn’t delete this expense.');
             setVoiding(null);
-            showToast('Expense voided');
+            showToast('Expense deleted');
             await load();
             return null;
           } catch (e) {
             return e instanceof NetworkError
-              ? 'Voiding needs a connection.'
-              : 'Couldn’t void this expense.';
+              ? 'Deleting needs a connection.'
+              : 'Couldn’t delete this expense.';
           }
         }}
       />
@@ -781,7 +793,7 @@ export function ExpensesScreen({ navigation }: Props) {
   );
 }
 
-function PhotoSlot({
+export function PhotoSlot({
   label,
   hint,
   photo,
@@ -833,7 +845,7 @@ function PhotoSlot({
   );
 }
 
-function PhotoViewer({
+export function PhotoViewer({
   source,
   title,
   onClose,
@@ -875,693 +887,63 @@ function PhotoViewer({
   );
 }
 
-function AddExpenseSheet({
-  visible,
-  isOwner,
-  onClose,
-  onSave,
-}: {
-  visible: boolean;
-  isOwner: boolean;
-  onClose: () => void;
-  onSave: (p: ExpensePayload) => Promise<string | null>;
-}) {
-  const today = isoDaysAgo(0);
-  const [expenseId, setExpenseId] = useState(newId);
-  const [category, setCategory] = useState<ExpenseCategory>('chemicals');
-  const [amount, setAmount] = useState('');
-  const [note, setNote] = useState('');
-  const [item, setItem] = useState('');
-  const [qty, setQty] = useState('');
-  const [unit, setUnit] = useState<ExpenseUnit>(EXPENSE_CATEGORY_SETUP.chemicals.units[0]!);
-  const [unitTouched, setUnitTouched] = useState(false);
-  const [date, setDate] = useState(today);
-  const [calendarOpen, setCalendarOpen] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<ExpensePaymentMethod>('cash');
-  const [billPhoto, setBillPhoto] = useState<LocalPhoto | null>(null);
-  const [itemPhoto, setItemPhoto] = useState<LocalPhoto | null>(null);
-  const [photoBusy, setPhotoBusy] = useState<ExpensePhotoKind | null>(null);
-  const [viewing, setViewing] = useState<ExpensePhotoKind | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [focus, setFocus] = useState<'item' | 'qty' | 'note' | null>(null);
-  const [stockOn, setStockOn] = useState<boolean | null>(null);
-  const { stock } = useShop();
+interface ExpenseEditEntry {
+  id: string;
+  reason: string;
+  changes: { field: string; from: unknown; to: unknown }[];
+  createdAt: string;
+  editedBy: { id: string; name: string };
+}
 
-  useEffect(() => {
-    if (visible) {
-      setExpenseId(newId());
-      setCategory('chemicals');
-      setAmount('');
-      setNote('');
-      setItem('');
-      setQty('');
-      setUnit(EXPENSE_CATEGORY_SETUP.chemicals.units[0]!);
-      setUnitTouched(false);
-      setDate(isoDaysAgo(0));
-      setPaymentMethod('cash');
-      setBillPhoto(null);
-      setItemPhoto(null);
-      setStockOn(null);
-      setError(null);
-      setBusy(false);
-    }
-  }, [visible]);
+const EDIT_FIELD_LABEL: Record<string, string> = {
+  category: 'Spent on',
+  amount: 'Amount',
+  itemName: 'Item',
+  quantity: 'Quantity',
+  unit: 'Unit',
+  description: 'Note',
+  paymentMethod: 'Paid with',
+  date: 'Date',
+};
 
-  const setup = EXPENSE_CATEGORY_SETUP[category];
-  const rupees = Number(amount.replace(/,/g, ''));
-  const paise = Number.isFinite(rupees) ? Math.round(rupees * 100) : 0;
-  const valid = paise > 0;
-  const tone = CATEGORY_TONE[category];
-  const days = useMemo(() => Array.from({ length: 7 }, (_, i) => isoDaysAgo(i)), []);
-  const quantity = parseQuantity(qty);
-  const rate = quantity ? ratePerUnit(paise, quantity, unit) : null;
-  const minDate = isoDaysAgo(isOwner ? 365 : 31);
+function editValue(field: string, value: unknown): string {
+  if (value == null || value === '') return '—';
+  if (field === 'amount' && typeof value === 'number') return formatRupees(value);
+  if (field === 'category' && typeof value === 'string') return EXPENSE_CATEGORY_LABEL[asCategory(value)];
+  if (field === 'paymentMethod' && typeof value === 'string') return paidLabel(value);
+  if (field === 'date' && typeof value === 'string') return formatDay(value.slice(0, 10));
+  if (field === 'unit' && typeof value === 'string') {
+    const unit = asUnit(value);
+    return unit ? EXPENSE_UNIT_LABEL[unit] : value;
+  }
+  return String(value);
+}
 
-  const stockUnit = stockUnitOf(unit);
-  const stockable = STOCK_CATEGORIES.includes(category) && stockUnit != null;
-  const stockMatch = item.trim()
-    ? (stock.find((s) => stockKey(s.name) === stockKey(item)) ?? null)
-    : null;
-  const stockClash = stockMatch != null && stockMatch.unit !== stockUnit;
-  // On by default for chemicals, or when the item is already tracked.
-  const addToStock =
-    stockable && !stockClash && (stockOn ?? (category === 'chemicals' || stockMatch != null));
-  const stockQty = stockMatch && quantity ? toStockQuantity(quantity, unit, stockMatch.unit) : null;
-  const stockAfter =
-    stockMatch && stockQty != null ? roundStock(stockMatch.balance + stockQty) : null;
+function whenLabel(iso: string): string {
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
+  return `${formatDay(isoDate(d))}, ${time}`;
+}
 
-  const missing = [
-    !valid && 'Amount',
-    !item.trim() && setup.itemLabel,
-    setup.quantityRequired && !quantity && 'Quantity',
-    !billPhoto && `${setup.billPhotoLabel} photo`,
-    !itemPhoto && `${setup.itemPhotoLabel} photo`,
-  ].filter((m): m is string => Boolean(m));
-  const canSave = missing.length === 0;
-
-  const close = () => {
-    if (billPhoto) void deleteLocalCopy(billPhoto.uri);
-    if (itemPhoto) void deleteLocalCopy(itemPhoto.uri);
-    onClose();
-  };
-
-  const pickCategory = (c: ExpenseCategory) => {
-    if (c === category) return;
-    // A suggestion from the old category ("Foam shampoo") makes no sense under the new one.
-    const keepItem = item && !setup.itemSuggestions.includes(item) ? item : '';
-    setCategory(c);
-    setItem(keepItem);
-    setUnit(defaultExpenseUnit(c, keepItem));
-    setUnitTouched(false);
-    if (note && setup.noteSuggestions.includes(note)) setNote('');
-  };
-
-  const pickItem = (name: string) => {
-    setItem(name);
-    if (!unitTouched) setUnit(defaultExpenseUnit(category, name));
-  };
-
-  const takePhoto = async (kind: ExpensePhotoKind) => {
-    const current = kind === 'bill' ? billPhoto : itemPhoto;
-    const label = kind === 'bill' ? setup.billPhotoLabel : setup.itemPhotoLabel;
-    const res = await pickPhotos(
-      `${current ? 'Change' : 'Add'} ${label.toLowerCase()} photo`,
-      kind === 'bill' ? 'Make sure the total and shop name are readable.' : setup.itemPhotoHint,
-    );
-    if (!res || res.didCancel) return;
-    const asset = res.assets?.[0];
-    if (res.errorCode || !asset?.uri) {
-      setError(res.errorMessage ?? 'Couldn’t get that photo.');
-      return;
-    }
-    if (asset.fileSize && asset.fileSize > MAX_PHOTO_BYTES) {
-      setError('That photo is too large even after shrinking. Try again a little further away.');
-      return;
-    }
-    const contentType: LocalPhoto['contentType'] =
-      asset.type === 'image/png' ? 'image/png' : 'image/jpeg';
-    setPhotoBusy(kind);
-    setError(null);
-    try {
-      const uri = await keepLocalCopy(
-        asset.uri,
-        `${expenseId}-${kind}-${Date.now()}`,
-        contentType === 'image/png' ? 'png' : 'jpg',
-      );
-      if (current) void deleteLocalCopy(current.uri);
-      (kind === 'bill' ? setBillPhoto : setItemPhoto)({ uri, contentType });
-    } catch {
-      setError('Couldn’t save that photo.');
-    } finally {
-      setPhotoBusy(null);
-    }
-  };
-
-  const save = async () => {
-    if (!canSave || !billPhoto || !itemPhoto) return;
-    setBusy(true);
-    setError(null);
-    const message = await onSave({
-      id: expenseId,
-      category,
-      amount: paise,
-      description: note.trim() || undefined,
-      itemName: item.trim(),
-      ...(quantity ? { quantity, unit } : {}),
-      ...(addToStock && quantity ? { addToStock: true } : {}),
-      date,
-      paymentMethod,
-      billPhoto,
-      itemPhoto,
-    });
-    setBusy(false);
-    if (message) setError(message);
-  };
-
-  const bump = (by: number) => {
-    const current = Number.isFinite(rupees) ? rupees : 0;
-    setAmount(String(Math.round((current + by) * 100) / 100));
-  };
-
-  const viewingPhoto = viewing === 'bill' ? billPhoto : viewing === 'item' ? itemPhoto : null;
-
-  return (
-    <BottomSheet
-      visible={visible}
-      onClose={close}
-      dismissable={!busy}
-      title="Add expense"
-      subtitle={
-        isOwner
-          ? 'Counts against the shop’s profit.'
-          : 'Saved against your name for the owner’s records.'
-      }
-      footer={
-        <>
-          <Button
-            label={
-              canSave
-                ? `Save ${formatRupees(paise)}`
-                : `${missing.length} thing${missing.length === 1 ? '' : 's'} left`
-            }
-            size="lg"
-            loading={busy}
-            disabled={!canSave}
-            onPress={() => void save()}
-          />
-          {canSave ? (
-            <Text style={styles.footSummary} numberOfLines={1}>
-              {item.trim()}
-              {quantity ? ` · ${formatExpenseQuantity(quantity, unit)}` : ''} ·{' '}
-              {paidLabel(paymentMethod)} · {formatDay(date)}
-            </Text>
-          ) : (
-            <Text style={styles.footMissing} numberOfLines={2}>
-              Still needed: {missing.join(' · ')}
-            </Text>
-          )}
-        </>
-      }
-    >
-      <View style={styles.amountBlock}>
-        <View style={[styles.amountBadge, { backgroundColor: tone.bg }]}>
-          <ExpenseCategoryIcon category={category} size={22} color={tone.fg} />
-        </View>
-        <View style={styles.amountRow}>
-          <Text style={[styles.rupee, valid && { color: colors.waterInk }]}>₹</Text>
-          <TextInput
-            style={styles.amountInput}
-            value={amount}
-            onChangeText={(t) => setAmount(t.replace(/[^\d.]/g, ''))}
-            placeholder="0"
-            placeholderTextColor={colors.border}
-            keyboardType="decimal-pad"
-            autoFocus
-            maxLength={9}
-          />
-        </View>
-        <View style={[styles.amountLine, { backgroundColor: valid ? tone.fg : colors.border }]} />
-        <View style={styles.quickRow}>
-          {QUICK_ADD.map((n) => (
-            <Pressable
-              key={n}
-              onPress={() => bump(n)}
-              style={({ pressed }) => [styles.quickChip, pressed && styles.chipPressed]}
-              accessibilityRole="button"
-              accessibilityLabel={`Add ${n} rupees`}
-            >
-              <Text style={styles.quickText}>+₹{n.toLocaleString('en-IN')}</Text>
-            </Pressable>
-          ))}
-          {amount ? (
-            <Pressable
-              onPress={() => setAmount('')}
-              style={({ pressed }) => [
-                styles.quickChip,
-                styles.clearChip,
-                pressed && styles.chipPressed,
-              ]}
-              accessibilityRole="button"
-            >
-              <Text style={styles.clearText}>Clear</Text>
-            </Pressable>
-          ) : null}
-        </View>
-      </View>
-
-      <View style={styles.field}>
-        <Text style={styles.fieldLabel}>
-          What was it for? <Text style={styles.required}>*</Text>
-        </Text>
-        <View style={styles.catGrid}>
-          {EXPENSE_CATEGORIES.map((c) => {
-            const on = category === c;
-            const t = CATEGORY_TONE[c];
-            return (
-              <Pressable
-                key={c}
-                onPress={() => pickCategory(c)}
-                style={({ pressed }) => [
-                  styles.catTile,
-                  on && { borderColor: t.fg, backgroundColor: t.fg },
-                  pressed && !on && styles.chipPressed,
-                ]}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: on }}
-              >
-                <View
-                  style={[
-                    styles.catBadge,
-                    { backgroundColor: on ? 'rgba(255,255,255,0.22)' : t.bg },
-                  ]}
-                >
-                  <ExpenseCategoryIcon category={c} size={20} color={on ? colors.white : t.fg} />
-                </View>
-                <Text style={[styles.catLabel, on && styles.catLabelOn]}>
-                  {EXPENSE_CATEGORY_LABEL[c]}
-                </Text>
-                {on ? (
-                  <View style={styles.catCheck}>
-                    <IconCheck size={10} color={t.fg} />
-                  </View>
-                ) : null}
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
-
-      <View style={styles.itemSection}>
-        <View style={styles.field}>
-          <Text style={styles.fieldLabel}>
-            {setup.itemLabel} <Text style={styles.required}>*</Text>
-          </Text>
-          <View style={[styles.noteField, focus === 'item' && styles.noteFocus]}>
-            <ExpenseCategoryIcon
-              category={category}
-              size={17}
-              color={focus === 'item' ? tone.fg : colors.slate}
-            />
-            <TextInput
-              style={styles.noteInput}
-              value={item}
-              onChangeText={pickItem}
-              onFocus={() => setFocus('item')}
-              onBlur={() => setFocus(null)}
-              placeholder={setup.itemPlaceholder}
-              placeholderTextColor={colors.slate}
-              autoCapitalize="sentences"
-              maxLength={80}
-            />
-            {item.trim() ? <IconCheck size={15} color={colors.teal} /> : null}
-          </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.ideaRow}
-          >
-            {setup.itemSuggestions.map((s) => {
-              const on = item === s;
-              return (
-                <Pressable
-                  key={s}
-                  onPress={() => pickItem(on ? '' : s)}
-                  style={({ pressed }) => [
-                    styles.ideaChip,
-                    on && { backgroundColor: tone.bg, borderColor: tone.fg },
-                    pressed && styles.chipPressed,
-                  ]}
-                >
-                  <Text style={[styles.ideaText, on && { color: tone.fg }]}>{s}</Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </View>
-
-        <View style={styles.field}>
-          <Text style={styles.fieldLabel}>
-            Quantity{' '}
-            {setup.quantityRequired ? <Text style={styles.required}>*</Text> : '(optional)'}
-          </Text>
-          <View style={styles.qtyRow}>
-            <View style={[styles.qtyField, focus === 'qty' && styles.noteFocus]}>
-              <TextInput
-                style={styles.qtyInput}
-                value={qty}
-                onChangeText={(t) => setQty(t.replace(/[^\d.]/g, ''))}
-                onFocus={() => setFocus('qty')}
-                onBlur={() => setFocus(null)}
-                placeholder="0"
-                placeholderTextColor={colors.slate}
-                keyboardType="decimal-pad"
-                maxLength={8}
-              />
-              <Text style={styles.qtyUnit}>{EXPENSE_UNIT_LABEL[unit]}</Text>
-            </View>
-            <View style={styles.unitRow}>
-              {setup.units.map((u) => {
-                const on = unit === u;
-                return (
-                  <Pressable
-                    key={u}
-                    onPress={() => {
-                      setUnit(u);
-                      setUnitTouched(true);
-                    }}
-                    style={({ pressed }) => [
-                      styles.unitChip,
-                      on && { backgroundColor: tone.fg, borderColor: tone.fg },
-                      pressed && !on && styles.chipPressed,
-                    ]}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: on }}
-                  >
-                    <Text style={[styles.unitText, on && styles.unitTextOn]}>
-                      {EXPENSE_UNIT_LABEL[u]}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-          {rate ? (
-            <View style={styles.rateLine}>
-              <IconCheck size={13} color={colors.tealDeep} />
-              <Text style={styles.rateLineText}>
-                {formatExpenseQuantity(quantity!, unit)} for {formatRupees(paise)} ={' '}
-                <Text style={styles.rateStrong}>{rate}</Text>
-              </Text>
-            </View>
-          ) : (
-            <Text style={styles.fieldHint}>
-              {category === 'electricity'
-                ? 'Units from the bill (kWh), or litres of diesel.'
-                : category === 'labour'
-                  ? 'How many days or hours were paid for.'
-                  : category === 'water'
-                    ? 'Number of tankers, or litres.'
-                    : 'Helps you see how much you use and what you pay per unit.'}
-            </Text>
-          )}
-        </View>
-
-        {stockable ? (
-          <Pressable
-            onPress={() => !stockClash && setStockOn(!addToStock)}
-            style={[styles.stockRow, addToStock && styles.stockRowOn]}
-            accessibilityRole="switch"
-            accessibilityState={{ checked: addToStock, disabled: stockClash }}
-          >
-            <View style={[styles.stockIcon, addToStock && styles.stockIconOn]}>
-              <IconBox size={17} color={addToStock ? colors.white : colors.waterDeep} />
-            </View>
-            <View style={styles.flex}>
-              <Text style={styles.stockTitle}>Add to stock</Text>
-              <Text
-                style={[styles.stockHint, stockClash && { color: colors.amberDeep }]}
-                numberOfLines={2}
-              >
-                {stockClash && stockMatch
-                  ? `${stockMatch.name} is counted in ${STOCK_UNIT_LABEL[stockMatch.unit].toLowerCase()} — pick a matching unit to add it.`
-                  : !item.trim()
-                    ? 'Adds this quantity to Inventory.'
-                    : stockMatch
-                      ? stockAfter != null
-                        ? `${stockMatch.name}: ${formatStock(stockMatch.balance, stockMatch.unit)} → ${formatStock(stockAfter, stockMatch.unit)}`
-                        : `Adds to ${stockMatch.name} (${formatStock(stockMatch.balance, stockMatch.unit)} now)`
-                      : `Starts a new stock item “${item.trim()}”.`}
-              </Text>
-            </View>
-            <Switch
-              value={addToStock}
-              disabled={stockClash}
-              onValueChange={setStockOn}
-              trackColor={{ false: colors.border, true: '#7DD3FC' }}
-              thumbColor={addToStock ? colors.water : colors.white}
-            />
-          </Pressable>
-        ) : null}
-      </View>
-
-      <View style={styles.field}>
-        <View style={styles.labelRow}>
-          <Text style={styles.fieldLabel}>
-            Proof <Text style={styles.required}>*</Text>
-          </Text>
-          <Text style={[styles.proofCount, billPhoto && itemPhoto ? styles.proofDone : null]}>
-            {[billPhoto, itemPhoto].filter(Boolean).length}/2 photos
-          </Text>
-        </View>
-        <View style={styles.slotRow}>
-          <PhotoSlot
-            label={setup.billPhotoLabel}
-            hint="Total and shop name readable"
-            photo={billPhoto}
-            busy={photoBusy === 'bill'}
-            onPress={() => (billPhoto ? setViewing('bill') : void takePhoto('bill'))}
-          />
-          <PhotoSlot
-            label={setup.itemPhotoLabel}
-            hint={setup.itemPhotoHint}
-            photo={itemPhoto}
-            busy={photoBusy === 'item'}
-            onPress={() => (itemPhoto ? setViewing('item') : void takePhoto('item'))}
-          />
-        </View>
-        {billPhoto || itemPhoto ? (
-          <View style={styles.retakeRow}>
-            {billPhoto ? (
-              <Pressable
-                onPress={() => void takePhoto('bill')}
-                hitSlop={6}
-                style={styles.retakeBtn}
-              >
-                <IconCamera size={13} color={colors.waterDeep} />
-                <Text style={styles.retakeText}>Retake {setup.billPhotoLabel.toLowerCase()}</Text>
-              </Pressable>
-            ) : (
-              <View style={styles.flex} />
-            )}
-            {itemPhoto ? (
-              <Pressable
-                onPress={() => void takePhoto('item')}
-                hitSlop={6}
-                style={styles.retakeBtn}
-              >
-                <IconCamera size={13} color={colors.waterDeep} />
-                <Text style={styles.retakeText}>Retake {setup.itemPhotoLabel.toLowerCase()}</Text>
-              </Pressable>
-            ) : (
-              <View style={styles.flex} />
-            )}
-          </View>
-        ) : (
-          <Text style={styles.fieldHint}>
-            Both photos are needed so the owner can check every rupee spent.
-          </Text>
-        )}
-      </View>
-
-      <View style={styles.field}>
-        <Text style={styles.fieldLabel}>Paid with</Text>
-        <View style={styles.payRow}>
-          {PAID_WITH.map((m) => {
-            const on = paymentMethod === m.key;
-            const iconColor = on ? colors.white : colors.slateDeep;
-            return (
-              <Pressable
-                key={m.key}
-                onPress={() => setPaymentMethod(m.key)}
-                style={({ pressed }) => [
-                  styles.payTile,
-                  on && styles.payTileOn,
-                  pressed && !on && styles.chipPressed,
-                ]}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: on }}
-              >
-                {m.key === 'cash' ? (
-                  <IconCash size={20} color={iconColor} />
-                ) : m.key === 'upi' ? (
-                  <IconUpi size={20} color={iconColor} />
-                ) : (
-                  <IconWallet size={20} color={iconColor} />
-                )}
-                <Text style={[styles.payLabel, on && styles.payLabelOn]}>{m.label}</Text>
-                <Text style={[styles.payHint, on && styles.payHintOn]}>{m.hint}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        {paymentMethod === 'cash' ? (
-          <Text style={styles.fieldHint}>Taken out of that day’s cash drawer count.</Text>
-        ) : null}
-      </View>
-
-      <View style={styles.field}>
-        <View style={styles.labelRow}>
-          <Text style={styles.fieldLabel}>When</Text>
-          <Text style={styles.whenValue}>{formatDay(date)}</Text>
-        </View>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.dayRow}
-        >
-          {days.map((d, i) => {
-            const on = date === d;
-            const { weekday, day } = dayParts(d);
-            return (
-              <Pressable
-                key={d}
-                onPress={() => setDate(d)}
-                style={({ pressed }) => [
-                  styles.dayTile,
-                  on && styles.dayTileOn,
-                  pressed && !on && styles.chipPressed,
-                ]}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: on }}
-              >
-                <Text style={[styles.dayWeek, on && styles.dayTextOn]}>
-                  {i === 0 ? 'Today' : i === 1 ? 'Yest.' : weekday}
-                </Text>
-                <Text style={[styles.dayNum, on && styles.dayTextOn]}>{day}</Text>
-              </Pressable>
-            );
-          })}
-          {!days.includes(date) ? (
-            <Pressable
-              onPress={() => setCalendarOpen(true)}
-              style={[styles.dayTile, styles.dayTileOn]}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: true }}
-            >
-              <Text style={[styles.dayWeek, styles.dayTextOn]}>{dayParts(date).weekday}</Text>
-              <Text style={[styles.dayNum, styles.dayTextOn]}>{dayParts(date).day}</Text>
-            </Pressable>
-          ) : null}
-          <Pressable
-            onPress={() => setCalendarOpen(true)}
-            style={({ pressed }) => [styles.dayTile, styles.calTile, pressed && styles.chipPressed]}
-            accessibilityRole="button"
-            accessibilityLabel="Pick another date"
-          >
-            <IconCalendar size={18} color={colors.waterDeep} />
-            <Text style={styles.calText}>Calendar</Text>
-          </Pressable>
-        </ScrollView>
-      </View>
-
-      <View style={styles.field}>
-        <Text style={styles.fieldLabel}>{setup.noteLabel} (optional)</Text>
-        <View style={[styles.noteField, focus === 'note' && styles.noteFocus]}>
-          <IconEdit size={16} color={focus === 'note' ? colors.water : colors.slate} />
-          <TextInput
-            style={styles.noteInput}
-            value={note}
-            onChangeText={setNote}
-            onFocus={() => setFocus('note')}
-            onBlur={() => setFocus(null)}
-            placeholder={setup.notePlaceholder}
-            placeholderTextColor={colors.slate}
-            maxLength={200}
-          />
-        </View>
-        {setup.noteSuggestions.length ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.ideaRow}
-          >
-            {setup.noteSuggestions.map((idea) => {
-              const on = note === idea;
-              return (
-                <Pressable
-                  key={idea}
-                  onPress={() => setNote(on ? '' : idea)}
-                  style={({ pressed }) => [
-                    styles.ideaChip,
-                    on && { backgroundColor: tone.bg, borderColor: tone.fg },
-                    pressed && styles.chipPressed,
-                  ]}
-                >
-                  <Text style={[styles.ideaText, on && { color: tone.fg }]}>{idea}</Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        ) : null}
-      </View>
-
-      {error ? (
-        <View style={styles.errorRow}>
-          <IconAlert size={14} color={colors.danger} />
-          <Text style={styles.sheetError}>{error}</Text>
-        </View>
-      ) : null}
-
-      <CalendarSheet
-        visible={calendarOpen}
-        mode="plain"
-        value={date}
-        max={today}
-        min={minDate}
-        title="When was it paid?"
-        subtitle={
-          isOwner ? 'Pick the date on the bill.' : 'Pick the date on the bill — up to 31 days back.'
-        }
-        onClose={() => setCalendarOpen(false)}
-        onSelect={(d) => {
-          setDate(d);
-          setCalendarOpen(false);
-        }}
-      />
-      <PhotoViewer
-        source={viewingPhoto ? { uri: viewingPhoto.uri } : null}
-        title={
-          viewing === 'bill' ? `${setup.billPhotoLabel} photo` : `${setup.itemPhotoLabel} photo`
-        }
-        onClose={() => setViewing(null)}
-      />
-    </BottomSheet>
-  );
+function isoDate(d: Date): string {
+  const ist = new Date(d.getTime() + 330 * 60_000);
+  return ist.toISOString().slice(0, 10);
 }
 
 function ExpenseDetailSheet({
   expense,
-  canVoid,
-  isOwner,
+  canManage,
+  showEnteredBy,
   onClose,
-  onVoid,
+  onEdit,
+  onDelete,
 }: {
   expense: ExpenseItem | null;
-  canVoid: boolean;
-  isOwner: boolean;
+  canManage: boolean;
+  showEnteredBy: boolean;
   onClose: () => void;
-  onVoid: (e: ExpenseItem) => void;
+  onEdit: (e: ExpenseItem) => void;
+  onDelete: (e: ExpenseItem) => void;
 }) {
   const [sources, setSources] = useState<
     Record<ExpensePhotoKind, { uri: string; headers: Record<string, string> } | null>
@@ -1570,16 +952,28 @@ function ExpenseDetailSheet({
     item: null,
   });
   const [viewing, setViewing] = useState<ExpensePhotoKind | null>(null);
+  const [edits, setEdits] = useState<ExpenseEditEntry[]>([]);
 
   useEffect(() => {
     if (!expense) return;
     let cancelled = false;
+    setEdits([]);
     void Promise.all([
       expense.hasBillPhoto ? expensePhotoSource(expense.id, 'bill') : null,
       expense.hasItemPhoto ? expensePhotoSource(expense.id, 'item') : null,
     ]).then(([bill, item]) => {
       if (!cancelled) setSources({ bill, item });
     });
+    if (expense.edited) {
+      api.expenses[':id'].edits
+        .$get({ param: { id: expense.id } })
+        .then(async (res) => {
+          if (!res.ok || cancelled) return;
+          const body = await res.json();
+          if (!cancelled && 'edits' in body) setEdits(body.edits as ExpenseEditEntry[]);
+        })
+        .catch(() => undefined);
+    }
     return () => {
       cancelled = true;
     };
@@ -1601,7 +995,7 @@ function ExpenseDetailSheet({
     { label: 'Paid with', value: paidLabel(expense.paymentMethod) },
     { label: 'Date', value: formatDay(expense.date) },
     ...(expense.description ? [{ label: setup.noteLabel, value: expense.description }] : []),
-    ...(isOwner ? [{ label: 'Entered by', value: expense.createdBy.name }] : []),
+    ...(showEnteredBy ? [{ label: 'Entered by', value: expense.createdBy.name }] : []),
   ];
 
   return (
@@ -1611,29 +1005,59 @@ function ExpenseDetailSheet({
       title={expense.itemName || expense.description || EXPENSE_CATEGORY_LABEL[cat]}
       subtitle={`${EXPENSE_CATEGORY_LABEL[cat]} · ${formatDay(expense.date)}`}
       footer={
-        canVoid ? (
-          <Button
-            label="Void this expense"
-            variant="danger"
-            size="lg"
-            onPress={() => onVoid(expense)}
-          />
+        canManage ? (
+          <View style={styles.detailActions}>
+            <Pressable
+              onPress={() => onDelete(expense)}
+              accessibilityRole="button"
+              accessibilityLabel="Delete this expense"
+              android_ripple={{ color: 'rgba(220,38,38,0.12)' }}
+              style={({ pressed }) => [styles.actionBtn, styles.deleteBtn, pressed && styles.pressed]}
+            >
+              <IconTrash size={18} color={colors.danger} />
+              <Text style={[styles.actionLabel, { color: colors.danger }]}>Delete</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => onEdit(expense)}
+              accessibilityRole="button"
+              accessibilityLabel="Edit this expense"
+              style={({ pressed }) => [styles.actionGrow, pressed && styles.pressed]}
+            >
+              <LinearGradient
+                colors={brandGradients.primary.colors as unknown as string[]}
+                start={brandGradients.primary.start}
+                end={brandGradients.primary.end}
+                style={[styles.actionBtn, styles.editBtn]}
+              >
+                <IconEdit size={18} color={colors.white} />
+                <Text style={[styles.actionLabel, { color: colors.white }]}>Edit expense</Text>
+              </LinearGradient>
+            </Pressable>
+          </View>
         ) : undefined
       }
     >
-      <View style={styles.detailHead}>
-        <View style={[styles.amountBadge, { backgroundColor: voided ? colors.surface : tone.bg }]}>
-          <ExpenseCategoryIcon category={cat} size={22} color={voided ? colors.slate : tone.fg} />
+      <View style={[styles.detailHero, { backgroundColor: voided ? colors.surface : tone.bg }]}>
+        <View style={styles.detailIcon}>
+          <ExpenseCategoryIcon category={cat} size={24} color={voided ? colors.slate : tone.fg} />
         </View>
         <View style={styles.flex}>
           <Text style={[styles.detailAmount, voided && styles.strike]}>
             {formatRupees(expense.amount)}
           </Text>
-          {qty ? <Text style={styles.detailMeta}>{qty}</Text> : null}
+          <Text style={[styles.detailMeta, { color: voided ? colors.slate : tone.fg }]}>
+            {qty ? `${qty} · ` : ''}
+            {paidLabel(expense.paymentMethod)}
+          </Text>
         </View>
         {voided ? (
           <View style={styles.voidChip}>
-            <Text style={styles.voidChipText}>Voided</Text>
+            <Text style={styles.voidChipText}>Deleted</Text>
+          </View>
+        ) : expense.edited ? (
+          <View style={styles.editedChip}>
+            <IconEdit size={12} color="#0369A1" />
+            <Text style={styles.editedChipText}>Edited</Text>
           </View>
         ) : null}
       </View>
@@ -1642,7 +1066,7 @@ function ExpenseDetailSheet({
         <View style={styles.voidBand}>
           <IconAlert size={14} color={colors.danger} />
           <Text style={styles.voidBandText}>
-            Voided{expense.voidedBy ? ` by ${expense.voidedBy.name}` : ''}
+            Deleted{expense.voidedBy ? ` by ${expense.voidedBy.name}` : ''}
             {expense.voidReason ? ` — “${expense.voidReason}”` : ''}
           </Text>
         </View>
@@ -1681,6 +1105,29 @@ function ExpenseDetailSheet({
         ))}
       </View>
 
+      {edits.length > 0 ? (
+        <View style={styles.historyCard}>
+          <Text style={styles.historyTitle}>Changes</Text>
+          {edits.map((ed, i) => (
+            <View key={ed.id} style={[styles.historyItem, i > 0 && styles.historyGap]}>
+              <View style={styles.historyDot} />
+              <View style={styles.flex}>
+                <Text style={styles.historyWho}>
+                  {ed.editedBy.name} · {whenLabel(ed.createdAt)}
+                </Text>
+                {ed.changes.map((ch) => (
+                  <Text key={ch.field} style={styles.historyChange}>
+                    {EDIT_FIELD_LABEL[ch.field] ?? ch.field}: {editValue(ch.field, ch.from)} →{' '}
+                    <Text style={styles.historyTo}>{editValue(ch.field, ch.to)}</Text>
+                  </Text>
+                ))}
+                <Text style={styles.historyReason}>“{ed.reason}”</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
       <PhotoViewer
         source={viewing ? sources[viewing] : null}
         title={
@@ -1710,28 +1157,73 @@ const styles = StyleSheet.create({
   addBtnText: { ...typography.label, color: colors.white },
 
   hero: {
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.md + 4,
+    marginHorizontal: spacing.md,
+    borderRadius: radius.xl,
+    padding: spacing.md + 2,
+    gap: 2,
     overflow: 'hidden',
   },
-  orbLarge: {
-    position: 'absolute',
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    top: -80,
-    right: -60,
+  heroMark: { position: 'absolute', right: -22, top: -14 },
+  heroBar: {
+    flexDirection: 'row',
+    height: 8,
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginTop: spacing.sm + 2,
+    gap: 2,
   },
-  orbSmall: {
-    position: 'absolute',
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: 'rgba(94,234,212,0.18)',
-    bottom: -40,
-    left: -30,
+  heroChips: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
+  heroChip: {
+    flex: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    gap: 1,
+  },
+  heroChipLabel: { ...typography.caption, fontSize: 11, color: 'rgba(255,255,255,0.75)', letterSpacing: 0.3 },
+  heroChipValue: { ...typography.bodyStrong, fontSize: 15.5, color: colors.white, fontWeight: '800' },
+  syncBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginHorizontal: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    borderRadius: radius.lg,
+    backgroundColor: colors.amberPale,
+    borderWidth: 1,
+    borderColor: colors.amberLight,
+  },
+  syncBarText: { ...typography.caption, flex: 1, fontSize: 12.5, color: colors.amberDeep, letterSpacing: 0, fontWeight: '700' },
+  syncBarAction: { ...typography.label, fontSize: 13, color: colors.amberDeep, fontWeight: '800' },
+  tabs: {
+    flexDirection: 'row',
+    marginHorizontal: spacing.md,
+    padding: 4,
+    gap: 4,
+    borderRadius: radius.pill,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  tab: { flex: 1, height: 36, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
+  tabOn: { backgroundColor: colors.indigo },
+  tabText: { ...typography.label, fontSize: 13, color: colors.slateDeep },
+  tabTextOn: { color: colors.white, fontWeight: '800' },
+  tabHint: { ...typography.caption, fontSize: 12, color: colors.slate, letterSpacing: 0, paddingHorizontal: spacing.md, marginBottom: -spacing.sm },
+  emptyCard: {
+    marginHorizontal: spacing.md,
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xl,
+    gap: spacing.sm,
+    borderRadius: radius.xl,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   heroEyebrow: { ...typography.label, fontSize: 14, color: 'rgba(255,255,255,0.88)' },
   heroValue: {
@@ -1742,27 +1234,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   heroMeta: { ...typography.label, fontSize: 13.5, color: 'rgba(255,255,255,0.9)' },
-  heroSplit: {
-    flexDirection: 'row',
-    marginTop: spacing.md + 4,
-    paddingTop: spacing.md,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255,255,255,0.45)',
-  },
-  heroCell: { flex: 1, gap: 2 },
-  heroCellDivider: {
-    paddingLeft: spacing.md,
-    borderLeftWidth: StyleSheet.hairlineWidth,
-    borderLeftColor: 'rgba(255,255,255,0.45)',
-  },
-  heroCellValue: { ...typography.heading, fontSize: 18, color: colors.white },
-  heroCellLabel: {
-    ...typography.caption,
-    fontSize: 11.5,
-    color: 'rgba(255,255,255,0.85)',
-    fontWeight: '700',
-    letterSpacing: 0,
-  },
 
   notice: {
     flexDirection: 'row',
@@ -1797,7 +1268,6 @@ const styles = StyleSheet.create({
     color: colors.waterInk,
     letterSpacing: -0.2,
   },
-  sectionMeta: { ...typography.caption, fontSize: 12, color: colors.slate, letterSpacing: 0 },
   dayTotal: { ...typography.bodyStrong, fontSize: 14, color: colors.slateDeep },
   band: {
     backgroundColor: colors.white,
@@ -1838,22 +1308,6 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
 
-  syncChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 9,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: '#FEF3C7',
-  },
-  syncChipText: {
-    ...typography.caption,
-    fontSize: 12,
-    fontWeight: '800',
-    color: colors.amberDeep,
-    letterSpacing: 0,
-  },
 
   divider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   row: {
@@ -1888,12 +1342,6 @@ const styles = StyleSheet.create({
   rowAmount: { ...typography.heading, fontSize: 16, color: colors.waterInk },
   strike: { textDecorationLine: 'line-through', color: colors.slate },
 
-  emptyBox: {
-    alignItems: 'center',
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.lg,
-    gap: spacing.sm,
-  },
   emptyIcon: {
     width: 64,
     height: 64,
@@ -1931,191 +1379,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 
-  amountBlock: { alignItems: 'center', gap: spacing.sm, paddingTop: spacing.xs },
-  amountBadge: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  amountRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
-  rupee: { ...typography.display, color: colors.slate, fontSize: 36, marginRight: 4 },
-  amountInput: {
-    ...typography.display,
-    color: colors.waterInk,
-    fontSize: 48,
-    minWidth: 70,
-    textAlign: 'center',
-    padding: 0,
-    letterSpacing: -1,
-  },
-  amountLine: { width: 160, height: 2, borderRadius: 1 },
-  quickRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
-  quickChip: {
-    height: 32,
-    paddingHorizontal: 12,
-    borderRadius: radius.pill,
-    backgroundColor: colors.waterPale,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  quickText: { ...typography.label, fontSize: 13, color: colors.waterDeep },
-  clearChip: { backgroundColor: colors.surface },
-  clearText: { ...typography.label, fontSize: 13, color: colors.slateDeep },
-  chipPressed: { backgroundColor: colors.surface, opacity: 0.85 },
 
-  field: { gap: 8 },
-  fieldLabel: { ...typography.caption, color: colors.slateDeep },
-  fieldHint: { ...typography.caption, fontSize: 12, color: colors.slate, letterSpacing: 0 },
-  catGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  catTile: {
-    width: '31.5%',
-    alignItems: 'center',
-    gap: 6,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingVertical: spacing.sm + 4,
-    backgroundColor: colors.white,
-  },
-  catBadge: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  catLabel: { ...typography.label, color: colors.waterInk, fontSize: 12.5 },
-  catLabelOn: { color: colors.white, fontWeight: '800' },
-  catCheck: {
-    position: 'absolute',
-    top: 6,
-    right: 6,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: colors.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  payRow: { flexDirection: 'row', gap: spacing.sm },
-  payTile: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 3,
-    paddingVertical: spacing.sm + 2,
-    borderRadius: radius.md,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
-  },
-  payTileOn: { backgroundColor: colors.waterInk, borderColor: colors.waterInk },
-  payLabel: { ...typography.bodyStrong, fontSize: 14, color: colors.waterInk },
-  payLabelOn: { color: colors.white },
-  payHint: { ...typography.caption, fontSize: 10.5, color: colors.slate, letterSpacing: 0 },
-  payHintOn: { color: 'rgba(255,255,255,0.75)' },
-  dayRow: { gap: spacing.sm, paddingRight: spacing.sm },
-  dayTile: {
-    width: 58,
-    alignItems: 'center',
-    gap: 2,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.md,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
-  },
-  dayTileOn: { backgroundColor: colors.water, borderColor: colors.water },
-  dayWeek: {
-    ...typography.caption,
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.slate,
-    letterSpacing: 0,
-  },
-  dayNum: { ...typography.heading, fontSize: 18, color: colors.waterInk },
-  dayTextOn: { color: colors.white },
-  noteField: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    height: 50,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-  },
-  noteFocus: { borderColor: colors.water, backgroundColor: colors.white },
-  noteInput: { flex: 1, fontSize: 15.5, color: colors.waterInk, paddingVertical: 0 },
-  ideaRow: { gap: 6, paddingRight: spacing.sm },
-  ideaChip: {
-    height: 30,
-    paddingHorizontal: 12,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
-    justifyContent: 'center',
-  },
-  ideaText: {
-    ...typography.caption,
-    fontSize: 12.5,
-    fontWeight: '700',
-    color: colors.slateDeep,
-    letterSpacing: 0,
-  },
-  itemSection: {
-    gap: spacing.md,
-    paddingVertical: spacing.md,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-  },
-  qtyRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  qtyField: {
-    width: 120,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    height: 50,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.sm + 4,
-  },
-  qtyInput: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.waterInk,
-    paddingVertical: 0,
-  },
-  qtyUnit: { ...typography.label, fontSize: 13, color: colors.slateDeep },
-  unitRow: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  unitChip: {
-    minWidth: 44,
-    height: 34,
-    paddingHorizontal: 10,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  unitText: { ...typography.label, fontSize: 13, color: colors.slateDeep },
-  unitTextOn: { color: colors.white, fontWeight: '800' },
-  rateLine: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  rateLineText: {
-    ...typography.caption,
-    fontSize: 12.5,
-    color: colors.slateDeep,
-    letterSpacing: 0,
-  },
-  rateStrong: { fontWeight: '800', color: colors.tealDeep },
   titleLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   titleShrink: { flexShrink: 1 },
   qtyPill: { paddingHorizontal: 7, height: 20, borderRadius: 10, justifyContent: 'center' },
@@ -2136,48 +1400,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
   },
   flex: { flex: 1 },
-  stockRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm + 2,
-    padding: spacing.sm + 2,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
-  },
-  stockRowOn: { borderColor: '#7DD3FC', backgroundColor: '#F0F9FF' },
-  stockIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: colors.waterPale,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stockIconOn: { backgroundColor: colors.water },
-  stockTitle: { ...typography.bodyStrong, fontSize: 14.5, color: colors.waterInk },
-  stockHint: {
-    ...typography.caption,
-    fontSize: 12,
-    color: colors.slateDeep,
-    letterSpacing: 0,
-    lineHeight: 16,
-  },
   required: { color: colors.danger, fontWeight: '800' },
-  labelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  proofCount: {
-    ...typography.caption,
-    fontSize: 12,
-    fontWeight: '800',
-    color: colors.amberDeep,
-    letterSpacing: 0,
-  },
-  proofDone: { color: colors.tealDeep },
   slotRow: { flexDirection: 'row', gap: spacing.sm },
   slot: {
     flex: 1,
-    height: 132,
+    height: 104,
     borderRadius: radius.md,
     overflow: 'hidden',
     alignItems: 'center',
@@ -2240,38 +1467,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0,
   },
-  retakeRow: { flexDirection: 'row', gap: spacing.sm },
-  retakeBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-    height: 30,
-  },
-  retakeText: { ...typography.label, fontSize: 12.5, color: colors.waterDeep },
-  whenValue: { ...typography.label, fontSize: 13, color: colors.waterDeep },
-  calTile: {
-    backgroundColor: colors.waterPale,
-    borderColor: colors.waterPale,
-    gap: 4,
-    justifyContent: 'center',
-  },
-  calText: {
-    ...typography.caption,
-    fontSize: 10.5,
-    fontWeight: '800',
-    color: colors.waterDeep,
-    letterSpacing: 0,
-  },
-  footMissing: {
-    ...typography.caption,
-    fontSize: 12,
-    color: colors.amberDeep,
-    textAlign: 'center',
-    letterSpacing: 0,
-    fontWeight: '700',
-  },
   viewer: { flex: 1, backgroundColor: '#000' },
   viewerImage: { flex: 1 },
   viewerTop: {
@@ -2295,7 +1490,67 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  detailHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  detailHero: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+  },
+  detailIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.75)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editedChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#E0F2FE',
+  },
+  editedChipText: { ...typography.caption, fontSize: 12, fontWeight: '800', color: '#0369A1', letterSpacing: 0 },
+  editedTag: {
+    paddingHorizontal: 6,
+    height: 17,
+    borderRadius: 6,
+    backgroundColor: '#E0F2FE',
+    justifyContent: 'center',
+    marginLeft: 4,
+  },
+  editedTagText: { ...typography.caption, fontSize: 10.5, fontWeight: '800', color: '#0369A1', letterSpacing: 0 },
+  detailActions: { flexDirection: 'row', gap: spacing.sm },
+  actionGrow: { flex: 1 },
+  actionBtn: {
+    height: 54,
+    borderRadius: radius.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: spacing.lg,
+  },
+  deleteBtn: { backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA' },
+  editBtn: { flex: 1 },
+  actionLabel: { ...typography.bodyStrong, fontSize: 15.5 },
+  historyCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+  },
+  historyTitle: { ...typography.label, fontSize: 13, color: colors.slateDeep, marginBottom: spacing.sm },
+  historyItem: { flexDirection: 'row', gap: spacing.sm },
+  historyGap: { marginTop: spacing.md },
+  historyDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#0369A1', marginTop: 6 },
+  historyWho: { ...typography.bodyStrong, fontSize: 13.5, color: colors.waterInk },
+  historyChange: { ...typography.body, fontSize: 13, color: colors.slateDeep, marginTop: 2 },
+  historyTo: { fontWeight: '700', color: colors.waterInk },
+  historyReason: { ...typography.caption, fontSize: 12.5, color: colors.slate, marginTop: 4, fontStyle: 'italic', letterSpacing: 0 },
   detailAmount: {
     ...typography.display,
     fontSize: 32,
@@ -2352,13 +1607,4 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     textAlign: 'right',
   },
-  footSummary: {
-    ...typography.caption,
-    fontSize: 12,
-    color: colors.slate,
-    textAlign: 'center',
-    letterSpacing: 0,
-  },
-  errorRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  sheetError: { ...typography.label, color: colors.danger, textTransform: 'none', flexShrink: 1 },
 });

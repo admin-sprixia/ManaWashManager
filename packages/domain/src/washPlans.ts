@@ -366,7 +366,7 @@ export function financialYear(day: string): string {
   return `${String(start % 100).padStart(2, '0')}-${String((start + 1) % 100).padStart(2, '0')}`;
 }
 
-/** "MCW-123456/26-27/00042". */
+/** "MW-KVR-01/26-27/00042". */
 export function formatReceiptNumber(prefix: string, fy: string, n: number): string {
   return `${prefix}/${fy}/${String(n).padStart(5, '0')}`;
 }

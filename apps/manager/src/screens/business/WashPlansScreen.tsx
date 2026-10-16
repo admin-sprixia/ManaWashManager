@@ -20,15 +20,11 @@ import {
   BottomSheet,
   Button,
   ChoiceChips,
-  EdgeGroup,
-  EdgeRow,
+  IconCalendar,
   IconPlus,
   IconSparkle,
-  Notice,
-  Pill,
   ScreenContainer,
   ScreenHeader,
-  SectionLabel,
   TextField,
   colors,
   radius,
@@ -38,7 +34,17 @@ import {
 import { api, type ApiResponse } from '../../api/client';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useApiData } from '../places/shared';
-import { bpToText, textToBp, useCatalog, type Catalog } from './shared';
+import {
+  Band,
+  BandRow,
+  CatalogHero,
+  SectionTitle,
+  bpToText,
+  plural,
+  textToBp,
+  useCatalog,
+  type Catalog,
+} from './shared';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'WashPlans'>;
 type Data = InferResponseType<(typeof api)['business']['plans']['$get'], 200>;
@@ -63,6 +69,9 @@ export function WashPlansScreen({ navigation }: Props) {
   const [rulesOpen, setRulesOpen] = useState(false);
 
   const services = (catalog?.services ?? []).filter((s) => s.active).map((s) => ({ value: s.id, label: s.name }));
+  const plans = data.data?.plans ?? [];
+  const activePlans = plans.filter((p) => p.active).length;
+  const rules = data.data?.rules;
 
   return (
     <ScreenContainer noPadding>
@@ -71,26 +80,36 @@ export function WashPlansScreen({ navigation }: Props) {
       </View>
       {!data.data ? (
         data.error ? (
-          <View style={styles.pad}>
-            <Notice tone="danger">{data.error}</Notice>
+          <View style={styles.centerPad}>
+            <Text style={styles.error}>{data.error}</Text>
             <Button label="Try again" variant="secondary" onPress={() => void data.load()} />
           </View>
         ) : (
-          <ActivityIndicator color={colors.water} style={styles.loading} />
+          <ActivityIndicator color={colors.indigo} style={styles.loading} />
         )
       ) : (
-        <ScrollView contentContainerStyle={styles.scroll}>
-          <Text style={[styles.help, styles.pad]}>
-            Plans are what members of a place buy: washes over months, at a discount on the branch price. Members pay online before
-            the first wash.
-          </Text>
-          <SectionLabel>Plans</SectionLabel>
-          <EdgeGroup>
-            {data.data.plans.map((p) => (
-              <EdgeRow
+        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+          <CatalogHero
+            eyebrow="Communities"
+            title="Wash plans"
+            meta="Members buy washes over months at a discount. They pay online before the first wash."
+            chips={[
+              { label: 'Plans', value: activePlans },
+              { label: 'Pay by', value: formatClock(data.data.rules.payDeadlineTime) },
+              {
+                label: 'GST',
+                value: data.data.rules.gstRateBp ? `${bpToText(data.data.rules.gstRateBp)}%` : 'Off',
+              },
+            ]}
+          />
+
+          <SectionTitle>Plans</SectionTitle>
+          <Band>
+            {plans.map((p) => (
+              <BandRow
                 key={p.id}
                 icon={<IconSparkle size={18} color={p.active ? colors.tealDeep : colors.slate} />}
-                iconBg="#CCFBF1"
+                iconBg={p.active ? '#CCFBF1' : '#F1F5F9'}
                 title={p.name}
                 subtitle={[
                   `${p.washes} washes · ${p.months === 1 ? '1 month' : `${p.months} months`}`,
@@ -100,29 +119,58 @@ export function WashPlansScreen({ navigation }: Props) {
                 ]
                   .filter(Boolean)
                   .join(' · ')}
-                tone={p.active ? 'default' : 'muted'}
-                right={!p.active ? <Pill label="OFF" tone="slate" /> : p.popular ? <Pill label="POPULAR" tone="amber" /> : undefined}
+                muted={!p.active}
+                right={
+                  !p.active ? (
+                    <View style={styles.offPill}>
+                      <Text style={styles.offPillText}>Off</Text>
+                    </View>
+                  ) : p.popular ? (
+                    <View style={styles.popPill}>
+                      <Text style={styles.popPillText}>Popular</Text>
+                    </View>
+                  ) : undefined
+                }
                 onPress={() => setEditing(p)}
               />
             ))}
-            <EdgeRow icon={<IconPlus size={18} color={colors.waterDeep} />} title="Add a plan" onPress={() => setEditing('new')} />
-          </EdgeGroup>
+            <BandRow
+              icon={<IconPlus size={18} color={colors.indigo} />}
+              iconBg={colors.indigoPale}
+              title="Add a plan"
+              last
+              onPress={() => setEditing('new')}
+            />
+          </Band>
 
-          <SectionLabel>Rules</SectionLabel>
-          <EdgeGroup>
-            <EdgeRow
+          <SectionTitle>Rules</SectionTitle>
+          <Band>
+            <BandRow
+              icon={<IconCalendar size={18} color={colors.indigo} />}
+              iconBg={colors.indigoPale}
               title="Paying, skips and refunds"
-              subtitle={`Pay by ${formatClock(data.data.rules.payDeadlineTime)} the day before · ${data.data.rules.skipsPerMonth} ${data.data.rules.skipsPerMonth === 1 ? 'skip' : 'skips'} a month · ${
-                data.data.rules.refundRule === 'pro_rata' ? 'pro-rata refunds' : 'refund at single price'
-              }`}
+              subtitle={
+                rules
+                  ? `Pay by ${formatClock(rules.payDeadlineTime)} the day before · ${plural(rules.skipsPerMonth, 'skip')} a month · ${
+                      rules.refundRule === 'pro_rata' ? 'pro-rata refunds' : 'refund at single price'
+                    }`
+                  : undefined
+              }
               onPress={() => setRulesOpen(true)}
             />
-            <EdgeRow
+            <BandRow
+              icon={<IconSparkle size={18} color={colors.tealDeep} />}
+              iconBg="#CCFBF1"
               title="GST on receipts"
-              subtitle={data.data.rules.gstRateBp ? `${bpToText(data.data.rules.gstRateBp)}%${data.data.rules.gstin ? ` · ${data.data.rules.gstin}` : ''}` : 'No GST'}
+              subtitle={
+                rules?.gstRateBp
+                  ? `${bpToText(rules.gstRateBp)}%${rules.gstin ? ` · ${rules.gstin}` : ''}`
+                  : 'No GST'
+              }
+              last
               onPress={() => setRulesOpen(true)}
             />
-          </EdgeGroup>
+          </Band>
           <View style={styles.bottomPad} />
         </ScrollView>
       )}
@@ -390,14 +438,29 @@ function RulesSheet({
 const styles = StyleSheet.create({
   headerPad: { paddingHorizontal: spacing.md },
   loading: { marginTop: spacing.xl },
-  scroll: { paddingTop: spacing.sm },
-  pad: { paddingHorizontal: spacing.md, gap: spacing.md },
-  help: { ...typography.body, color: colors.slateDeep, fontSize: 14, lineHeight: 20 },
+  scroll: { paddingBottom: spacing.xxl, gap: spacing.md },
+  centerPad: { padding: spacing.lg, gap: spacing.md, alignItems: 'center' },
   sheet: { gap: spacing.md },
   row: { flexDirection: 'row', gap: spacing.sm },
   flex: { flex: 1 },
   error: { ...typography.label, color: colors.danger },
   bottomPad: { height: spacing.xxl },
+  offPill: {
+    paddingHorizontal: 9,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#F1F5F9',
+    justifyContent: 'center',
+  },
+  offPillText: { ...typography.caption, fontSize: 11, color: colors.slateDeep, fontWeight: '800', letterSpacing: 0 },
+  popPill: {
+    paddingHorizontal: 9,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#FEF3C7',
+    justifyContent: 'center',
+  },
+  popPillText: { ...typography.caption, fontSize: 11, color: colors.amberDeep, fontWeight: '800', letterSpacing: 0 },
   preview: {
     backgroundColor: colors.waterPale,
     borderRadius: radius.md,

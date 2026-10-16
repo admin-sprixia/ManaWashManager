@@ -134,8 +134,8 @@ wipe the live database.
    `business_admins`) opens each branch from **More → Mana Wash HQ → All branches → Open a
    branch** (branch name, city, owner's name and phone). The branch gets the
    business menu straight away; its owner signs in with their phone and a WhatsApp code, then sets
-   a 6-digit PIN. Staff join with the 6-digit branch ID shown in **More → shop name**, and an owner
-   or manager approves them in **More → Team**. Only HQ adds or removes branch owners.
+   a 6-digit PIN. The owner (or a manager, for staff) adds the team in **More → Team**; each person
+   signs in with a WhatsApp code and chooses their own PIN. Only HQ adds or removes branch owners.
 
 **Changing the database later** — never edit a table by hand and never edit an old migration.
 Add the next numbered file (`migrations/0002_what_it_does.sql`), make the same change in
@@ -263,7 +263,7 @@ npm run db:reset:local   # inside apps/api — wipes the LOCAL database, applies
 npm run db:seed:demo     # optional, with the API running: 90 days of realistic shop data
 ```
 
-`seed.sql` adds the MANA shop (ID `482193`), its menu and prices, and the sign-in accounts
+`seed.sql` adds a test branch (code `HYD-01`), its menu and prices, and the sign-in accounts
 listed under [Run the app](#run-the-app). `db:seed:demo` resets again and fills in customers,
 washes, photos, expenses, stock, cash days, a second branch and three staff (PIN `258025` for
 everyone; it prints the phone numbers). There is no remote reset — the live database is only
@@ -345,7 +345,7 @@ Don't merge a red build.
 
 ```bash
 cd apps/api && npm run test:isolation   # adds a second shop and proves neither can see or change the other's data
-cd apps/api && npm run test:signup      # HQ opens branches and manages owners, join requests (approve/reject/cancel), remove from team
+cd apps/api && npm run test:team        # no self sign-up, HQ opens branches and manages owners, add and remove teammates
 cd apps/api && npm run test:access      # roles (owner, manager, staff), PIN resets, trusted phones, 6-digit PINs, pause and close
 cd apps/api && npm run test:rewards     # stamp cards, free washes, welcome gifts and owed gifts, including voids and retries
 cd apps/api && npm run test:races       # double taps and parallel requests can't double-count
@@ -371,9 +371,9 @@ payments are described in `docs/old-plan/MANA-Registration-and-Plans.md`. The sc
 with a fixed device key kept in `apps/api/.wrangler/script-device-key`, so they trust the local
 API once like a real phone.
 
-**Sign-up flow** — a number with no account can only join a branch: 6-digit branch ID → WhatsApp
-code → name → an owner or manager approves in More → Team → they choose their own PIN. A paused
-branch takes no join requests; a closed one isn't found. The seeded MANA branch's ID is `482193`. New branches are opened only by HQ (`POST /business/branches`, for
+**Getting onto a team** — nobody signs themselves up. An owner or manager adds people in More →
+Team; they sign in with a WhatsApp code and choose their own PIN. A number on no team is told to
+ask them (`no_account`). New branches are opened only by HQ (`POST /business/branches`, for
 a phone in `business_admins`); every branch belongs to the Mana Wash business, and only HQ adds or
 removes owners (`/business/branches/:id/owners`; Team refuses with `hq_only`). The seeded HQ
 admin is `9100000000`.

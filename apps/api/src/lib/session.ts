@@ -20,7 +20,7 @@ export function publicUser(user: DbUser) {
 }
 
 /** `device`: the hash of the phone's key, tying the session to that phone (see SessionClaims.dv). */
-export async function issueSession(user: DbUser, env: Env, device?: string | null) {
+export async function issueSession(user: DbUser, env: Env, device: string) {
   const token = await createSessionToken(
     {
       sub: user.id,
@@ -28,7 +28,7 @@ export async function issueSession(user: DbUser, env: Env, device?: string | nul
       role: publicUser(user).role,
       phone: user.phone,
       sv: user.sessionVersion,
-      ...(device ? { dv: device } : {}),
+      dv: device,
     },
     env.JWT_SECRET,
   );

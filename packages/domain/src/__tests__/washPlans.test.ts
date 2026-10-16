@@ -190,7 +190,7 @@ describe('receipts', () => {
     expect(financialYear('2027-03-31')).toBe('26-27');
     expect(financialYear('2027-04-01')).toBe('27-28');
     expect(financialYear('2099-06-01')).toBe('99-00');
-    expect(formatReceiptNumber('MCW-482913', '26-27', 42)).toBe('MCW-482913/26-27/00042');
+    expect(formatReceiptNumber('MW-KVR-01', '26-27', 42)).toBe('MW-KVR-01/26-27/00042');
   });
 });
 

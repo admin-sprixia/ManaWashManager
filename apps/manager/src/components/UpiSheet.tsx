@@ -1,10 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { BottomSheet, Button, TextField, colors, showToast, spacing, typography } from '@mana/ui';
+import {
+  BottomSheet,
+  Button,
+  IconAlert,
+  IconUpi,
+  TextField,
+  colors,
+  radius,
+  showToast,
+  spacing,
+  typography,
+} from '@mana/ui';
 import { api, apiErrorMessage } from '../api/client';
 import { NetworkError } from '../api/network';
 import { useShop } from '../offline/ShopProvider';
 import { UpiQr } from './UpiQr';
+import { SheetHead, SheetNotice, SheetPill } from './SheetBits';
 
 const UPI_ID = /^[a-zA-Z0-9._-]{2,256}@[a-zA-Z][a-zA-Z0-9.-]{1,63}$/;
 
@@ -28,6 +40,7 @@ export function UpiSheet({ visible, onClose }: { visible: boolean; onClose: () =
   const valid = trimmed === '' || UPI_ID.test(trimmed);
   const changed = trimmed !== (upiId ?? '');
   const removing = changed && trimmed === '' && upiId != null;
+  const saved = upiId != null && upiId !== '';
 
   const save = async () => {
     setBusy(true);
@@ -67,6 +80,13 @@ export function UpiSheet({ visible, onClose }: { visible: boolean; onClose: () =
         />
       }
     >
+      <SheetHead
+        tone={saved ? 'teal' : 'indigo'}
+        icon={<IconUpi size={22} color={saved ? colors.teal : colors.indigo} />}
+        title={saved ? 'QR is shown at payment' : 'No UPI ID yet'}
+        caption={saved ? upiId! : 'Add your UPI ID and Collect payment will show a scannable QR.'}
+        right={saved ? <SheetPill tone="teal" label="On" /> : undefined}
+      />
       <TextField
         label="Your shop’s UPI ID"
         value={value}
@@ -84,17 +104,37 @@ export function UpiSheet({ visible, onClose }: { visible: boolean; onClose: () =
       />
       {trimmed && valid ? (
         <View style={styles.preview}>
+          <Text style={styles.previewLabel}>Preview</Text>
           <UpiQr upiId={trimmed} payee={info?.name ?? 'Car wash'} amount={100} note="Test" size={150} />
           <Text style={styles.previewHint}>Test it: scan with your own phone. It should show your name and ₹1.</Text>
         </View>
       ) : null}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? (
+        <SheetNotice tone="danger" icon={<IconAlert size={14} color={colors.danger} />}>
+          {error}
+        </SheetNotice>
+      ) : null}
     </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  preview: { alignItems: 'center', gap: spacing.sm },
+  preview: {
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  previewLabel: {
+    ...typography.caption,
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: colors.indigo,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
   previewHint: { ...typography.caption, color: colors.slateDeep, textAlign: 'center', letterSpacing: 0 },
-  error: { ...typography.label, color: colors.danger },
 });

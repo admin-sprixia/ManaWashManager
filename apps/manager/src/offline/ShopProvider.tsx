@@ -25,7 +25,7 @@ export interface RosterMember {
 export interface ShopInfo {
   name: string;
   city: string | null;
-  /** 6-digit shop ID new teammates type to ask to join. */
+  /** The branch's 6-digit ID, shown in its details so HQ and support can name it. */
   code: string;
   /** Paused by Mana Wash HQ: no new washes; today's open ones can still be finished and paid. */
   status?: 'active' | 'paused';
@@ -136,8 +136,6 @@ interface ShopContextValue extends ShopSnapshot {
   /** Owner only: errors logged since the error log was last opened. */
   unseenErrors: number;
   markErrorsSeen: () => void;
-  /** Owner or manager: people waiting for approval to join the team. */
-  joinRequests: number;
   /** Listed in the Mana Wash app (set by Sprixia), and what's waiting from its customers. */
   customerApp: CustomerAppSummary;
   /** Inventory, cached for offline, with unsynced entries from this phone applied. */
@@ -168,15 +166,14 @@ const ShopContext = createContext<ShopContextValue | null>(null);
 /**
  * Small, rarely-changing shop data every phone needs offline: the shop's name and ID, the review
  * link that goes in thank-you messages, and who's on the team (for picking washers). For the
- * owner, also the new-error count and join requests, re-read on reconnect and whenever the app
- * comes to the foreground.
+ * owner, also the new-error count, re-read on reconnect and whenever the app comes to the
+ * foreground.
  */
 export function ShopProvider({ children }: { children: React.ReactNode }) {
-  const { user, isOwner, canManageTeam } = useAuth();
+  const { user, isOwner } = useAuth();
   const { online, items: outbox, version } = useSync();
   const [snapshot, setSnapshot] = useState<ShopSnapshot>(EMPTY);
   const [unseenErrors, setUnseenErrors] = useState(0);
-  const [joinRequests, setJoinRequests] = useState(0);
   const [customerApp, setCustomerApp] = useState<CustomerAppSummary>(NO_CUSTOMER_APP);
   const [serverStock, setServerStock] = useState<StockItemView[]>([]);
   const [rewards, setRewardsState] = useState<RewardSettings | null>(null);
@@ -269,17 +266,6 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
     } else {
       setUnseenErrors(0);
     }
-    if (canManageTeam) {
-      api.team.requests
-        .$get()
-        .then((res) => (res.ok ? res.json() : null))
-        .then((body) => {
-          if (Array.isArray(body)) setJoinRequests(body.length);
-        })
-        .catch(() => undefined);
-    } else {
-      setJoinRequests(0);
-    }
     api['service-requests'].summary
       .$get()
       .then((res) => (res.ok ? res.json() : null))
@@ -321,7 +307,7 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // Offline: keep the cached copy.
     }
-  }, [userId, isOwner, canManageTeam, commit]);
+  }, [userId, isOwner, commit]);
 
   const markErrorsSeen = useCallback(() => {
     setUnseenErrors(0);
@@ -367,7 +353,6 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
       setUpiId,
       unseenErrors,
       markErrorsSeen,
-      joinRequests,
       customerApp,
       stock,
       lowStock,
@@ -384,7 +369,6 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
       setUpiId,
       unseenErrors,
       markErrorsSeen,
-      joinRequests,
       customerApp,
       stock,
       lowStock,

@@ -1,28 +1,22 @@
 import { jwtVerify, SignJWT } from 'jose';
 
 /**
- * Short proofs handed to the phone during sign-up, before an account exists:
- * - `join`: "this number was just verified on WhatsApp" (30 minutes), so the later steps don't
- *   need another code.
- * - `join_request`: lets the phone check on, cancel, or finish its request to join a shop.
+ * Short proofs handed to a phone before it has an account:
  * - `service_request`: the Mana Wash app, for a number the car wash hasn't registered —
  *   lets that phone ask for service and follow its requests without another code.
  *
  * Signed with a key derived from JWT_SECRET but different from the session key, so a ticket can
  * never be used as a session and vice versa.
  */
-export type TicketPurpose = 'join' | 'join_request' | 'service_request';
+export type TicketPurpose = 'service_request';
 
 const TTL_SECONDS: Record<TicketPurpose, number> = {
-  join: 30 * 60,
-  join_request: 8 * 24 * 60 * 60,
   service_request: 30 * 24 * 60 * 60,
 };
 
 export interface Ticket {
   phone: string;
   purpose: TicketPurpose;
-  requestId?: string;
 }
 
 function ticketKey(secret: string) {
@@ -30,10 +24,7 @@ function ticketKey(secret: string) {
 }
 
 export async function createTicket(ticket: Ticket, secret: string): Promise<string> {
-  return new SignJWT({
-    purpose: ticket.purpose,
-    ...(ticket.requestId ? { rid: ticket.requestId } : {}),
-  })
+  return new SignJWT({ purpose: ticket.purpose })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(ticket.phone)
     .setIssuedAt()
@@ -50,11 +41,7 @@ export async function readTicket(
   try {
     const { payload } = await jwtVerify(token, ticketKey(secret));
     if (payload.purpose !== purpose || typeof payload.sub !== 'string') return null;
-    return {
-      phone: payload.sub,
-      purpose,
-      requestId: typeof payload.rid === 'string' ? payload.rid : undefined,
-    };
+    return { phone: payload.sub, purpose };
   } catch {
     return null;
   }

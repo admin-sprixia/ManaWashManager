@@ -31,7 +31,7 @@ function Stamp({ on, width, id }: { on: boolean; width: number; id: string }) {
               <LinearGradient id={id} x1="0.2" y1="0" x2="0.8" y2="1">
                 <Stop offset="0" stopColor="#9BAEF5" />
                 <Stop offset="0.45" stopColor="#4458CC" />
-                <Stop offset="1" stopColor={colors.indigoDeep} />
+                <Stop offset="1" stopColor="#1B2878" />
               </LinearGradient>
             </Defs>
             <Path d={BRAND_MARK.drop} fill={`url(#${id})`} />

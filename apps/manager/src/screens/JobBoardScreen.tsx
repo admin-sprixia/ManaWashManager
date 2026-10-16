@@ -41,7 +41,7 @@ import { useShop } from '../offline/ShopProvider';
 import type { BoardJob } from '../offline/types';
 import { buildThankYouMessage } from '../utils/messages';
 import { openWhatsApp } from '../utils/whatsapp';
-import { customerLine, firstName, isToday, NEXT_STATUS, vehicleHeadline } from '../utils/jobs';
+import { activityAt, customerLine, firstName, isToday, NEXT_STATUS, vehicleHeadline } from '../utils/jobs';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { MAX_WASHERS_PER_JOB, type JobStatus } from '@mana/domain';
 
@@ -64,7 +64,7 @@ const SECTION_DEFS: { key: string; title: string; statuses: JobStatus[]; todayOn
 const COMPACT_BAR_HEIGHT = 58;
 
 export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
-  const { user, isOwner, canManageTeam } = useAuth();
+  const { user, isOwner } = useAuth();
   const insets = useSafeAreaInsets();
   const { jobs, loading, error, refresh } = useBoardJobs();
   const actions = useJobActions();
@@ -77,14 +77,12 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
   const {
     googleReviewUrl,
     unseenErrors,
-    joinRequests,
     lowStock,
     myShops,
     info: shopInfo,
   } = useShop();
   const moreAlerts = [
     isOwner && unseenErrors > 0 ? 'new errors to review' : null,
-    canManageTeam && joinRequests > 0 ? 'someone waiting to join' : null,
     lowStock > 0 ? 'stock running low' : null,
   ].filter((a): a is string => a != null);
   const moreAlert = moreAlerts.length > 0 ? moreAlerts.join(', ') : undefined;
@@ -168,11 +166,10 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
   );
 
   const stats = useMemo<BoardStats>(() => {
-    // Excludes void jobs — matches jobRepo.getStats' `carsWashed`, so this hero number and
-    // the Reports screen's "Cars washed" never disagree for the same day.
-    const todays = jobs.filter((j) => isToday(j.createdAt));
-    const cars = todays.filter((j) => j.status !== 'void').length;
-    const revenue = todays.filter((j) => j.status === 'paid').reduce((sum, j) => sum + j.total, 0);
+    // Paid washes count on payment day (`completedAt`) — same clock as reports / cash drawer.
+    const paidToday = jobs.filter((j) => j.status === 'paid' && isToday(activityAt(j)));
+    const cars = paidToday.length;
+    const revenue = paidToday.reduce((sum, j) => sum + j.total, 0);
     const open = jobs.filter(
       (j) => j.status === 'waiting' || j.status === 'washing' || j.status === 'ready',
     ).length;
@@ -186,7 +183,9 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
         title: def.title,
         data: jobs
           .filter(
-            (j) => def.statuses.includes(j.status) && (!def.todayOnly || isToday(j.createdAt)),
+            (j) =>
+              def.statuses.includes(j.status) &&
+              (!def.todayOnly || isToday(activityAt(j))),
           )
           .sort((a, b) => def.statuses.indexOf(a.status) - def.statuses.indexOf(b.status)),
       })).filter((s) => s.data.length > 0),

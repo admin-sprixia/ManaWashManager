@@ -35,7 +35,6 @@ import {
   IconMapPin,
   IconReceipt,
   IconSettings,
-  IconShare,
   IconShield,
   IconSparkle,
   IconStore,
@@ -47,7 +46,8 @@ import {
   spacing,
   typography,
 } from '@mana/ui';
-import { EdgeGroup, EdgeRow, Pill, SectionLabel } from '../components/EdgeList';
+import { EdgeGroup, EdgeRow, Pill } from '../components/EdgeList';
+import { ScreenHero, SectionTitle } from '../components/ScreenChrome';
 import { SetPinSheet } from '../components/SetPinSheet';
 import { PhonesSheet } from '../components/PhonesSheet';
 import { EditProfileSheet } from '../components/EditProfileSheet';
@@ -56,8 +56,7 @@ import { UpiSheet } from '../components/UpiSheet';
 import { ShopDetailsSheet } from '../components/ShopDetailsSheet';
 import { ShopSwitcherSheet } from '../components/ShopSwitcherSheet';
 import { EarningsCard } from '../components/EarningsCard';
-import { formatShopCode, USER_ROLE_LABEL } from '@mana/domain';
-import { shareShopInvite } from '../utils/shopInvite';
+import { USER_ROLE_LABEL } from '@mana/domain';
 import { api, apiErrorMessage } from '../api/client';
 import { NetworkError } from '../api/network';
 import { useAuth } from '../api/auth';
@@ -110,7 +109,6 @@ export function MoreScreen({ navigation }: Props) {
     googleReviewUrl,
     upiId,
     unseenErrors,
-    joinRequests,
     info: shop,
     stock,
     lowStock,
@@ -202,57 +200,51 @@ export function MoreScreen({ navigation }: Props) {
       </View>
       <ScrollView contentContainerStyle={styles.scroll}>
         <Pressable
-          style={styles.profile}
-          android_ripple={{ color: colors.waterPale }}
           onPress={() => setProfileOpen(true)}
           accessibilityRole="button"
           accessibilityLabel="Edit profile"
         >
-          <Avatar name={user.name} id={user.id} size={56} />
-          <View style={styles.profileCopy}>
-            <View style={styles.profileTop}>
-              <Text style={styles.profileName} numberOfLines={1}>
-                {user.name}
-              </Text>
-              <Pill
-                label={USER_ROLE_LABEL[user.role].toUpperCase()}
-                tone={isOwner ? 'water' : isManager ? 'teal' : 'slate'}
-              />
-            </View>
-            <Text style={styles.profileMeta}>
-              +91{' '}
-              {user.phone.length === 10
-                ? `${user.phone.slice(0, 5)} ${user.phone.slice(5)}`
-                : user.phone}
-            </Text>
-          </View>
-          <View style={styles.editBtn}>
-            <IconEdit size={15} color={colors.waterDeep} />
-            <Text style={styles.editText}>Edit</Text>
-          </View>
+          <ScreenHero
+            eyebrow={USER_ROLE_LABEL[user.role]}
+            title={user.name}
+            meta={`+91 ${
+              user.phone.length === 10 ? `${user.phone.slice(0, 5)} ${user.phone.slice(5)}` : user.phone
+            }${shop ? ` · ${shop.name}` : ''}`}
+            tone={failedCount > 0 ? 'danger' : !online ? 'alert' : 'brand'}
+            right={
+              <View style={styles.heroRight}>
+                <View style={styles.editBtn}>
+                  <IconEdit size={14} color={colors.white} />
+                  <Text style={styles.editText}>Edit</Text>
+                </View>
+                <View style={styles.heroAvatar}>
+                  <Avatar name={user.name} id={user.id} size={40} />
+                </View>
+              </View>
+            }
+            chips={[
+              { label: 'Sync', value: online ? (pendingCount > 0 ? 'Syncing' : 'Synced') : 'Offline' },
+              ...(myShops.length > 0 ? [{ label: 'Branches', value: myShops.length }] : []),
+              ...(lowStock > 0 ? [{ label: 'Low stock', value: lowStock }] : []),
+            ]}
+          />
         </Pressable>
 
         {shop ? (
           <>
-            <SectionLabel>Shop</SectionLabel>
+            <SectionTitle>Shop</SectionTitle>
             <EdgeGroup>
               <EdgeRow
                 icon={<IconStore size={19} color={colors.waterDeep} />}
                 title={shop.name}
                 subtitle={
                   isOwner
-                    ? `Branch ID ${formatShopCode(shop.code)} · tap to rename or invite`
-                    : `Branch ID ${formatShopCode(shop.code)} · new teammates use it to ask to join`
+                    ? `Branch code ${shop.code} · tap to rename`
+                    : `Branch code ${shop.code}`
                 }
-                right={
-                  isOwner ? (
-                    <Pill label="Edit" tone="water" />
-                  ) : (
-                    <IconShare size={18} color={colors.water} />
-                  )
-                }
+                right={isOwner ? <Pill label="Edit" tone="water" /> : undefined}
                 chevron={false}
-                onPress={() => (isOwner ? setShopOpen(true) : shareShopInvite(shop))}
+                onPress={isOwner ? () => setShopOpen(true) : undefined}
               />
               {myShops.length > 1 ? (
                 <EdgeRow
@@ -266,7 +258,7 @@ export function MoreScreen({ navigation }: Props) {
           </>
         ) : null}
 
-        <SectionLabel>Sync</SectionLabel>
+        <SectionTitle>Sync</SectionTitle>
         <EdgeGroup>
           <EdgeRow
             icon={
@@ -329,12 +321,12 @@ export function MoreScreen({ navigation }: Props) {
 
         {!isOwner ? (
           <>
-            <SectionLabel>My earnings</SectionLabel>
+            <SectionTitle>My earnings</SectionTitle>
             <EarningsCard />
           </>
         ) : null}
 
-        <SectionLabel>Shift</SectionLabel>
+        <SectionTitle>Shift</SectionTitle>
         <EdgeGroup>
           <EdgeRow
             icon={<IconDrawer size={19} color={colors.tealDeep} />}
@@ -385,7 +377,7 @@ export function MoreScreen({ navigation }: Props) {
 
         {customerApp.listed ? (
           <>
-            <SectionLabel>Customers</SectionLabel>
+            <SectionTitle>Customers</SectionTitle>
             <EdgeGroup>
               <EdgeRow
                 icon={<IconUserPlus size={19} color={colors.waterDeep} />}
@@ -429,7 +421,7 @@ export function MoreScreen({ navigation }: Props) {
 
         {businessAdmin ? (
           <>
-            <SectionLabel>Mana Wash HQ</SectionLabel>
+            <SectionTitle>Mana Wash HQ</SectionTitle>
             <EdgeGroup>
               <EdgeRow
                 icon={<IconStore size={19} color={colors.waterDeep} />}
@@ -450,15 +442,21 @@ export function MoreScreen({ navigation }: Props) {
 
         {isManager ? (
           <>
-            <SectionLabel>Manager</SectionLabel>
+            <SectionTitle>Manager</SectionTitle>
             <EdgeGroup>
               <EdgeRow
                 icon={<IconUsers size={19} color="#5B21B6" />}
                 iconBg="#EDE9FE"
                 title="Team"
-                subtitle={joinRequests > 0 ? `${joinRequests} waiting to join` : 'Add staff, approve joins, reset PINs'}
-                right={joinRequests > 0 ? <Pill label={String(joinRequests)} tone="danger" /> : undefined}
+                subtitle="Add staff and reset their PINs"
                 onPress={() => navigation.navigate('Team')}
+              />
+              <EdgeRow
+                icon={<IconCalendarCheck size={19} color={colors.tealDeep} />}
+                iconBg="#CCFBF1"
+                title="Attendance"
+                subtitle="Mark who worked today"
+                onPress={() => navigation.navigate('Attendance')}
               />
             </EdgeGroup>
           </>
@@ -466,7 +464,7 @@ export function MoreScreen({ navigation }: Props) {
 
         {isOwner ? (
           <>
-            <SectionLabel>Owner</SectionLabel>
+            <SectionTitle>Owner</SectionTitle>
             <EdgeGroup>
               <EdgeRow
                 icon={<IconChart size={19} color={colors.waterDeep} />}
@@ -492,14 +490,7 @@ export function MoreScreen({ navigation }: Props) {
                 icon={<IconUsers size={19} color="#5B21B6" />}
                 iconBg="#EDE9FE"
                 title="Team"
-                subtitle={
-                  joinRequests > 0
-                    ? `${joinRequests} waiting to join`
-                    : 'Add staff and managers, approve joins, reset PINs'
-                }
-                right={
-                  joinRequests > 0 ? <Pill label={String(joinRequests)} tone="danger" /> : undefined
-                }
+                subtitle="Add staff and managers, reset PINs"
                 onPress={() => navigation.navigate('Team')}
               />
               <EdgeRow
@@ -561,7 +552,7 @@ export function MoreScreen({ navigation }: Props) {
           </>
         ) : null}
 
-        <SectionLabel>Account</SectionLabel>
+        <SectionTitle>Account</SectionTitle>
         <EdgeGroup>
           <EdgeRow
             icon={<IconPerson size={19} color={colors.waterDeep} />}
@@ -636,35 +627,25 @@ export function MoreScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   headerPad: { paddingHorizontal: spacing.md },
-  scroll: { paddingBottom: spacing.xxl },
-  profile: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    backgroundColor: colors.white,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md + 2,
-    marginTop: spacing.md,
+  scroll: { paddingBottom: spacing.xxl, gap: spacing.sm },
+  heroRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  heroAvatar: {
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.85)',
   },
-  profileCopy: { flex: 1, gap: 4 },
-  profileTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  profileName: { ...typography.heading, color: colors.waterInk, flexShrink: 1 },
   editBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    borderColor: 'rgba(255,255,255,0.35)',
+    backgroundColor: 'rgba(255,255,255,0.16)',
     paddingHorizontal: spacing.sm + 4,
     paddingVertical: 6,
   },
-  editText: { ...typography.label, color: colors.waterDeep, fontSize: 12 },
-  profileMeta: { ...typography.body, color: colors.slateDeep, fontSize: 14 },
+  editText: { ...typography.label, color: colors.white, fontSize: 12 },
   syncBtn: {
     borderRadius: radius.pill,
     borderWidth: 1,

@@ -102,6 +102,14 @@ check('A branch owner who isn’t an admin can’t open it', r.status === 403, s
 r = await call(SA, 'GET', '/business/catalog');
 check('Staff can’t either', r.status === 403, show(r));
 
+// Only someone already on a team in the business can be made HQ: never a mistyped or unknown number.
+r = await call(OA, 'POST', '/business/admins', { phone: `95${rand(8)}` });
+check('A number that isn’t on any team can’t be made HQ', r.status === 409 && r.body?.error === 'not_on_team', show(r));
+r = await call(OA, 'POST', '/business/admins', { phone: phoneB });
+check('…but another branch’s owner can', r.status === 201, show(r));
+r = await call(OA, 'DELETE', `/business/admins/${phoneB}`);
+check('…and stop being HQ again', r.status === 200, show(r));
+
 const cls = Object.fromEntries(cat.classes.map((c) => [c.key, c]));
 const size = (classKey, key) => cls[classKey].sizes.find((s) => s.key === key).id;
 const book = cat.priceBooks.find((b) => b.isDefault).id;

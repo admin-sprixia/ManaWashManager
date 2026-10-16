@@ -1,57 +1,75 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import LinearGradient from 'react-native-linear-gradient';
+import Svg, { Circle, G, Path } from 'react-native-svg';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { InferResponseType } from 'hono/client';
 import {
+  BRAND_MARK,
   BottomSheet,
   Button,
   ChoiceChips,
-  EdgeGroup,
-  EdgeRow,
   IconPlus,
   IconStore,
   IconTag,
-  Notice,
-  Pill,
   ScreenContainer,
   ScreenHeader,
-  SectionLabel,
   TextField,
+  brandGradients,
   colors,
+  radius,
+  shadow,
   showAlert,
   spacing,
   typography,
 } from '@mana/ui';
 import {
-  BRANCH_STATUS_LABEL,
-  BRANCH_STATUS_REASON_MAX,
-  BRANCH_STATUS_REASON_MIN,
   PRICE_BOOK_NAME_MAX,
-  USER_ROLE_LABEL,
-  formatShopCode,
+  isValidTownCode,
   isValidPhone,
   normalizePhone,
-  type BranchStatus,
 } from '@mana/domain';
 import { api, apiErrorMessage } from '../../api/client';
-import { formatDateTime, formatRupees } from '../../utils/format';
+import { formatRupees } from '../../utils/format';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { failure, formatPercent, useCatalog, type Catalog } from './shared';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BusinessBranches'>;
 type Branch = Catalog['branches'][number];
 type Book = Catalog['priceBooks'][number];
-type Owner = Branch['owners'][number];
 type Overview = InferResponseType<(typeof api)['business']['overview']['$get'], 200>;
-type BranchNumbers = Overview['branches'][number];
-type TeamMember = InferResponseType<(typeof api)['business']['branches'][':id']['team']['$get'], 200>['team'][number];
-type StatusEvent = InferResponseType<(typeof api)['business']['branches'][':id']['status']['$get'], 200>['history'][number];
 
-function statusPill(status: string) {
-  if (status === 'paused') return <Pill label="PAUSED" tone="amber" />;
-  if (status === 'closed') return <Pill label="CLOSED" tone="slate" />;
-  return undefined;
+const NO_ZONE = 'none';
+
+const HERO_ALERT = ['#F59E0B', '#D97706', '#92400E'] as const;
+const HERO_OK = ['#0F766E', '#0B4F4A', '#062B28'] as const;
+
+const STARS = [
+  [24, 26, 1.2, 0.5],
+  [88, 12, 0.9, 0.4],
+  [150, 40, 1.1, 0.3],
+  [214, 18, 1.2, 0.45],
+  [40, 86, 0.8, 0.3],
+  [190, 96, 1, 0.3],
+] as const;
+
+function statusTone(status: string): { label: string; fg: string; bg: string } {
+  if (status === 'paused') return { label: 'Paused', fg: colors.amberDeep, bg: '#FEF3C7' };
+  if (status === 'closed') return { label: 'Closed', fg: colors.slateDeep, bg: '#F1F5F9' };
+  return { label: 'Open', fg: colors.tealDeep, bg: '#CCFBF1' };
+}
+
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
 /** Today's and this month's numbers for every branch; quietly left out when offline. */
@@ -73,19 +91,16 @@ function useOverview() {
   return { overview, reload: load };
 }
 
-const DEFAULT_BOOK = 'default';
-const NO_ZONE = 'none';
-
 /**
- * Mana Wash HQ's view of every branch: today's numbers, open / pause / close, owners, and which
- * price book and zone each uses.
+ * Mana Wash HQ's view of every branch: today's numbers, and which price book each uses.
+ * Tap a branch to open it — status, owners and prices live on that screen.
  */
 export function BranchesScreen({ navigation }: Props) {
   const { catalog, error, load, run } = useCatalog();
   const { overview, reload: reloadOverview } = useOverview();
-  const [branch, setBranch] = useState<Branch | null>(null);
   const [book, setBook] = useState<Book | 'new' | null>(null);
   const [opening, setOpening] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   if (!catalog) {
     return (
@@ -95,21 +110,28 @@ export function BranchesScreen({ navigation }: Props) {
         </View>
         {error ? (
           <View style={styles.pad}>
-            <Notice tone="danger">{error}</Notice>
+            <Text style={styles.error}>{error}</Text>
             <Button label="Try again" variant="secondary" onPress={() => void load()} />
           </View>
         ) : (
-          <ActivityIndicator color={colors.water} style={styles.loading} />
+          <ActivityIndicator color={colors.indigo} style={styles.loading} />
         )}
       </ScreenContainer>
     );
   }
 
   const defaultBook = catalog.priceBooks.find((b) => b.isDefault);
-  const bookName = (id: string | null) => (id ? catalog.priceBooks.find((b) => b.id === id)?.name : defaultBook?.name) ?? 'Default';
+  const bookName = (id: string | null) =>
+    (id ? catalog.priceBooks.find((b) => b.id === id)?.name : defaultBook?.name) ?? 'Default';
   const zoneOf = (id: string | null) => (id ? catalog.zones.find((z) => z.id === id) : undefined);
   const numbersOf = (id: string) => overview?.branches.find((b) => b.id === id);
+
   const live = overview?.branches.filter((b) => b.status !== 'closed') ?? [];
+  const paused = catalog.branches.filter((b) => b.status === 'paused').length;
+  const closed = catalog.branches.filter((b) => b.status === 'closed').length;
+  const updating = catalog.branches.filter((b) => !b.upToDate).length;
+  const needsAttention = paused > 0 || updating > 0;
+
   const total = live.reduce(
     (sum, b) => ({
       washes: sum.washes + b.today.washes,
@@ -120,6 +142,19 @@ export function BranchesScreen({ navigation }: Props) {
     { washes: 0, takings: 0, month: 0, open: 0 },
   );
 
+  const g = brandGradients.hero;
+  const heroColors = (needsAttention ? HERO_ALERT : HERO_OK) as unknown as string[];
+  const heroValue = needsAttention
+    ? paused > 0
+      ? `${plural(paused, 'branch')} paused`
+      : `${plural(updating, 'menu')} updating`
+    : `${plural(catalog.branches.length, 'branch')}`;
+  const heroMeta = needsAttention
+    ? 'Tap a branch to pause, reopen, or fix its prices.'
+    : overview
+      ? `${formatRupees(total.takings)} paid today · ${total.washes} washes`
+      : 'Open a branch when you add a new town or location.';
+
   const deleteBook = (b: Book) => {
     showAlert(`Delete ${b.name}?`, 'Its prices are deleted too. Branches using it must be moved to another book first.', [
       { text: 'Cancel', style: 'cancel' },
@@ -128,7 +163,10 @@ export function BranchesScreen({ navigation }: Props) {
         style: 'destructive',
         onPress: () => {
           void (async () => {
-            const message = await run(() => api.business['price-books'][':id'].$delete({ param: { id: b.id } }), 'Price book deleted');
+            const message = await run(
+              () => api.business['price-books'][':id'].$delete({ param: { id: b.id } }),
+              'Price book deleted',
+            );
             if (message) showAlert('Couldn’t delete', message);
             else setBook(null);
           })();
@@ -137,127 +175,217 @@ export function BranchesScreen({ navigation }: Props) {
     ]);
   };
 
+  const refresh = async () => {
+    setRefreshing(true);
+    await Promise.all([load(), reloadOverview()]);
+    setRefreshing(false);
+  };
+
   return (
     <ScreenContainer noPadding>
       <View style={styles.headerPad}>
-        <ScreenHeader title="All branches" onBack={() => navigation.goBack()} />
+        <ScreenHeader
+          title="All branches"
+          onBack={() => navigation.goBack()}
+          right={
+            <Pressable
+              onPress={() => setOpening(true)}
+              style={({ pressed }) => [styles.addBtn, pressed && styles.pressed]}
+              accessibilityRole="button"
+              accessibilityLabel="Open a branch"
+            >
+              <IconPlus size={16} color={colors.white} />
+              <Text style={styles.addBtnText}>Branch</Text>
+            </Pressable>
+          }
+        />
       </View>
-      <ScrollView contentContainerStyle={styles.scroll}>
-        {overview ? (
-          <View style={styles.totals}>
-            <Stat label="Paid today" value={formatRupees(total.takings)} />
-            <Stat label="Washes today" value={String(total.washes)} />
-            <Stat label="In progress" value={String(total.open)} />
-            <Stat label="This month" value={formatRupees(total.month)} />
+
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => void refresh()}
+            tintColor={colors.indigo}
+            colors={[colors.indigo]}
+          />
+        }
+      >
+        <LinearGradient
+          colors={heroColors}
+          locations={g.locations as unknown as number[]}
+          start={g.start}
+          end={g.end}
+          style={[styles.hero, shadow('md')]}
+        >
+          <Svg
+            style={StyleSheet.absoluteFill}
+            width="100%"
+            height="100%"
+            viewBox="0 0 340 200"
+            preserveAspectRatio="xMidYMid slice"
+          >
+            {STARS.map(([x, y, r, o]) => (
+              <Circle key={`${x}-${y}`} cx={x} cy={y} r={r} fill="#FFFFFF" fillOpacity={o} />
+            ))}
+          </Svg>
+          <Svg style={styles.heroMark} width={150} height={150} viewBox="0 0 256 256">
+            <G>
+              <Path d={BRAND_MARK.drop} fill="#FFFFFF" fillOpacity={0.07} />
+              <Path d={BRAND_MARK.arms} fill="#FFFFFF" fillOpacity={0.1} />
+              <Path d={BRAND_MARK.centre} fill="#FFFFFF" fillOpacity={0.15} />
+            </G>
+          </Svg>
+          <Text style={styles.heroEyebrow}>Mana Wash network</Text>
+          <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit>
+            {heroValue}
+          </Text>
+          <Text style={styles.heroMeta}>{heroMeta}</Text>
+          <View style={styles.heroChips}>
+            {[
+              { label: 'Paid today', value: overview ? formatRupees(total.takings) : '—' },
+              { label: 'Washes', value: overview ? String(total.washes) : '—' },
+              { label: 'In progress', value: overview ? String(total.open) : '—' },
+              { label: 'This month', value: overview ? formatRupees(total.month) : '—' },
+            ].map((c) => (
+              <View key={c.label} style={styles.heroChip}>
+                <Text style={styles.heroChipLabel}>{c.label}</Text>
+                <Text style={styles.heroChipValue} numberOfLines={1} adjustsFontSizeToFit>
+                  {c.value}
+                </Text>
+              </View>
+            ))}
           </View>
-        ) : null}
-        <SectionLabel>Branches</SectionLabel>
-        <EdgeGroup>
-          {catalog.branches.map((b) => {
+        </LinearGradient>
+
+        <Text style={styles.sectionLabel}>
+          Branches
+          {closed > 0 ? ` · ${closed} closed` : ''}
+        </Text>
+        <View style={styles.band}>
+          {catalog.branches.map((b, i) => {
             const zone = zoneOf(b.priceZoneId);
             const numbers = numbersOf(b.id);
+            const tone = statusTone(b.status);
+            const meta = [
+              numbers ? `${formatRupees(numbers.today.takings)} today · ${numbers.today.washes} washes` : null,
+              b.code,
+              b.city,
+              b.owners.length ? b.owners.map((o) => o.name).join(', ') : 'No owner',
+              `${bookName(b.priceBookId)} prices`,
+              zone ? `${zone.name} ${formatPercent(zone.percentBp)}` : null,
+            ]
+              .filter(Boolean)
+              .join(' · ');
             return (
-              <EdgeRow
+              <Pressable
                 key={b.id}
-                icon={<IconStore size={19} color={b.status === 'active' ? colors.waterDeep : colors.slate} />}
-                title={b.name}
-                subtitle={[
-                  b.status !== 'active' && b.statusReason ? b.statusReason : null,
-                  numbers ? `${formatRupees(numbers.today.takings)} · ${numbers.today.washes} today` : null,
-                  `ID ${formatShopCode(b.code)}`,
-                  b.city,
-                  b.owners.length ? b.owners.map((o) => o.name).join(', ') : 'No owner',
-                  `${bookName(b.priceBookId)} prices`,
-                  zone ? `${zone.name} ${formatPercent(zone.percentBp)}` : null,
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
-                right={statusPill(b.status) ?? (b.upToDate ? undefined : <Pill label="UPDATING" tone="amber" />)}
-                onPress={() => setBranch(b)}
-              />
+                onPress={() => navigation.navigate('BusinessBranch', { branchId: b.id })}
+                android_ripple={{ color: colors.waterPale }}
+                style={({ pressed }) => [
+                  styles.row,
+                  i < catalog.branches.length - 1 && styles.rowDivider,
+                  pressed && styles.pressedRow,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={`${b.name}, ${tone.label}`}
+              >
+                <View
+                  style={[
+                    styles.rowIcon,
+                    {
+                      backgroundColor:
+                        b.status === 'active' ? '#CCFBF1' : b.status === 'paused' ? '#FEF3C7' : '#F1F5F9',
+                    },
+                  ]}
+                >
+                  <IconStore
+                    size={18}
+                    color={b.status === 'active' ? colors.tealDeep : b.status === 'paused' ? colors.amberDeep : colors.slate}
+                  />
+                </View>
+                <View style={styles.rowCopy}>
+                  <View style={styles.rowTitleLine}>
+                    <Text style={styles.rowTitle} numberOfLines={1}>
+                      {b.name}
+                    </Text>
+                    <View style={[styles.badge, { backgroundColor: !b.upToDate ? '#FEF3C7' : tone.bg }]}>
+                      <Text style={[styles.badgeText, { color: !b.upToDate ? colors.amberDeep : tone.fg }]}>
+                        {!b.upToDate ? 'Updating' : tone.label}
+                      </Text>
+                    </View>
+                  </View>
+                  {b.status !== 'active' && b.statusReason ? (
+                    <Text style={styles.rowWarn} numberOfLines={1}>
+                      {b.statusReason}
+                    </Text>
+                  ) : null}
+                  <Text style={styles.rowMeta} numberOfLines={2}>
+                    {meta}
+                  </Text>
+                </View>
+              </Pressable>
             );
           })}
-          <EdgeRow icon={<IconPlus size={18} color={colors.waterDeep} />} title="Open a branch" onPress={() => setOpening(true)} />
-        </EdgeGroup>
+        </View>
 
-        <SectionLabel>Price books</SectionLabel>
-        <Text style={[styles.help, styles.pad]}>
-          Most businesses need one. Add another when some branches charge different base prices, like a premium location.
+        <Text style={styles.sectionLabel}>Price books</Text>
+        <Text style={styles.help}>
+          Most businesses need one. Add another when some branches charge different base prices.
         </Text>
-        <EdgeGroup>
-          {catalog.priceBooks.map((b) => {
+        <View style={styles.band}>
+          {catalog.priceBooks.map((b, i) => {
             const using = catalog.branches.filter((br) => (br.priceBookId ?? defaultBook?.id) === b.id).length;
             return (
-              <EdgeRow
+              <Pressable
                 key={b.id}
-                icon={<IconTag size={18} color={colors.waterDeep} />}
-                title={b.name}
-                subtitle={`${using} branch${using === 1 ? '' : 'es'}`}
-                right={b.isDefault ? <Pill label="DEFAULT" tone="teal" /> : undefined}
                 onPress={() => setBook(b)}
-              />
+                android_ripple={{ color: colors.waterPale }}
+                style={({ pressed }) => [
+                  styles.row,
+                  i < catalog.priceBooks.length - 1 && styles.rowDivider,
+                  pressed && styles.pressedRow,
+                ]}
+                accessibilityRole="button"
+              >
+                <View style={[styles.rowIcon, { backgroundColor: colors.indigoPale }]}>
+                  <IconTag size={18} color={colors.indigo} />
+                </View>
+                <View style={styles.rowCopy}>
+                  <View style={styles.rowTitleLine}>
+                    <Text style={styles.rowTitle} numberOfLines={1}>
+                      {b.name}
+                    </Text>
+                    {b.isDefault ? (
+                      <View style={[styles.badge, { backgroundColor: '#CCFBF1' }]}>
+                        <Text style={[styles.badgeText, { color: colors.tealDeep }]}>Default</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text style={styles.rowMeta}>
+                    {plural(using, 'branch')}
+                  </Text>
+                </View>
+              </Pressable>
             );
           })}
-          <EdgeRow icon={<IconPlus size={18} color={colors.waterDeep} />} title="Add a price book" onPress={() => setBook('new')} />
-        </EdgeGroup>
+          <Pressable
+            onPress={() => setBook('new')}
+            android_ripple={{ color: colors.waterPale }}
+            style={({ pressed }) => [styles.row, styles.rowDivider, pressed && styles.pressedRow]}
+            accessibilityRole="button"
+          >
+            <View style={[styles.rowIcon, { backgroundColor: colors.indigoPale }]}>
+              <IconPlus size={18} color={colors.indigo} />
+            </View>
+            <Text style={styles.addRowTitle}>Add a price book</Text>
+          </Pressable>
+        </View>
+
         <View style={styles.bottomPad} />
       </ScrollView>
 
-      <BranchSheet
-        catalog={catalog}
-        branch={branch}
-        live={catalog.branches.find((b) => b.id === branch?.id) ?? null}
-        numbers={branch ? numbersOf(branch.id) : undefined}
-        signedInHere={branch?.id === overview?.currentShopId}
-        onStatus={async (status, reason) => {
-          if (!branch) return null;
-          const message = await run(
-            () =>
-              api.business.branches[':id'].status.$patch({
-                param: { id: branch.id },
-                json: reason ? { status, reason } : { status },
-              }),
-            `${branch.name} is now ${BRANCH_STATUS_LABEL[status].toLowerCase()}`,
-          );
-          if (!message) void reloadOverview();
-          return message;
-        }}
-        onResetPin={(owner) =>
-          branch
-            ? run(
-                () =>
-                  api.business.branches[':id'].team[':userId']['reset-pin'].$post({
-                    param: { id: branch.id, userId: owner.id },
-                  }),
-                `${owner.name}’s PIN reset — they get back in with a WhatsApp code`,
-              )
-            : Promise.resolve(null)
-        }
-        owners={catalog.branches.find((b) => b.id === branch?.id)?.owners ?? []}
-        onAddOwner={(values) =>
-          branch
-            ? run(() => api.business.branches[':id'].owners.$post({ param: { id: branch.id }, json: values }), `${values.name} is now an owner`)
-            : Promise.resolve(null)
-        }
-        onRemoveOwner={(owner) =>
-          branch
-            ? run(
-                () => api.business.branches[':id'].owners[':userId'].$delete({ param: { id: branch.id, userId: owner.id } }),
-                `${owner.name} removed`,
-              )
-            : Promise.resolve(null)
-        }
-        onClose={() => setBranch(null)}
-        onSave={async (values) => {
-          if (!branch) return null;
-          const message = await run(
-            () => api.business.branches[':id'].$patch({ param: { id: branch.id }, json: values }),
-            `${branch.name} updated`,
-          );
-          if (!message) setBranch(null);
-          return message;
-        }}
-      />
       <OpenBranchSheet
         visible={opening}
         onClose={() => setOpening(false)}
@@ -266,8 +394,9 @@ export function BranchesScreen({ navigation }: Props) {
           void load();
           showAlert(
             `${opened.name} is open`,
-            `Branch ID ${formatShopCode(opened.code)}. The owner signs in with ${ownerPhone} and a WhatsApp code, then sets their own PIN.`,
+            `Branch code ${opened.code}. The owner signs in with ${ownerPhone} and a WhatsApp code, then sets their own PIN.`,
           );
+          navigation.navigate('BusinessBranch', { branchId: opened.id });
         }}
       />
       <BookSheet
@@ -283,7 +412,10 @@ export function BranchesScreen({ navigation }: Props) {
                   () =>
                     api.business['price-books'][':id'].$patch({
                       param: { id: book.id },
-                      json: { ...(name !== book.name ? { name } : {}), ...(makeDefault ? { isDefault: true as const } : {}) },
+                      json: {
+                        ...(name !== book.name ? { name } : {}),
+                        ...(makeDefault ? { isDefault: true as const } : {}),
+                      },
                     }),
                   'Price book saved',
                 )
@@ -296,389 +428,6 @@ export function BranchesScreen({ navigation }: Props) {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.stat}>
-      <Text style={styles.statValue} numberOfLines={1}>
-        {value}
-      </Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
-}
-
-const STATUS_VERB: Record<BranchStatus, string> = { active: 'Reopened', paused: 'Paused', closed: 'Closed' };
-
-/**
- * Open, pause or close a branch, with the reason the team sees, and the last changes. Paused: no
- * new washes, today's open ones can still be finished and paid. Closed: nobody there can sign in.
- */
-function BranchStatusPanel({
-  branch,
-  signedInHere,
-  onStatus,
-}: {
-  branch: Branch;
-  signedInHere: boolean;
-  onStatus: (status: BranchStatus, reason?: string) => Promise<string | null>;
-}) {
-  const [target, setTarget] = useState<'paused' | 'closed' | null>(null);
-  const [reason, setReason] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [history, setHistory] = useState<StatusEvent[] | null>(null);
-
-  const loadHistory = useCallback(async () => {
-    try {
-      const res = await api.business.branches[':id'].status.$get({ param: { id: branch.id } });
-      if (res.ok) setHistory((await res.json()).history);
-    } catch {
-      // Offline: no history shown.
-    }
-  }, [branch.id]);
-
-  useEffect(() => {
-    setTarget(null);
-    setReason('');
-    setError(null);
-    setHistory(null);
-    void loadHistory();
-  }, [branch.id, branch.status, loadHistory]);
-
-  const apply = async (status: BranchStatus, why?: string) => {
-    setBusy(true);
-    setError(null);
-    const message = await onStatus(status, why);
-    setBusy(false);
-    if (message) setError(message);
-    else setTarget(null);
-  };
-
-  const confirm = () => {
-    if (!target) return;
-    const why = reason.trim();
-    if (why.length < BRANCH_STATUS_REASON_MIN) return setError('Say why, so the branch team knows.');
-    showAlert(
-      target === 'paused' ? `Pause ${branch.name}?` : `Close ${branch.name}?`,
-      target === 'paused'
-        ? 'No new washes can start. Washes already open today can still be finished and paid.'
-        : 'Everyone at this branch is signed out and can’t sign in. Its records are kept, and you can reopen it later.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: target === 'paused' ? 'Pause' : 'Close',
-          style: 'destructive',
-          onPress: () => void apply(target, why),
-        },
-      ],
-    );
-  };
-
-  const reopen = () =>
-    showAlert(`Reopen ${branch.name}?`, 'The team can sign in and start washes again.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Reopen', onPress: () => void apply('active') },
-    ]);
-
-  return (
-    <>
-      <Text style={styles.groupLabel}>Status · {BRANCH_STATUS_LABEL[branch.status]}</Text>
-      {branch.status !== 'active' && branch.statusReason ? (
-        <Notice tone={branch.status === 'paused' ? 'warning' : 'danger'}>{branch.statusReason}</Notice>
-      ) : null}
-      {target ? (
-        <>
-          <TextField
-            label={target === 'paused' ? 'Why pause it?' : 'Why close it?'}
-            placeholder={target === 'paused' ? 'Water supply repair, back Monday' : 'Lease ended'}
-            value={reason}
-            onChangeText={setReason}
-            maxLength={BRANCH_STATUS_REASON_MAX}
-            hint="The branch team sees this."
-          />
-          <View style={styles.statusActions}>
-            <Button label="Cancel" variant="ghost" disabled={busy} onPress={() => setTarget(null)} />
-            <Button
-              label={target === 'paused' ? 'Pause branch' : 'Close branch'}
-              variant="danger"
-              loading={busy}
-              onPress={confirm}
-            />
-          </View>
-        </>
-      ) : (
-        <View style={styles.statusActions}>
-          {branch.status !== 'active' ? (
-            <Button label="Reopen" variant="secondary" loading={busy} onPress={reopen} />
-          ) : null}
-          {branch.status === 'active' ? (
-            <Button label="Pause" variant="secondary" disabled={busy} onPress={() => setTarget('paused')} />
-          ) : null}
-          {branch.status !== 'closed' && !signedInHere ? (
-            <Button label="Close" variant="ghost" disabled={busy} onPress={() => setTarget('closed')} />
-          ) : null}
-        </View>
-      )}
-      {signedInHere && branch.status !== 'closed' ? (
-        <Text style={styles.help}>You’re signed in here. Switch to another branch to close this one.</Text>
-      ) : null}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      {history && history.length > 0 ? (
-        <View style={styles.history}>
-          {history.slice(0, 5).map((h) => (
-            <Text key={h.createdAt} style={styles.ownerMeta}>
-              {[
-                `${STATUS_VERB[h.status as BranchStatus] ?? h.status} ${formatDateTime(h.createdAt)}`,
-                h.reason,
-                `by +91 ${h.changedByPhone}`,
-              ]
-                .filter(Boolean)
-                .join(' · ')}
-            </Text>
-          ))}
-        </View>
-      ) : null}
-    </>
-  );
-}
-
-/**
- * The branch's managers and staff. The owner resets their PINs from Team; HQ needs this for anyone
- * who also works at another branch, since their one PIN covers branches that owner doesn't run.
- */
-function BranchTeam({
-  branchId,
-  busy,
-  onResetPin,
-}: {
-  branchId: string;
-  busy: boolean;
-  onResetPin: (person: TeamMember, done: () => void) => void;
-}) {
-  const [team, setTeam] = useState<TeamMember[] | null>(null);
-  const load = useCallback(async () => {
-    try {
-      const res = await api.business.branches[':id'].team.$get({ param: { id: branchId } });
-      if (res.ok) setTeam((await res.json()).team);
-    } catch {
-      // Offline: the list is left out.
-    }
-  }, [branchId]);
-  useEffect(() => {
-    setTeam(null);
-    void load();
-  }, [load]);
-
-  if (!team || team.length === 0) return null;
-  return (
-    <>
-      <Text style={[styles.groupLabel, styles.groupGap]}>Managers and staff</Text>
-      <Text style={styles.help}>
-        The owner resets these from Team. Reset here when the person also works at another branch.
-      </Text>
-      {team.map((m) => (
-        <View key={m.id} style={styles.ownerRow}>
-          <View style={styles.ownerText}>
-            <Text style={styles.ownerName}>{m.name}</Text>
-            <Text style={styles.ownerMeta}>
-              {[USER_ROLE_LABEL[m.role], `+91 ${m.phone}`, m.active ? null : 'Turned off', m.pinSet ? null : 'No PIN yet']
-                .filter(Boolean)
-                .join(' · ')}
-            </Text>
-          </View>
-          {m.pinSet ? (
-            <Button label="Reset PIN" variant="ghost" disabled={busy} onPress={() => onResetPin(m, () => void load())} />
-          ) : null}
-        </View>
-      ))}
-    </>
-  );
-}
-
-function BranchSheet({
-  catalog,
-  branch,
-  live,
-  numbers,
-  signedInHere,
-  owners,
-  onStatus,
-  onAddOwner,
-  onRemoveOwner,
-  onResetPin,
-  onClose,
-  onSave,
-}: {
-  catalog: Catalog;
-  branch: Branch | null;
-  /** The same branch from the latest catalog, so status changes show straight away. */
-  live: Branch | null;
-  numbers?: BranchNumbers;
-  signedInHere: boolean;
-  /** Read from the latest catalog, so adds and removals show straight away. */
-  owners: Owner[];
-  onStatus: (status: BranchStatus, reason?: string) => Promise<string | null>;
-  onAddOwner: (values: { name: string; phone: string }) => Promise<string | null>;
-  onRemoveOwner: (owner: Owner) => Promise<string | null>;
-  onResetPin: (person: { id: string; name: string }) => Promise<string | null>;
-  onClose: () => void;
-  onSave: (values: { priceBookId: string | null; priceZoneId: string | null }) => Promise<string | null>;
-}) {
-  const [bookId, setBookId] = useState(DEFAULT_BOOK);
-  const [zoneId, setZoneId] = useState(NO_ZONE);
-  const [ownerName, setOwnerName] = useState('');
-  const [ownerPhone, setOwnerPhone] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!branch) return;
-    setBookId(branch.priceBookId ?? DEFAULT_BOOK);
-    setZoneId(branch.priceZoneId ?? NO_ZONE);
-    setOwnerName('');
-    setOwnerPhone('');
-    setError(null);
-    setBusy(false);
-  }, [branch]);
-
-  const phone = normalizePhone(ownerPhone);
-  const addOwner = async () => {
-    if (!ownerName.trim()) return setError('Enter the owner’s name.');
-    if (!isValidPhone(phone)) return setError('Enter a 10-digit mobile number.');
-    setBusy(true);
-    setError(null);
-    const message = await onAddOwner({ name: ownerName.trim(), phone });
-    setBusy(false);
-    if (message) return setError(message);
-    setOwnerName('');
-    setOwnerPhone('');
-  };
-
-  const removeOwner = (owner: Owner) => {
-    showAlert(`Remove ${owner.name} as owner?`, 'They’re signed out of this branch straight away. Their past work stays in reports.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: () => {
-          void (async () => {
-            setBusy(true);
-            const message = await onRemoveOwner(owner);
-            setBusy(false);
-            if (message) setError(message);
-          })();
-        },
-      },
-    ]);
-  };
-
-  const resetPin = (person: { id: string; name: string }, done?: () => void) => {
-    showAlert(
-      `Reset ${person.name}’s PIN?`,
-      'They’re signed out on every phone and every branch. To get back in they confirm their number with a WhatsApp code and choose a new PIN. They’ll see that Mana Wash HQ reset it.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Reset PIN',
-          style: 'destructive',
-          onPress: () => {
-            void (async () => {
-              setBusy(true);
-              const message = await onResetPin(person);
-              setBusy(false);
-              if (message) setError(message);
-              else done?.();
-            })();
-          },
-        },
-      ],
-    );
-  };
-
-  const save = async () => {
-    setBusy(true);
-    setError(null);
-    const message = await onSave({
-      priceBookId: bookId === DEFAULT_BOOK ? null : bookId,
-      priceZoneId: zoneId === NO_ZONE ? null : zoneId,
-    });
-    setBusy(false);
-    if (message) setError(message);
-  };
-
-  return (
-    <BottomSheet
-      visible={branch != null}
-      onClose={onClose}
-      dismissable={!busy}
-      title={branch?.name ?? ''}
-      subtitle={branch ? `Branch ID ${formatShopCode(branch.code)}` : undefined}
-      footer={<Button label="Save prices" size="lg" loading={busy} onPress={() => void save()} />}
-    >
-      {numbers ? (
-        <View style={styles.totals}>
-          <Stat label="Paid today" value={formatRupees(numbers.today.takings)} />
-          <Stat label="Washes" value={String(numbers.today.washes)} />
-          <Stat label="In progress" value={String(numbers.openWashes)} />
-          <Stat label="This month" value={formatRupees(numbers.month.takings)} />
-        </View>
-      ) : null}
-      {numbers ? (
-        <Text style={styles.help}>
-          {numbers.team} {numbers.team === 1 ? 'person' : 'people'} on the team · {numbers.month.washes} washes this month
-        </Text>
-      ) : null}
-      {live ? <BranchStatusPanel branch={live} signedInHere={signedInHere} onStatus={onStatus} /> : null}
-      <Text style={[styles.groupLabel, styles.groupGap]}>Owners</Text>
-      {owners.length === 0 ? <Text style={styles.help}>No owner yet. Add one below.</Text> : null}
-      {owners.map((o) => (
-        <View key={o.id} style={styles.ownerRow}>
-          <View style={styles.ownerText}>
-            <Text style={styles.ownerName}>{o.name}</Text>
-            <Text style={styles.ownerMeta}>
-              {[`+91 ${o.phone}`, o.active ? null : 'Turned off', o.pinSet ? null : 'No PIN yet'].filter(Boolean).join(' · ')}
-            </Text>
-          </View>
-          {o.pinSet ? <Button label="Reset PIN" variant="ghost" disabled={busy} onPress={() => resetPin(o)} /> : null}
-          <Button label="Remove" variant="ghost" disabled={busy} onPress={() => removeOwner(o)} />
-        </View>
-      ))}
-      <TextField label="New owner’s name" placeholder="Ravi Kumar" value={ownerName} onChangeText={setOwnerName} maxLength={60} autoCapitalize="words" />
-      <TextField
-        label="Their mobile number"
-        placeholder="98765 43210"
-        value={ownerPhone}
-        onChangeText={setOwnerPhone}
-        keyboardType="phone-pad"
-        maxLength={14}
-        hint="They sign in with this number and a WhatsApp code."
-      />
-      <Button label="Add owner" variant="secondary" disabled={busy} onPress={() => void addOwner()} />
-      {branch ? <BranchTeam branchId={branch.id} busy={busy} onResetPin={resetPin} /> : null}
-      <Text style={[styles.groupLabel, styles.groupGap]}>Prices</Text>
-      <Text style={styles.help}>The branch menu is rebuilt with these prices.</Text>
-      <ChoiceChips
-        label="Price book"
-        options={[
-          { value: DEFAULT_BOOK, label: 'The default book' },
-          ...catalog.priceBooks.filter((b) => !b.isDefault).map((b) => ({ value: b.id, label: b.name })),
-        ]}
-        value={bookId}
-        onChange={setBookId}
-      />
-      <ChoiceChips
-        label="Price zone"
-        options={[
-          { value: NO_ZONE, label: 'No zone' },
-          ...catalog.zones.filter((z) => z.active || z.id === zoneId).map((z) => ({ value: z.id, label: `${z.name} ${formatPercent(z.percentBp)}` })),
-        ]}
-        value={zoneId}
-        onChange={setZoneId}
-      />
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-    </BottomSheet>
-  );
-}
-
 function OpenBranchSheet({
   visible,
   onClose,
@@ -688,40 +437,42 @@ function OpenBranchSheet({
   onClose: () => void;
   onOpened: (branch: { id: string; code: string; name: string }, ownerPhone: string) => void;
 }) {
-  const [name, setName] = useState('');
-  const [city, setCity] = useState('');
+  const [town, setTown] = useState('');
+  const [townCode, setTownCode] = useState('');
   const [ownerName, setOwnerName] = useState('');
   const [ownerPhone, setOwnerPhone] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
   useEffect(() => {
     if (!visible) return;
-    setName('');
-    setCity('');
+    setTown('');
+    setTownCode('');
     setOwnerName('');
     setOwnerPhone('');
-    setError(null);
+    setErr(null);
     setBusy(false);
   }, [visible]);
 
   const phone = normalizePhone(ownerPhone);
   const open = async () => {
-    if (name.trim().length < 2) return setError('Enter the branch name.');
-    if (!ownerName.trim()) return setError('Enter the owner’s name.');
-    if (!isValidPhone(phone)) return setError('Enter the owner’s 10-digit mobile number.');
+    if (town.trim().length < 2) return setErr('Enter the town.');
+    if (!isValidTownCode(townCode)) return setErr('Town code is 3 letters, like KVR.');
+    if (!ownerName.trim()) return setErr('Enter the owner’s name.');
+    if (!isValidPhone(phone)) return setErr('Enter the owner’s 10-digit mobile number.');
     setBusy(true);
-    setError(null);
+    setErr(null);
     try {
       const res = await api.business.branches.$post({
-        json: { name: name.trim(), city: city.trim() || undefined, ownerName: ownerName.trim(), ownerPhone: phone },
+        json: { town: town.trim(), townCode, ownerName: ownerName.trim(), ownerPhone: phone },
       });
       if (!res.ok) {
-        setError(await apiErrorMessage(res, 'Couldn’t open the branch.'));
+        setErr(await apiErrorMessage(res, 'Couldn’t open the branch.'));
         return;
       }
       onOpened(await res.json(), phone);
     } catch (e) {
-      setError(failure(e));
+      setErr(failure(e));
     } finally {
       setBusy(false);
     }
@@ -736,9 +487,24 @@ function OpenBranchSheet({
       subtitle="It gets the Mana Wash menu and prices straight away."
       footer={<Button label="Open branch" size="lg" loading={busy} onPress={() => void open()} />}
     >
-      <TextField label="Branch name" placeholder="Mana Wash Kukatpally" value={name} onChangeText={setName} maxLength={60} autoCapitalize="words" />
-      <TextField label="City" optional placeholder="Hyderabad" value={city} onChangeText={setCity} maxLength={40} autoCapitalize="words" />
-      <TextField label="Owner’s name" placeholder="Ravi Kumar" value={ownerName} onChangeText={setOwnerName} maxLength={60} autoCapitalize="words" />
+      <TextField label="Town" placeholder="Kovur" value={town} onChangeText={setTown} maxLength={40} autoCapitalize="words" />
+      <TextField
+        label="Town code"
+        placeholder="KVR"
+        value={townCode}
+        onChangeText={(t) => setTownCode(t.replace(/[^a-zA-Z]/g, '').toUpperCase())}
+        maxLength={3}
+        autoCapitalize="characters"
+        hint="3 letters. The branch gets the next code in the town: KVR-01, then KVR-02."
+      />
+      <TextField
+        label="Owner’s name"
+        placeholder="Ravi Kumar"
+        value={ownerName}
+        onChangeText={setOwnerName}
+        maxLength={60}
+        autoCapitalize="words"
+      />
       <TextField
         label="Owner’s mobile number"
         placeholder="98765 43210"
@@ -748,7 +514,7 @@ function OpenBranchSheet({
         maxLength={14}
         hint="They sign in with this number and a WhatsApp code, then set their own PIN."
       />
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {err ? <Text style={styles.error}>{err}</Text> : null}
     </BottomSheet>
   );
 }
@@ -772,27 +538,28 @@ function BookSheet({
   const [copyFrom, setCopyFrom] = useState(NO_ZONE);
   const [makeDefault, setMakeDefault] = useState<'yes' | 'no'>('no');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
   useEffect(() => {
     if (!visible) return;
     setName(book?.name ?? '');
     setCopyFrom(catalog.priceBooks.find((b) => b.isDefault)?.id ?? NO_ZONE);
     setMakeDefault(book?.isDefault ? 'yes' : 'no');
-    setError(null);
+    setErr(null);
     setBusy(false);
   }, [visible, book, catalog.priceBooks]);
 
   const save = async () => {
-    if (!name.trim()) return setError('Enter a name.');
+    if (!name.trim()) return setErr('Enter a name.');
     setBusy(true);
-    setError(null);
+    setErr(null);
     const message = await onSave({
       name: name.trim(),
       copyFrom: copyFrom === NO_ZONE ? null : copyFrom,
       makeDefault: !book?.isDefault && makeDefault === 'yes',
     });
     setBusy(false);
-    if (message) setError(message);
+    if (message) setErr(message);
   };
 
   return (
@@ -808,7 +575,14 @@ function BookSheet({
         </View>
       }
     >
-      <TextField label="Name" placeholder="Premium" value={name} onChangeText={setName} maxLength={PRICE_BOOK_NAME_MAX} autoCapitalize="words" />
+      <TextField
+        label="Name"
+        placeholder="Premium"
+        value={name}
+        onChangeText={setName}
+        maxLength={PRICE_BOOK_NAME_MAX}
+        autoCapitalize="words"
+      />
       {book ? (
         book.isDefault ? (
           <Text style={styles.help}>Branches without a price book of their own use this one.</Text>
@@ -834,35 +608,100 @@ function BookSheet({
           onChange={setCopyFrom}
         />
       )}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {err ? <Text style={styles.error}>{err}</Text> : null}
     </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
   headerPad: { paddingHorizontal: spacing.md },
+  scroll: { paddingBottom: spacing.xxl, gap: spacing.md },
+  pad: { padding: spacing.md, gap: spacing.md },
   loading: { marginTop: spacing.xl },
-  scroll: { paddingTop: spacing.sm },
-  pad: { paddingHorizontal: spacing.md, gap: spacing.md },
-  help: { ...typography.body, color: colors.slateDeep, fontSize: 14, lineHeight: 20, marginBottom: spacing.sm },
-  footer: { gap: spacing.xs },
+  pressed: { opacity: 0.75 },
+  pressedRow: { backgroundColor: colors.surface },
+  bottomPad: { height: spacing.lg },
   error: { ...typography.label, color: colors.danger },
-  groupLabel: { ...typography.label, color: colors.ink },
-  groupGap: { marginTop: spacing.md },
-  ownerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  ownerText: { flex: 1 },
-  ownerName: { ...typography.body, color: colors.ink, fontWeight: '600' },
-  ownerMeta: { ...typography.caption, color: colors.slate },
-  bottomPad: { height: spacing.xxl },
-  totals: {
+  help: { ...typography.body, color: colors.slateDeep, fontSize: 13.5, lineHeight: 19, paddingHorizontal: spacing.md },
+  footer: { gap: spacing.xs },
+
+  addBtn: {
     flexDirection: 'row',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.indigo,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md - 2,
+    height: 36,
   },
-  stat: { flex: 1, gap: 2 },
-  statValue: { ...typography.heading, fontSize: 17, color: colors.waterInk },
-  statLabel: { ...typography.caption, color: colors.slate, letterSpacing: 0 },
-  statusActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  history: { gap: 4, marginTop: spacing.xs },
+  addBtnText: { ...typography.label, color: colors.white, fontWeight: '700' },
+
+  hero: { marginHorizontal: spacing.md, borderRadius: radius.xl, padding: spacing.md + 2, gap: 4, overflow: 'hidden' },
+  heroMark: { position: 'absolute', right: -22, top: -14 },
+  heroEyebrow: { ...typography.label, fontSize: 14, color: 'rgba(255,255,255,0.88)' },
+  heroValue: { ...typography.display, fontSize: 34, color: colors.white, letterSpacing: -0.8 },
+  heroMeta: { ...typography.label, fontSize: 13.5, color: 'rgba(255,255,255,0.9)', lineHeight: 19 },
+  heroChips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.md },
+  heroChip: {
+    width: '47%',
+    flexGrow: 1,
+    padding: spacing.sm + 2,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  heroChipLabel: { ...typography.caption, fontSize: 11, color: 'rgba(255,255,255,0.75)', letterSpacing: 0.3 },
+  heroChipValue: { ...typography.bodyStrong, fontSize: 16, color: colors.white, fontWeight: '800', marginTop: 2 },
+
+  sectionLabel: {
+    ...typography.heading,
+    fontSize: 16,
+    color: colors.ink,
+    marginTop: spacing.xs,
+    paddingHorizontal: spacing.md,
+  },
+
+  band: {
+    backgroundColor: colors.white,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm + 4,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 6,
+    backgroundColor: colors.white,
+  },
+  rowDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  rowIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rowCopy: { flex: 1, gap: 3, minWidth: 0 },
+  rowTitleLine: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  rowTitle: {
+    ...typography.bodyStrong,
+    flexShrink: 1,
+    fontSize: 15.5,
+    color: colors.waterInk,
+    fontWeight: '800',
+  },
+  badge: {
+    borderRadius: radius.pill,
+    paddingHorizontal: 9,
+    height: 22,
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  badgeText: { ...typography.caption, fontSize: 11, fontWeight: '800', letterSpacing: 0 },
+  rowWarn: { ...typography.caption, fontSize: 12.5, color: colors.amberDeep, fontWeight: '600', letterSpacing: 0 },
+  rowMeta: { ...typography.caption, fontSize: 12.5, color: colors.slateDeep, letterSpacing: 0, lineHeight: 17 },
+  addRowTitle: { ...typography.bodyStrong, fontSize: 15, color: colors.indigo, fontWeight: '700' },
 });

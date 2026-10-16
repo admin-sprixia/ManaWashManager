@@ -55,6 +55,8 @@ export interface BoardJob {
   discountReason?: string | null;
   total: number;
   createdAt: string;
+  /** When the job was marked paid — used for "Paid today" and report day boundaries. */
+  completedAt?: string | null;
   /** Where the car is washed; rows saved before doorstep washing have none (the hub). */
   deliveryMode?: string;
   paymentMethod: PaymentMethod | null;

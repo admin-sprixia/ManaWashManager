@@ -53,6 +53,12 @@ export interface Env {
   ENVIRONMENT?: string;
   STAGING_TEST_CODES?: string;
   /**
+   * Staging only: the numbers that may use the fixed test code (comma-separated), so a stranger
+   * can't sign in to staging as any number. `*` allows every number, for a full test-script run
+   * against staging only — take it out straight after.
+   */
+  STAGING_TEST_PHONES?: string;
+  /**
    * Razorpay: customer payment links. Key id + secret from Dashboard → API Keys (rzp_test_… in
    * Test mode); the webhook secret is the one typed when adding the webhook. See lib/razorpay.ts
    * and the README. Without the keys, washes are paid at the counter only.
@@ -65,7 +71,4 @@ export interface Env {
    * key, so it can never redirect live payments.
    */
   RAZORPAY_API_BASE?: string;
-  /** Older names for DEV_MODE / DEV_RECOVERY_CODE, still honoured in local `.dev.vars`. */
-  DEV_OTP_BYPASS?: string;
-  DEV_OTP_CODE?: string;
 }

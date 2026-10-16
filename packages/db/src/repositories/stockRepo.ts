@@ -180,7 +180,11 @@ export const stockRepo = {
       where: { itemId },
       orderBy: { createdAt: 'desc' },
       take: limit,
-      include: { createdBy: personSelect },
+      include: {
+        createdBy: personSelect,
+        // The purchase a move came from, so the history can show what it cost and how it was paid.
+        expense: { select: { id: true, amount: true, date: true, paymentMethod: true, voidedAt: true } },
+      },
     });
   },
 

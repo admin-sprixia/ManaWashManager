@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { expenseRepo } from '@mana/db';
+import { expenseRepo, stockRepo } from '@mana/db';
 import {
   EXPENSE_CATEGORIES,
   EXPENSE_CATEGORY_SETUP,
@@ -76,6 +76,27 @@ function photoProblem(file: File, label: string): string | null {
 function photoExt(type: string): string {
   return type === 'image/png' ? 'png' : type === 'image/webp' ? 'webp' : 'jpg';
 }
+
+/** Owners and managers run the books: they see every entry, and only they can edit or delete one. */
+function managesExpenses(role: string) {
+  return role === 'owner' || role === 'manager';
+}
+
+const editExpenseSchema = z.object({
+  category: z.enum(EXPENSE_CATEGORIES as [ExpenseCategory, ...ExpenseCategory[]]).optional(),
+  amount: z.number().int().positive('Amount must be more than zero').max(MAX_EXPENSE_PAISE, 'Amount looks too large').optional(),
+  itemName: z.string().trim().min(1, 'Add what was bought').max(80).optional(),
+  quantity: z.number().positive('Quantity must be more than zero').max(1_000_000, 'Quantity looks too large').nullable().optional(),
+  unit: z.enum(EXPENSE_UNITS as [ExpenseUnit, ...ExpenseUnit[]]).nullable().optional(),
+  description: z.string().trim().max(200).nullable().optional(),
+  paymentMethod: z.enum(['cash', 'upi', 'other']).optional(),
+  date: z.string().optional(),
+  reason: z
+    .string()
+    .trim()
+    .min(MIN_REASON_LENGTH, `Reason must be at least ${MIN_REASON_LENGTH} characters`)
+    .max(200),
+});
 
 const voidExpenseSchema = z.object({
   reason: z
@@ -183,13 +204,14 @@ export const expenseRoutes = new Hono<{ Bindings: Env }>()
       throw e;
     }
   })
-  // Proof photos stay as long as the expense. Staff can open only their own entries.
+  // Proof photos stay as long as the expense. Staff can open only their own entries; owners and
+  // managers open any.
   .get('/:id/photos/:kind', zValidator('param', photoParamSchema), async (c) => {
     const { id, kind } = c.req.valid('param');
     const session = c.get('session');
     const expense = await expenseRepo.findById(c.get('db'), id);
     if (!expense) return c.json({ error: 'not_found' as const }, 404);
-    if (session.role !== 'owner' && expense.createdByUserId !== session.sub) {
+    if (!managesExpenses(session.role) && expense.createdByUserId !== session.sub) {
       return c.json({ error: 'forbidden' as const }, 403);
     }
     const key = kind === 'bill' ? expense.billPhotoKey : expense.itemPhotoKey;
@@ -201,7 +223,7 @@ export const expenseRoutes = new Hono<{ Bindings: Env }>()
       'Cache-Control': 'private, max-age=86400',
     });
   })
-  // Owners see everyone's expenses for the period; staff see only the ones they entered.
+  // Owners and managers see every expense for the period; staff see only the ones they entered.
   .get('/', zValidator('query', reportQuerySchema), async (c) => {
     const db = c.get('db');
     const session = c.get('session');
@@ -210,8 +232,18 @@ export const expenseRoutes = new Hono<{ Bindings: Env }>()
     if ('error' in window) return c.json({ error: window.error }, 400);
 
     const items = await expenseRepo.list(db, window.from, window.to, {
-      createdByUserId: session.role === 'owner' ? undefined : session.sub,
+      createdByUserId: managesExpenses(session.role) ? undefined : session.sub,
     });
+    const edited = new Set(
+      items.length
+        ? (
+            await db.expenseEdit.findMany({
+              where: { expenseId: { in: items.map((e) => e.id) } },
+              select: { expenseId: true },
+            })
+          ).map((x) => x.expenseId)
+        : [],
+    );
     const total = items.filter((e) => !e.voidedAt).reduce((sum, e) => sum + e.amount, 0);
 
     const byCategory: Record<string, number> = {};
@@ -229,11 +261,135 @@ export const expenseRoutes = new Hono<{ Bindings: Env }>()
         date: formatIstDateOnly(e.date),
         hasBillPhoto: billPhotoKey != null,
         hasItemPhoto: itemPhotoKey != null,
+        edited: edited.has(e.id),
       })),
     });
   })
-  // Void with a reason. Staff can undo their own entry the same day (typo fix); anything else
-  // is the owner's call. The row stays, marked voided, so it shows up in the audit log.
+  // An expense's edits, newest first: who changed what, from what to what, and why.
+  .get('/:id/edits', async (c) => {
+    const db = c.get('db');
+    const session = c.get('session');
+    const expense = await expenseRepo.findById(db, c.req.param('id'));
+    if (!expense) return c.json({ error: 'not_found' as const }, 404);
+    if (!managesExpenses(session.role) && expense.createdByUserId !== session.sub) {
+      return c.json({ error: 'forbidden' as const }, 403);
+    }
+    const edits = await expenseRepo.editsFor(db, expense.id);
+    return c.json({ edits: edits.map((e) => ({ ...e, createdAt: e.createdAt.toISOString() })) });
+  })
+  // Owners and managers fix an entry (with a reason). Photos stay as they were taken. If the
+  // purchase went into stock and what was bought or how much changed, stock follows: the old
+  // amount comes off and the new one goes on. Every edit is logged.
+  .patch('/:id', zValidator('json', editExpenseSchema), async (c) => {
+    const id = c.req.param('id');
+    const body = c.req.valid('json');
+    const db = c.get('db');
+    const session = c.get('session');
+    if (!managesExpenses(session.role)) {
+      return c.json({ error: 'forbidden' as const, message: 'Only the owner or a manager can edit an expense.' }, 403);
+    }
+    const expense = await expenseRepo.findById(db, id);
+    if (!expense) return c.json({ error: 'not_found' as const }, 404);
+    if (expense.voidedAt) {
+      return c.json({ error: 'voided' as const, message: 'A deleted expense can’t be edited.' }, 409);
+    }
+
+    // The entry as it would be after the edit, checked by the same rules as a new one.
+    const category = body.category ?? (expense.category as ExpenseCategory);
+    const unit = body.unit !== undefined ? body.unit : (expense.unit as ExpenseUnit | null);
+    const quantity = body.quantity !== undefined ? body.quantity : expense.quantity;
+    const setup = EXPENSE_CATEGORY_SETUP[category];
+    const invalid = (message: string) => c.json({ error: 'invalid_body' as const, message }, 400);
+    if ((quantity == null) !== (unit == null)) return invalid('Quantity and unit go together.');
+    if (unit != null && !setup.units.includes(unit)) return invalid('That unit doesn’t fit this category.');
+    if (setup.quantityRequired && quantity == null) return invalid('Add the quantity.');
+    let date = expense.date;
+    if (body.date) {
+      const parsed = parseIstDateOnly(body.date);
+      if (!parsed) return c.json({ error: 'invalid_date' as const, message: 'Date must be YYYY-MM-DD.' }, 400);
+      if (parsed.getTime() > startOfIstDay().getTime()) {
+        return c.json({ error: 'future_date' as const, message: 'Expense date can’t be in the future.' }, 400);
+      }
+      if (parsed.getTime() < startOfIstDaysAgo(MAX_BACKDATE_DAYS).getTime() && session.role !== 'owner') {
+        return c.json(
+          { error: 'too_old' as const, message: `Only the owner can date an expense more than ${MAX_BACKDATE_DAYS} days back.` },
+          400,
+        );
+      }
+      date = parsed;
+    }
+
+    const before: Record<string, unknown> = {
+      category: expense.category,
+      amount: expense.amount,
+      itemName: expense.itemName,
+      quantity: expense.quantity,
+      unit: expense.unit,
+      description: expense.description,
+      paymentMethod: expense.paymentMethod,
+      date: formatIstDateOnly(expense.date),
+    };
+    const after: Record<string, unknown> = {
+      category,
+      amount: body.amount ?? expense.amount,
+      itemName: body.itemName ?? expense.itemName,
+      quantity,
+      unit,
+      description: body.description !== undefined ? body.description || null : expense.description,
+      paymentMethod: body.paymentMethod ?? expense.paymentMethod,
+      date: formatIstDateOnly(date),
+    };
+    const changes = Object.keys(before)
+      .filter((k) => before[k] !== after[k])
+      .map((field) => ({ field, from: before[field] ?? null, to: after[field] ?? null }));
+    if (changes.length === 0) {
+      return c.json({ error: 'no_changes' as const, message: 'Nothing was changed.' }, 400);
+    }
+
+    const editId = crypto.randomUUID();
+    const done = await expenseRepo.edit(db, id, {
+      fields: {
+        category,
+        amount: after.amount as number,
+        itemName: after.itemName as string,
+        quantity,
+        unit,
+        description: after.description as string | null,
+        paymentMethod: after.paymentMethod as 'cash' | 'upi' | 'other',
+        date,
+      },
+      edit: { id: editId, userId: session.sub, reason: body.reason, changes },
+    });
+    if (!done) return c.json({ error: 'voided' as const, message: 'This expense was just deleted.' }, 409);
+
+    // Stock follows a purchase that went into it, when what was bought or how much changed.
+    let stock: StockResult | null = null;
+    const stockChanged = changes.some((x) => x.field === 'itemName' || x.field === 'quantity' || x.field === 'unit' || x.field === 'category');
+    if (stockChanged) {
+      const moves = await stockRepo.movesForExpense(db, id);
+      const reversed = new Set(moves.filter((m) => m.kind === 'void').map((m) => m.id));
+      const wasInStock = moves.some((m) => m.kind === 'in' && !reversed.has(`void-${m.id}`));
+      if (wasInStock) {
+        await reverseExpenseStock(db, id, session.sub, 'Expense edited');
+        if (quantity != null && unit != null && STOCK_CATEGORIES.includes(category)) {
+          stock = await addPurchaseToStock(db, {
+            expenseId: id,
+            itemName: after.itemName as string,
+            quantity,
+            unit,
+            userId: session.sub,
+            moveId: `exp-${id}-${editId}`,
+          }).catch((e: unknown) => {
+            console.error(e);
+            return null;
+          });
+        }
+      }
+    }
+    return c.json({ ok: true as const, changes, stock });
+  })
+  // Delete (a void, with a reason): owners and managers only. The row stays, marked deleted, so it
+  // shows in the corrections report, and a purchase that went into stock comes back off.
   .post('/:id/void', zValidator('json', voidExpenseSchema), async (c) => {
     const id = c.req.param('id');
     const { reason } = c.req.valid('json');
@@ -248,12 +404,9 @@ export const expenseRoutes = new Hono<{ Bindings: Env }>()
       return c.json({ ok: true as const });
     }
 
-    const ownSameDay =
-      expense.createdByUserId === session.sub &&
-      expense.createdAt.getTime() >= startOfIstDay().getTime();
-    if (session.role !== 'owner' && !ownSameDay) {
+    if (!managesExpenses(session.role)) {
       return c.json(
-        { error: 'owner_only' as const, message: 'Only the owner can void this expense.' },
+        { error: 'forbidden' as const, message: 'Only the owner or a manager can delete an expense.' },
         403,
       );
     }

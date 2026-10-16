@@ -19,7 +19,7 @@ interface AuthContextValue {
   checking: boolean;
   user: SessionUser | null;
   isOwner: boolean;
-  /** Runs the team (staff and join requests) without the owner's money and price screens. */
+  /** Runs the team (staff only) without the owner's money and price screens. */
   isManager: boolean;
   /** Owner or manager: can open Team. */
   canManageTeam: boolean;

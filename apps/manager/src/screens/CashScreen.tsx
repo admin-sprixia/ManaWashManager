@@ -10,9 +10,12 @@ import {
   View,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
+import Svg, { Circle, G, Path } from 'react-native-svg';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { cashDifference, closeNeedsNote, MIN_REASON_LENGTH } from '@mana/domain';
 import {
+  BRAND_MARK,
+  BottomSheet,
   ScreenContainer,
   ScreenHeader,
   Button,
@@ -21,11 +24,15 @@ import {
   IconCalendar,
   IconCash,
   IconCheck,
+  IconClock,
   IconDrawer,
+  IconEdit,
+  IconMinus,
+  IconPlus,
   IconReceipt,
   IconSync,
+  brandGradients,
   colors,
-  gradients,
   radius,
   shadow,
   spacing,
@@ -97,18 +104,17 @@ const HISTORY_OPTIONS: { key: PeriodKey; label: string; hint: string }[] = [
   { key: 'year', label: 'This year', hint: 'From 1 January' },
 ];
 
-const QUICK_REASONS = [
-  'Wrong change given',
-  'Payment marked wrong',
-  'Expense not added',
-  'Owner took cash',
-];
+const QUICK_REASONS = ['Wrong change given', 'Payment marked wrong', 'Expense not added', 'Owner took cash'];
+
+/** Notes and coins for "count by notes", in rupees. Coins are entered as one rupee total. */
+const NOTES = [500, 200, 100, 50, 20, 10] as const;
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-const HERO_MISSING = ['#F87171', '#DC2626', '#991B1B'];
-const HERO_EXTRA = ['#FCD34D', '#F59E0B', '#B45309'];
-const HERO_MATCH = [colors.tealLight, colors.teal, colors.tealDeep];
+/** Same alert colours as Inventory — red when cash is short, amber when over, teal when it matches. */
+const HERO_MISSING = ['#B91C1C', '#7F1D1D', '#450A0A'];
+const HERO_EXTRA = ['#F59E0B', '#D97706', '#92400E'];
+const HERO_MATCH = ['#0F766E', '#0B4F4A', '#062B28'];
 
 type DotTone = 'match' | 'off' | 'open';
 const DOT_COLOR: Record<DotTone, string> = {
@@ -116,6 +122,15 @@ const DOT_COLOR: Record<DotTone, string> = {
   off: colors.danger,
   open: colors.amber,
 };
+
+/** [x, y, radius, opacity] in the hero's 340 × 200 box. */
+const STARS = [
+  [24, 30, 1.3, 0.5],
+  [88, 16, 1, 0.4],
+  [160, 46, 1.2, 0.35],
+  [70, 150, 1.1, 0.3],
+  [198, 20, 1.4, 0.55],
+] as const;
 
 function weekdayOf(date: string): string {
   return new Date(`${date}T12:00:00+05:30`).toLocaleDateString('en-IN', { weekday: 'short' });
@@ -141,82 +156,60 @@ function DateBlock({ date }: { date: string }) {
   );
 }
 
-function HeroStep({
-  n,
+/** One part of the drawer's sum, inside the hero: morning cash, cash from washes, cash spent. */
+function SumChip({
   label,
-  state,
-}: {
-  n: number;
-  label: string;
-  state: 'done' | 'current' | 'next';
-}) {
-  return (
-    <View style={[styles.heroStep, state === 'next' && styles.heroStepNext]}>
-      <View style={[styles.heroStepDot, state === 'done' && styles.heroStepDotDone]}>
-        {state === 'done' ? (
-          <IconCheck size={11} color={colors.waterDeep} />
-        ) : (
-          <Text style={styles.heroStepNum}>{n}</Text>
-        )}
-      </View>
-      <Text style={styles.heroStepLabel}>{label}</Text>
-    </View>
-  );
-}
-
-function SumRow({
-  icon,
-  iconBg,
-  label,
-  sub,
   value,
+  sub,
   sign,
-  onEdit,
-  last,
+  onPress,
 }: {
-  icon: React.ReactNode;
-  iconBg: string;
   label: string;
-  sub?: string;
   value: number;
+  sub?: string;
   sign?: '+' | '−';
-  onEdit?: () => void;
-  last?: boolean;
+  onPress?: () => void;
 }) {
   return (
-    <View style={[styles.sumRow, !last && styles.sumDivider]}>
-      <View style={[styles.sumIcon, { backgroundColor: iconBg }]}>{icon}</View>
-      <View style={styles.flex}>
-        <Text style={styles.sumLabel}>{label}</Text>
-        {sub ? <Text style={styles.sumSub}>{sub}</Text> : null}
+    <Pressable
+      onPress={onPress}
+      disabled={!onPress}
+      style={({ pressed }) => [styles.sumChip, pressed && styles.sumChipPressed]}
+      accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityLabel={onPress ? `${label} ${formatRupees(value)}, change` : undefined}
+    >
+      <View style={styles.sumChipHead}>
+        <Text style={styles.sumChipLabel} numberOfLines={1}>
+          {label}
+        </Text>
+        {onPress ? <IconEdit size={11} color="rgba(255,255,255,0.75)" /> : null}
       </View>
-      {onEdit ? (
-        <Pressable
-          onPress={onEdit}
-          hitSlop={8}
-          style={({ pressed }) => [styles.editPill, pressed && styles.pressed]}
-        >
-          <Text style={styles.editPillText}>Edit</Text>
-        </Pressable>
-      ) : null}
-      <Text style={[styles.sumValue, sign === '+' && styles.plus, sign === '−' && styles.minus]}>
-        {sign ? `${sign} ` : ''}
+      <Text style={styles.sumChipValue} numberOfLines={1} adjustsFontSizeToFit>
+        {sign ? `${sign}` : ''}
         {formatRupees(value)}
       </Text>
-    </View>
+      {sub ? (
+        <Text style={styles.sumChipSub} numberOfLines={1}>
+          {sub}
+        </Text>
+      ) : null}
+    </Pressable>
   );
 }
 
+/** The big rupee field used for the morning cash and the closing count. */
 function MoneyInput({
   value,
   onChange,
   placeholder,
   autoFocus,
+  right,
 }: {
   value: string;
   onChange: (t: string) => void;
   placeholder?: string;
   autoFocus?: boolean;
+  right?: React.ReactNode;
 }) {
   const filled = value.trim().length > 0;
   return (
@@ -232,27 +225,77 @@ function MoneyInput({
         autoFocus={autoFocus}
         maxLength={9}
       />
+      {right}
     </View>
   );
 }
 
-function CardHead({
-  icon,
-  iconBg,
-  title,
-  lead,
+/** Tap + / − for each note; coins as one total. Adds them up into the closing count. */
+function NoteCounter({
+  counts,
+  coins,
+  onCount,
+  onCoins,
 }: {
-  icon: React.ReactNode;
-  iconBg: string;
-  title: string;
-  lead?: string;
+  counts: Record<number, number>;
+  coins: string;
+  onCount: (note: number, n: number) => void;
+  onCoins: (t: string) => void;
 }) {
   return (
-    <View style={styles.cardHead}>
-      <View style={[styles.cardIcon, { backgroundColor: iconBg }]}>{icon}</View>
-      <View style={styles.flex}>
-        <Text style={styles.cardTitle}>{title}</Text>
-        {lead ? <Text style={styles.cardLead}>{lead}</Text> : null}
+    <View style={styles.notes}>
+      {NOTES.map((note) => {
+        const n = counts[note] ?? 0;
+        return (
+          <View key={note} style={[styles.noteCell, n > 0 && styles.noteCellOn]}>
+            <Text style={[styles.noteFace, n > 0 && styles.noteFaceOn]}>₹{note}</Text>
+            <View style={styles.noteStepper}>
+              <Pressable
+                onPress={() => onCount(note, Math.max(0, n - 1))}
+                disabled={n === 0}
+                hitSlop={6}
+                style={({ pressed }) => [styles.stepBtn, n === 0 && styles.stepBtnOff, pressed && styles.pressed]}
+                accessibilityLabel={`One less ₹${note} note`}
+              >
+                <IconMinus size={13} color={colors.indigo} />
+              </Pressable>
+              <TextInput
+                style={styles.noteCount}
+                value={n ? String(n) : ''}
+                onChangeText={(t) => onCount(note, Math.min(9999, Number(t.replace(/\D/g, '')) || 0))}
+                keyboardType="number-pad"
+                placeholder="0"
+                placeholderTextColor={colors.slate}
+                maxLength={4}
+                accessibilityLabel={`₹${note} notes`}
+              />
+              <Pressable
+                onPress={() => onCount(note, Math.min(9999, n + 1))}
+                hitSlop={6}
+                style={({ pressed }) => [styles.stepBtn, pressed && styles.pressed]}
+                accessibilityLabel={`One more ₹${note} note`}
+              >
+                <IconPlus size={13} color={colors.indigo} />
+              </Pressable>
+            </View>
+          </View>
+        );
+      })}
+      <View style={[styles.noteCell, styles.coinCell, coins.trim() ? styles.noteCellOn : null]}>
+        <Text style={[styles.noteFace, coins.trim() ? styles.noteFaceOn : null]}>Coins</Text>
+        <View style={styles.coinField}>
+          <Text style={styles.coinRupee}>₹</Text>
+          <TextInput
+            style={styles.coinInput}
+            value={coins}
+            onChangeText={(t) => onCoins(t.replace(/[^\d]/g, ''))}
+            keyboardType="number-pad"
+            placeholder="0"
+            placeholderTextColor={colors.slate}
+            maxLength={6}
+            accessibilityLabel="Coins total in rupees"
+          />
+        </View>
       </View>
     </View>
   );
@@ -260,7 +303,9 @@ function CardHead({
 
 /**
  * Daily cash drawer in two steps: morning cash in, then a counted close at night, with cash
- * washes and cash expenses tracked in between. Anyone on shift can run it; a mismatch needs a note, and only the owner can reopen.
+ * washes and cash expenses tracked in between. Everything for the day sits on one screen: the
+ * drawer card does the sum, and one panel below changes with the step. Anyone on shift can run
+ * it; a mismatch needs a note, and only the owner can reopen. Past days open in a sheet.
  */
 export function CashScreen({ navigation, route }: Props) {
   const { isOwner } = useAuth();
@@ -272,10 +317,15 @@ export function CashScreen({ navigation, route }: Props) {
   const [floatText, setFloatText] = useState('');
   const [editingFloat, setEditingFloat] = useState(false);
   const [countText, setCountText] = useState('');
+  const [byNotes, setByNotes] = useState(false);
+  const [noteCounts, setNoteCounts] = useState<Record<number, number>>({});
+  const [coinsText, setCoinsText] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [reopening, setReopening] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [dayLogOpen, setDayLogOpen] = useState(false);
   const [historyPeriod, setHistoryPeriod] = useState<PeriodKey>('week');
   const [historyRange, setHistoryRange] = useState<DateRange | null>(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -301,9 +351,7 @@ export function CashScreen({ navigation, route }: Props) {
       setError(null);
     } catch (e) {
       setError(
-        e instanceof NetworkError
-          ? 'The cash drawer needs a connection. Pull down to retry.'
-          : (e as Error).message,
+        e instanceof NetworkError ? 'The cash drawer needs a connection. Pull down to retry.' : (e as Error).message,
       );
     } finally {
       setLoading(false);
@@ -330,9 +378,7 @@ export function CashScreen({ navigation, route }: Props) {
     if (!isOwner) return;
     try {
       const res = await api.cash.history.$get({
-        query: historyRange
-          ? { range: 'custom', from: historyRange.from, to: historyRange.to }
-          : { range: historyPeriod },
+        query: historyRange ? { range: 'custom', from: historyRange.from, to: historyRange.to } : { range: historyPeriod },
       });
       if (!res.ok) return;
       const data = await res.json();
@@ -342,12 +388,20 @@ export function CashScreen({ navigation, route }: Props) {
     }
   }, [isOwner, historyPeriod, historyRange]);
 
+  const resetCount = () => {
+    setCountText('');
+    setNoteCounts({});
+    setCoinsText('');
+    setByNotes(false);
+    setNote('');
+  };
+
   useEffect(() => {
     setLoading(true);
-    setCountText('');
-    setNote('');
+    resetCount();
     setFormError(null);
     setEditingFloat(false);
+    setDayLogOpen(false);
     void load();
   }, [load]);
 
@@ -399,10 +453,7 @@ export function CashScreen({ navigation, route }: Props) {
     setRefreshing(false);
   };
 
-  const run = async (
-    fn: () => Promise<{ ok: boolean; res: Parameters<typeof apiErrorMessage>[0] }>,
-    success: string,
-  ) => {
+  const run = async (fn: () => Promise<{ ok: boolean; res: Parameters<typeof apiErrorMessage>[0] }>, success: string) => {
     setBusy(true);
     setFormError(null);
     try {
@@ -415,11 +466,7 @@ export function CashScreen({ navigation, route }: Props) {
       await Promise.all([load(), loadHistory(), loadWeek()]);
       return true;
     } catch (e) {
-      setFormError(
-        e instanceof NetworkError
-          ? 'This needs a connection. Try again when you’re back online.'
-          : 'Couldn’t save.',
-      );
+      setFormError(e instanceof NetworkError ? 'This needs a connection. Try again when you’re back online.' : 'Couldn’t save.');
       return false;
     } finally {
       setBusy(false);
@@ -434,6 +481,23 @@ export function CashScreen({ navigation, route }: Props) {
       const res = await api.cash.day.float.$put({ json: { date, amount: floatPaise } });
       return { ok: res.ok, res };
     }, 'Day started').then((ok) => ok && setEditingFloat(false));
+
+  // Counting by notes fills the total; typing a total yourself switches it back off.
+  const notesTotal =
+    NOTES.reduce((sum, n) => sum + n * (noteCounts[n] ?? 0), 0) + (Number(coinsText) || 0);
+  const setNoteCount = (n: number, count: number) => {
+    const next = { ...noteCounts, [n]: count };
+    setNoteCounts(next);
+    const total = NOTES.reduce((sum, x) => sum + x * (next[x] ?? 0), 0) + (Number(coinsText) || 0);
+    setCountText(total ? String(total) : '');
+    setFormError(null);
+  };
+  const setCoins = (t: string) => {
+    setCoinsText(t);
+    const total = NOTES.reduce((sum, x) => sum + x * (noteCounts[x] ?? 0), 0) + (Number(t) || 0);
+    setCountText(total ? String(total) : '');
+    setFormError(null);
+  };
 
   const counted = parseRupees(countText);
   const countOk = counted != null && !Number.isNaN(counted);
@@ -451,154 +515,125 @@ export function CashScreen({ navigation, route }: Props) {
     }, 'Day closed');
 
   const closedDiff = day?.status === 'closed' ? (day.difference ?? 0) : null;
+  // While counting, or after close: tint the top card when the amount is short or over.
+  const heroDiff = day?.status === 'closed' ? closedDiff : day?.status === 'open' ? diff : null;
+  const g = brandGradients.hero;
   const heroColors =
-    closedDiff == null
-      ? (gradients.hero as unknown as string[])
-      : closedDiff === 0
+    heroDiff == null
+      ? (g.colors as unknown as string[])
+      : heroDiff === 0
         ? HERO_MATCH
-        : closedDiff < 0
+        : heroDiff < 0
           ? HERO_MISSING
           : HERO_EXTRA;
-  const dayLabel = date === today ? 'Today' : date === yesterday ? 'Yesterday' : 'Past day';
-  const statusLabel =
-    day?.status === 'closed'
-      ? 'Closed'
-      : day?.status === 'open'
-        ? 'Open'
-        : day
-          ? 'Not started'
-          : '';
+  const dayLabel = date === today ? 'Today' : date === yesterday ? 'Yesterday' : weekdayOf(date);
+  const statusLabel = day?.status === 'closed' ? 'Closed' : day?.status === 'open' ? 'Open' : day ? 'Not started' : '';
+  const logCount = (day?.earlierCloses?.length ?? 0) || (day?.reopenedBy ? 1 : 0);
 
   return (
     <ScreenContainer noPadding>
       <View style={styles.headerPad}>
-        <ScreenHeader title="Cash drawer" onBack={() => navigation.goBack()} />
+        <ScreenHeader
+          title="Cash drawer"
+          onBack={() => navigation.goBack()}
+          right={
+            isOwner ? (
+              <View style={styles.headerActions}>
+                <Pressable
+                  onPress={() => setCalendarOpen(true)}
+                  hitSlop={6}
+                  style={({ pressed }) => [styles.headerBtn, pressed && styles.pressed]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Pick a day on the calendar"
+                >
+                  <IconCalendar size={18} color={colors.indigo} />
+                </Pressable>
+                <Pressable
+                  onPress={() => setHistoryOpen(true)}
+                  hitSlop={6}
+                  style={({ pressed }) => [styles.headerBtn, pressed && styles.pressed]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Past days"
+                >
+                  <IconClock size={18} color={colors.indigo} />
+                </Pressable>
+              </View>
+            ) : undefined
+          }
+        />
       </View>
       <ScrollView
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => void refresh()}
-            tintColor={colors.water}
-            colors={[colors.water]}
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={colors.indigo} colors={[colors.indigo]} />
         }
       >
-        {/* Day strip: quick days, plus a calendar for the owner */}
-        <View style={styles.dayBand}>
-          <View style={styles.dayBandHead}>
-            <Text style={styles.dayBandTitle}>{formatDay(date)}</Text>
-            <Text style={styles.dayBandMeta}>
-              {isOwner ? 'Tap a day or open the calendar' : 'Today or a forgotten yesterday'}
-            </Text>
-          </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.dayRow}
-          >
-            {stripDays.map((d) => {
-              const on = d === date;
-              const tone = dayTone(d);
-              return (
-                <Pressable
-                  key={d}
-                  onPress={() => setDate(d)}
-                  style={({ pressed }) => [
-                    styles.dayTile,
-                    on && styles.dayTileOn,
-                    pressed && !on && styles.pressed,
-                  ]}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: on }}
-                  accessibilityLabel={formatDay(d)}
-                >
-                  <Text style={[styles.dayWeek, on && styles.dayTextOn]}>
-                    {d === today ? 'Today' : d === yesterday ? 'Yest.' : weekdayOf(d)}
-                  </Text>
-                  <Text style={[styles.dayNum, on && styles.dayTextOn]}>
-                    {Number(d.slice(8, 10))}
-                  </Text>
-                  <View
-                    style={[
-                      styles.dayDot,
-                      tone && { backgroundColor: DOT_COLOR[tone] },
-                      on && tone && styles.dayDotOn,
-                    ]}
-                  />
-                </Pressable>
-              );
-            })}
-            {isOwner ? (
+        {/* Day strip */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayRow}>
+          {stripDays.map((d) => {
+            const on = d === date;
+            const tone = dayTone(d);
+            return (
               <Pressable
-                onPress={() => setCalendarOpen(true)}
-                style={({ pressed }) => [styles.dayTile, styles.calTile, pressed && styles.pressed]}
-                accessibilityRole="button"
-                accessibilityLabel="Pick a day on the calendar"
+                key={d}
+                onPress={() => setDate(d)}
+                style={({ pressed }) => [styles.dayTile, on && styles.dayTileOn, pressed && !on && styles.pressed]}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: on }}
+                accessibilityLabel={formatDay(d)}
               >
-                <IconCalendar size={18} color={colors.waterDeep} />
-                <Text style={styles.calText}>Calendar</Text>
+                <Text style={[styles.dayWeek, on && styles.dayTextOn]}>
+                  {d === today ? 'Today' : d === yesterday ? 'Yest.' : weekdayOf(d)}
+                </Text>
+                <Text style={[styles.dayNum, on && styles.dayTextOn]}>{Number(d.slice(8, 10))}</Text>
+                <View style={[styles.dayDot, tone && { backgroundColor: DOT_COLOR[tone] }, on && !tone && styles.dayDotOnEmpty]} />
               </Pressable>
-            ) : null}
-          </ScrollView>
-          {isOwner ? (
-            <View style={styles.legend}>
-              {(['match', 'off', 'open'] as const).map((t) => (
-                <View key={t} style={styles.legendItem}>
-                  <View style={[styles.legendDot, { backgroundColor: DOT_COLOR[t] }]} />
-                  <Text style={styles.legendText}>
-                    {t === 'match' ? 'Matched' : t === 'off' ? 'Different' : 'Not closed'}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          ) : null}
-        </View>
+            );
+          })}
+        </ScrollView>
 
         {date === today && yesterdayOpen ? (
-          <View style={styles.banner}>
-            <View style={styles.bannerIcon}>
-              <IconAlert size={18} color={colors.amberDeep} />
-            </View>
-            <View style={styles.flex}>
-              <Text style={styles.bannerTitle}>Yesterday wasn’t closed</Text>
-              <Text style={styles.bannerSub}>
-                {formatDay(yesterday)} · count it so totals stay right
-              </Text>
-            </View>
-            <Pressable
-              onPress={() => setDate(yesterday)}
-              hitSlop={8}
-              style={({ pressed }) => [styles.bannerButton, pressed && styles.pressed]}
-            >
-              <Text style={styles.bannerButtonText}>Close it</Text>
-            </Pressable>
-          </View>
+          <Pressable onPress={() => setDate(yesterday)} style={({ pressed }) => [styles.banner, pressed && styles.pressed]}>
+            <IconAlert size={16} color={colors.amberDeep} />
+            <Text style={styles.bannerText}>
+              <Text style={styles.bannerStrong}>Yesterday wasn’t closed.</Text> Count it so totals stay right.
+            </Text>
+            <Text style={styles.bannerAction}>Close it</Text>
+          </Pressable>
         ) : null}
 
         {loading ? (
-          <ActivityIndicator style={styles.loader} color={colors.water} />
+          <ActivityIndicator style={styles.loader} color={colors.indigo} />
         ) : error || !day ? (
-          <View style={[styles.card, shadow('sm'), styles.errorBox]}>
-            <View style={[styles.cardIcon, { backgroundColor: colors.waterPale }]}>
-              <IconSync size={20} color={colors.waterDeep} />
-            </View>
+          <View style={[styles.panel, shadow('sm'), styles.errorBox]}>
+            <IconSync size={22} color={colors.indigo} />
             <Text style={styles.errorText}>{error}</Text>
             <Button label="Try again" variant="secondary" onPress={() => void load()} />
           </View>
         ) : (
           <>
-            {/* Hero summary */}
+            {/* The drawer: the amount and how it adds up, in one card */}
             <LinearGradient
               colors={heroColors}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0.9, y: 1 }}
+              locations={heroDiff == null ? (g.locations as unknown as number[]) : undefined}
+              start={{ x: 0.5, y: 0 }}
+              end={{ x: 0.5, y: 1 }}
               style={[styles.hero, shadow('md')]}
             >
-              <View pointerEvents="none" style={styles.orbLarge} />
-              <View pointerEvents="none" style={styles.orbSmall} />
+              <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" viewBox="0 0 340 200" preserveAspectRatio="xMidYMid slice">
+                {STARS.map(([x, y, r, o]) => (
+                  <Circle key={`${x}-${y}`} cx={x} cy={y} r={r} fill="#FFFFFF" fillOpacity={o} />
+                ))}
+              </Svg>
+              <Svg style={styles.watermark} width={150} height={150} viewBox="0 0 256 256">
+                <G>
+                  <Path d={BRAND_MARK.drop} fill="#FFFFFF" fillOpacity={0.07} />
+                  <Path d={BRAND_MARK.arms} fill="#FFFFFF" fillOpacity={0.1} />
+                  <Path d={BRAND_MARK.centre} fill="#FFFFFF" fillOpacity={0.15} />
+                </G>
+              </Svg>
+
               <View style={styles.heroTop}>
                 <Text style={styles.heroDate}>
                   {dayLabel} · {formatDay(date)}
@@ -616,193 +651,123 @@ export function CashScreen({ navigation, route }: Props) {
               </View>
 
               {day.status === 'not_started' ? (
-                <>
+                <View style={styles.heroBody}>
                   <Text style={styles.heroLabel}>Let’s open the drawer</Text>
-                  <Text style={styles.heroValueSmall}>Count the cash box to start</Text>
-                </>
-              ) : day.status === 'open' ? (
-                <>
-                  <Text style={styles.heroLabel}>Should be in the box now</Text>
-                  <Text style={styles.heroValue}>{formatRupees(day.expected)}</Text>
-                </>
+                  <Text style={styles.heroValueSmall}>Count the cash box to start the day</Text>
+                </View>
               ) : (
                 <>
-                  <Text style={styles.heroLabel}>Counted at close</Text>
-                  <Text style={styles.heroValue}>{formatRupees(day.counted ?? 0)}</Text>
-                  <Text style={styles.heroSub}>
-                    {differenceText(closedDiff ?? 0)} · expected {formatRupees(day.expected)}
-                  </Text>
+                  <View style={styles.heroBody}>
+                    <Text style={styles.heroLabel}>{day.status === 'open' ? 'Should be in the box now' : 'Counted at close'}</Text>
+                    <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit>
+                      {formatRupees(day.status === 'open' ? day.expected : (day.counted ?? 0))}
+                    </Text>
+                    {day.status === 'closed' ? (
+                      <Text style={styles.heroSub}>
+                        {differenceText(closedDiff ?? 0)} · expected {formatRupees(day.expected)}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <View style={styles.sumRow}>
+                    <SumChip
+                      label="Morning"
+                      value={day.openingFloat ?? 0}
+                      sub={day.floatSetBy ?? undefined}
+                      onPress={day.status === 'open' ? () => setEditingFloat(true) : undefined}
+                    />
+                    <Text style={styles.sumOp}>+</Text>
+                    <SumChip label="Washes" value={day.cashIn} sub={`${day.cashJobs} paid in cash`} />
+                    <Text style={styles.sumOp}>−</Text>
+                    <SumChip label="Spent" value={day.cashExpenses} sub={`${day.cashExpenseCount} expense${day.cashExpenseCount === 1 ? '' : 's'}`} />
+                  </View>
                 </>
               )}
-
-              <View style={styles.heroSteps}>
-                <HeroStep
-                  n={1}
-                  label="Morning cash"
-                  state={day.status === 'not_started' ? 'current' : 'done'}
-                />
-                <View
-                  style={[styles.heroLine, day.status !== 'not_started' && styles.heroLineDone]}
-                />
-                <HeroStep
-                  n={2}
-                  label="Close the day"
-                  state={
-                    day.status === 'closed' ? 'done' : day.status === 'open' ? 'current' : 'next'
-                  }
-                />
-              </View>
             </LinearGradient>
 
-            {/* Morning cash */}
+            {/* One panel that changes with the step */}
             {day.status === 'not_started' || editingFloat ? (
-              <View style={[styles.card, shadow('sm')]}>
-                <CardHead
-                  icon={<IconDrawer size={20} color={colors.waterDeep} />}
-                  iconBg={colors.waterPale}
-                  title={editingFloat ? 'Change morning cash' : 'Morning cash'}
-                  lead="Count the notes and coins in the box before the first wash."
-                />
-                <MoneyInput
-                  value={floatText}
-                  onChange={setFloatText}
-                  placeholder="0"
-                  autoFocus={editingFloat}
-                />
-                {day.suggestedFloat != null && day.status === 'not_started' ? (
-                  <View style={styles.hintChip}>
-                    <IconSync size={13} color={colors.waterDeep} />
-                    <Text style={styles.hintChipText}>
-                      Filled in from last night’s count. Change it if it’s different.
-                    </Text>
+              <View style={[styles.panel, shadow('sm')]}>
+                <View style={styles.panelHead}>
+                  <View style={[styles.panelIcon, { backgroundColor: colors.indigoPale }]}>
+                    <IconDrawer size={18} color={colors.indigo} />
                   </View>
+                  <View style={styles.flex}>
+                    <Text style={styles.panelTitle}>{editingFloat ? 'Change morning cash' : 'Morning cash'}</Text>
+                    <Text style={styles.panelLead}>Count the notes and coins in the box before the first wash.</Text>
+                  </View>
+                </View>
+                <MoneyInput value={floatText} onChange={setFloatText} placeholder="0" autoFocus={editingFloat} />
+                {day.suggestedFloat != null && day.status === 'not_started' ? (
+                  <Text style={styles.helper}>Filled in from last night’s count. Change it if it’s different.</Text>
                 ) : null}
                 {formError ? <Text style={styles.formError}>{formError}</Text> : null}
                 <View style={styles.actionsRow}>
-                  {editingFloat ? (
-                    <Button label="Cancel" variant="ghost" onPress={() => setEditingFloat(false)} />
-                  ) : null}
+                  {editingFloat ? <Button label="Cancel" variant="ghost" onPress={() => setEditingFloat(false)} /> : null}
                   <View style={styles.flex}>
-                    <Button
-                      label={editingFloat ? 'Save' : 'Start the day'}
-                      size="lg"
-                      loading={busy}
-                      disabled={!floatOk}
-                      onPress={saveFloat}
-                    />
+                    <Button label={editingFloat ? 'Save' : 'Start the day'} size="lg" loading={busy} disabled={!floatOk} onPress={saveFloat} />
                   </View>
                 </View>
               </View>
-            ) : null}
-
-            {/* How the expected amount adds up */}
-            {day.status === 'open' && !editingFloat ? (
-              <View style={[styles.card, shadow('sm')]}>
-                <Text style={styles.overline}>HOW IT ADDS UP</Text>
-                <View>
-                  <SumRow
-                    icon={<IconDrawer size={17} color={colors.waterDeep} />}
-                    iconBg={colors.waterPale}
-                    label="Morning cash"
-                    sub={day.floatSetBy ? `Counted by ${day.floatSetBy}` : undefined}
-                    value={day.openingFloat ?? 0}
-                    onEdit={() => setEditingFloat(true)}
-                  />
-                  <SumRow
-                    icon={<IconCash size={17} color={colors.tealDeep} />}
-                    iconBg="#CCFBF1"
-                    label="Cash from washes"
-                    sub={`${day.cashJobs} cash payment${day.cashJobs === 1 ? '' : 's'}`}
-                    value={day.cashIn}
-                    sign="+"
-                  />
-                  <SumRow
-                    icon={<IconReceipt size={17} color={colors.danger} />}
-                    iconBg="#FEE2E2"
-                    label="Cash spent"
-                    sub={`${day.cashExpenseCount} expense${day.cashExpenseCount === 1 ? '' : 's'}`}
-                    value={day.cashExpenses}
-                    sign="−"
-                    last
-                  />
+            ) : day.status === 'open' ? (
+              <View style={[styles.panel, shadow('sm')]}>
+                <View style={styles.panelHead}>
+                  <View style={[styles.panelIcon, { backgroundColor: colors.tealPale }]}>
+                    <IconCash size={18} color={colors.tealDeep} />
+                  </View>
+                  <View style={styles.flex}>
+                    <Text style={styles.panelTitle}>Count the box</Text>
+                    <Text style={styles.panelLead}>Cash only — UPI goes to the bank.</Text>
+                  </View>
+                  <Pressable
+                    onPress={() => {
+                      const next = !byNotes;
+                      setByNotes(next);
+                      if (next && !notesTotal) setCountText('');
+                    }}
+                    style={({ pressed }) => [styles.modeChip, byNotes && styles.modeChipOn, pressed && styles.pressed]}
+                    accessibilityRole="switch"
+                    accessibilityState={{ checked: byNotes }}
+                  >
+                    <Text style={[styles.modeChipText, byNotes && styles.modeChipTextOn]}>By notes</Text>
+                  </Pressable>
                 </View>
-                <View style={styles.totalRow}>
-                  <Text style={styles.totalLabel}>Should be in the box</Text>
-                  <Text style={styles.totalValue}>{formatRupees(day.expected)}</Text>
-                </View>
-                <Text style={styles.helper}>
-                  UPI and card payments go to the bank, so they aren’t counted here.
-                </Text>
-              </View>
-            ) : null}
 
-            {/* Closing count */}
-            {day.status === 'open' && !editingFloat ? (
-              <View style={[styles.card, shadow('sm')]}>
-                <CardHead
-                  icon={<IconCash size={20} color={colors.tealDeep} />}
-                  iconBg="#CCFBF1"
-                  title="Closing count"
-                  lead="Count all the cash in the box and type the total."
-                />
+                {byNotes ? (
+                  <NoteCounter counts={noteCounts} coins={coinsText} onCount={setNoteCount} onCoins={setCoins} />
+                ) : null}
+
                 <MoneyInput
                   value={countText}
                   onChange={(t) => {
                     setCountText(t);
+                    if (byNotes) {
+                      setByNotes(false);
+                      setNoteCounts({});
+                      setCoinsText('');
+                    }
                     setFormError(null);
                   }}
                   placeholder="0"
-                />
-                {diff != null ? (
-                  <View
-                    style={[
-                      styles.result,
-                      diff === 0
-                        ? styles.resultOk
-                        : diff < 0
-                          ? styles.resultShort
-                          : styles.resultOver,
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.resultIcon,
-                        {
-                          backgroundColor:
-                            diff === 0 ? colors.teal : diff < 0 ? colors.danger : colors.amber,
-                        },
-                      ]}
-                    >
-                      {diff === 0 ? (
-                        <IconCheck size={16} color={colors.white} />
-                      ) : (
-                        <IconAlert size={16} color={colors.white} />
-                      )}
-                    </View>
-                    <View style={styles.flex}>
-                      <Text
+                  right={
+                    diff != null ? (
+                      <View
                         style={[
-                          styles.resultTitle,
-                          diff === 0
-                            ? styles.resultTitleOk
-                            : diff < 0
-                              ? styles.resultTitleShort
-                              : styles.resultTitleOver,
+                          styles.diffBadge,
+                          diff === 0 ? styles.diffBadgeOk : diff < 0 ? styles.diffBadgeShort : styles.diffBadgeOver,
                         ]}
                       >
-                        {diff === 0 ? 'Perfect, it matches' : differenceText(diff)}
-                      </Text>
-                      <Text style={styles.resultSub}>
-                        {diff === 0
-                          ? 'You can close the day.'
-                          : 'Count once more. If it’s still different, say why below.'}
-                      </Text>
-                    </View>
-                  </View>
-                ) : null}
+                        {diff === 0 ? <IconCheck size={12} color={colors.white} /> : <IconAlert size={12} color={colors.white} />}
+                        <Text style={styles.diffBadgeText} numberOfLines={1}>
+                          {differenceText(diff)}
+                        </Text>
+                      </View>
+                    ) : null
+                  }
+                />
+
                 {needsNote ? (
                   <View style={styles.noteBlock}>
-                    <Text style={styles.fieldLabel}>Why is it different?</Text>
+                    <Text style={styles.fieldLabel}>Count once more. Still different? Say why:</Text>
                     <View style={styles.reasons}>
                       {QUICK_REASONS.map((r) => {
                         const on = note === r;
@@ -810,11 +775,7 @@ export function CashScreen({ navigation, route }: Props) {
                           <Pressable
                             key={r}
                             onPress={() => setNote(on ? '' : r)}
-                            style={({ pressed }) => [
-                              styles.reason,
-                              on && styles.reasonOn,
-                              pressed && styles.pressed,
-                            ]}
+                            style={({ pressed }) => [styles.reason, on && styles.reasonOn, pressed && styles.pressed]}
                           >
                             {on ? <IconCheck size={12} color={colors.white} /> : null}
                             <Text style={[styles.reasonText, on && styles.reasonTextOn]}>{r}</Text>
@@ -834,183 +795,156 @@ export function CashScreen({ navigation, route }: Props) {
                   </View>
                 ) : null}
                 {formError ? <Text style={styles.formError}>{formError}</Text> : null}
-                <Button
-                  label="Close the day"
-                  size="lg"
-                  loading={busy}
-                  disabled={!countOk || !noteOk}
-                  onPress={closeDay}
-                />
+                <Button label="Close the day" size="lg" loading={busy} disabled={!countOk || !noteOk} onPress={closeDay} />
               </View>
-            ) : null}
-
-            {/* Closed day */}
-            {day.status === 'closed' ? (
-              <View style={[styles.card, shadow('sm')]}>
-                <View style={styles.statRow}>
-                  <View style={styles.stat}>
-                    <Text style={styles.statLabel}>Should have been</Text>
-                    <Text style={styles.statValue}>{formatRupees(day.expected)}</Text>
+            ) : (
+              <View style={[styles.panel, shadow('sm')]}>
+                <View style={styles.closedGrid}>
+                  <View style={[styles.closedCell, { backgroundColor: colors.indigoPale }]}>
+                    <Text style={styles.closedLabel}>Should have been</Text>
+                    <Text style={styles.closedValue}>{formatRupees(day.expected)}</Text>
                   </View>
-                  <View style={styles.stat}>
-                    <Text style={styles.statLabel}>Counted</Text>
-                    <Text style={styles.statValue}>{formatRupees(day.counted ?? 0)}</Text>
+                  <View style={[styles.closedCell, { backgroundColor: colors.tealPale }]}>
+                    <Text style={styles.closedLabel}>Counted</Text>
+                    <Text style={styles.closedValue}>{formatRupees(day.counted ?? 0)}</Text>
                   </View>
                 </View>
                 <View style={styles.closedMeta}>
                   <View style={styles.flex}>
-                    <Text style={styles.closedBy}>
-                      {day.closedBy ? `Closed by ${day.closedBy}` : 'Closed'}
-                    </Text>
-                    {day.closedAt ? (
-                      <Text style={styles.helper}>{formatDateTime(day.closedAt)}</Text>
-                    ) : null}
+                    <Text style={styles.closedBy}>{day.closedBy ? `Closed by ${day.closedBy}` : 'Closed'}</Text>
+                    {day.closedAt ? <Text style={styles.helper}>{formatDateTime(day.closedAt)}</Text> : null}
                   </View>
-                  <Pill
-                    label={differenceText(closedDiff ?? 0)}
-                    tone={differenceTone(closedDiff ?? 0)}
-                  />
+                  <Pill label={differenceText(closedDiff ?? 0)} tone={differenceTone(closedDiff ?? 0)} />
                 </View>
-                {day.note ? (
-                  <View style={styles.noteQuote}>
-                    <Text style={styles.noteQuoteText}>“{day.note}”</Text>
-                  </View>
-                ) : null}
+                {day.note ? <Text style={styles.noteQuote}>“{day.note}”</Text> : null}
                 {day.changedSinceClose !== 0 ? (
                   <View style={styles.diffBand}>
-                    <IconAlert size={16} color={colors.amberDeep} />
+                    <IconAlert size={15} color={colors.amberDeep} />
                     <Text style={styles.diffText}>
-                      A cash payment or expense changed after closing (
-                      {day.changedSinceClose > 0 ? '+' : '−'}
-                      {formatRupees(Math.abs(day.changedSinceClose))}).
-                      {isOwner ? ' Reopen to recount.' : ' Tell the owner.'}
+                      A cash payment or expense changed after closing ({day.changedSinceClose > 0 ? '+' : '−'}
+                      {formatRupees(Math.abs(day.changedSinceClose))}).{isOwner ? ' Reopen to recount.' : ' Tell the owner.'}
                     </Text>
                   </View>
                 ) : null}
                 {isOwner ? (
-                  <Button
-                    label="Reopen day"
-                    variant="secondary"
-                    onPress={() => setReopening(true)}
-                  />
+                  <Button label="Reopen day" variant="secondary" onPress={() => setReopening(true)} />
                 ) : (
                   <Text style={styles.helper}>Only the owner can reopen a closed day.</Text>
                 )}
               </View>
-            ) : null}
+            )}
 
-            {day.reopenedBy && !day.earlierCloses?.length ? (
-              <View style={styles.reopened}>
-                <IconSync size={14} color={colors.slateDeep} />
-                <Text style={styles.reopenedText}>
-                  Reopened by {day.reopenedBy}
-                  {day.reopenedAt ? ` · ${formatDateTime(day.reopenedAt)}` : ''}
-                  {day.reopenReason ? ` — “${day.reopenReason}”` : ''}
-                </Text>
-              </View>
-            ) : null}
-
-            {day.earlierCloses?.map((e) => (
-              <View key={e.closedAt} style={styles.reopened}>
-                <IconSync size={14} color={colors.slateDeep} />
-                <Text style={styles.reopenedText}>
-                  Earlier close{e.closedBy ? ` by ${e.closedBy}` : ''} · {formatDateTime(e.closedAt)}: counted{' '}
-                  {formatRupees(e.counted ?? 0)}
-                  {e.difference ? ` (${differenceText(e.difference)})` : ''}
-                  {e.note ? ` — “${e.note}”` : ''}
-                  {e.reopenedBy ? `. Reopened by ${e.reopenedBy}` : ''}
-                  {e.reopenedAt ? ` · ${formatDateTime(e.reopenedAt)}` : ''}
-                  {e.reopenReason ? ` — “${e.reopenReason}”` : ''}
-                </Text>
-              </View>
-            ))}
-          </>
-        )}
-
-        {isOwner ? (
-          <View style={styles.history}>
-            <View style={styles.historyHead}>
-              <Text style={styles.historyTitle}>Past days</Text>
-              {history ? (
-                <Text style={styles.historyCount}>
-                  {history.days.length} day{history.days.length === 1 ? '' : 's'}
-                </Text>
-              ) : null}
-            </View>
-            <PeriodSelect
-              value={historyPeriod}
-              onChange={(next) => {
-                setHistoryRange(null);
-                setHistoryPeriod(next);
-              }}
-              options={HISTORY_OPTIONS}
-              menuTitle="Show past days for"
-              custom={{ range: historyRange, onApply: setHistoryRange }}
-            />
-            {history && history.days.length > 0 ? (
-              <>
-                {history.totals.short < 0 || history.totals.over > 0 ? (
-                  <View style={styles.totalsRow}>
-                    {history.totals.short < 0 ? (
-                      <View style={[styles.totalChip, styles.totalChipShort]}>
-                        <Text style={styles.totalChipLabel}>Missing</Text>
-                        <Text style={[styles.totalChipValue, styles.minus]}>
-                          {formatRupees(-history.totals.short)}
-                        </Text>
-                      </View>
+            {/* Reopens and earlier counts of this day, folded away */}
+            {logCount > 0 ? (
+              <View>
+                <Pressable onPress={() => setDayLogOpen((v) => !v)} style={({ pressed }) => [styles.logToggle, pressed && styles.pressed]}>
+                  <IconSync size={13} color={colors.slateDeep} />
+                  <Text style={styles.logToggleText}>
+                    {dayLogOpen ? 'Hide' : 'Show'} this day’s history ({logCount})
+                  </Text>
+                </Pressable>
+                {dayLogOpen ? (
+                  <View style={styles.log}>
+                    {day.reopenedBy && !day.earlierCloses?.length ? (
+                      <Text style={styles.logText}>
+                        Reopened by {day.reopenedBy}
+                        {day.reopenedAt ? ` · ${formatDateTime(day.reopenedAt)}` : ''}
+                        {day.reopenReason ? ` — “${day.reopenReason}”` : ''}
+                      </Text>
                     ) : null}
-                    {history.totals.over > 0 ? (
-                      <View style={[styles.totalChip, styles.totalChipOver]}>
-                        <Text style={styles.totalChipLabel}>Extra</Text>
-                        <Text style={[styles.totalChipValue, styles.extra]}>
-                          {formatRupees(history.totals.over)}
-                        </Text>
-                      </View>
-                    ) : null}
+                    {day.earlierCloses?.map((e) => (
+                      <Text key={e.closedAt} style={styles.logText}>
+                        Earlier close{e.closedBy ? ` by ${e.closedBy}` : ''} · {formatDateTime(e.closedAt)}: counted{' '}
+                        {formatRupees(e.counted ?? 0)}
+                        {e.difference ? ` (${differenceText(e.difference)})` : ''}
+                        {e.note ? ` — “${e.note}”` : ''}
+                        {e.reopenedBy ? `. Reopened by ${e.reopenedBy}` : ''}
+                        {e.reopenedAt ? ` · ${formatDateTime(e.reopenedAt)}` : ''}
+                        {e.reopenReason ? ` — “${e.reopenReason}”` : ''}
+                      </Text>
+                    ))}
                   </View>
                 ) : null}
-                <EdgeGroup>
-                  {history.days.map((d) => (
-                    <EdgeRow
-                      key={d.date}
-                      icon={<DateBlock date={d.date} />}
-                      iconBg={d.date === date ? colors.waterPale : colors.surface}
-                      title={formatDay(d.date)}
-                      subtitle={
-                        d.status === 'open'
-                          ? 'Not closed yet'
-                          : [
-                              d.counted != null ? `Counted ${formatRupees(d.counted)}` : null,
-                              d.closedBy ? `by ${d.closedBy}` : null,
-                              d.note ? `“${d.note}”` : null,
-                            ]
-                              .filter(Boolean)
-                              .join(' · ')
-                      }
-                      right={
-                        d.status === 'open' ? (
-                          <Pill label="NOT CLOSED" tone="slate" />
-                        ) : (
-                          <Pill
-                            label={differenceText(d.difference ?? 0)}
-                            tone={differenceTone(d.difference ?? 0)}
-                          />
-                        )
-                      }
-                      onPress={() => setDate(d.date)}
-                    />
-                  ))}
-                </EdgeGroup>
-              </>
-            ) : (
-              <View style={styles.emptyHistory}>
-                <IconDrawer size={22} color={colors.slate} />
-                <Text style={styles.emptyHistoryText}>No days recorded in this period yet.</Text>
               </View>
-            )}
-          </View>
-        ) : null}
+            ) : null}
+          </>
+        )}
       </ScrollView>
+
+      {/* Owner: past days, in a sheet so the day stays on one screen */}
+      <BottomSheet visible={historyOpen} onClose={() => setHistoryOpen(false)} title="Past days" subtitle="How each day’s count ended. Tap one to open it.">
+        <PeriodSelect
+          value={historyPeriod}
+          onChange={(next) => {
+            setHistoryRange(null);
+            setHistoryPeriod(next);
+          }}
+          options={HISTORY_OPTIONS}
+          menuTitle="Show past days for"
+          custom={{ range: historyRange, onApply: setHistoryRange }}
+        />
+        <View style={styles.legend}>
+          {(['match', 'off', 'open'] as const).map((t) => (
+            <View key={t} style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: DOT_COLOR[t] }]} />
+              <Text style={styles.legendText}>{t === 'match' ? 'Matched' : t === 'off' ? 'Different' : 'Not closed'}</Text>
+            </View>
+          ))}
+        </View>
+        {history && history.days.length > 0 ? (
+          <>
+            {history.totals.short < 0 || history.totals.over > 0 ? (
+              <View style={styles.totalsRow}>
+                {history.totals.short < 0 ? (
+                  <View style={[styles.totalChip, styles.totalChipShort]}>
+                    <Text style={styles.totalChipLabel}>Missing</Text>
+                    <Text style={[styles.totalChipValue, styles.minus]}>{formatRupees(-history.totals.short)}</Text>
+                  </View>
+                ) : null}
+                {history.totals.over > 0 ? (
+                  <View style={[styles.totalChip, styles.totalChipOver]}>
+                    <Text style={styles.totalChipLabel}>Extra</Text>
+                    <Text style={[styles.totalChipValue, styles.extra]}>{formatRupees(history.totals.over)}</Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+            <EdgeGroup>
+              {history.days.map((d) => (
+                <EdgeRow
+                  key={d.date}
+                  icon={<DateBlock date={d.date} />}
+                  iconBg={d.date === date ? colors.indigoPale : colors.surface}
+                  title={formatDay(d.date)}
+                  subtitle={
+                    d.status === 'open'
+                      ? 'Not closed yet'
+                      : [d.counted != null ? `Counted ${formatRupees(d.counted)}` : null, d.closedBy ? `by ${d.closedBy}` : null, d.note ? `“${d.note}”` : null]
+                          .filter(Boolean)
+                          .join(' · ')
+                  }
+                  right={
+                    d.status === 'open' ? (
+                      <Pill label="NOT CLOSED" tone="slate" />
+                    ) : (
+                      <Pill label={differenceText(d.difference ?? 0)} tone={differenceTone(d.difference ?? 0)} />
+                    )
+                  }
+                  onPress={() => {
+                    setHistoryOpen(false);
+                    setDate(d.date);
+                  }}
+                />
+              ))}
+            </EdgeGroup>
+          </>
+        ) : (
+          <View style={styles.emptyHistory}>
+            <IconReceipt size={22} color={colors.slate} />
+            <Text style={styles.emptyHistoryText}>No days recorded in this period yet.</Text>
+          </View>
+        )}
+      </BottomSheet>
 
       <CalendarSheet
         visible={calendarOpen}
@@ -1053,123 +987,59 @@ export function CashScreen({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  pressed: { opacity: 0.7 },
+  pressed: { opacity: 0.75 },
   headerPad: { paddingHorizontal: spacing.md },
-  scroll: { paddingBottom: spacing.xxl, gap: spacing.md, paddingTop: spacing.xs },
-  dayBand: {
-    backgroundColor: colors.white,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    paddingVertical: spacing.sm + 4,
-    gap: spacing.sm,
-  },
-  dayBandHead: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.md,
-  },
-  dayBandTitle: { ...typography.heading, fontSize: 16, color: colors.waterInk },
-  dayBandMeta: { ...typography.caption, fontSize: 12, color: colors.slate, letterSpacing: 0 },
-  dayRow: { gap: spacing.sm, paddingHorizontal: spacing.md },
-  dayTile: {
-    width: 58,
-    height: 70,
-    borderRadius: radius.md,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
+  headerActions: { flexDirection: 'row', gap: spacing.sm },
+  headerBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.indigoPale,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  scroll: { paddingHorizontal: spacing.md, paddingBottom: spacing.xl, gap: spacing.sm + 4 },
+  loader: { marginTop: spacing.xl },
+
+  // Day strip
+  dayRow: { gap: spacing.sm, paddingVertical: 2 },
+  dayTile: {
+    width: 52,
+    paddingVertical: 8,
+    borderRadius: radius.lg,
+    alignItems: 'center',
     gap: 2,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  dayTileOn: { backgroundColor: colors.waterInk, borderColor: colors.waterInk },
-  dayWeek: {
-    ...typography.caption,
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.slate,
-    letterSpacing: 0,
-  },
-  dayNum: { ...typography.heading, fontSize: 20, color: colors.waterInk },
+  dayTileOn: { backgroundColor: colors.indigo, borderColor: colors.indigo },
+  dayWeek: { ...typography.caption, fontSize: 10.5, color: colors.slate, letterSpacing: 0 },
+  dayNum: { ...typography.heading, fontSize: 17, color: colors.ink },
   dayTextOn: { color: colors.white },
   dayDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'transparent' },
-  dayDotOn: { borderWidth: 1, borderColor: colors.white },
-  calTile: { backgroundColor: colors.waterPale, borderColor: colors.waterPale, gap: 4 },
-  calText: {
-    ...typography.caption,
-    fontSize: 10.5,
-    fontWeight: '800',
-    color: colors.waterDeep,
-    letterSpacing: 0,
-  },
-  legend: { flexDirection: 'row', gap: spacing.md, paddingHorizontal: spacing.md },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  legendDot: { width: 7, height: 7, borderRadius: 4 },
-  legendText: { ...typography.caption, fontSize: 11.5, color: colors.slateDeep, letterSpacing: 0 },
+  dayDotOnEmpty: { backgroundColor: 'transparent' },
+
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm + 4,
-    backgroundColor: '#FFFBEB',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    borderRadius: radius.lg,
+    backgroundColor: colors.amberPale,
     borderWidth: 1,
     borderColor: colors.amberLight,
-    marginHorizontal: spacing.md,
-    borderRadius: radius.lg,
-    padding: spacing.sm + 4,
   },
-  bannerIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: '#FEF3C7',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bannerTitle: { ...typography.bodyStrong, fontSize: 15, color: colors.amberDeep },
-  bannerSub: { ...typography.caption, color: colors.slateDeep, letterSpacing: 0, marginTop: 2 },
-  bannerButton: {
-    backgroundColor: colors.amberDeep,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.sm + 6,
-    height: 34,
-    justifyContent: 'center',
-  },
-  bannerButtonText: { ...typography.label, color: colors.white, fontSize: 13, fontWeight: '700' },
-  loader: { marginTop: spacing.xxl },
-  hero: {
-    marginHorizontal: spacing.md,
-    borderRadius: radius.xl,
-    padding: spacing.lg,
-    paddingBottom: spacing.md + 4,
-    overflow: 'hidden',
-  },
-  orbLarge: {
-    position: 'absolute',
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    top: -70,
-    right: -50,
-  },
-  orbSmall: {
-    position: 'absolute',
-    width: 110,
-    height: 110,
-    borderRadius: 55,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    bottom: -40,
-    left: -30,
-  },
-  heroTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.md,
-  },
-  heroDate: { ...typography.label, fontSize: 14, color: 'rgba(255,255,255,0.9)' },
+  bannerText: { ...typography.caption, flex: 1, fontSize: 12.5, color: colors.amberDeep, letterSpacing: 0 },
+  bannerStrong: { fontWeight: '800' },
+  bannerAction: { ...typography.label, fontSize: 13, color: colors.amberDeep, fontWeight: '800' },
+
+  // Drawer card
+  hero: { borderRadius: radius.xl, padding: spacing.md + 2, gap: spacing.md, overflow: 'hidden' },
+  watermark: { position: 'absolute', right: -24, top: -16 },
+  heroTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  heroDate: { ...typography.label, fontSize: 13, color: 'rgba(255,255,255,0.85)' },
   statusChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1177,338 +1047,199 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     height: 26,
     borderRadius: radius.pill,
-    backgroundColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
   },
-  statusDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.white },
-  statusDotOpen: { backgroundColor: colors.tealLight },
-  statusDotClosed: { backgroundColor: colors.white },
-  statusText: {
-    ...typography.caption,
-    fontSize: 12,
-    color: colors.white,
-    fontWeight: '700',
-    letterSpacing: 0.3,
-  },
-  heroLabel: { ...typography.label, fontSize: 14, color: 'rgba(255,255,255,0.85)' },
-  heroValue: {
-    ...typography.display,
-    fontSize: 44,
-    color: colors.white,
-    marginTop: 2,
-    letterSpacing: -1,
-  },
-  heroValueSmall: { ...typography.title, fontSize: 24, color: colors.white, marginTop: 4 },
-  heroSub: { ...typography.label, fontSize: 14, color: 'rgba(255,255,255,0.9)', marginTop: 2 },
-  heroSteps: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.lg },
-  heroStep: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingLeft: 4,
-    paddingRight: 12,
-    height: 30,
-    borderRadius: radius.pill,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-  },
-  heroStepNext: { backgroundColor: 'rgba(255,255,255,0.1)' },
-  heroStepDot: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  heroStepDotDone: { backgroundColor: colors.white },
-  heroStepNum: {
-    ...typography.caption,
-    fontSize: 12,
-    fontWeight: '800',
-    color: colors.white,
-    letterSpacing: 0,
-  },
-  heroStepLabel: {
-    ...typography.caption,
-    fontSize: 12.5,
-    fontWeight: '700',
-    color: colors.white,
-    letterSpacing: 0,
-  },
-  heroLine: {
+  statusDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.6)' },
+  statusDotOpen: { backgroundColor: colors.amberLight },
+  statusDotClosed: { backgroundColor: colors.tealLight },
+  statusText: { ...typography.caption, fontSize: 12, color: colors.white, fontWeight: '700', letterSpacing: 0 },
+  heroBody: { gap: 2 },
+  heroLabel: { ...typography.label, fontSize: 13.5, color: 'rgba(255,255,255,0.8)' },
+  heroValue: { ...typography.display, fontSize: 42, color: colors.white, letterSpacing: -1 },
+  heroValueSmall: { ...typography.heading, fontSize: 20, color: colors.white },
+  heroSub: { ...typography.label, fontSize: 13, color: 'rgba(255,255,255,0.85)' },
+  sumRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  sumOp: { ...typography.heading, fontSize: 16, color: 'rgba(255,255,255,0.7)' },
+  sumChip: {
     flex: 1,
-    height: 2,
-    marginHorizontal: 6,
-    borderRadius: 1,
-    backgroundColor: 'rgba(255,255,255,0.3)',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    gap: 1,
   },
-  heroLineDone: { backgroundColor: colors.white },
-  card: {
-    marginHorizontal: spacing.md,
-    backgroundColor: colors.white,
-    borderRadius: radius.lg,
+  sumChipPressed: { backgroundColor: 'rgba(255,255,255,0.2)' },
+  sumChipHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  sumChipLabel: { ...typography.caption, fontSize: 11, color: 'rgba(255,255,255,0.75)', letterSpacing: 0.3 },
+  sumChipValue: { ...typography.bodyStrong, fontSize: 15.5, color: colors.white, fontWeight: '800' },
+  sumChipSub: { ...typography.caption, fontSize: 10.5, color: 'rgba(255,255,255,0.6)', letterSpacing: 0 },
+
+  // Step panel
+  panel: { backgroundColor: colors.white, borderRadius: radius.xl, padding: spacing.md, gap: spacing.sm + 4 },
+  panelHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm + 2 },
+  panelIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  panelTitle: { ...typography.bodyStrong, fontSize: 16.5, color: colors.ink, fontWeight: '800' },
+  panelLead: { ...typography.caption, fontSize: 12.5, color: colors.slateDeep, letterSpacing: 0 },
+  modeChip: {
+    paddingHorizontal: 12,
+    height: 32,
+    borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.md,
-    gap: spacing.md,
-  },
-  cardHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm + 4 },
-  cardIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cardTitle: { ...typography.heading, fontSize: 18, color: colors.waterInk },
-  cardLead: {
-    ...typography.caption,
-    fontSize: 13,
-    lineHeight: 18,
-    color: colors.slateDeep,
-    letterSpacing: 0,
-    marginTop: 2,
-  },
-  overline: {
-    ...typography.caption,
-    fontSize: 11,
-    color: colors.slate,
-    fontWeight: '800',
-    letterSpacing: 1,
-  },
-  errorBox: { alignItems: 'center' },
-  errorText: { ...typography.body, fontSize: 15, color: colors.slateDeep, textAlign: 'center' },
-  sumRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm + 4,
-    paddingVertical: spacing.sm + 2,
-  },
-  sumDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-  sumIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sumLabel: { ...typography.bodyStrong, fontSize: 15, color: colors.waterInk },
-  sumSub: { ...typography.caption, color: colors.slate, letterSpacing: 0, marginTop: 1 },
-  sumValue: { ...typography.bodyStrong, fontSize: 16, color: colors.waterInk, fontWeight: '700' },
-  editPill: {
-    paddingHorizontal: 10,
-    height: 26,
-    borderRadius: radius.pill,
-    backgroundColor: colors.waterPale,
-    justifyContent: 'center',
-  },
-  editPillText: {
-    ...typography.caption,
-    fontSize: 12,
-    color: colors.waterDeep,
-    fontWeight: '700',
-    letterSpacing: 0,
-  },
-  totalRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 4,
+    justifyContent: 'center',
   },
-  totalLabel: { ...typography.bodyStrong, fontSize: 15, color: colors.waterInk },
-  totalValue: { ...typography.heading, fontSize: 20, color: colors.waterInk },
+  modeChipOn: { backgroundColor: colors.indigo, borderColor: colors.indigo },
+  modeChipText: { ...typography.caption, fontSize: 12.5, color: colors.indigo, fontWeight: '700', letterSpacing: 0 },
+  modeChipTextOn: { color: colors.white },
   moneyField: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: spacing.sm,
+    height: 60,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.lg,
     borderWidth: 1.5,
     borderColor: colors.border,
-    borderRadius: radius.lg,
     backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    height: 72,
   },
-  moneyFieldFilled: { borderColor: colors.water, backgroundColor: colors.white },
-  moneyRupee: { fontSize: 30, fontWeight: '700', color: colors.slate, marginRight: spacing.xs },
-  moneyRupeeFilled: { color: colors.waterInk },
-  moneyInput: {
-    minWidth: 80,
-    fontSize: 36,
-    fontWeight: '800',
-    color: colors.waterInk,
-    paddingVertical: 0,
-    letterSpacing: -0.5,
-    textAlign: 'center',
-  },
-  hintChip: {
+  moneyFieldFilled: { borderColor: colors.indigo, backgroundColor: colors.white },
+  moneyRupee: { ...typography.heading, fontSize: 24, color: colors.slate },
+  moneyRupeeFilled: { color: colors.ink },
+  moneyInput: { ...typography.heading, flex: 1, fontSize: 26, color: colors.ink, paddingVertical: 0 },
+  diffBadge: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    height: 30,
+    borderRadius: radius.pill,
+    maxWidth: '60%',
+  },
+  diffBadgeOk: { backgroundColor: colors.teal },
+  diffBadgeShort: { backgroundColor: colors.danger },
+  diffBadgeOver: { backgroundColor: colors.amber },
+  diffBadgeText: { ...typography.caption, fontSize: 12, color: colors.white, fontWeight: '800', letterSpacing: 0 },
+
+  // Count by notes
+  notes: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  noteCell: {
+    flexBasis: '30%',
+    flexGrow: 1,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: 8,
     gap: 6,
-    backgroundColor: colors.waterPale,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.sm + 4,
-    paddingVertical: spacing.sm,
   },
-  hintChipText: {
-    ...typography.caption,
-    fontSize: 12.5,
-    color: colors.waterDeep,
-    letterSpacing: 0,
-    flex: 1,
-  },
-  helper: { ...typography.caption, color: colors.slate, letterSpacing: 0, lineHeight: 17 },
-  formError: { ...typography.label, color: colors.danger },
-  actionsRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center' },
-  plus: { color: colors.tealDeep },
-  minus: { color: colors.danger },
-  extra: { color: colors.amberDeep },
-  result: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm + 4,
-    borderRadius: radius.md,
-    padding: spacing.sm + 4,
-  },
-  resultIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+  noteCellOn: { borderColor: colors.indigoMist, backgroundColor: colors.indigoPale },
+  coinCell: { flexBasis: '30%' },
+  noteFace: { ...typography.label, fontSize: 13, color: colors.slateDeep, fontWeight: '800' },
+  noteFaceOn: { color: colors.indigo },
+  noteStepper: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  stepBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  resultOk: { backgroundColor: '#F0FDFA' },
-  resultShort: { backgroundColor: '#FEF2F2' },
-  resultOver: { backgroundColor: '#FFFBEB' },
-  resultTitle: { ...typography.bodyStrong, fontSize: 17, fontWeight: '700' },
-  resultTitleOk: { color: colors.tealDeep },
-  resultTitleShort: { color: colors.danger },
-  resultTitleOver: { color: colors.amberDeep },
-  resultSub: { ...typography.caption, color: colors.slateDeep, letterSpacing: 0, marginTop: 2 },
-  noteBlock: { gap: spacing.sm + 2 },
-  fieldLabel: { ...typography.bodyStrong, fontSize: 15, color: colors.waterInk },
-  reasons: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  stepBtnOff: { opacity: 0.4 },
+  noteCount: { ...typography.bodyStrong, flex: 1, textAlign: 'center', fontSize: 16, color: colors.ink, paddingVertical: 0 },
+  coinField: { flexDirection: 'row', alignItems: 'center', height: 28, gap: 4 },
+  coinRupee: { ...typography.bodyStrong, fontSize: 15, color: colors.slateDeep },
+  coinInput: { ...typography.bodyStrong, flex: 1, fontSize: 16, color: colors.ink, paddingVertical: 0 },
+
+  noteBlock: { gap: spacing.sm },
+  fieldLabel: { ...typography.caption, fontSize: 12.5, color: colors.slateDeep, letterSpacing: 0 },
+  reasons: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   reason: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 4,
+    paddingHorizontal: 10,
+    height: 32,
     borderRadius: radius.pill,
-    paddingHorizontal: 14,
-    height: 36,
-    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
-  reasonOn: { backgroundColor: colors.waterInk, borderColor: colors.waterInk },
-  reasonText: { ...typography.label, color: colors.waterInk, fontSize: 13 },
+  reasonOn: { backgroundColor: colors.indigo, borderColor: colors.indigo },
+  reasonText: { ...typography.caption, fontSize: 12.5, color: colors.slateDeep, letterSpacing: 0 },
   reasonTextOn: { color: colors.white, fontWeight: '700' },
   noteInput: {
-    borderRadius: radius.md,
+    ...typography.body,
+    minHeight: 48,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 4,
-    fontSize: 15,
-    color: colors.waterInk,
-    backgroundColor: colors.surface,
-    minHeight: 72,
-    textAlignVertical: 'top',
-  },
-  statRow: { flexDirection: 'row', gap: spacing.sm },
-  stat: {
-    flex: 1,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.sm + 4,
-    gap: 4,
-  },
-  statLabel: { ...typography.caption, fontSize: 12, color: colors.slateDeep, letterSpacing: 0 },
-  statValue: { ...typography.heading, fontSize: 22, color: colors.waterInk },
-  closedMeta: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  closedBy: { ...typography.bodyStrong, fontSize: 15, color: colors.waterInk },
-  noteQuote: {
-    borderLeftWidth: 3,
-    borderLeftColor: colors.waterLight,
-    backgroundColor: colors.surface,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.sm + 4,
     paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    color: colors.ink,
+    fontSize: 14.5,
   },
-  noteQuoteText: { ...typography.body, fontSize: 14, color: colors.slateDeep, fontStyle: 'italic' },
+  formError: { ...typography.caption, fontSize: 13, color: colors.danger, letterSpacing: 0 },
+  helper: { ...typography.caption, fontSize: 12, color: colors.slate, letterSpacing: 0 },
+  actionsRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+
+  // Closed
+  closedGrid: { flexDirection: 'row', gap: spacing.sm },
+  closedCell: { flex: 1, borderRadius: radius.md, padding: spacing.sm + 4, gap: 2 },
+  closedLabel: { ...typography.caption, fontSize: 11.5, color: colors.slateDeep, letterSpacing: 0 },
+  closedValue: { ...typography.heading, fontSize: 20, color: colors.ink },
+  closedMeta: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  closedBy: { ...typography.bodyStrong, fontSize: 14.5, color: colors.ink, fontWeight: '700' },
+  noteQuote: {
+    ...typography.body,
+    fontSize: 14,
+    fontStyle: 'italic',
+    color: colors.slateDeep,
+    paddingLeft: spacing.sm + 2,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.indigoMist,
+  },
   diffBand: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
+    gap: 6,
+    padding: spacing.sm + 2,
     borderRadius: radius.md,
-    paddingHorizontal: spacing.sm + 4,
-    paddingVertical: spacing.sm + 2,
-    backgroundColor: '#FFFBEB',
+    backgroundColor: colors.amberPale,
   },
-  diffText: { ...typography.label, fontSize: 13, lineHeight: 18, color: colors.amberDeep, flex: 1 },
-  reopened: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.sm,
-    marginHorizontal: spacing.md,
-    paddingHorizontal: spacing.sm + 4,
-    paddingVertical: spacing.sm + 2,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-  },
-  reopenedText: {
-    ...typography.caption,
-    fontSize: 12.5,
-    lineHeight: 18,
-    color: colors.slateDeep,
-    letterSpacing: 0,
-    flex: 1,
-  },
-  history: { gap: spacing.sm + 4, marginTop: spacing.sm },
-  historyHead: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.md,
-  },
-  historyTitle: {
-    ...typography.heading,
-    fontSize: 20,
-    color: colors.waterInk,
-    letterSpacing: -0.2,
-  },
-  historyCount: { ...typography.caption, fontSize: 13, color: colors.slateDeep, letterSpacing: 0 },
-  totalsRow: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.md },
-  totalChip: {
-    flex: 1,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.sm + 4,
-    paddingVertical: spacing.sm + 2,
-    gap: 2,
-  },
-  totalChipShort: { backgroundColor: '#FEF2F2' },
-  totalChipOver: { backgroundColor: '#FFFBEB' },
-  totalChipLabel: {
-    ...typography.caption,
-    fontSize: 12,
-    color: colors.slateDeep,
-    letterSpacing: 0,
-  },
+  diffText: { ...typography.caption, flex: 1, fontSize: 12.5, color: colors.amberDeep, letterSpacing: 0 },
+
+  logToggle: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'center', paddingVertical: 4 },
+  logToggleText: { ...typography.caption, fontSize: 12.5, color: colors.slateDeep, letterSpacing: 0, fontWeight: '700' },
+  log: { gap: spacing.sm, paddingTop: spacing.xs },
+  logText: { ...typography.caption, fontSize: 12.5, color: colors.slateDeep, letterSpacing: 0, lineHeight: 18 },
+
+  errorBox: { alignItems: 'center' },
+  errorText: { ...typography.body, fontSize: 14, color: colors.slateDeep, textAlign: 'center' },
+
+  // Past days sheet
+  legend: { flexDirection: 'row', gap: spacing.md },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  legendDot: { width: 7, height: 7, borderRadius: 4 },
+  legendText: { ...typography.caption, fontSize: 12, color: colors.slateDeep, letterSpacing: 0 },
+  totalsRow: { flexDirection: 'row', gap: spacing.sm },
+  totalChip: { flex: 1, borderRadius: radius.md, padding: spacing.sm + 2, gap: 2 },
+  totalChipShort: { backgroundColor: colors.dangerPale },
+  totalChipOver: { backgroundColor: colors.amberPale },
+  totalChipLabel: { ...typography.caption, fontSize: 11.5, color: colors.slateDeep, letterSpacing: 0 },
   totalChipValue: { ...typography.heading, fontSize: 18 },
-  dateBlock: { alignItems: 'center', justifyContent: 'center' },
-  dateDay: { fontSize: 16, fontWeight: '800', color: colors.waterInk, lineHeight: 18 },
-  dateMonth: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: colors.slateDeep,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  emptyHistory: {
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginHorizontal: spacing.md,
-    paddingVertical: spacing.lg,
-    borderRadius: radius.lg,
-    backgroundColor: colors.surface,
-  },
-  emptyHistoryText: { ...typography.body, fontSize: 14, color: colors.slateDeep },
+  minus: { color: colors.danger },
+  extra: { color: colors.amberDeep },
+  dateBlock: { alignItems: 'center' },
+  dateDay: { ...typography.heading, fontSize: 15, color: colors.ink, lineHeight: 17 },
+  dateMonth: { ...typography.caption, fontSize: 10, color: colors.slate, letterSpacing: 0 },
+  emptyHistory: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.lg },
+  emptyHistoryText: { ...typography.caption, fontSize: 13, color: colors.slate, letterSpacing: 0 },
 });

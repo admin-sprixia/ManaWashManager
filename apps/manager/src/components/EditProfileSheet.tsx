@@ -28,6 +28,7 @@ import { NetworkError } from '../api/network';
 import { useAuth } from '../api/auth';
 import { setLoginHints } from '../api/session';
 import { useShop } from '../offline/ShopProvider';
+import { SheetHead, SheetLabel, SheetNotice } from './SheetBits';
 
 function formatPhone(digits: string): string {
   return digits.length > 5 ? `${digits.slice(0, 5)} ${digits.slice(5)}` : digits;
@@ -202,6 +203,12 @@ export function EditProfileSheet({ visible, onClose }: { visible: boolean; onClo
           />
         }
       >
+        <SheetHead
+          icon={<IconPhone size={22} color={colors.indigo} />}
+          title={`+91 ${formatPhone(digits)}`}
+          caption="The code arrives on WhatsApp in a few seconds. It proves this number is yours."
+        />
+        <SheetLabel>Verification code</SheetLabel>
         <View style={[styles.iconField, styles.fieldFocus]}>
           <IconLock size={17} color={colors.water} />
           <TextInput
@@ -222,10 +229,9 @@ export function EditProfileSheet({ visible, onClose }: { visible: boolean; onClo
           />
         </View>
         {error ? (
-          <View style={styles.errorRow}>
-            <IconAlert size={14} color={colors.danger} />
-            <Text style={styles.error}>{error}</Text>
-          </View>
+          <SheetNotice tone="danger" icon={<IconAlert size={14} color={colors.danger} />}>
+            {error}
+          </SheetNotice>
         ) : null}
         <Pressable
           onPress={() => void resend()}
@@ -295,10 +301,9 @@ export function EditProfileSheet({ visible, onClose }: { visible: boolean; onClo
         </View>
         <PinPad value={pin} onChange={onPinChange} errorKey={pinErrorKey} disabled={busy} />
         {error ? (
-          <View style={[styles.errorRow, styles.center]}>
-            <IconAlert size={14} color={colors.danger} />
-            <Text style={styles.error}>{error}</Text>
-          </View>
+          <SheetNotice tone="danger" icon={<IconAlert size={14} color={colors.danger} />}>
+            {error}
+          </SheetNotice>
         ) : null}
         <Pressable
           onPress={() => {
@@ -445,14 +450,10 @@ export function EditProfileSheet({ visible, onClose }: { visible: boolean; onClo
           {phoneOk ? <IconCheck size={16} color={colors.teal} /> : null}
         </View>
         {phoneChanged && phoneOk ? (
-          <View style={styles.notice}>
-            <IconLock size={14} color={colors.amberDeep} />
-            <Text style={styles.noticeText}>
-              We’ll send a WhatsApp code to the new number, then you confirm with your PIN. You
-              sign in with{' '}
-              <Text style={styles.noticeStrong}>+91 {formatPhone(digits)}</Text> from then on.
-            </Text>
-          </View>
+          <SheetNotice tone="amber" icon={<IconLock size={14} color={colors.amberDeep} />}>
+            We’ll send a WhatsApp code to the new number, then you confirm with your PIN. You sign in
+            with +91 {formatPhone(digits)} from then on.
+          </SheetNotice>
         ) : (
           <Text style={styles.helper}>
             {phone.length > 0 && !phoneOk
@@ -481,10 +482,9 @@ export function EditProfileSheet({ visible, onClose }: { visible: boolean; onClo
       </View>
 
       {error ? (
-        <View style={styles.errorRow}>
-          <IconAlert size={14} color={colors.danger} />
-          <Text style={styles.error}>{error}</Text>
-        </View>
+        <SheetNotice tone="danger" icon={<IconAlert size={14} color={colors.danger} />}>
+          {error}
+        </SheetNotice>
       ) : null}
     </BottomSheet>
   );
@@ -497,7 +497,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.md,
     padding: spacing.md,
-    borderRadius: radius.lg,
+    borderRadius: radius.xl,
     overflow: 'hidden',
   },
   orb: {
@@ -558,10 +558,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    height: 54,
+    height: 56,
     borderWidth: 1.5,
     borderColor: colors.border,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     backgroundColor: colors.surface,
     paddingHorizontal: spacing.md,
   },
@@ -607,10 +607,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm + 4,
-    paddingVertical: spacing.sm + 4,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    padding: spacing.sm + 4,
+    borderWidth: 1,
+    borderRadius: radius.lg,
     borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
   roleIcon: {
     width: 34,
@@ -628,10 +629,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    paddingVertical: spacing.sm + 4,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    padding: spacing.md - 2,
+    borderWidth: 1,
+    borderRadius: radius.lg,
     borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
   moveSide: { flex: 1, gap: 2 },
   moveSideRight: { alignItems: 'flex-end' },

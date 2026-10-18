@@ -1,21 +1,7 @@
 import React, { useEffect, useRef } from 'react';
-import {
-  Animated,
-  Image,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-  type ImageSourcePropType,
-} from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import { VEHICLE_CATALOG, catalogVehicleFor, colors, radius, spacing, typography } from '@mana/ui';
-
-const FALLBACK_IMAGE = VEHICLE_CATALOG.find((v) => v.key === 'sedan')!.image;
-
-export function vehicleImageFor(name: string): ImageSourcePropType {
-  return catalogVehicleFor(name)?.image ?? FALLBACK_IMAGE;
-}
+import { VehicleArt, colors, radius, spacing, typography } from '@mana/ui';
 
 /** @deprecated Prefer VehicleTypeCard */
 export function VehicleTypeIcon({
@@ -28,11 +14,7 @@ export function VehicleTypeIcon({
 }) {
   return (
     <View style={[styles.thumbShell, { width: size, height: size }]}>
-      <Image
-        source={vehicleImageFor(name)}
-        style={{ width: size, height: size }}
-        resizeMode="cover"
-      />
+      <VehicleArt name={name} style={{ width: size, height: size }} />
     </View>
   );
 }
@@ -48,7 +30,7 @@ interface VehicleTypeCardProps {
 export const VEHICLE_CARD_COMPACT_WIDTH = 142;
 
 /**
- * Gallery-style vehicle picker tile — cinematic photo, glass caption, soft selection glow.
+ * Gallery-style vehicle picker tile — vehicle icon, glass caption, soft selection glow.
  * Unselected cards dim slightly so the active one feels like the hero.
  */
 export function VehicleTypeCard({
@@ -78,7 +60,7 @@ export function VehicleTypeCard({
         style={[styles.cardWrap, compact && styles.cardWrapCompact, selected && styles.cardWrapOn]}
       >
         <View style={[styles.card, compact && styles.cardCompact, selected && styles.cardOn]}>
-          <Image source={vehicleImageFor(name)} style={styles.photo} resizeMode="cover" />
+          <VehicleArt name={name} style={styles.photo} />
 
           {/* Soft top highlight */}
           <LinearGradient

@@ -7,7 +7,7 @@
 
 -- ─── Seed: MANA, the first shop on the platform ─────────────────────────────
 
-INSERT INTO shops (id, code, name, city) VALUES ('shop_mana', 'HYD-01', 'Mana Wash', 'Hyderabad');
+INSERT INTO shops (id, code, name, city) VALUES ('shop_mana', 'NLR-01', 'Mana Wash Nellore City', 'Nellore');
 
 -- Listed in the Mana Wash app, washing within 8 km of the Kovur hub, plus two named areas
 -- for customers who don't share their location. Contact details and hours for the branch page.
@@ -199,6 +199,10 @@ INSERT INTO catalog_service_classes (business_id, service_id, class_id)
 SELECT 'biz_mana', id, CASE WHEN sort_order >= 100 THEN 'vc_biz_mana_twoWheeler' ELSE 'vc_biz_mana_car' END
 FROM catalog_services WHERE business_id = 'biz_mana';
 
+-- Every branch of the business sells every one of these to start with.
+INSERT INTO branch_menu_services (shop_id, catalog_service_id)
+SELECT s.id, c.id FROM shops s JOIN catalog_services c ON c.business_id = s.business_id WHERE s.business_id = 'biz_mana';
+
 INSERT INTO catalog_combo_items (business_id, combo_id, service_id) VALUES
   ('biz_mana', 'cs_mana_combo', 'cs_complete_wash'),
   ('biz_mana', 'cs_mana_combo', 'cs_tyre_dressing'),
@@ -243,3 +247,48 @@ INSERT INTO wash_plans (id, business_id, name, washes, months, catalog_service_i
   ('wp_mana_regular',      'biz_mana', 'Regular',      8,  1, 'cs_exterior_wash', 1500, 0, 1, 1),
   ('wp_mana_premium',      'biz_mana', 'Premium',      12, 1, 'cs_complete_wash', 2000, 1, 0, 2),
   ('wp_mana_bike_monthly', 'biz_mana', 'Bike Monthly', 4,  1, 'cs_bike_complete', 0,    0, 0, 3);
+
+-- ─── Seed: a few India Post offices ──────────────────────────────────────────
+
+-- Enough pincodes to open test branches (Kovur, Kavali, Nellore, Vijayawada, Ongole, Kukatpally).
+-- The full list is loaded with `npm run data:post-offices -- --into local`.
+INSERT INTO post_offices (pincode, name, kind, district, state, latitude, longitude) VALUES
+  ('500072', 'Kukatpally Court Complex SO', 'PO', 'MEDCHAL MALKAJGIRI', 'TELANGANA', 17.464567, 78.390157),
+  ('500072', 'Kukatpally S.O', 'PO', 'MEDCHAL MALKAJGIRI', 'TELANGANA', 17.49279, 78.396612),
+  ('500072', 'Vivekanandanagar Colony S.O', 'PO', 'MEDCHAL MALKAJGIRI', 'TELANGANA', 17.492917, 78.409056),
+  ('520010', 'International Business Centre PO', 'PO', 'NTR', 'ANDHRA PRADESH', NULL, NULL),
+  ('520010', 'Moghalrajpuram S.O', 'PO', 'NTR', 'ANDHRA PRADESH', 16.508194, 80.6415),
+  ('520010', 'Punnamathota S.O', 'PO', 'NTR', 'ANDHRA PRADESH', 16.504944, 80.636861),
+  ('520010', 'Venkateswarapuram S.O', 'PO', 'NTR', 'ANDHRA PRADESH', 16.335861, 80.635472),
+  ('523001', 'Addanki Gate S.O', 'PO', 'PRAKASAM', 'ANDHRA PRADESH', 15.500917, 80.050889),
+  ('523001', 'Dcp(O) S.O', 'PO', 'PRAKASAM', 'ANDHRA PRADESH', 15.503389, 80.043722),
+  ('523001', 'Gopala Nagar (O) S.O', 'PO', 'PRAKASAM', 'ANDHRA PRADESH', 15.511461, 80.052095),
+  ('523001', 'N.S.C Colony (O) S.O', 'PO', 'PRAKASAM', 'ANDHRA PRADESH', 15.47865, 80.0537),
+  ('523001', 'Ongole Bazar S.O', 'PO', 'PRAKASAM', 'ANDHRA PRADESH', 15.50425, 80.046389),
+  ('523001', 'Ongole H.O', 'HO', 'PRAKASAM', 'ANDHRA PRADESH', 15.500472, 80.048611),
+  ('523001', 'Prakasam Bhavan S.O', 'PO', 'PRAKASAM', 'ANDHRA PRADESH', 15.49825, 80.049833),
+  ('523001', 'Ramnagar(O) S.O', 'PO', 'PRAKASAM', 'ANDHRA PRADESH', 15.491694, 80.052667),
+  ('523001', 'Santhapeta (O) S.O', 'PO', 'PRAKASAM', 'ANDHRA PRADESH', 15.496778, 80.056528),
+  ('523001', 'Thurupupalem S.O', 'PO', 'PRAKASAM', 'ANDHRA PRADESH', 15.510333, 80.036333),
+  ('524001', 'Nellore H.O', 'HO', 'SPSR NELLORE', 'ANDHRA PRADESH', 14.451895, 79.980856),
+  ('524001', 'Pogathota S.O', 'PO', 'SPSR NELLORE', 'ANDHRA PRADESH', 14.450194, 79.984639),
+  ('524001', 'Trunk Road S.O (Nellore)', 'PO', 'SPSR NELLORE', 'ANDHRA PRADESH', 14.454003, 79.983802),
+  ('524137', 'Cherlopalem B.O', 'BO', 'SPSR NELLORE', 'ANDHRA PRADESH', 14.528952, 80.017862),
+  ('524137', 'Damaramadugu B.O', 'BO', 'SPSR NELLORE', 'ANDHRA PRADESH', 14.501522, 79.931862),
+  ('524137', 'Gangavaram B.O', 'BO', 'SPSR NELLORE', 'ANDHRA PRADESH', 14.495067, 79.957391),
+  ('524137', 'Gummalladibba B.O', 'BO', 'SPSR NELLORE', 'ANDHRA PRADESH', NULL, NULL),
+  ('524137', 'Inamadugu B.O', 'BO', 'SPSR NELLORE', 'ANDHRA PRADESH', 14.511563, 80.015064),
+  ('524137', 'Kovur Cutchery S.O', 'PO', 'SPSR NELLORE', 'ANDHRA PRADESH', 14.509194, 79.985694),
+  ('524137', 'Kovur S.O', 'PO', 'SPSR NELLORE', 'ANDHRA PRADESH', 14.508611, 79.983917),
+  ('524137', 'Leguntapadu B.O', 'BO', 'SPSR NELLORE', 'ANDHRA PRADESH', 14.51411, 80.024149),
+  ('524137', 'Mudivarthi B.O', 'BO', 'SPSR NELLORE', 'ANDHRA PRADESH', 14.554407, 80.108659),
+  ('524137', 'Padugupadu B.O', 'BO', 'SPSR NELLORE', 'ANDHRA PRADESH', 14.480336, 79.991301),
+  ('524137', 'Patur B.O', 'BO', 'SPSR NELLORE', 'ANDHRA PRADESH', 14.513459, 79.941736),
+  ('524137', 'Pothireddypalem B.O', 'BO', 'SPSR NELLORE', 'ANDHRA PRADESH', 14.47767, 79.979416),
+  ('524137', 'Vegur B.O', 'BO', 'SPSR NELLORE', 'ANDHRA PRADESH', 14.534819, 80.054191),
+  ('524201', 'Janathapeta S.O', 'PO', 'SPSR NELLORE', 'ANDHRA PRADESH', 14.030532, 80.02901),
+  ('524201', 'Kavali Bazar S.O', 'PO', 'SPSR NELLORE', 'ANDHRA PRADESH', 14.91325, 79.992972),
+  ('524201', 'Kavali Co op Colony S.O', 'PO', 'SPSR NELLORE', 'ANDHRA PRADESH', 14.451891, 79.981077),
+  ('524201', 'Kavali H.O', 'HO', 'SPSR NELLORE', 'ANDHRA PRADESH', 14.91658, 79.993121),
+  ('524201', 'Musunur B.O', 'BO', 'SPSR NELLORE', 'ANDHRA PRADESH', 14.87972, 79.983611),
+  ('524201', 'Vengalarao Nagar TSO', 'PO', 'SPSR NELLORE', 'ANDHRA PRADESH', NULL, NULL);

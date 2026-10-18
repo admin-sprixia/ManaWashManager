@@ -10,19 +10,23 @@ interface FabProps {
   /** Collapse to the icon only (Material "extended FAB" behaviour while scrolling). */
   collapsed?: boolean;
   bottom: number;
+  /** Gradient; defaults to the brand button. */
+  tint?: readonly string[];
 }
 
 const SIZE = 60;
 
 /** Primary screen action, pinned bottom-right within easy thumb reach. */
-export function Fab({ label, icon, onPress, collapsed = false, bottom }: FabProps) {
+export function Fab({ label, icon, onPress, collapsed = false, bottom, tint }: FabProps) {
   const progress = useRef(new Animated.Value(collapsed ? 0 : 1)).current;
+  // Room for the label at 16 pt bold (about 10 pt a letter) plus its left padding.
+  const textWidth = Math.max(108, label.length * 10 + 14);
 
   useEffect(() => {
     Animated.timing(progress, { toValue: collapsed ? 0 : 1, duration: 180, useNativeDriver: false }).start();
   }, [collapsed, progress]);
 
-  const labelWidth = progress.interpolate({ inputRange: [0, 1], outputRange: [0, 108] });
+  const labelWidth = progress.interpolate({ inputRange: [0, 1], outputRange: [0, textWidth] });
 
   return (
     <View style={[styles.wrap, { bottom }]} pointerEvents="box-none">
@@ -33,7 +37,7 @@ export function Fab({ label, icon, onPress, collapsed = false, bottom }: FabProp
         style={({ pressed }) => [styles.shadow, pressed && styles.pressed]}
       >
         <LinearGradient
-          colors={gradients.fab as unknown as string[]}
+          colors={(tint ?? gradients.fab) as unknown as string[]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={styles.fab}

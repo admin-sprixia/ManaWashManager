@@ -65,15 +65,39 @@ check('…and no sign-in code for a number on no team', code.status === 404 && c
 // ─── HQ opens a branch ────────────────────────────────────────────────────
 
 const manaOwner = (await signInOwner(MANA_OWNER)).token;
+// Vijayawada (520010): HQ gives the pincode and the pin; the server decides town, code and name.
+const VIJAYAWADA = { pincode: '520010', latitude: 16.5062, longitude: 80.648 };
+const preview = await call(manaOwner, 'POST', '/business/branches/preview', { ...VIJAYAWADA, town: null });
+check(
+  'The preview finds the town from the pincode and gives the city its well-known code',
+  preview.status === 200 && preview.body?.plan?.town?.name === 'Vijayawada' && /^VGA-\d{3}$/.test(preview.body.plan.code ?? ''),
+  show(preview),
+);
+// HQ picks the services it sells while opening it: here, all of HQ's.
+const hqMenu = ((await call(manaOwner, 'GET', '/business/catalog')).body?.services ?? []).filter((s) => s.active).map((s) => s.id);
 const opened = await call(manaOwner, 'POST', '/business/branches', {
-  town: 'Vijayawada',
-  townCode: 'vja',
+  ...VIJAYAWADA,
+  town: null,
   ownerName: 'Arun',
   ownerPhone,
+  confirmed: (preview.body?.plan?.checks ?? []).map((k) => k.kind),
+  menu: hqMenu,
 });
-check('HQ opens a branch with its owner, coded by town (VJA-01, VJA-02…)', opened.status === 201 && /^VJA-\d{2}$/.test(opened.body?.code ?? ''), show(opened));
-const badTown = await call(manaOwner, 'POST', '/business/branches', { town: 'Vijayawada', townCode: 'VJ1', ownerName: 'X', ownerPhone: newPhone() });
-check('A town code must be 3 letters', badTown.status === 400, show(badTown));
+check('HQ opens a branch with its owner, coded by town (VGA-001, VGA-002…)', opened.status === 201 && opened.body?.code === preview.body?.plan?.code, show(opened));
+const badPincode = await call(manaOwner, 'POST', '/business/branches', { pincode: '999999', latitude: 16.5, longitude: 80.6, ownerName: 'X', ownerPhone: newPhone() });
+check('A pincode India Post doesn’t have is refused', badPincode.status === 404 && badPincode.body?.error === 'unknown_pincode', show(badPincode));
+const notIndia = await call(manaOwner, 'POST', '/business/branches/preview', { pincode: '520010', latitude: 0, longitude: 0, town: null });
+check('A pin outside India is refused', notIndia.status === 400 && notIndia.body?.error === 'outside_india', show(notIndia));
+const typedTown = await call(manaOwner, 'POST', '/business/branches/preview', { ...VIJAYAWADA, town: 'Anytown' });
+check('The town can only be one the pincode offers', typedTown.status === 400 && typedTown.body?.error === 'bad_choice', show(typedTown));
+const again = await call(manaOwner, 'POST', '/business/branches/preview', { ...VIJAYAWADA, town: null });
+check(
+  'A second branch in the town keeps its code, takes the next number, and must confirm it’s that close',
+  again.body?.plan?.town?.code === 'VGA' && again.body?.plan?.code === 'VGA-002' && again.body.plan.checks.some((k) => k.kind === 'near_branch'),
+  show(again),
+);
+const unconfirmed = await call(manaOwner, 'POST', '/business/branches', { ...VIJAYAWADA, town: null, ownerName: 'Y', ownerPhone: newPhone() });
+check('Opening without confirming the checks is refused', unconfirmed.status === 409 && unconfirmed.body?.error === 'needs_confirmation', show(unconfirmed));
 const bCode = opened.body.code;
 const bShopId = opened.body.id;
 
@@ -84,14 +108,14 @@ const bOwner = bOwnerSession.token;
 check('New owner signs in with a WhatsApp code and sets a PIN', bOwnerSession.user?.shopId === bShopId, JSON.stringify(bOwnerSession));
 
 const info = await call(bOwner, 'GET', '/shop/info');
-check('Branch info: name, city and branch ID', info.body?.name === 'Vijayawada' && info.body?.city === 'Vijayawada' && info.body?.code === bCode, show(info));
+check('Branch info: name, city and branch ID', info.body?.city === 'Vijayawada' && info.body?.name?.startsWith('Vijayawada') && info.body?.code === bCode, show(info));
 const bTeam = await call(bOwner, 'GET', '/team');
 check('New branch’s team is just its owner', Array.isArray(bTeam.body) && bTeam.body.length === 1 && bTeam.body[0].role === 'owner', show(bTeam));
 const bServices = await call(bOwner, 'GET', '/services');
 const bList = bServices.body?.services ?? bServices.body;
-check('New branch gets HQ’s menu', Array.isArray(bList) && bList.length > 0, show(bServices));
+check('New branch sells the services HQ picked for it', Array.isArray(bList) && bList.length > 0, show(bServices));
 
-const notHq = await call(bOwner, 'POST', '/business/branches', { town: 'Side Town', townCode: 'SDT', ownerName: 'X', ownerPhone: newPhone() });
+const notHq = await call(bOwner, 'POST', '/business/branches', { ...VIJAYAWADA, ownerName: 'X', ownerPhone: newPhone() });
 check('A branch owner can’t open branches', notHq.status === 403, show(notHq));
 const oldRoute = await call(bOwner, 'POST', '/auth/shops', { shopName: 'Side Shop' });
 check('The owner’s open-another-shop route is gone', oldRoute.status === 404, show(oldRoute));

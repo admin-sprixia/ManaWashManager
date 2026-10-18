@@ -1,6 +1,9 @@
 import {
+  BRANCH_SERVICES_SELECT,
+  COMMUNITY_TEAM_RADIUS_KM,
   DEFAULT_POINT_CLASSES,
   basePriceKey,
+  branchServicesOf,
   bodyTypeForName,
   branchCapabilities,
   branchPriceKey,
@@ -39,6 +42,12 @@ const SERVICE_COLUMNS = [
   'catalog_service_id',
   'modes',
   'branch_hidden',
+  'team_at',
+  'duration_min',
+  'kind',
+  'popular',
+  'show_in_app',
+  'checklist',
 ] as const;
 const PRICE_COLUMNS = ['id', 'shop_id', 'service_id', 'vehicle_type_id', 'price', 'mode', 'source', 'list_price'] as const;
 
@@ -88,10 +97,10 @@ function pointRadius(km: number | null): number | null {
 }
 
 async function readBranch(db: DbClient) {
-  const [vehicleTypes, points, services, comboItems, prices, overrides] = await Promise.all([
+  const [vehicleTypes, points, services, comboItems, prices, overrides, menuPicks, kindPicks] = await Promise.all([
     db.vehicleType.findMany({
       orderBy: { sortOrder: 'asc' },
-      select: { id: true, name: true, category: true, active: true, bodyTypeId: true, sortOrder: true },
+      select: { id: true, name: true, category: true, active: true, bodyTypeId: true, sortOrder: true, hqHidden: true },
     }),
     db.servicePoint.findMany({
       orderBy: { sortOrder: 'asc' },
@@ -110,6 +119,12 @@ async function readBranch(db: DbClient) {
         catalogServiceId: true,
         modes: true,
         branchHidden: true,
+        teamAt: true,
+        durationMin: true,
+        kind: true,
+        popular: true,
+        showInApp: true,
+        checklist: true,
       },
     }),
     db.serviceComboItem.findMany({ select: { comboId: true, serviceId: true } }),
@@ -118,11 +133,17 @@ async function readBranch(db: DbClient) {
       select: { id: true, serviceId: true, vehicleTypeId: true, mode: true, price: true, listPrice: true, source: true },
     }),
     db.branchPriceOverride.findMany({ select: { serviceId: true, vehicleTypeId: true, mode: true, price: true } }),
+    // The head-office services switched on for this branch.
+    db.branchMenuService.findMany({ select: { catalogServiceId: true } }),
+    // The kinds of vehicle it washes (none listed: every kind).
+    db.branchBodyType.findMany({ select: { bodyTypeId: true } }),
   ]);
   const linkedIds = new Set(services.filter((s) => s.catalogServiceId).map((s) => s.id));
   return {
     vehicleTypes,
     points,
+    menu: new Set(menuPicks.map((p) => p.catalogServiceId)),
+    kinds: kindPicks.length ? new Set(kindPicks.map((p) => p.bodyTypeId)) : null,
     /** Services generated from the catalog. */
     services: services.filter((s) => s.catalogServiceId),
     /** Live services the branch made by hand. */
@@ -156,6 +177,31 @@ function linkVehicleTypes(shopId: string, businessId: string, data: CatalogData,
   return statements;
 }
 
+/**
+ * The kinds of vehicle head office lets the branch wash: a branch vehicle type whose kind isn't
+ * on the branch's list is hidden; putting it back on the list shows again only the ones hidden
+ * that way (never one the owner removed). Plans already sold for it carry on.
+ */
+function applyHqSwitches(shopId: string, data: CatalogData, branch: Branch): SqlStatement[] {
+  const off = new Set(data.bodyTypes.filter((b) => !b.active || (branch.kinds != null && !branch.kinds.has(b.id))).map((b) => b.id));
+  const statements: SqlStatement[] = [];
+  for (const vt of branch.vehicleTypes) {
+    const hqOff = vt.bodyTypeId != null && off.has(vt.bodyTypeId);
+    if (hqOff && vt.active) {
+      vt.active = false;
+      vt.hqHidden = true;
+    } else if (!hqOff && vt.hqHidden) {
+      vt.active = true;
+      vt.hqHidden = false;
+    } else continue;
+    statements.push({
+      sql: 'UPDATE vehicle_types SET active = ?, hq_hidden = ? WHERE shop_id = ? AND id = ?',
+      params: [vt.active, vt.hqHidden, shopId, vt.id],
+    });
+  }
+  return statements;
+}
+
 /** One rebuild of a branch's menu; see `menuRepo.publish`. */
 async function publishOnce(d1: D1Database, shopId: string): Promise<PublishResult> {
   const pdb = createPlatformDb(d1);
@@ -168,6 +214,7 @@ async function publishOnce(d1: D1Database, shopId: string): Promise<PublishResul
       latitude: true,
       longitude: true,
       serviceRadiusKm: true,
+      ...BRANCH_SERVICES_SELECT,
     },
   });
   if (!shop?.businessId) return { shopId, published: false, changes: 0 };
@@ -193,39 +240,70 @@ async function publishOnce(d1: D1Database, shopId: string): Promise<PublishResul
   const links = linkVehicleTypes(shopId, businessId, data, branch);
   statements.push(...links);
   changes += links.length;
+  const switched = applyHqSwitches(shopId, data, branch);
+  statements.push(...switched);
+  changes += switched.length;
 
-  // A branch's first menu build gives it a hub that washes what it already does, so how it
-  // works is visible (and editable) from day one.
-  if (!branch.points.length) {
-    const classes = new Set<string>(DEFAULT_POINT_CLASSES);
-    for (const vt of branch.vehicleTypes) {
-      const b = vt.active && vt.bodyTypeId ? index.body.get(vt.bodyTypeId) : undefined;
-      if (b) classes.add(b.classKey);
+  // The hub and the community team follow what the branch offers (head office allows, the owner
+  // switches on): one is made at the branch's location the first time it's needed, brought back
+  // when it's switched on again, and paused when it's off. The first ones wash what the branch
+  // already does.
+  const live = branchServicesOf(shop).live;
+  const located = shop.latitude != null && shop.longitude != null;
+  for (const [kind, wanted] of [
+    ['hub', live.hub],
+    ['doorstep', live.community],
+  ] as const) {
+    const own = branch.points.filter((p) => p.kind === kind);
+    if (wanted && !own.some((p) => p.active)) {
+      const paused = own[0];
+      if (paused) {
+        statements.push({ sql: 'UPDATE service_points SET active = 1 WHERE shop_id = ? AND id = ?', params: [shopId, paused.id] });
+        paused.active = true;
+      } else {
+        const classes = new Set<string>(DEFAULT_POINT_CLASSES);
+        for (const vt of branch.vehicleTypes) {
+          const b = vt.active && vt.bodyTypeId ? index.body.get(vt.bodyTypeId) : undefined;
+          if (b) classes.add(b.classKey);
+        }
+        // …and every group on the branch's list of vehicles (tractors chosen when it opened).
+        for (const id of branch.kinds ?? []) {
+          const b = index.body.get(id);
+          if (b) classes.add(b.classKey);
+        }
+        const classIds = [...classes].map((k) => index.classIdByKey.get(k)).filter((id): id is string => !!id);
+        const pointId = newId();
+        statements.push(
+          {
+            sql: 'INSERT INTO service_points (id, shop_id, kind, name, latitude, longitude, radius_km, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            params: [
+              pointId,
+              shopId,
+              kind,
+              kind === 'hub' ? 'Main hub' : 'Community team',
+              located ? shop.latitude : null,
+              located ? shop.longitude : null,
+              located ? (kind === 'hub' ? pointRadius(shop.serviceRadiusKm) : COMMUNITY_TEAM_RADIUS_KM) : null,
+              branch.points.length,
+            ],
+          },
+          ...insertRows(
+            'service_point_classes',
+            ['shop_id', 'point_id', 'class_id'],
+            classIds.map((c) => [shopId, pointId, c]),
+          ),
+        );
+        branch.points.push({ id: pointId, kind, active: true, classes: classIds.map((classId) => ({ classId })) });
+      }
+      changes += 1;
     }
-    const classIds = [...classes].map((k) => index.classIdByKey.get(k)).filter((id): id is string => !!id);
-    const pointId = newId();
-    const located = shop.latitude != null && shop.longitude != null;
-    statements.push(
-      {
-        sql: 'INSERT INTO service_points (id, shop_id, kind, name, latitude, longitude, radius_km) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        params: [
-          pointId,
-          shopId,
-          'hub',
-          'Main hub',
-          located ? shop.latitude : null,
-          located ? shop.longitude : null,
-          located ? pointRadius(shop.serviceRadiusKm) : null,
-        ],
-      },
-      ...insertRows(
-        'service_point_classes',
-        ['shop_id', 'point_id', 'class_id'],
-        classIds.map((c) => [shopId, pointId, c]),
-      ),
-    );
-    branch.points.push({ id: pointId, kind: 'hub', active: true, classes: classIds.map((classId) => ({ classId })) });
-    changes += 1;
+    if (!wanted) {
+      for (const p of own.filter((x) => x.active)) {
+        statements.push({ sql: 'UPDATE service_points SET active = 0 WHERE shop_id = ? AND id = ?', params: [shopId, p.id] });
+        p.active = false;
+        changes += 1;
+      }
+    }
   }
 
   const caps = branchCapabilities(
@@ -240,17 +318,20 @@ async function publishOnce(d1: D1Database, shopId: string): Promise<PublishResul
   // Base prices by class and size.
   const sizeOf = new Map(data.classes.flatMap((c) => c.sizes.map((s) => [s.id, { classKey: c.key, sizeKey: s.key }] as const)));
   const basePrices = new Map<string, number>();
+  const doorstepPrices = new Map<string, number>();
   const pricedSizes = new Set<string>();
   const activeServices = new Set(data.services.filter((s) => s.active).map((s) => s.id));
   for (const e of entries) {
     const size = sizeOf.get(e.sizeId);
     if (!size) continue;
-    basePrices.set(basePriceKey(e.serviceId, size.classKey, size.sizeKey), e.price);
+    const key = basePriceKey(e.serviceId, size.classKey, size.sizeKey);
+    basePrices.set(key, e.price);
+    if (e.doorstepPrice != null) doorstepPrices.set(key, e.doorstepPrice);
     if (activeServices.has(e.serviceId)) pricedSizes.add(`${size.classKey}|${size.sizeKey}`);
   }
 
-  // Body types the branch washes and has prices for get a vehicle type of their own, so a
-  // doorstep team that starts washing tractors can bill one. A type the owner switched off
+  // Kinds on the branch's list that it washes and has prices for get a vehicle type of their own,
+  // so a doorstep team that starts washing tractors can bill one. A type the owner switched off
   // stays off.
   const linkedBodies = new Set(branch.vehicleTypes.map((vt) => vt.bodyTypeId).filter(Boolean));
   const takenNames = new Set(branch.vehicleTypes.map((vt) => vt.name.trim().toLowerCase()));
@@ -259,11 +340,12 @@ async function publishOnce(d1: D1Database, shopId: string): Promise<PublishResul
   for (const b of data.bodyTypes) {
     const info = index.body.get(b.id);
     if (!info || linkedBodies.has(b.id) || takenNames.has(b.name.trim().toLowerCase())) continue;
+    if (branch.kinds != null && !branch.kinds.has(b.id)) continue;
     if (!caps.classKeys.has(info.classKey) || !pricedSizes.has(`${info.classKey}|${info.sizeKey}`)) continue;
     const id = newId();
     const category = categoryForClass(info.classKey);
     newTypes.push([id, shopId, b.name, category, sortOrder, 1, b.id]);
-    branch.vehicleTypes.push({ id, name: b.name, category, active: true, bodyTypeId: b.id, sortOrder });
+    branch.vehicleTypes.push({ id, name: b.name, category, active: true, bodyTypeId: b.id, sortOrder, hqHidden: false });
     sortOrder += 1;
   }
   statements.push(...insertRows('vehicle_types', SHOP_VT_COLUMNS, newTypes));
@@ -287,12 +369,26 @@ async function publishOnce(d1: D1Database, shopId: string): Promise<PublishResul
         name: s.name,
         description: s.description,
         modes: s.modes,
+        details: {
+          teamAt: s.teamAt,
+          durationMin: s.durationMin,
+          kind: s.kind,
+          popular: s.popular,
+          showInApp: s.showInApp,
+          checklist: s.checklist.length ? JSON.stringify(s.checklist) : null,
+        },
         classKeys: s.classIds.map((id) => index.classKey.get(id)).filter((k): k is string => !!k),
+        sizeKeys: s.sizeIds.flatMap((id) => {
+          const z = sizeOf.get(id);
+          return z ? [`${z.classKey}|${z.sizeKey}`] : [];
+        }),
         includes: s.includes,
         sortOrder: s.sortOrder,
-        active: s.active,
+        // Only what head office switched on for this branch (and still live at HQ).
+        active: s.active && branch.menu.has(s.id),
       })),
       basePrices,
+      doorstepPrices,
       adjustments: index.adjustments,
       policy: data.policy,
       zonePercentBp: zone?.percentBp ?? 0,
@@ -375,7 +471,25 @@ async function publishOnce(d1: D1Database, shopId: string): Promise<PublishResul
     if (!existing) {
       const id = newId();
       shopServiceId.set(p.catalogServiceId, id);
-      newServices.push([id, shopId, p.name, p.description, 1, p.appliesTo, p.sortOrder, p.catalogServiceId, p.modes, 0]);
+      const d = p.details;
+      newServices.push([
+        id,
+        shopId,
+        p.name,
+        p.description,
+        1,
+        p.appliesTo,
+        p.sortOrder,
+        p.catalogServiceId,
+        p.modes,
+        0,
+        d.teamAt,
+        d.durationMin,
+        d.kind,
+        d.popular ? 1 : 0,
+        d.showInApp ? 1 : 0,
+        d.checklist,
+      ]);
       continue;
     }
     shopServiceId.set(p.catalogServiceId, existing.id);
@@ -385,11 +499,33 @@ async function publishOnce(d1: D1Database, shopId: string): Promise<PublishResul
       existing.appliesTo !== p.appliesTo ||
       existing.modes !== p.modes ||
       existing.sortOrder !== p.sortOrder ||
+      existing.teamAt !== p.details.teamAt ||
+      existing.durationMin !== p.details.durationMin ||
+      existing.kind !== p.details.kind ||
+      existing.popular !== p.details.popular ||
+      existing.showInApp !== p.details.showInApp ||
+      existing.checklist !== p.details.checklist ||
       !existing.active
     ) {
+      const d = p.details;
       statements.push({
-        sql: 'UPDATE services SET name = ?, description = ?, applies_to = ?, modes = ?, sort_order = ?, active = 1 WHERE shop_id = ? AND id = ?',
-        params: [p.name, p.description, p.appliesTo, p.modes, p.sortOrder, shopId, existing.id],
+        sql: `UPDATE services SET name = ?, description = ?, applies_to = ?, modes = ?, sort_order = ?, team_at = ?, duration_min = ?,
+                kind = ?, popular = ?, show_in_app = ?, checklist = ?, active = 1 WHERE shop_id = ? AND id = ?`,
+        params: [
+          p.name,
+          p.description,
+          p.appliesTo,
+          p.modes,
+          p.sortOrder,
+          d.teamAt,
+          d.durationMin,
+          d.kind,
+          d.popular ? 1 : 0,
+          d.showInApp ? 1 : 0,
+          d.checklist,
+          shopId,
+          existing.id,
+        ],
       });
       changes += 1;
     }
@@ -463,6 +599,28 @@ async function publishOnce(d1: D1Database, shopId: string): Promise<PublishResul
 
 export const menuRepo = {
   /** How the branch works today: ways it delivers and classes it washes. */
+  /**
+   * Vehicle types only the doorstep team washes (its classes aren't taken at the hub). They have
+   * hub prices, because home washes are priced like the hub, but aren't washed at the shop.
+   */
+  async homeOnlyTypes(d1: D1Database, shopId: string): Promise<Set<string>> {
+    const db = createShopDb(d1, shopId);
+    const points = await db.servicePoint.findMany({
+      where: { active: true },
+      select: { kind: true, classes: { select: { classId: true } } },
+    });
+    // No points: a plain hub that washes everything. No team: nothing is washed only at homes.
+    if (!points.some((p) => p.kind === 'doorstep') || !points.some((p) => p.kind !== 'doorstep')) return new Set();
+    const atHub = new Set(points.filter((p) => p.kind !== 'doorstep').flatMap((p) => p.classes.map((c) => c.classId)));
+    const types = await db.vehicleType.findMany({ where: { bodyTypeId: { not: null } }, select: { id: true, bodyTypeId: true } });
+    const bodyIds = [...new Set(types.map((t) => t.bodyTypeId!))];
+    const bodies = bodyIds.length
+      ? await createPlatformDb(d1).bodyType.findMany({ where: { id: { in: bodyIds } }, select: { id: true, classId: true } })
+      : [];
+    const classOf = new Map(bodies.map((b) => [b.id, b.classId]));
+    return new Set(types.filter((t) => { const c = classOf.get(t.bodyTypeId!); return c != null && !atHub.has(c); }).map((t) => t.id));
+  },
+
   async capabilities(d1: D1Database, shopId: string): Promise<BranchCapabilities & { businessId: string | null; policy: PricingPolicy | null }> {
     const pdb = createPlatformDb(d1);
     const shop = await catalogRepo.branchOf(pdb, shopId);
@@ -694,6 +852,15 @@ export const menuRepo = {
       ),
     );
 
+    // The branch they came from keeps selling them: they're switched on there (and only there).
+    statements.push(
+      ...insertRows(
+        'branch_menu_services',
+        ['shop_id', 'catalog_service_id'],
+        [...new Set(catalogFor.values())].map((id) => [shopId, id]),
+        { orIgnore: true },
+      ),
+    );
     statements.push({ sql: 'UPDATE businesses SET catalog_version = catalog_version + 1 WHERE id = ?', params: [businessId] });
     await runStatements(d1, statements);
     const result = await menuRepo.publish(d1, shopId);

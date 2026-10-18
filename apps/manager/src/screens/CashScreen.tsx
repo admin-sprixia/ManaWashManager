@@ -42,6 +42,8 @@ import { EdgeGroup, EdgeRow, Pill } from '../components/EdgeList';
 import { PeriodSelect, type PeriodKey } from '../components/PeriodSelect';
 import { ReasonSheet } from '../components/ReasonSheet';
 import { CalendarSheet } from '../components/CalendarSheet';
+import { MoneyInput } from '../components/cash/MoneyInput';
+import { DoorstepCashCard, hasDoorstepCash, type DoorstepDay } from '../components/cash/DoorstepCashCard';
 import type { DateRange } from '../components/RangeCalendar';
 import { api, apiErrorMessage } from '../api/client';
 import { NetworkError } from '../api/network';
@@ -61,10 +63,13 @@ interface CashDay {
   cashJobs: number;
   cashExpenses: number;
   cashExpenseCount: number;
+  doorstep: DoorstepDay;
   expected: number;
   counted: number | null;
   difference: number | null;
   note: string | null;
+  /** Doorstep cash still with the team when the day closed. */
+  heldAtClose: number | null;
   closedBy: string | null;
   closedAt: string | null;
   changedSinceClose: number;
@@ -94,6 +99,7 @@ interface HistoryDay {
   counted: number | null;
   difference: number | null;
   note: string | null;
+  heldAtClose: number | null;
   closedBy: string | null;
   reopenedBy: string | null;
 }
@@ -197,39 +203,6 @@ function SumChip({
   );
 }
 
-/** The big rupee field used for the morning cash and the closing count. */
-function MoneyInput({
-  value,
-  onChange,
-  placeholder,
-  autoFocus,
-  right,
-}: {
-  value: string;
-  onChange: (t: string) => void;
-  placeholder?: string;
-  autoFocus?: boolean;
-  right?: React.ReactNode;
-}) {
-  const filled = value.trim().length > 0;
-  return (
-    <View style={[styles.moneyField, filled && styles.moneyFieldFilled]}>
-      <Text style={[styles.moneyRupee, filled && styles.moneyRupeeFilled]}>₹</Text>
-      <TextInput
-        style={styles.moneyInput}
-        value={value}
-        onChangeText={onChange}
-        keyboardType="numeric"
-        placeholder={placeholder}
-        placeholderTextColor={colors.slate}
-        autoFocus={autoFocus}
-        maxLength={9}
-      />
-      {right}
-    </View>
-  );
-}
-
 /** Tap + / − for each note; coins as one total. Adds them up into the closing count. */
 function NoteCounter({
   counts,
@@ -321,6 +294,7 @@ export function CashScreen({ navigation, route }: Props) {
   const [noteCounts, setNoteCounts] = useState<Record<number, number>>({});
   const [coinsText, setCoinsText] = useState('');
   const [note, setNote] = useState('');
+  const [leaveHeld, setLeaveHeld] = useState(false);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [reopening, setReopening] = useState(false);
@@ -394,6 +368,7 @@ export function CashScreen({ navigation, route }: Props) {
     setCoinsText('');
     setByNotes(false);
     setNote('');
+    setLeaveHeld(false);
   };
 
   useEffect(() => {
@@ -504,12 +479,15 @@ export function CashScreen({ navigation, route }: Props) {
   const diff = day && countOk ? cashDifference(day.expected, counted) : null;
   const needsNote = diff != null && closeNeedsNote(diff);
   const noteOk = !needsNote || note.trim().length >= MIN_REASON_LENGTH;
+  const held = day?.doorstep.held ?? 0;
+  const heldOk = held === 0 || leaveHeld;
   const closeDay = () =>
     countOk &&
     noteOk &&
+    heldOk &&
     void run(async () => {
       const res = await api.cash.day.close.$post({
-        json: { date, counted, ...(note.trim() ? { note: note.trim() } : {}) },
+        json: { date, counted, ...(note.trim() ? { note: note.trim() } : {}), ...(held > 0 ? { leaveHeld: true } : {}) },
       });
       return { ok: res.ok, res };
     }, 'Day closed');
@@ -529,6 +507,10 @@ export function CashScreen({ navigation, route }: Props) {
   const dayLabel = date === today ? 'Today' : date === yesterday ? 'Yesterday' : weekdayOf(date);
   const statusLabel = day?.status === 'closed' ? 'Closed' : day?.status === 'open' ? 'Open' : day ? 'Not started' : '';
   const logCount = (day?.earlierCloses?.length ?? 0) || (day?.reopenedBy ? 1 : 0);
+  const showDoorstep = hasDoorstepCash(day?.doorstep);
+  const reloadAll = async () => {
+    await Promise.all([load(), loadHistory(), loadWeek()]);
+  };
 
   return (
     <ScreenContainer noPadding>
@@ -676,13 +658,30 @@ export function CashScreen({ navigation, route }: Props) {
                       onPress={day.status === 'open' ? () => setEditingFloat(true) : undefined}
                     />
                     <Text style={styles.sumOp}>+</Text>
-                    <SumChip label="Washes" value={day.cashIn} sub={`${day.cashJobs} paid in cash`} />
+                    <SumChip label={showDoorstep ? 'At shop' : 'Washes'} value={day.cashIn} sub={`${day.cashJobs} paid in cash`} />
+                    {showDoorstep ? (
+                      <>
+                        <Text style={styles.sumOp}>+</Text>
+                        <SumChip label="Doorstep" value={day.doorstep.handedIn} sub="handed in" />
+                      </>
+                    ) : null}
                     <Text style={styles.sumOp}>−</Text>
                     <SumChip label="Spent" value={day.cashExpenses} sub={`${day.cashExpenseCount} expense${day.cashExpenseCount === 1 ? '' : 's'}`} />
                   </View>
                 </>
               )}
             </LinearGradient>
+
+            {showDoorstep ? (
+              <DoorstepCashCard
+                doorstep={day.doorstep}
+                isToday={date === today}
+                dayStatus={day.status}
+                dayOpen={day.status === 'open'}
+                isOwner={isOwner}
+                onChanged={reloadAll}
+              />
+            ) : null}
 
             {/* One panel that changes with the step */}
             {day.status === 'not_started' || editingFloat ? (
@@ -794,8 +793,29 @@ export function CashScreen({ navigation, route }: Props) {
                     />
                   </View>
                 ) : null}
+                {held > 0 ? (
+                  <View style={styles.heldBlock}>
+                    <View style={styles.diffBand}>
+                      <IconAlert size={15} color={colors.amberDeep} />
+                      <Text style={styles.diffText}>
+                        {formatRupees(held)} doorstep cash is still with the team. Take it above first so the box is right.
+                      </Text>
+                    </View>
+                    <Pressable
+                      onPress={() => setLeaveHeld((v) => !v)}
+                      style={({ pressed }) => [styles.carryRow, pressed && styles.pressed]}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: leaveHeld }}
+                    >
+                      <View style={[styles.checkbox, leaveHeld && styles.checkboxOn]}>
+                        {leaveHeld ? <IconCheck size={12} color={colors.white} /> : null}
+                      </View>
+                      <Text style={styles.carryText}>Close anyway: they’ll hand it in later and it carries over</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
                 {formError ? <Text style={styles.formError}>{formError}</Text> : null}
-                <Button label="Close the day" size="lg" loading={busy} disabled={!countOk || !noteOk} onPress={closeDay} />
+                <Button label="Close the day" size="lg" loading={busy} disabled={!countOk || !noteOk || !heldOk} onPress={closeDay} />
               </View>
             ) : (
               <View style={[styles.panel, shadow('sm')]}>
@@ -817,11 +837,19 @@ export function CashScreen({ navigation, route }: Props) {
                   <Pill label={differenceText(closedDiff ?? 0)} tone={differenceTone(closedDiff ?? 0)} />
                 </View>
                 {day.note ? <Text style={styles.noteQuote}>“{day.note}”</Text> : null}
+                {day.heldAtClose ? (
+                  <View style={styles.diffBand}>
+                    <IconAlert size={15} color={colors.amberDeep} />
+                    <Text style={styles.diffText}>
+                      {formatRupees(day.heldAtClose)} doorstep cash was still with the team at close. It carries over until it’s handed in.
+                    </Text>
+                  </View>
+                ) : null}
                 {day.changedSinceClose !== 0 ? (
                   <View style={styles.diffBand}>
                     <IconAlert size={15} color={colors.amberDeep} />
                     <Text style={styles.diffText}>
-                      A cash payment or expense changed after closing ({day.changedSinceClose > 0 ? '+' : '−'}
+                      A cash payment, handover or expense changed after closing ({day.changedSinceClose > 0 ? '+' : '−'}
                       {formatRupees(Math.abs(day.changedSinceClose))}).{isOwner ? ' Reopen to recount.' : ' Tell the owner.'}
                     </Text>
                   </View>
@@ -919,7 +947,12 @@ export function CashScreen({ navigation, route }: Props) {
                   subtitle={
                     d.status === 'open'
                       ? 'Not closed yet'
-                      : [d.counted != null ? `Counted ${formatRupees(d.counted)}` : null, d.closedBy ? `by ${d.closedBy}` : null, d.note ? `“${d.note}”` : null]
+                      : [
+                          d.counted != null ? `Counted ${formatRupees(d.counted)}` : null,
+                          d.closedBy ? `by ${d.closedBy}` : null,
+                          d.heldAtClose ? `${formatRupees(d.heldAtClose)} still with the team` : null,
+                          d.note ? `“${d.note}”` : null,
+                        ]
                           .filter(Boolean)
                           .join(' · ')
                   }
@@ -1096,21 +1129,6 @@ const styles = StyleSheet.create({
   modeChipOn: { backgroundColor: colors.indigo, borderColor: colors.indigo },
   modeChipText: { ...typography.caption, fontSize: 12.5, color: colors.indigo, fontWeight: '700', letterSpacing: 0 },
   modeChipTextOn: { color: colors.white },
-  moneyField: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    height: 60,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.lg,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  moneyFieldFilled: { borderColor: colors.indigo, backgroundColor: colors.white },
-  moneyRupee: { ...typography.heading, fontSize: 24, color: colors.slate },
-  moneyRupeeFilled: { color: colors.ink },
-  moneyInput: { ...typography.heading, flex: 1, fontSize: 26, color: colors.ink, paddingVertical: 0 },
   diffBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1215,6 +1233,20 @@ const styles = StyleSheet.create({
     backgroundColor: colors.amberPale,
   },
   diffText: { ...typography.caption, flex: 1, fontSize: 12.5, color: colors.amberDeep, letterSpacing: 0 },
+  heldBlock: { gap: spacing.sm },
+  carryRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxOn: { backgroundColor: colors.indigo, borderColor: colors.indigo },
+  carryText: { ...typography.caption, flex: 1, fontSize: 12.5, color: colors.ink, letterSpacing: 0 },
 
   logToggle: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'center', paddingVertical: 4 },
   logToggleText: { ...typography.caption, fontSize: 12.5, color: colors.slateDeep, letterSpacing: 0, fontWeight: '700' },

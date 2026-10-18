@@ -15,23 +15,15 @@ import {
   Avatar,
   BRAND_MARK,
   Button,
-  IconCalendar,
-  IconCar,
-  IconChart,
   IconEdit,
-  IconHome,
   IconPlus,
-  IconRupee,
-  IconSparkle,
   IconSync,
-  IconTag,
   IconTrash,
   PhoneField,
   ScreenContainer,
   ScreenHeader,
   brandGradients,
   colors,
-  radius,
   shadow,
   showAlert,
   spacing,
@@ -41,15 +33,11 @@ import { isValidPhone, normalizePhone } from '@mana/domain';
 import { api } from '../../api/client';
 import { useAuth } from '../../api/auth';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
-import { NameSheet, useCatalog } from './shared';
+import { NameSheet, plural, useCatalog } from './shared';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Business'>;
 
 const formatPhone = (p: string) => (p.length === 10 ? `${p.slice(0, 5)} ${p.slice(5)}` : p);
-
-function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? '' : 's'}`;
-}
 
 function NavRow({
   icon,
@@ -98,8 +86,8 @@ function NavRow({
 }
 
 /**
- * The business behind every branch: one price list, its rules and who may change them. Each
- * change here rebuilds every branch's menu on its own.
+ * HQ settings: the business behind every branch, who may change its services and prices, and
+ * tools to rebuild every branch's menu.
  */
 export function BusinessScreen({ navigation }: Props) {
   const { user } = useAuth();
@@ -108,7 +96,7 @@ export function BusinessScreen({ navigation }: Props) {
   const [adminPhone, setAdminPhone] = useState('');
   const [adminError, setAdminError] = useState<string | null>(null);
   const [addingAdmin, setAddingAdmin] = useState(false);
-  const [busy, setBusy] = useState<'publish' | 'import' | 'homeWash' | null>(null);
+  const [busy, setBusy] = useState<'publish' | 'import' | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -116,7 +104,7 @@ export function BusinessScreen({ navigation }: Props) {
     return (
       <ScreenContainer noPadding>
         <View style={styles.headerPad}>
-          <ScreenHeader title="Business price list" onBack={() => navigation.goBack()} />
+          <ScreenHeader title="HQ settings" onBack={() => navigation.goBack()} />
         </View>
         {error ? (
           <View style={styles.centerPad}>
@@ -132,9 +120,6 @@ export function BusinessScreen({ navigation }: Props) {
 
   const updating = catalog.branches.filter((b) => !b.upToDate).length;
   const activeServices = catalog.services.filter((s) => s.active);
-  const doorstep = catalog.adjustments.find((a) => a.mode === 'doorstep' && a.classId == null);
-  const activeZones = catalog.zones.filter((z) => z.active).length;
-  const { policy } = catalog;
   const g = brandGradients.hero;
   const heroColors = (
     updating > 0 ? (['#F59E0B', '#D97706', '#92400E'] as const) : (g.colors as readonly string[])
@@ -157,8 +142,8 @@ export function BusinessScreen({ navigation }: Props) {
     showAlert(
       self ? 'Stop being an admin?' : `Remove +91 ${formatPhone(phone)}?`,
       self
-        ? 'You won’t be able to change the business price list any more. Another admin can add you back.'
-        : 'They keep running their branch, but can’t change the business price list any more.',
+        ? 'You won’t see Mana Wash HQ or change services and prices any more. Another admin can add you back.'
+        : 'They keep running their branch, but can’t change services and prices for every branch any more.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -188,33 +173,6 @@ export function BusinessScreen({ navigation }: Props) {
     if (message) setActionError(message);
   };
 
-  const toggleHomeWash = () => {
-    const turnOn = !catalog.homeWash;
-    showAlert(
-      turnOn ? 'Start washing at single homes?' : 'Stop washing at single homes?',
-      turnOn
-        ? 'New Wash gets a Doorstep choice, and people near your branches can book your team to their home in the Mana Wash app.'
-        : 'Your team keeps washing at communities. New Wash and the Mana Wash app stop offering washes at single homes. Turn it back on any time.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: turnOn ? 'Turn on' : 'Turn off',
-          onPress: () => {
-            void (async () => {
-              setBusy('homeWash');
-              setActionError(null);
-              const message = await run(
-                () => api.business['plan-rules'].$patch({ json: { homeWash: turnOn } }),
-                turnOn ? 'Washing at homes is on' : 'Washing at homes is off',
-              );
-              setBusy(null);
-              if (message) setActionError(message);
-            })();
-          },
-        },
-      ],
-    );
-  };
 
   const importMenu = () => {
     showAlert(
@@ -241,22 +199,10 @@ export function BusinessScreen({ navigation }: Props) {
     );
   };
 
-  const rulesSubtitle = [
-    doorstep
-      ? `${catalog.homeWash ? 'Doorstep' : 'Community'} +${doorstep.percentBp / 100}%`
-      : `No ${catalog.homeWash ? 'doorstep' : 'community'} extra`,
-    activeZones ? plural(activeZones, 'zone') : null,
-    policy.branchOverrides
-      ? `branches ±${Math.max(policy.maxIncreasePct, policy.maxDecreasePct)}%`
-      : 'fixed prices',
-  ]
-    .filter(Boolean)
-    .join(' · ');
-
   return (
     <ScreenContainer noPadding>
       <View style={styles.headerPad}>
-        <ScreenHeader title="Business price list" onBack={() => navigation.goBack()} />
+        <ScreenHeader title="HQ settings" onBack={() => navigation.goBack()} />
       </View>
 
       <ScrollView
@@ -350,93 +296,9 @@ export function BusinessScreen({ navigation }: Props) {
           </LinearGradient>
         </View>
 
-        <Text style={styles.sectionLabel}>Price list</Text>
-        <View style={styles.band}>
-          <NavRow
-            icon={<IconSparkle size={18} color={colors.indigo} />}
-            iconBg={colors.indigoPale}
-            title="Services"
-            subtitle={`${plural(activeServices.length, 'service')} · names, where they’re done, combos`}
-            onPress={() => navigation.navigate('BusinessServices')}
-          />
-          <NavRow
-            icon={<IconRupee size={18} color={colors.tealDeep} />}
-            iconBg="#CCFBF1"
-            title="Base prices"
-            subtitle={`By vehicle size${catalog.priceBooks.length > 1 ? ` · ${catalog.priceBooks.length} price books` : ''}`}
-            onPress={() => navigation.navigate('BusinessPrices')}
-          />
-          <NavRow
-            icon={<IconChart size={18} color={colors.amberDeep} />}
-            iconBg="#FEF3C7"
-            title="Pricing rules"
-            subtitle={rulesSubtitle}
-            onPress={() => navigation.navigate('BusinessRules')}
-          />
-          <NavRow
-            icon={<IconCar size={18} color="#5B21B6" />}
-            iconBg="#EDE9FE"
-            title="Vehicle sizes"
-            subtitle="Which size each kind of vehicle is priced as"
-            onPress={() => navigation.navigate('BusinessVehicles')}
-          />
-          <NavRow
-            icon={<IconTag size={18} color={colors.indigo} />}
-            iconBg={colors.indigoPale}
-            title="Branches & price books"
-            subtitle={updating > 0 ? `${plural(updating, 'branch')} still updating` : 'Which prices and zone each branch uses'}
-            right={
-              updating > 0 ? (
-                <View style={styles.badgeAmber}>
-                  <Text style={styles.badgeAmberText}>Updating</Text>
-                </View>
-              ) : undefined
-            }
-            last
-            onPress={() => navigation.navigate('BusinessBranches')}
-          />
-        </View>
-
-        <Text style={styles.sectionLabel}>Communities</Text>
-        <View style={styles.band}>
-          <NavRow
-            icon={<IconCalendar size={18} color={colors.tealDeep} />}
-            iconBg="#CCFBF1"
-            title="Wash plans"
-            subtitle="Monthly and longer plans, paying, refunds and GST"
-            onPress={() => navigation.navigate('WashPlans')}
-          />
-          <NavRow
-            icon={
-              busy === 'homeWash' ? (
-                <ActivityIndicator color={colors.indigo} />
-              ) : (
-                <IconHome size={18} color={colors.indigo} />
-              )
-            }
-            iconBg={colors.indigoPale}
-            title="Washing at single homes"
-            subtitle={
-              catalog.homeWash
-                ? 'On · people can book your team to their home'
-                : 'Off · your team goes only to communities'
-            }
-            right={
-              <View style={[styles.togglePill, catalog.homeWash ? styles.toggleOn : styles.toggleOff]}>
-                <Text style={[styles.toggleText, catalog.homeWash ? styles.toggleTextOn : styles.toggleTextOff]}>
-                  {catalog.homeWash ? 'On' : 'Off'}
-                </Text>
-              </View>
-            }
-            last
-            disabled={busy != null}
-            onPress={toggleHomeWash}
-          />
-        </View>
-
         <Text style={styles.sectionLabel}>Admins</Text>
         <Text style={styles.help}>
-          Admins change the business price list. Sign in with one of these numbers to see this screen.
+          Admins see Mana Wash HQ in More and change services, prices and rules for every branch.
         </Text>
         <View style={styles.band}>
           {catalog.admins.map((phone, i) => {
@@ -651,14 +513,6 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
 
-  badgeAmber: {
-    paddingHorizontal: 9,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: '#FEF3C7',
-    justifyContent: 'center',
-  },
-  badgeAmberText: { ...typography.caption, fontSize: 11, color: colors.amberDeep, fontWeight: '800', letterSpacing: 0 },
 
   togglePill: {
     paddingHorizontal: 10,

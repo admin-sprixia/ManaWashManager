@@ -60,15 +60,18 @@ function pickOptions(menu: Menu, typeId: string) {
   return { plans, services, any: plans.length + services.length > 0 };
 }
 
-/** "1 wash a week · Exterior Wash · ₹150 a wash (save 10%)" for the picked plan. */
+/** "1 wash a week · 4 Basic Wash washes, every 4th Premium Wash · ₹412 a wash (save ₹147)" for the picked plan. */
 function planLine(menu: Menu, planId: string, typeId: string): string | null {
   const plan = menu.plans.find((p) => p.id === planId);
   const price = plan?.prices.find((x) => x.vehicleTypeId === typeId);
   if (!plan || !price) return null;
   const perWeek = plan.perWeek === 1 ? '1 wash a week' : `${plan.perWeek} washes a week`;
   const each = formatInr(Math.round(price.total / plan.washes));
-  const save = plan.discountBp > 0 ? ` (save ${plan.discountBp / 100}%)` : '';
-  return `${perWeek} · ${plan.washes} ${plan.serviceName} washes · ${each} a wash${save}`;
+  const save = price.listTotal > price.total ? ` (save ${formatInr(price.listTotal - price.total)})` : '';
+  const washes = plan.upgrade
+    ? `${plan.washes} washes: ${plan.serviceName}, every ${plan.upgrade.every}th ${plan.upgrade.name}`
+    : `${plan.washes} ${plan.serviceName} washes`;
+  return `${perWeek} · ${washes} · ${each} a wash${save}`;
 }
 
 /**
@@ -79,7 +82,7 @@ function planLine(menu: Menu, planId: string, typeId: string): string | null {
 export function AddMemberScreen({ navigation, route }: Props) {
   const { placeId } = route.params;
   const detail = useApiData<PlaceDetail>(() => api.places[':id'].$get({ param: { id: placeId } }), 'Couldn’t load this place.');
-  const menuData = useApiData<StaffMenu>(() => api.places.menu.$get(), 'Couldn’t load the plans.');
+  const menuData = useApiData<StaffMenu>(() => api.places.menu.$get({ query: { placeId } }), 'Couldn’t load the plans.');
   const [phone, setPhone] = useState('');
   const [codeSent, setCodeSent] = useState(false);
   const [code, setCode] = useState('');

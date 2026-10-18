@@ -40,7 +40,7 @@ function parseStored<T>(raw: string | null): Partial<T> | null {
  * the PIN is asked again each time the app starts. Every request needs it, so it's also held in
  * memory after first read.
  */
-const KEYCHAIN_SERVICE = 'com.sprixia.manawashpartner.session';
+const KEYCHAIN_SERVICE = 'com.sprixia.srimanawashpartner.session';
 let tokenCache: string | null | undefined;
 
 export async function getSessionToken(): Promise<string | null> {

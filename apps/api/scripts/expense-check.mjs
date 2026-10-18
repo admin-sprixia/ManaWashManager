@@ -4,7 +4,7 @@
 // Staff log expenses but can't edit or delete any; the owner and managers can, with a reason.
 // Edits are logged (and show in the staff report), stock follows a changed purchase, and a
 // deleted expense can't be edited.
-import { API, apiFetch, signIn } from './lib/target.mjs';
+import { API, apiFetch, d1Rows, d1Run, signIn } from './lib/target.mjs';
 
 const PIN = '258025';
 
@@ -123,6 +123,25 @@ r = await call(owner, 'PATCH', `/expenses/${ownerExpense}`, { itemName: 'Expense
 check('The owner edits the item and payment', r.status === 200 && r.body?.changes?.length === 2, show(r));
 r = await call(owner, 'POST', `/expenses/${ownerExpense}/void`, { reason: 'Not a shop expense' });
 check('The owner deletes an expense', r.status === 200, show(r));
+
+// ─── A long list ─────────────────────────────────────────────────────────
+
+// A year of entries is far more than D1's 100 values in one IN list.
+const shopId = d1Rows(`SELECT shop_id FROM users WHERE phone = '9100000000'`)[0]?.shop_id;
+const ownerId = d1Rows(`SELECT id FROM users WHERE phone = '9100000000'`)[0]?.id;
+const bulk = Array.from({ length: 150 }, () => id('expbulk'));
+const bulkDate = new Date(`${today}T00:00:00+05:30`).toISOString().replace('Z', '+00:00');
+d1Run(
+  `INSERT INTO expenses (id, shop_id, category, amount, item_name, payment_method, date, created_by_user_id) VALUES ${bulk
+    .map((e) => `('${e}', '${shopId}', 'other', 100, 'Expense check bulk', 'upi', '${bulkDate}', '${ownerId}')`)
+    .join(', ')};` +
+    `INSERT INTO expense_edits (id, expense_id, shop_id, edited_by_user_id, reason, changes) VALUES ('${id('edit')}', '${bulk[149]}', '${shopId}', '${ownerId}', 'Bulk check', '[]');`,
+);
+r = await call(owner, 'GET', '/expenses?range=year');
+const bulkItems = (r.body?.items ?? []).filter((x) => x.itemName === 'Expense check bulk');
+check('A year with 150+ expenses lists them all', r.status === 200 && bulkItems.length === 150, `${r.status} ${bulkItems.length}`);
+check('…and still marks the edited one', bulkItems.filter((x) => x.edited).length === 1 && bulkItems.find((x) => x.edited)?.id === bulk[149]);
+d1Run(`DELETE FROM expense_edits WHERE expense_id IN (SELECT id FROM expenses WHERE item_name = 'Expense check bulk'); DELETE FROM expenses WHERE item_name = 'Expense check bulk';`);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

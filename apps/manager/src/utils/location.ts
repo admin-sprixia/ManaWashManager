@@ -51,8 +51,8 @@ function position(highAccuracy: boolean, maximumAge: number): Promise<Point> {
 }
 
 /** Where the phone is now, for pinning a community's gate. Throws a LocationError fit to show. */
-export async function currentLocation(): Promise<Point> {
-  if (!(await askPermission('To pin the community’s gate where you are standing.'))) {
+export async function currentLocation(why = 'To pin the community’s gate where you are standing.'): Promise<Point> {
+  if (!(await askPermission(why))) {
     throw new LocationError('Location is off for this app. Drag the pin, or type the location.', 'denied');
   }
   try {

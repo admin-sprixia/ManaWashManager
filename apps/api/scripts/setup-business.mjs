@@ -11,7 +11,10 @@
  *   --name        the owner's name, as the app shows it (required)
  *   --phone       the owner's 10-digit mobile number (required)
  *   --town        the first branch's town, which is also its name (required)
- *   --town-code   the town's 3 letters; the branch becomes <CODE>-01, e.g. KVR-01 (required)
+ *   --town-code   the town's 3 letters; the branch becomes <CODE>-001, e.g. KVR-001 (required)
+ *   --code        the branch ID exactly as wanted instead (optional; same pattern, e.g. KVR-001)
+ *   --pincode     the branch's pincode, e.g. 524137 (optional; later branches find their town from it)
+ *   --lat --lng   where the branch's hub is, e.g. --lat 14.514614 --lng 79.987589 (optional)
  *   --business    the business name (default "Mana Wash")
  *   --into        local | staging | remote (required); remote also needs --yes
  *
@@ -50,6 +53,14 @@ const town = (opt('town') ?? '').trim();
 if (town.length < 2 || town.length > 40) die('Give the first branch’s town: --town Kovur');
 const townCode = (opt('town-code') ?? '').trim().toUpperCase();
 if (!/^[A-Z]{3}$/.test(townCode)) die('Give the town’s 3-letter code: --town-code KVR');
+const customCode = opt('code')?.trim().toUpperCase();
+if (customCode != null && !/^[A-Z]{3}-\d{2,4}$/.test(customCode)) die('The branch ID is the town code, a dash and a number: --code KVR-001');
+const pincode = opt('pincode')?.replace(/\D/g, '') ?? null;
+if (pincode != null && !/^[1-9]\d{5}$/.test(pincode)) die('The pincode is 6 digits: --pincode 524137');
+const lat = opt('lat') == null ? null : Number(opt('lat'));
+const lng = opt('lng') == null ? null : Number(opt('lng'));
+if ((lat == null) !== (lng == null)) die('Give both --lat and --lng, or neither.');
+if (lat != null && !(Math.abs(lat) <= 90 && Math.abs(lng) <= 180)) die('That location doesn’t look right: --lat 14.514614 --lng 79.987589');
 const business = (opt('business') ?? 'Mana Wash').trim();
 if (business.length < 1 || business.length > 80) die('--business must be 1–80 characters.');
 const target = TARGETS[opt('into') ?? ''];
@@ -78,18 +89,19 @@ if (d1(`SELECT id FROM users WHERE phone = ${sql(phone)} AND removed_at IS NULL 
 
 const businessId = 'biz_mana';
 const shopId = randomUUID();
-const code = `${townCode}-01`;
+const code = customCode ?? `${townCode}-001`;
+if (!code.startsWith(`${townCode}-`)) die(`The branch ID must start with the town code: ${townCode}-001`);
 d1(
   [
     `INSERT INTO businesses (id, name) VALUES (${sql(businessId)}, ${sql(business)})`,
-    `INSERT INTO shops (id, code, name, city, business_id) VALUES (${sql(shopId)}, ${sql(code)}, ${sql(town)}, ${sql(town)}, ${sql(businessId)})`,
+    `INSERT INTO shops (id, code, name, city, business_id, latitude, longitude, pincode) VALUES (${sql(shopId)}, ${sql(code)}, ${sql(town)}, ${sql(town)}, ${sql(businessId)}, ${lat ?? 'NULL'}, ${lng ?? 'NULL'}, ${pincode ? sql(pincode) : 'NULL'})`,
     `INSERT INTO users (id, shop_id, name, phone, role) VALUES (${sql(randomUUID())}, ${sql(shopId)}, ${sql(name)}, ${sql(phone)}, 'owner')`,
     `INSERT INTO business_admins (business_id, phone) VALUES (${sql(businessId)}, ${sql(phone)})`,
   ].join(';\n'),
 );
 
 console.log(`${business} is set up (${opt('into')}):`);
-console.log(`  • Branch ${code} · ${town}`);
+console.log(`  • Branch ${code} · ${town}${pincode ? ` · ${pincode}` : ''}${lat != null ? ` · at ${lat}, ${lng}` : ''}`);
 console.log(`  • ${name} (${phone}): owner of ${code} and ${business} HQ`);
 console.log('');
 console.log('Next, in the app:');

@@ -1,12 +1,13 @@
 import React from 'react';
-import { ActivityIndicator, Image, type ImageSourcePropType, Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors, radius, shadow, spacing, typography, IconCheck, IconPlus } from '@mana/ui';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { colors, radius, shadow, spacing, typography, IconCheck, IconPlus, VehicleArt } from '@mana/ui';
 
 interface VehicleTileProps {
   label: string;
   /** Example models under the name, e.g. "Swift, i20, Alto". */
   hint?: string;
-  image: ImageSourcePropType;
+  /** The catalog body type, so the icon is right even for an unusual name. */
+  bodyKey?: string | null;
   width: number;
   selected: boolean;
   busy?: boolean;
@@ -14,8 +15,8 @@ interface VehicleTileProps {
   onPress: () => void;
 }
 
-/** Selectable vehicle photo with its name underneath; a teal ring and tick when selected. */
-export function VehicleTile({ label, hint, image, width, selected, busy, disabled, onPress }: VehicleTileProps) {
+/** Selectable vehicle tile with its name underneath; a teal ring and tick when selected. */
+export function VehicleTile({ label, hint, bodyKey, width, selected, busy, disabled, onPress }: VehicleTileProps) {
   const photoHeight = Math.round(width * 0.74);
   return (
     <Pressable
@@ -27,7 +28,7 @@ export function VehicleTile({ label, hint, image, width, selected, busy, disable
       accessibilityLabel={label}
     >
       <View style={[styles.frame, { height: photoHeight }, selected && styles.frameOn]}>
-        <Image source={image} style={styles.photo} resizeMode="cover" />
+        <VehicleArt name={label} bodyKey={bodyKey} style={styles.photo} />
         {selected ? <View style={styles.tint} /> : null}
         <View style={[styles.badge, selected || busy ? styles.badgeOn : styles.badgeOff]}>
           {busy ? (

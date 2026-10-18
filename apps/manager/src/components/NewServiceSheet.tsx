@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -22,11 +21,11 @@ import {
   IconDroplet,
   IconGift,
   IconSparkle,
+  VehicleArt,
 } from '@mana/ui';
 import { formatRupees, parseRupees } from '../utils/format';
 import { ComboIncludesPicker } from './ComboIncludesPicker';
 import { VehicleTile } from './VehicleTile';
-import { vehicleImageFor } from './VehicleTypeIcon';
 
 interface NewServiceSheetProps {
   visible: boolean;
@@ -402,10 +401,9 @@ export function NewServiceSheet({
           <View style={styles.emptyVehicles}>
             <View style={styles.emptyStack}>
               {EMPTY_STATE_VEHICLES[category].map((n, i) => (
-                <Image
+                <VehicleArt
                   key={n}
-                  source={vehicleImageFor(n)}
-                  resizeMode="cover"
+                  name={n}
                   style={[
                     styles.emptyThumb,
                     i === 1 && styles.emptyThumbCenter,
@@ -441,7 +439,6 @@ export function NewServiceSheet({
                     <VehicleTile
                       key={vt.id}
                       label={vt.name}
-                      image={vehicleImageFor(vt.name)}
                       width={tileWidth}
                       selected={vt.id in picked}
                       onPress={() => toggle(vt.id)}
@@ -498,7 +495,7 @@ export function NewServiceSheet({
               const saving = apart != null && typed != null && !Number.isNaN(typed) ? apart - typed : null;
               return (
                 <View key={vt.id} style={[styles.priceRow, (i > 0 || pickedTypes.length > 1) && styles.priceDivider]}>
-                  <Image source={vehicleImageFor(vt.name)} style={styles.priceThumb} resizeMode="cover" />
+                  <VehicleArt name={vt.name} style={styles.priceThumb} />
                   <View style={styles.priceCopy}>
                     <Text style={styles.priceName} numberOfLines={1}>
                       {vt.name}

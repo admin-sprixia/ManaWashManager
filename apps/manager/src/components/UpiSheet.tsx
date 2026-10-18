@@ -84,7 +84,7 @@ export function UpiSheet({ visible, onClose }: { visible: boolean; onClose: () =
         tone={saved ? 'teal' : 'indigo'}
         icon={<IconUpi size={22} color={saved ? colors.teal : colors.indigo} />}
         title={saved ? 'QR is shown at payment' : 'No UPI ID yet'}
-        caption={saved ? upiId! : 'Add your UPI ID and Collect payment will show a scannable QR.'}
+        caption={saved ? upiId : 'Add your UPI ID and Collect payment will show a scannable QR.'}
         right={saved ? <SheetPill tone="teal" label="On" /> : undefined}
       />
       <TextField

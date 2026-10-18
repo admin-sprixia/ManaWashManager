@@ -221,12 +221,14 @@ export const placeRoutes = new Hono<{ Bindings: Env }>()
     return c.json(await placeRepo.demand(c.env.DB, c.get('session').shopId));
   })
   /** What a member can buy here (plans and washes per vehicle type), for adding someone (Flow E). */
-  .get('/menu', async (c) => {
+  .get('/menu', zValidator('query', z.object({ placeId: idSchema.optional() })), async (c) => {
     const shopId = c.get('session').shopId;
     const pdb = createPlatformDb(c.env.DB);
     const businessId = await catalogRepo.businessForShop(c.env.DB, shopId);
     const rules = await businessRules(pdb, businessId);
-    return c.json({ menu: await planRepo.menu(pdb, shopId, businessId, rules.priceMode), rules });
+    // For one community, its prices include its volume discount (if it has enough cars).
+    const { placeId } = c.req.valid('query');
+    return c.json({ menu: await planRepo.menu(pdb, shopId, businessId, rules.priceMode, placeId), rules });
   })
   .get('/:id', zValidator('param', placeParam), async (c) => {
     const id = c.req.valid('param').id;

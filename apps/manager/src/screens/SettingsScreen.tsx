@@ -1,6 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
-  Image,
   LayoutAnimation,
   Platform,
   Pressable,
@@ -32,13 +31,13 @@ import {
   shadow,
   spacing,
   typography,
+  VehicleArt,
 } from '@mana/ui';
 import { NewServiceSheet, type NewServiceInput } from '../components/NewServiceSheet';
 import { EditServiceSheet } from '../components/EditServiceSheet';
 import { PriceSheet } from '../components/PriceSheet';
 import { VehiclePickerSheet } from '../components/VehiclePickerSheet';
 import { VehicleStack } from '../components/VehicleStack';
-import { vehicleImageFor } from '../components/VehicleTypeIcon';
 import { Fab } from '../components/Fab';
 import { Band, BandRow, ScreenHero, SectionTitle } from '../components/ScreenChrome';
 import { api, apiErrorMessage } from '../api/client';
@@ -418,7 +417,7 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
   return (
     <ScreenContainer noPadding>
       <View style={styles.headerPad}>
-        <ScreenHeader title="Services & prices" onBack={() => navigation.goBack()} />
+        <ScreenHeader title="This branch’s prices" onBack={() => navigation.goBack()} />
       </View>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <ScreenHero
@@ -481,13 +480,13 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
 
         {hasCatalog && policy ? (
           <View style={styles.banner}>
-            <Notice tone="info" title="Prices from the business price list">
+            <Notice tone="info" title="Prices from Mana Wash HQ">
               {policy.branchOverrides
-                ? `Services marked PRICE LIST come from the business. You can charge up to ${policy.maxDecreasePct}% less or ${policy.maxIncreasePct}% more at this branch.`
-                : 'Services marked PRICE LIST come from the business, at the business’s prices.'}
+                ? `Services marked PRICE LIST come from HQ. You can charge up to ${policy.maxDecreasePct}% less or ${policy.maxIncreasePct}% more at this branch.`
+                : 'Services marked PRICE LIST come from HQ, at HQ’s prices.'}
             </Notice>
             {network?.isBusinessAdmin ? (
-              <Button label="Edit the business price list" variant="secondary" onPress={() => navigation.navigate('Business')} />
+              <Button label="Edit base prices in Mana Wash HQ" variant="secondary" onPress={() => navigation.navigate('BusinessPrices')} />
             ) : null}
           </View>
         ) : null}
@@ -661,7 +660,7 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
                             accessibilityRole="button"
                             accessibilityLabel={`${vt.name} price`}
                           >
-                            <Image source={vehicleImageFor(vt.name)} style={styles.priceThumb} resizeMode="cover" />
+                            <VehicleArt name={vt.name} style={styles.priceThumb} />
                             <View style={styles.priceCopy}>
                               <Text style={styles.priceVehicle} numberOfLines={1}>
                                 {vt.name}
@@ -680,7 +679,7 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
                       })}
                       {catalog && notOffered.length > 0 ? (
                         <Text style={styles.catalogNote}>
-                          {notOffered.map((vt) => vt.name).join(', ')}: not in the business price list
+                          {notOffered.map((vt) => vt.name).join(', ')}: not in HQ’s price list
                           {mode === 'doorstep' ? ' for doorstep washes' : ''}.
                         </Text>
                       ) : null}
@@ -695,11 +694,7 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
                           accessibilityRole="button"
                           accessibilityLabel={`Offer for ${vt.name}`}
                         >
-                          <Image
-                            source={vehicleImageFor(vt.name)}
-                            style={[styles.priceThumb, styles.priceThumbOff]}
-                            resizeMode="cover"
-                          />
+                          <VehicleArt name={vt.name} style={[styles.priceThumb, styles.priceThumbOff]} />
                           <View style={styles.priceCopy}>
                             <Text style={[styles.priceVehicle, styles.priceVehicleOff]} numberOfLines={1}>
                               {vt.name}

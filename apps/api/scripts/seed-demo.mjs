@@ -7,7 +7,8 @@
 //   cd apps/api && npm run db:seed:staging   (the deployed staging Worker and mana_db_staging)
 //
 // What it makes (all PINs 258025; a new phone confirms with the dev code 000000 first):
-//   Mana Wash, Nellore — owner Hrushikesh 9888626111; staff Ravi 9300000011,
+//   Mana Wash Nellore City (branch code NLR-01), the only branch — owner Hrushikesh 9888626111;
+//   staff Ravi 9300000011,
 //   Suresh 9300000012, Kiran 9300000013.
 //   ~75 days of washes, customers and vehicles; reminders (due and comeback), coupons and
 //   referrals; expenses with bill photos; stock; attendance; cash drawer days; an error report;
@@ -15,8 +16,6 @@
 //   Customer feedback: open problems, vehicle-add requests, and wash ratings.
 //   A doorstep team for Nellore communities, beside the Kovur hub; the owner runs the business
 //   catalog (services, base prices by size, the doorstep extra) that every branch's menu comes from.
-//   A second branch, Mana Wash Kavali, on the same catalog in a cheaper town price zone, with
-//   its own staff (Venkat 9300000021) and washes.
 //   Places the doorstep van serves: Lakshmi Towers (flats, members on plans, today's wash list with
 //   paid and unpaid vehicles, GST receipts) and Sri Ram Nagar (a member waiting for the team), plus
 //   "Call me back" requests nearby. Plans: Monthly, Quarterly (payable in parts), Bike Monthly.
@@ -33,7 +32,8 @@ import { join } from 'node:path';
 import { API, API_DIR, STAGING, TARGET, apiFetch, d1Execute, d1Rows, DEV_CODE, signIn as signInWith } from './lib/target.mjs';
 
 const PIN = '258025';
-const VEHICLE_ART = join(API_DIR, '..', '..', 'packages', 'ui', 'src', 'assets', 'vehicles');
+/** A plain drawn car, for wash photos when pictures can't be drawn. */
+const SAMPLE_PHOTO = join(API_DIR, 'scripts', 'fixtures', 'sample-photo.jpg');
 const TMP = mkdtempSync(join(tmpdir(), 'mana-seed-'));
 const SHOP = 'shop_mana';
 
@@ -120,21 +120,13 @@ function render(svg) {
   });
   return new File([readFileSync(jpg)], `${name}.jpg`, { type: 'image/jpeg' });
 }
-const ART = {
-  vt_hatchback: 'vehicle-hatchback.jpg',
-  vt_sedan: 'vehicle-sedan.jpg',
-  vt_mini_suv: 'vehicle-suv-mini.jpg',
-  vt_large_suv: 'vehicle-suv-large.jpg',
-  vt_bike: 'vehicle-bike.jpg',
-  vt_scooter: 'vehicle-scooter.jpg',
-};
-const artFile = (vt) => join(VEHICLE_ART, ART[vt] ?? 'vehicle-sedan.jpg');
-const rawArt = (vt) => new File([readFileSync(artFile(vt))], 'vehicle.jpg', { type: 'image/jpeg' });
+/** The same sample picture for every vehicle type. */
+const rawArt = () => new File([readFileSync(SAMPLE_PHOTO)], 'vehicle.jpg', { type: 'image/jpeg' });
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
 function vehiclePhoto(vt, plate, kind) {
   if (!canDraw) return rawArt(vt);
-  const b64 = readFileSync(artFile(vt)).toString('base64');
+  const b64 = readFileSync(SAMPLE_PHOTO).toString('base64');
   const dirt =
     kind === 'before'
       ? `<rect width="800" height="800" fill="#6b4f2a" opacity="0.38"/>
@@ -309,7 +301,7 @@ const MODELS = {
   vt_bike: [['Royal Enfield', 'Classic 350'], ['Bajaj', 'Pulsar 150'], ['Yamaha', 'R15'], ['Hero', 'Splendor']],
   vt_scooter: [['Honda', 'Activa'], ['TVS', 'Jupiter'], ['Suzuki', 'Access'], ['Ather', '450X']],
 };
-const usedPhones = new Set([OWNER.phone, ...STAFF.map((s) => s.phone), '9300000021']);
+const usedPhones = new Set([OWNER.phone, ...STAFF.map((s) => s.phone)]);
 const usedPlates = new Set();
 function newPhone() {
   for (;;) {
@@ -418,7 +410,7 @@ for (const row of query("SELECT service_id, vehicle_type_id, price FROM service_
 step(`Writing the team and ${visits.filter((v) => v.daysAgo > API_DAYS).length} older washes straight into the database`);
 {
   const sql = [];
-  sql.push(`UPDATE shops SET name = 'Mana Wash', city = 'Nellore', created_at = ${q(ts(at(90, 9)))} WHERE id = '${SHOP}';`);
+  sql.push(`UPDATE shops SET name = 'Mana Wash Nellore City', city = 'Nellore', created_at = ${q(ts(at(90, 9)))} WHERE id = '${SHOP}';`);
   sql.push(
     `UPDATE users SET name = ${q(OWNER.name)}, phone = ${q(OWNER.phone)}, pin_hash = ${q(await hashPin(PIN))}, pin_digits = ${PIN.length}, created_at = ${q(ts(at(90, 9)))} WHERE id = '${OWNER.id}';`,
   );
@@ -564,7 +556,7 @@ const OWN = tokens[OWNER.id];
 const tokenOf = (person) => tokens[person.id];
 
 step('Shop setup: name, the menu from the business catalog, staff commissions, Google review link');
-await call(OWN, 'PUT', '/shop/info', { name: 'Mana Wash', city: 'Nellore' });
+await call(OWN, 'PUT', '/shop/info', { name: 'Mana Wash Nellore City', city: 'Nellore' });
 // The first menu read builds the branch's menu from the catalog: its own services (above) are
 // adopted with their ids, and the combo's contents come from the catalog's combo.
 await call(OWN, 'GET', '/services');
@@ -985,7 +977,7 @@ step('Customer feedback: problems, ratings and vehicle-add requests');
 {
   // Recent paid washes give us real customers and jobs to hang ratings and problems on.
   const jobs = query(`
-    SELECT j.id AS job_id, j.customer_id, j.vehicle_type_id, v.registration_number
+    SELECT j.id AS job_id, j.customer_id, v.vehicle_type_id, v.registration_number
     FROM jobs j
     JOIN vehicles v ON v.id = j.vehicle_id AND v.shop_id = j.shop_id
     WHERE j.shop_id = '${SHOP}' AND j.status = 'paid' AND j.payment_status = 'paid'
@@ -1437,63 +1429,6 @@ const placesDemo = {};
   placesDemo.asking = asking.length;
 }
 
-step('Second branch: Mana Wash Kavali');
-// HQ opens the branch, with the same owner (who keeps their PIN).
-const opened = await call(OWN, 'POST', '/business/branches', {
-  town: 'Kavali',
-  townCode: 'KVL',
-  ownerName: OWNER.name,
-  ownerPhone: OWNER.phone,
-});
-const kavali = await call(OWN, 'POST', '/auth/switch', { shopId: opened.id });
-const KAV = kavali.token;
-// Listing a branch in the Mana Wash app is Sprixia's switch; the owner sets where it washes.
-runSql([`UPDATE shops SET in_customer_app = 1 WHERE id = '${kavali.user.shopId}';`], 'customer-app-kavali');
-await call(KAV, 'PUT', '/service-area', { latitude: 14.9163, longitude: 79.9945, radiusKm: 6 });
-await call(KAV, 'POST', '/service-area/areas', { name: 'Kavali', pincode: '524201' });
-await call(KAV, 'PUT', '/service-area/contact', {
-  address: 'Trunk Road, opposite RTC Depot, Kavali 524201',
-  phone: '9300000021',
-  opensAt: '08:00',
-  closesAt: '19:30',
-  weeklyOff: 2,
-});
-// A new branch of the business gets the catalog's menu straight away; Kavali is a smaller town,
-// so the business puts it in a price zone 10% under the list price.
-await call(OWN, 'POST', '/business/zones', { name: 'Small towns', percentBp: -1000 });
-const smallTowns = (await call(OWN, 'GET', '/business/catalog')).zones.find((z) => z.name === 'Small towns');
-await call(OWN, 'PATCH', `/business/branches/${kavali.user.shopId}`, { priceZoneId: smallTowns.id });
-const kvTypes = Object.fromEntries((await call(KAV, 'GET', '/services/vehicle-types')).map((v) => [v.name, v.id]));
-const kvServices = Object.fromEntries((await call(KAV, 'GET', '/services')).map((s) => [s.name, s.id]));
-const kvComplete = { id: kvServices['Complete Car Wash'] };
-const kvBike = { id: kvServices['Complete Bike Wash'] };
-const venkat = await call(KAV, 'POST', '/team', { name: 'Venkat', phone: '9300000021', role: 'staff' });
-const venkatToken = (await signInWith('9300000021', PIN)).body?.token;
-const kvWash = async (minutesAgo, vt, serviceId, stopAt) => {
-  const who = walkIn('vt_sedan');
-  const id = cid('job');
-  const t = todayAt(minutesBack(minutesAgo));
-  await call(venkatToken, 'POST', '/jobs/start', {
-    id,
-    occurredAt: t.toISOString(),
-    customer: { phone: who.customer.phone, name: who.customer.name },
-    registrationNumber: who.vehicle.plate,
-    vehicleTypeId: vt,
-    services: [{ serviceId, quantity: 1 }],
-  });
-  if (stopAt === 'waiting') return;
-  await call(venkatToken, 'PATCH', `/jobs/${id}/status`, { status: 'washing', occurredAt: addMin(t, 5).toISOString(), washerIds: [venkat.id] });
-  if (stopAt === 'washing') return;
-  await call(venkatToken, 'PATCH', `/jobs/${id}/status`, { status: 'ready', occurredAt: addMin(t, 35).toISOString() });
-  await call(KAV, 'POST', `/jobs/${id}/pay`, { paymentMethod: 'cash', occurredAt: addMin(t, 45).toISOString() });
-};
-await call(venkatToken, 'PUT', '/cash/day/float', { date: day(0), amount: 100000 });
-await kvWash(240, kvTypes.Sedan, kvComplete.id, 'paid');
-await kvWash(150, kvTypes.SUV, kvComplete.id, 'paid');
-await kvWash(60, kvTypes.Bike, kvBike.id, 'washing');
-await kvWash(15, kvTypes.Hatchback, kvComplete.id, 'waiting');
-await call(KAV, 'PUT', '/attendance', { userId: venkat.id, date: day(0), status: 'present' });
-
 // ─── Timestamps the API sets to "now" ─────────────────────────────────────
 
 step('Back-dating records the API stamps with the current time');
@@ -1539,7 +1474,7 @@ const [counts] = query(`SELECT
   (SELECT COUNT(*) FROM vehicle_requests WHERE shop_id = '${SHOP}' AND status = 'pending') AS pending_vehicles,
   (SELECT COUNT(*) FROM wash_ratings WHERE shop_id = '${SHOP}') AS ratings`);
 console.log(`
-Done. Mana Wash (Nellore), branch code HYD-01:
+Done. Mana Wash Nellore City, branch code NLR-01:
   ${counts.customers} customers · ${counts.vehicles} vehicles · ${counts.jobs} washes · ${counts.expenses} expenses
   ${counts.photos} wash photos · ${counts.coupons} coupons · ${counts.cash_days} cash drawer days
   Rewards: ${counts.free_washes} free wash${counts.free_washes === 1 ? '' : 'es'} used · ${counts.gifts_given} welcome gifts given · ${counts.gifts_owed} owed
@@ -1547,10 +1482,9 @@ Done. Mana Wash (Nellore), branch code HYD-01:
   Communities: ${placesDemo.towers.name} (code ${placesDemo.towers.code}, ${placesDemo.towers.units} flats) and ${placesDemo.colony.name} (code ${placesDemo.colony.code}) live
     Green Park Residency waiting for approval · Sai Krupa Apartments still a draft
     ${placesDemo.paid} plan${placesDemo.paid === 1 ? '' : 's'} paid · ${placesDemo.unpaid} not paid · ${placesDemo.pending} member waiting for the team · ${placesDemo.asking} people asking
-  ${canDraw ? '' : '(photos are vehicle pictures — bills are only drawn on macOS)\n  '}
+  ${canDraw ? '' : '(photos are a sample picture — bills are only drawn on macOS)\n  '}
 Sign in (PIN ${PIN} for everyone):
-  Owner   Hrushikesh   ${OWNER.phone}   (both branches — switch from the shop name on Home)
+  Owner   Hrushikesh   ${OWNER.phone}   (also head office: HQ in More)
   Staff   Ravi Kumar   ${ravi.phone}
   Staff   Suresh Babu  ${suresh.phone}
-  Staff   Kiran Teja   ${kiran.phone}
-  Kavali  Venkat       9300000021`);
+  Staff   Kiran Teja   ${kiran.phone}`);

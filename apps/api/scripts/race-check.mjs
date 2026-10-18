@@ -372,7 +372,7 @@ check('31 February is refused, not read as 3 March', r.status === 400, show(r));
 
 const founderShop = rows(`SELECT shop_id FROM users WHERE phone = '${founderPhone}'`)[0]?.shop_id;
 const tables = [
-  'job_photos', 'stock_moves', 'stock_items', 'cash_day_closes', 'cash_days', 'attendance', 'app_settings',
+  'job_photos', 'stock_moves', 'stock_items', 'cash_handovers', 'cash_day_closes', 'cash_days', 'attendance', 'app_settings',
   'referrals', 'coupons', 'job_events', 'job_services', 'job_sellers', 'job_washers', 'jobs', 'vehicles',
   'customers', 'login_codes', 'service_prices', 'services', 'vehicle_types', 'users',
 ];

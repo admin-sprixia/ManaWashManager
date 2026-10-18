@@ -156,6 +156,8 @@ await call(OWN, 'PUT', '/business/prices', {
     { serviceId: POLISH, sizeId: size('car', 'S'), price: 10000 },
   ],
 });
+// HQ switches them on for branch A (nothing reaches a branch by itself).
+await call(OWN, 'PUT', `/business/branches/${A}/menu`, { serviceIds: [WASH, POLISH] });
 await call(OWN, 'GET', '/services');
 r = await call(OWN, 'POST', '/branch/points', { kind: 'doorstep', name: 'Places Van', latitude: LAT, longitude: LNG, radiusKm: 10, classIds: [cls.car.id, cls.twoWheeler.id] });
 check('Setup: catalog services, prices and a doorstep team for cars and bikes', !!WASH && !!POLISH && r.status === 201, show(r));
@@ -427,6 +429,11 @@ check('A plan wash can’t carry another discount too', r.status === 400, show(r
 const planJob = planWash();
 r = await call(STF, 'POST', '/jobs/start', planJob);
 check('The plan pays for the wash: nothing to collect', r.status === 201 && r.body?.total === 0 && r.body?.discount === r.body?.subtotal && /Plan wash/.test(r.body?.discountReason ?? ''), show(r));
+check('…and the wash records the service the plan paid for (it earns no loyalty stamp)', d1Rows(`SELECT plan_service_id AS s FROM jobs WHERE id = '${planJob.id}'`)[0]?.s === shopPlan?.service?.id);
+r = await call(OWN, 'GET', '/jobs/stats?range=today');
+check('Reports count the community wash once, and the plan wash at the shop as a shop wash', r.status === 200 && r.body?.communityWashes === 1, show(r));
+r = await call(OWN, 'GET', '/reports/staff?range=today');
+check('…and the staff report doesn’t count the shop plan wash as a community wash', r.body?.rows?.find((x) => x.userId === STAFF)?.communityWashes === 1, show(r));
 o1 = (await call(C1, 'GET', `/c/orders/${order1.id}`)).body?.order;
 check('…and it uses one plan wash (2 of 4)', o1?.washesUsed === 2, JSON.stringify(o1));
 r = await call(STF, 'POST', '/jobs/start', planJob);

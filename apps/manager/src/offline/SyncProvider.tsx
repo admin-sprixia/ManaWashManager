@@ -11,6 +11,7 @@ import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../api/auth';
 import { isOnline, subscribeOnline } from '../api/network';
+import { getSessionToken } from '../api/session';
 import { showToast } from '@mana/ui';
 import { queueError } from '../utils/errorReporter';
 import { newId } from '../utils/id';
@@ -130,13 +131,18 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     setSyncing(true);
     let delivered = false;
     try {
+      // Everything this round sends goes as the session it started with: switching branch
+      // mid-sync signs in as another account, and its changes mustn't reach that branch.
+      const token = await getSessionToken();
+      if (!token) return;
       for (;;) {
+        if (userRef.current?.id !== me.id) break;
         const next = itemsRef.current.find((i) => i.userId === me.id && i.state === 'pending');
         if (!next) break;
         // Backing off after a server-side failure; everything behind it waits its turn.
         if (next.nextAttemptAt && next.nextAttemptAt > Date.now()) break;
 
-        const result = await sendOp(next.op);
+        const result = await sendOp(next.op, token);
         if (result.ok || (!result.ok && result.kind === 'superseded')) {
           delivered = true;
           await commit(itemsRef.current.filter((i) => i.id !== next.id));

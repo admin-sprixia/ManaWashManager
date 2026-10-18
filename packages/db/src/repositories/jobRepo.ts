@@ -27,6 +27,12 @@ export interface CreateJobInput {
   /** Washed at the hub (default) or at the customer's door, and by which service point. */
   deliveryMode?: DeliveryMode;
   servicePointId?: string | null;
+  /** The service a community plan paid for, on a plan wash at the shop. */
+  planServiceId?: string | null;
+  visitKm?: number | null;
+  visitPoint?: { latitude: number; longitude: number } | null;
+  /** A bill a wash plan was sold on (money, not a wash). */
+  planSaleId?: string | null;
 }
 
 const personSelect = { select: { id: true, name: true } } as const;
@@ -223,6 +229,11 @@ export const jobRepo = {
         createdAt: at,
         deliveryMode: data.deliveryMode ?? 'hub',
         servicePointId: data.servicePointId ?? null,
+        planServiceId: data.planServiceId ?? null,
+        visitKm: data.visitKm ?? null,
+        visitLatitude: data.visitPoint?.latitude ?? null,
+        visitLongitude: data.visitPoint?.longitude ?? null,
+        planSaleId: data.planSaleId ?? null,
         jobServices: { create: data.lineItems },
         ...(data.sellerIds?.length
           ? {
@@ -429,13 +440,34 @@ export const jobRepo = {
   },
 
   /** Cash actually taken in `[from, to)`: paid-in-cash jobs by when they were paid. */
+  /** Cash taken at the shop in `[from, to)`: it went straight into the drawer. */
   async cashCollected(db: DbClient, from: Date, to: Date): Promise<{ total: number; count: number }> {
     const result = await db.job.aggregate({
-      where: { status: 'paid', paymentMethod: 'cash', completedAt: { gte: from, lt: to } },
+      where: { status: 'paid', paymentMethod: 'cash', deliveryMode: 'hub', completedAt: { gte: from, lt: to } },
       _sum: { total: true },
       _count: true,
     });
     return { total: result._sum.total ?? 0, count: result._count };
+  },
+
+  /**
+   * Doorstep cash by who collected it: in `[from, to)`, or ever when no window is given. It stays
+   * with them until a handover brings it to the drawer.
+   */
+  async doorstepCashByCollector(db: DbClient, window?: { from: Date; to: Date }) {
+    const rows = await db.job.groupBy({
+      by: ['paidByUserId'],
+      where: {
+        status: 'paid',
+        paymentMethod: 'cash',
+        deliveryMode: 'doorstep',
+        paidByUserId: { not: null },
+        ...(window ? { completedAt: { gte: window.from, lt: window.to } } : {}),
+      },
+      _sum: { total: true },
+      _count: { _all: true },
+    });
+    return rows.map((r) => ({ userId: r.paidByUserId!, total: r._sum.total ?? 0, count: r._count._all }));
   },
 
   async markPaid(
@@ -540,17 +572,18 @@ export const jobRepo = {
    * job was paid (`completedAt`) — same clock as the cash drawer — so a wash started
    * yesterday and paid today shows under today. Voids still use `createdAt` (no pay time).
    * "New" means this paid job is that customer's first-ever non-void job; "repeat" means
-   * they'd visited before `from`.
+   * they'd visited before `from`. Community washes are plan cars washed at communities (their
+   * money is plan income); a plan wash at the shop is a job, so it isn't counted twice.
    */
   async getStats(db: DbClient, from: Date, to: Date) {
     const notVoid = { status: { not: 'void' } };
     const paidInWindow = { status: 'paid' as const, completedAt: { gte: from, lt: to } };
-    const [paid, voided, firstVisits] = await Promise.all([
+    const [paid, voided, firstVisits, communityWashes] = await Promise.all([
       db.job.findMany({
         where: paidInWindow,
-        select: { total: true, discount: true, paymentMethod: true, customerId: true },
+        select: { total: true, discount: true, paymentMethod: true, customerId: true, deliveryMode: true, planSaleId: true },
       }),
-      db.job.count({ where: { status: 'void', createdAt: { gte: from, lt: to } } }),
+      db.job.count({ where: { status: 'void', createdAt: { gte: from, lt: to }, planSaleId: null } }),
       // First visit of every customer who paid in the window.
       db.job.groupBy({
         by: ['customerId'],
@@ -560,6 +593,7 @@ export const jobRepo = {
         },
         _min: { createdAt: true },
       }),
+      db.placeVisit.count({ where: { outcome: 'done', jobId: null, createdAt: { gte: from, lt: to } } }),
     ]);
 
     const sumWhere = (pred: (j: (typeof paid)[number]) => boolean) =>
@@ -578,12 +612,21 @@ export const jobRepo = {
       else repeatCustomers += 1;
     }
 
+    // A bill a plan was sold on is money in, but not a car washed.
+    const washes = paid.filter((j) => !j.planSaleId);
     return {
-      carsWashed: paid.length,
+      carsWashed: washes.length,
       revenue: paid.reduce((sum, j) => sum + j.total, 0),
       cash: sumWhere((j) => j.paymentMethod === 'cash'),
       upi: sumWhere((j) => j.paymentMethod === 'upi'),
       other: sumWhere((j) => j.paymentMethod === 'other'),
+      /** Washes at customers' homes, and what they brought in (part of carsWashed and revenue). */
+      doorstepWashes: paid.filter((j) => j.deliveryMode === 'doorstep').length,
+      doorstepRevenue: sumWhere((j) => j.deliveryMode === 'doorstep'),
+      communityWashes,
+      /** Wash plans sold at the counter, and what they brought in (part of revenue). */
+      shopPlansSold: paid.length - washes.length,
+      shopPlanRevenue: sumWhere((j) => !!j.planSaleId),
       discounts: paid.reduce((sum, j) => sum + j.discount, 0),
       voided,
       newCustomers,
@@ -592,42 +635,49 @@ export const jobRepo = {
   },
 
   /**
-   * Per-staff performance for jobs created in `[from, to)`: washes each person started and
-   * washed, commission earned (paid jobs only, split between the people who got the customer
-   * to take the commission services), and money each person
-   * collected (split by method) — the numbers the owner uses to reconcile each person's cash
-   * at the end of a shift and to pay them.
+   * Per-staff performance in `[from, to)`: washes each person started (and voided) by when they
+   * were started; washed, commission earned (split between the people who got the customer to
+   * take the commission services) and money collected (split by method) by when the wash was
+   * paid — the same clock as Reports and the cash drawer, so a car started at night and paid in
+   * the morning counts on the morning both here and there. These are the numbers the owner uses
+   * to reconcile each person's cash at the end of a shift and to pay them.
    */
   async getStaffStats(db: DbClient, from: Date, to: Date) {
-    const inWindow = { createdAt: { gte: from, lt: to } };
+    const window = { gte: from, lt: to };
+    const inWindow = { createdAt: window };
+    const touched = { OR: [{ createdAt: window }, { status: 'paid', completedAt: window }] };
+    const startedIn = (at: Date) => at >= from && at < to;
     const byJobThenUser = [{ jobId: 'asc' as const }, { userId: 'asc' as const }];
     const [users, jobRows, lines, washers, sellers, events, visits] = await Promise.all([
       db.user.findMany({ select: { id: true, name: true, role: true, active: true } }),
       db.job.findMany({
-        where: inWindow,
+        where: touched,
         select: {
           id: true,
           status: true,
           total: true,
           paymentMethod: true,
+          createdAt: true,
+          completedAt: true,
           createdByUserId: true,
           paidByUserId: true,
           voidedByUserId: true,
         },
       }),
       db.jobService.findMany({
-        where: { job: inWindow },
+        where: { job: touched },
         orderBy: [{ jobId: 'asc' }, { serviceId: 'asc' }],
         select: { jobId: true, commissionAtTime: true, quantity: true },
       }),
-      db.jobWasher.findMany({ where: { job: inWindow }, orderBy: byJobThenUser, select: { jobId: true, userId: true } }),
-      db.jobSeller.findMany({ where: { job: inWindow }, orderBy: byJobThenUser, select: { jobId: true, userId: true } }),
+      db.jobWasher.findMany({ where: { job: touched }, orderBy: byJobThenUser, select: { jobId: true, userId: true } }),
+      db.jobSeller.findMany({ where: { job: touched }, orderBy: byJobThenUser, select: { jobId: true, userId: true } }),
       db.jobEvent.findMany({
         where: { ...inWindow, action: 'payment_method_changed' },
         select: { userId: true },
       }),
+      // A plan wash at the shop also writes a visit (with its job): it's counted as a shop wash.
       db.placeVisit.findMany({
-        where: { ...inWindow, outcome: 'done', byUserId: { not: null } },
+        where: { ...inWindow, outcome: 'done', byUserId: { not: null }, jobId: null },
         select: { byUserId: true },
       }),
     ]);
@@ -668,11 +718,13 @@ export const jobRepo = {
     );
 
     for (const job of jobs) {
-      if (job.status !== 'void') {
+      const started = startedIn(job.createdAt);
+      const paidHere = job.status === 'paid' && job.completedAt != null && job.completedAt >= from && job.completedAt < to;
+      if (started && job.status !== 'void') {
         const creator = rows.get(job.createdByUserId);
         if (creator) creator.washesStarted += 1;
       }
-      if (job.status === 'paid') {
+      if (paidHere) {
         const washerIds = job.washers.map((w) => w.userId);
         for (const id of washerIds) {
           const washer = rows.get(id);
@@ -691,7 +743,7 @@ export const jobRepo = {
           if (seller) seller.commission += share;
         }
       }
-      if (job.status === 'paid' && job.paidByUserId) {
+      if (paidHere && job.paidByUserId) {
         const collector = rows.get(job.paidByUserId);
         if (collector) {
           collector.jobsCollected += 1;
@@ -701,7 +753,7 @@ export const jobRepo = {
           else collector.other += job.total;
         }
       }
-      if (job.status === 'void' && job.voidedByUserId) {
+      if (started && job.status === 'void' && job.voidedByUserId) {
         const voider = rows.get(job.voidedByUserId);
         if (voider) voider.voids += 1;
       }

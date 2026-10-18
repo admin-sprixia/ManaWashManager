@@ -25,10 +25,11 @@ export type SendResult =
   /** Someone else already moved the job on; the server's state wins, nothing to do. */
   | { ok: false; kind: 'superseded' };
 
-async function call(op: OutboxOp): Promise<ApiResponse> {
+async function call(op: OutboxOp, asToken?: string): Promise<ApiResponse> {
+  const as = asToken ? { headers: { Authorization: `Bearer ${asToken}` } } : undefined;
   switch (op.kind) {
     case 'job.start':
-      return api.jobs.start.$post({ json: op.payload });
+      return api.jobs.start.$post({ json: op.payload }, as);
     case 'job.status':
       return api.jobs[':id'].status.$patch({
         param: { id: op.payload.jobId },
@@ -36,38 +37,41 @@ async function call(op: OutboxOp): Promise<ApiResponse> {
           op.payload.status === 'washing'
             ? { status: 'washing', occurredAt: op.payload.occurredAt, washerIds: op.payload.washerIds }
             : { status: 'ready', occurredAt: op.payload.occurredAt },
-      });
+      }, as);
     case 'job.washers':
       return api.jobs[':id'].washers.$put({
         param: { id: op.payload.jobId },
         json: { washerIds: op.payload.washerIds },
-      });
+      }, as);
     case 'job.sellers':
       return api.jobs[':id'].sellers.$put({
         param: { id: op.payload.jobId },
         json: { sellerIds: op.payload.sellerIds },
-      });
+      }, as);
     case 'photo.upload':
-      return uploadPhoto(op.payload);
+      return uploadPhoto(op.payload, asToken);
     case 'job.pay':
       return api.jobs[':id'].pay.$post({
         param: { id: op.payload.jobId },
         json: { paymentMethod: op.payload.paymentMethod, occurredAt: op.payload.occurredAt },
-      });
+      }, as);
     case 'job.void':
       return api.jobs[':id'].void.$post({
         param: { id: op.payload.jobId },
         json: { reason: op.payload.reason, occurredAt: op.payload.occurredAt },
-      });
+      }, as);
     case 'expense.create':
-      return uploadExpense(op.payload);
+      return uploadExpense(op.payload, asToken);
     case 'stock.move':
-      return api.stock.moves.$post({ json: op.payload });
+      return api.stock.moves.$post({ json: op.payload }, as);
   }
 }
 
-/** Sends one outbox operation and classifies the outcome for the sync loop. */
-export async function sendOp(op: OutboxOp): Promise<SendResult> {
+/**
+ * Sends one outbox operation and classifies the outcome for the sync loop. `asToken` sends it as
+ * the session that queued it, so a branch switched to mid-sync can't receive another's changes.
+ */
+export async function sendOp(op: OutboxOp, asToken?: string): Promise<SendResult> {
   // A missing photo file makes the upload fail exactly like a lost signal; catch it here so it
   // doesn't wait forever.
   for (const uri of opLocalFiles(op)) {
@@ -82,7 +86,7 @@ export async function sendOp(op: OutboxOp): Promise<SendResult> {
 
   let res: ApiResponse;
   try {
-    res = await call(op);
+    res = await call(op, asToken);
   } catch (e) {
     if (e instanceof NetworkError) return { ok: false, kind: 'network' };
     return { ok: false, kind: 'retry', message: e instanceof Error ? e.message : 'Unexpected error' };

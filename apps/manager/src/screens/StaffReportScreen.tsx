@@ -12,6 +12,8 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   EXPENSE_CATEGORY_LABEL,
   PAYMENT_METHOD_LABEL,
+  USER_ROLE_LABEL,
+  toUserRole,
   type ExpenseCategory,
   type PaymentMethod,
 } from '@mana/domain';
@@ -22,7 +24,9 @@ import {
   Button,
   IconAlert,
   IconBan,
+  IconCash,
   IconChevronRight,
+  IconDrawer,
   IconEdit,
   IconReceipt,
   IconShield,
@@ -62,12 +66,16 @@ interface StaffRow {
   communityWashes: number;
   servicesSold: number;
   commission: number;
+  /** Doorstep cash they hold right now, from any day. */
+  doorstepHeld?: number;
+  /** Doorstep cash they handed in short in this period. */
+  doorstepShort?: number;
   attendance: { present: number; half: number; absent: number; daysWorked: number };
 }
 
 interface AuditItem {
   id: string;
-  kind: 'job_void' | 'payment_change' | 'expense_void' | 'expense_edit';
+  kind: 'job_void' | 'payment_change' | 'expense_void' | 'expense_edit' | 'handover_undo' | 'drawer_reopen';
   at: string;
   by: { id: string; name: string };
   reason: string | null;
@@ -111,6 +119,20 @@ const KIND_META = {
     Icon: IconEdit,
     fg: '#0369A1',
     bg: '#E0F2FE',
+  },
+  handover_undo: {
+    label: 'Handover undone',
+    short: 'Handovers undone',
+    Icon: IconCash,
+    fg: '#B45309',
+    bg: '#FEF3C7',
+  },
+  drawer_reopen: {
+    label: 'Cash day reopened',
+    short: 'Reopens',
+    Icon: IconDrawer,
+    fg: '#5B21B6',
+    bg: '#EDE9FE',
   },
 } as const;
 
@@ -184,6 +206,8 @@ export function StaffReportScreen({ navigation }: Props) {
     payment_change: 0,
     expense_void: 0,
     expense_edit: 0,
+    handover_undo: 0,
+    drawer_reopen: 0,
   } as Record<AuditItem['kind'], number>);
 
   return (
@@ -316,7 +340,7 @@ export function StaffReportScreen({ navigation }: Props) {
                         }
                         iconBg="transparent"
                         title={r.name}
-                        subtitle={`${r.role === 'owner' ? 'Owner' : 'Staff'}${r.active ? '' : ' · Turned off'}`}
+                        subtitle={`${USER_ROLE_LABEL[toUserRole(r.role)]}${r.active ? '' : ' · Turned off'}`}
                         muted={!r.active}
                         right={
                           <View style={styles.personRight}>
@@ -396,6 +420,22 @@ export function StaffReportScreen({ navigation }: Props) {
                           </Text>
                         ) : null}
 
+                        {(r.doorstepHeld ?? 0) > 0 || (r.doorstepShort ?? 0) > 0 ? (
+                          <Pressable
+                            onPress={() => navigation.navigate('Cash')}
+                            hitSlop={6}
+                            style={({ pressed }) => [styles.flagLine, pressed && styles.pressedFade]}
+                          >
+                            <IconCash size={14} color={colors.amberDeep} />
+                            <Text style={styles.flagText}>
+                              {(r.doorstepHeld ?? 0) > 0 ? `Holds ${formatRupees(r.doorstepHeld ?? 0)} doorstep cash` : ''}
+                              {(r.doorstepHeld ?? 0) > 0 && (r.doorstepShort ?? 0) > 0 ? ' · ' : ''}
+                              {(r.doorstepShort ?? 0) > 0 ? `${formatRupees(r.doorstepShort ?? 0)} short at handovers` : ''}
+                            </Text>
+                            <Text style={styles.flagLink}>Cash drawer ›</Text>
+                          </Pressable>
+                        ) : null}
+
                         {flags > 0 ? (
                           <Pressable
                             onPress={() => setTab('audit')}
@@ -426,11 +466,12 @@ export function StaffReportScreen({ navigation }: Props) {
             <View style={styles.howTo}>
               <Text style={styles.howToTitle}>How these are counted</Text>
               <Text style={styles.howToText}>
-                • Started — washes each person created.{'\n'}• Collected — money they marked paid,
-                for washes started in this period.{'\n'}• Commission — only on services that have
+                • Started — washes each person created in this period.{'\n'}• Collected — money they
+                marked paid in this period (same days as Reports and the cash drawer).{'\n'}• Commission — only on services that have
                 one (like rust coating), for whoever got the customer to take it, once paid. Split
                 equally when several people helped.{'\n'}• Days worked — a half day counts as 0.5.
                 {'\n'}• Communities — plan cars each person marked washed on a community wash day.
+                {'\n'}• Doorstep cash — what they hold now, and any amount handed in short.
               </Text>
             </View>
           </>
@@ -439,7 +480,7 @@ export function StaffReportScreen({ navigation }: Props) {
             <ScreenHero
               eyebrow="Voids & corrections"
               title="Clean books"
-              meta="No voids or payment corrections in this period."
+              meta="No voids or corrections in this period."
             />
             <View style={styles.stateBox}>
               <View style={[styles.stateIcon, styles.cleanIcon]}>
@@ -455,7 +496,7 @@ export function StaffReportScreen({ navigation }: Props) {
               tone="alert"
               eyebrow="Voids & corrections"
               title={`${audit.length} ${audit.length === 1 ? 'change' : 'changes'} to review`}
-              meta="Every void, deleted expense and payment fix, with who did it and why."
+              meta="Every void, payment fix, expense change, undone handover and reopened cash day, with who did it and why."
               chips={(Object.keys(KIND_META) as AuditItem['kind'][]).map((k) => ({
                 label: KIND_META[k].short,
                 value: kindCounts[k],

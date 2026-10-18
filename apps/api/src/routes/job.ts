@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import {
+  awayPricingRepo,
   businessRules,
   catalogRepo,
   couponRepo,
@@ -9,11 +10,13 @@ import {
   customerRepo,
   expenseRepo,
   jobRepo,
+  menuRepo,
   placeOrderRepo,
   referralRepo,
   rewardRepo,
   serviceAreaRepo,
   serviceRepo,
+  shopPlanRepo,
   stockRepo,
   type D1Database,
   type DbClient,
@@ -36,6 +39,9 @@ import {
   PriceNotFoundError,
   referralProblemMessage,
   stockLevel,
+  distanceKm,
+  roadKm,
+  visitCharge,
   type ExpenseCategory,
   type JobStatus,
   type PaymentMethod,
@@ -68,6 +74,8 @@ async function undoVoidedJobExtras(db: DbClient, d1: D1Database, jobId: string, 
   await cancelReferralForVoidedJob(db, jobId);
   await rewardRepo.returnForVoidedJob(db, jobId, { userId, now });
   await placeOrderRepo.releaseShopWash(d1, db.$shopId(), jobId);
+  await shopPlanRepo.release(d1, db.$shopId(), jobId);
+  await shopPlanRepo.cancelSale(db, jobId);
 }
 
 /** Client-generated ids (offline queue) — opaque, URL-safe, bounded. */
@@ -101,8 +109,13 @@ const pricingFields = {
     .refine((lines) => lines.every((l) => l.quantity <= MAX_SERVICE_QUANTITY), `At most ${MAX_SERVICE_QUANTITY} of one service`),
   discount: z.number().int().min(0).default(0),
   discountReason: z.string().trim().max(200).optional(),
-  /** Washed at the hub or at the customer's door: doorstep washes use the doorstep prices. */
+  /** Washed at the hub or at the customer's home: a home wash is the hub price plus a visit charge. */
   mode: z.enum(['hub', 'doorstep']).default('hub'),
+  /**
+   * A home wash: where the home is (the phone's location at the home). The server measures the
+   * distance from the branch for the visit charge; without it, the customer's saved home is used.
+   */
+  visitPoint: z.object({ latitude: z.number().min(-90).max(90), longitude: z.number().min(-180).max(180) }).optional(),
 };
 
 // V1.0's own feature table: "discounts require a reason" — enforced here too, not just in
@@ -158,10 +171,16 @@ const startJobSchema = z
       .optional(),
     /** A community plan pays for this wash: its service is free and one plan wash is used. */
     planOrderId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/).optional(),
+    /** A plan bought at this counter for this vehicle pays for its wash (one a day). */
+    shopPlanId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/).optional(),
     ...pricingFields,
     sellerIds: sellerIdsSchema.optional(),
   })
   .refine(discountNeedsReason, discountReasonIssue)
+  .refine((d) => !d.shopPlanId || (!d.planOrderId && d.discount === 0 && !d.couponCode && !d.referralToken && !d.rewardServiceIds), {
+    message: 'A plan wash can’t be combined with another discount',
+    path: ['shopPlanId'],
+  })
   .refine((d) => !d.planOrderId || (d.discount === 0 && !d.couponCode && !d.referralToken && !d.rewardServiceIds), {
     message: 'A plan wash can’t be combined with another discount',
     path: ['planOrderId'],
@@ -212,9 +231,19 @@ type PricingInput = z.infer<typeof createJobSchema>;
  * vehicle type; a discount larger than the subtotal) are real operator mistakes, returned as
  * a typed error rather than thrown.
  */
+/** What a doorstep visit charge needs: whose visit, when, and the branch whose rules apply. */
+interface VisitContext {
+  d1: D1Database;
+  shopId: string;
+  at: Date;
+  customer: { phone: string } | { customerId: string };
+  jobId?: string;
+}
+
 async function priceJob(
   db: DbClient,
   body: Pick<PricingInput, keyof typeof pricingFields>,
+  visit?: VisitContext,
 ) {
   const vehicleType = await serviceRepo.getVehicleType(db, body.vehicleTypeId);
   if (!vehicleType)
@@ -231,14 +260,36 @@ async function priceJob(
       message: 'One or more selected services are not offered for this vehicle type.',
     };
   }
+  const picked = catalog.filter((s) => body.services.some((x) => x.serviceId === s.id));
+  if (body.mode === 'doorstep') {
+    // A home wash: a service done only at communities, or only at the shop, isn't sold there.
+    const notAtHomes = picked.find((s) => s.teamAt === 'community' || s.modes === 'hub');
+    if (notAtHomes) {
+      const where = notAtHomes.teamAt === 'community' ? 'at communities only' : 'at the shop only';
+      return { error: 'not_at_homes' as const, message: `${notAtHomes.name} is done ${where}, not at customers’ homes.` };
+    }
+    const team = await db.servicePoint.count({ where: { kind: 'doorstep', active: true } });
+    if (!team) return { error: 'mode_not_offered' as const, message: 'This branch doesn’t do doorstep washes.' };
+  } else {
+    const notAtShop = picked.find((s) => s.catalogServiceId && s.modes === 'doorstep');
+    if (notAtShop) return { error: 'not_at_shop' as const, message: `${notAtShop.name} is done at customers’ homes only.` };
+    // Home washes are priced like the hub, so a vehicle only the doorstep team takes (a tractor)
+    // has a hub price too: the shop itself still doesn't wash it.
+    if (visit && (await menuRepo.homeOnlyTypes(visit.d1, visit.shopId)).has(vehicleType.id)) {
+      return { error: 'not_at_shop' as const, message: `${vehicleType.name} is washed at customers’ homes only, not at the shop.` };
+    }
+  }
 
-  const [prices, commissionRates] = await Promise.all([
-    serviceRepo.listPrices(db, body.vehicleTypeId, body.mode),
+  const [allPrices, commissionRates] = await Promise.all([
+    serviceRepo.listPrices(db, body.vehicleTypeId),
     serviceRepo.listCommissionRates(db, body.vehicleTypeId),
   ]);
-  if (prices.length === 0 && body.mode === 'doorstep') {
-    return { error: 'mode_not_offered' as const, message: 'This branch doesn’t do doorstep washes for this vehicle.' };
-  }
+  // Head-office services cost the same at a home as at the shop (the visit charge is its own
+  // line); a branch's hand-made service keeps its own doorstep price.
+  const fromCatalog = new Map(catalog.map((s) => [s.id, s.catalogServiceId != null]));
+  const prices = allPrices.filter(
+    (p) => p.mode === (body.mode === 'doorstep' && !fromCatalog.get(p.serviceId) ? 'doorstep' : 'hub'),
+  );
   const commissionFor = new Map(commissionRates.map((r) => [r.serviceId, r.amount]));
   let breakdown: ReturnType<typeof calculatePrice>;
   try {
@@ -259,15 +310,64 @@ async function priceJob(
     };
   }
 
+  const lineItems = breakdown.lineItems.map((li) => ({
+    serviceId: li.serviceId,
+    priceAtTime: li.unitPrice,
+    commissionAtTime: commissionFor.get(li.serviceId) ?? 0,
+    quantity: li.quantity,
+  }));
+
+  // One visit charge per visit: a second car at the same home that day shares the first's.
+  let visitAmount = 0;
+  let visitKm: number | null = null;
+  let visitPoint: { latitude: number; longitude: number } | null = null;
+  if (body.mode === 'doorstep' && visit) {
+    const { doorstep } = await awayPricingRepo.forShop(visit.d1, visit.shopId);
+    // The distance is measured, never typed: from the branch's pin to the home.
+    let km = 0;
+    if (doorstep.perKmPaise > 0 || doorstep.maxKm < 100) {
+      visitPoint = body.visitPoint ?? (await awayPricingRepo.savedHome(db, visit.customer));
+      if (!visitPoint) {
+        return {
+          error: 'location_needed' as const,
+          message: 'Turn on location on this phone at the customer’s home, so the visit can be measured.',
+        };
+      }
+      const branch = await awayPricingRepo.branchPoint(visit.d1, visit.shopId);
+      if (!branch) {
+        return { error: 'branch_location_missing' as const, message: 'This branch has no map location yet. Ask head office to set it.' };
+      }
+      km = roadKm(distanceKm(branch, visitPoint));
+    }
+    const charge = visitCharge(km, doorstep, visit.at);
+    if (charge.tooFar) {
+      return {
+        error: 'too_far' as const,
+        message: `That home is ${charge.km} km from the branch. The team goes up to ${doorstep.maxKm} km.`,
+      };
+    }
+    visitKm = charge.km;
+    const shared = await awayPricingRepo.sameVisit(db, visit.customer, visit.at, visit.jobId);
+    visitAmount = shared ? 0 : charge.total;
+    if (visitAmount > 0) {
+      lineItems.push({
+        serviceId: await awayPricingRepo.visitService(db, visit.shopId),
+        priceAtTime: visitAmount,
+        commissionAtTime: 0,
+        quantity: 1,
+      });
+    }
+  }
+
   return {
-    subtotal: breakdown.subtotal,
-    total,
-    lineItems: breakdown.lineItems.map((li) => ({
-      serviceId: li.serviceId,
-      priceAtTime: li.unitPrice,
-      commissionAtTime: commissionFor.get(li.serviceId) ?? 0,
-      quantity: li.quantity,
-    })),
+    subtotal: breakdown.subtotal + visitAmount,
+    total: total + visitAmount,
+    /** The visit charge in the subtotal: coupons and offers take nothing off it. */
+    visitAmount,
+    visitKm,
+    /** Where the home was: kept on the wash, and as the customer's home. */
+    visitPoint,
+    lineItems,
   };
 }
 
@@ -321,9 +421,10 @@ async function finishReplayedJob(
   existing: BoardRow,
   body: Pick<PricingInput, keyof typeof pricingFields> & { sellerIds?: string[] },
   userId: string,
+  visit?: VisitContext,
 ) {
   if (existing.jobServices.length > 0) return existing;
-  const priced = await priceJob(db, body);
+  const priced = await priceJob(db, body, visit && { ...visit, jobId: existing.id });
   if ('error' in priced) return existing;
   return (
     (await jobRepo.completeCreate(db, existing.id, {
@@ -353,13 +454,20 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     const db = c.get('db');
     const session = c.get('session');
 
+    const createdAt = occurredAt(c, body.occurredAt);
+    const visit: VisitContext = {
+      d1: c.env.DB,
+      shopId: session.shopId,
+      at: createdAt,
+      customer: { customerId: body.customerId },
+      jobId: body.id,
+    };
     if (body.id) {
       const existing = await jobRepo.findBoardRow(db, body.id);
-      if (existing) return c.json(await finishReplayedJob(db, existing, body, session.sub), 200);
+      if (existing) return c.json(await finishReplayedJob(db, existing, body, session.sub, visit), 200);
     }
 
-    const createdAt = occurredAt(c, body.occurredAt);
-    const priced = await priceJob(db, body);
+    const priced = await priceJob(db, body, visit);
     if ('error' in priced) return c.json({ error: priced.error, message: priced.message }, 400);
 
     const job = await jobRepo.create(db, {
@@ -375,7 +483,10 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       lineItems: priced.lineItems,
       sellerIds: await resolveSellers(db, priced.lineItems, undefined, session.sub),
       deliveryMode: body.mode,
+      visitKm: priced.visitKm,
+      visitPoint: priced.visitPoint,
     });
+    if (priced.visitPoint) await awayPricingRepo.rememberHome(db, body.customerId, priced.visitPoint);
     return c.json(job, 201);
   })
   .post('/start', zValidator('json', startJobSchema), async (c) => {
@@ -383,12 +494,19 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     const db = c.get('db');
     const session = c.get('session');
 
-    const existing = await jobRepo.findBoardRow(db, body.id);
-    if (existing) return c.json(await finishReplayedJob(db, existing, body, session.sub), 200);
-
     const createdAt = occurredAt(c, body.occurredAt);
+    const visit: VisitContext = {
+      d1: c.env.DB,
+      shopId: session.shopId,
+      at: createdAt,
+      customer: { phone: body.customer.phone },
+      jobId: body.id,
+    };
+    const existing = await jobRepo.findBoardRow(db, body.id);
+    if (existing) return c.json(await finishReplayedJob(db, existing, body, session.sub, visit), 200);
+
     // Price first so a bad selection never leaves a half-created customer behind.
-    const priced = await priceJob(db, body);
+    const priced = await priceJob(db, body, visit);
     if ('error' in priced) return c.json({ error: priced.error, message: priced.message }, 400);
 
     // Coupons are checked against the vehicle and owner as they stand *before* this request
@@ -457,7 +575,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
 
     // A community plan member at the shop: the plan's wash is free, and uses one of its washes.
     const planInvalid = (message: string) => c.json({ error: 'plan_wash_invalid' as const, message }, 409);
-    let planWash: { discount: number; reason: string } | null = null;
+    let planWash: { discount: number; reason: string; serviceId: string } | null = null;
     if (body.planOrderId) {
       if (body.ownership) return planInvalid('A plan wash can’t be used while the vehicle’s owner is being changed.');
       const plans = await placeOrderRepo.shopPlans(c.env.DB, session.shopId, body.customer.phone, now);
@@ -466,7 +584,26 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       if (found.problem) return planInvalid(found.problem);
       const line = priced.lineItems.find((l) => l.serviceId === found.service?.id);
       if (!line) return planInvalid(`Add ${found.service?.name ?? 'the plan’s wash'} to the bill to use the plan.`);
-      planWash = { discount: line.priceAtTime, reason: `Plan wash · ${found.planName} · ${found.placeName}`.slice(0, 200) };
+      planWash = {
+        discount: line.priceAtTime,
+        reason: `Plan wash · ${found.planName} · ${found.placeName}`.slice(0, 200),
+        serviceId: line.serviceId,
+      };
+    }
+    // A plan bought at this counter for this vehicle: the same, one wash a day.
+    if (body.shopPlanId) {
+      if (body.ownership) return planInvalid('A plan wash can’t be used while the vehicle’s owner is being changed.');
+      const plans = await shopPlanRepo.forVehicle(db, body.registrationNumber, now);
+      const found = plans.find((p) => p.orderId === body.shopPlanId);
+      if (!found) return planInvalid('This plan isn’t running for this vehicle any more.');
+      if (found.problem) return planInvalid(found.problem);
+      const line = priced.lineItems.find((l) => l.serviceId === found.service?.id);
+      if (!line) return planInvalid(`Add ${found.service?.name ?? 'the plan’s wash'} to the bill to use the plan.`);
+      planWash = {
+        discount: line.priceAtTime,
+        reason: `Plan wash · ${found.title} · ${found.washesUsed + 1} of ${found.washesTotal}`.slice(0, 200),
+        serviceId: line.serviceId,
+      };
     }
 
     const percentOff = coupon?.percent ?? referral?.percent ?? null;
@@ -475,7 +612,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       : planWash
         ? planWash.discount
         : percentOff != null
-          ? couponDiscount(priced.subtotal, percentOff)
+          ? couponDiscount(priced.subtotal - priced.visitAmount, percentOff)
           : body.discount;
     const discountReason = freeWash
       ? freeWash.reason
@@ -512,6 +649,19 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
         jobId: body.id,
         phone: body.customer.phone,
         byUserId: session.sub,
+        now,
+      });
+      if (!used.ok) {
+        const winner = await jobRepo.findBoardRow(db, body.id);
+        if (winner) return c.json(winner, 200);
+        return planInvalid(used.message);
+      }
+    }
+    if (planWash && body.shopPlanId) {
+      const used = await shopPlanRepo.use(c.env.DB, session.shopId, {
+        orderId: body.shopPlanId,
+        jobId: body.id,
+        registrationNumber: body.registrationNumber,
         now,
       });
       if (!used.ok) {
@@ -602,17 +752,22 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
         lineItems: priced.lineItems,
         sellerIds: await resolveSellers(db, priced.lineItems, body.sellerIds, session.sub),
         deliveryMode: body.mode,
+        planServiceId: planWash?.serviceId ?? null,
+        visitKm: priced.visitKm,
+        visitPoint: priced.visitPoint,
       });
+      if (priced.visitPoint) await awayPricingRepo.rememberHome(db, customer.id, priced.visitPoint);
       return c.json(job, 201);
     } catch (e) {
       // A replay of this same request may have created the job first; its coupon, referral and
       // free washes are this job's, so leave them alone.
       const winner = await jobRepo.findBoardRow(db, body.id);
-      if (winner) return c.json(await finishReplayedJob(db, winner, body, session.sub), 200);
+      if (winner) return c.json(await finishReplayedJob(db, winner, body, session.sub, visit), 200);
       if (coupon) await couponRepo.release(db, { couponId: coupon.id, jobId: body.id });
       if (referral) await referralRepo.removeForJob(db, body.id);
       if (freeWash) await rewardRepo.releaseClaims(db, body.id);
       if (planWash) await placeOrderRepo.releaseShopWash(c.env.DB, session.shopId, body.id);
+      if (planWash) await shopPlanRepo.release(c.env.DB, session.shopId, body.id);
       throw e;
     }
   })
@@ -1048,6 +1203,11 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
         { error: 'owner_only' as const, message: 'Only the owner can void a paid job.' },
         403,
       );
+    }
+    // A plan's sale bill: voiding it cancels the plan, but not once a wash on it is used.
+    if (job.planSaleId) {
+      const inUse = await shopPlanRepo.saleInUse(db, id);
+      if (inUse) return c.json({ error: 'plan_in_use' as const, message: inUse }, 409);
     }
 
     const voided = await jobRepo.voidJob(db, id, {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Circle, G, Path } from 'react-native-svg';
 import {
@@ -9,7 +9,6 @@ import {
   radius,
   spacing,
   typography,
-  Avatar,
   BottomSheet,
   Button,
   showToast,
@@ -18,6 +17,7 @@ import {
   IconCalendar,
   IconLock,
   IconMapPin,
+  IconPerson,
   IconShield,
   IconStore,
   IconTag,
@@ -25,6 +25,8 @@ import {
 import { api, apiErrorMessage } from '../api/client';
 import { NetworkError } from '../api/network';
 import { useShop } from '../offline/ShopProvider';
+import { BranchLocationCard } from './BranchLocationCard';
+import { BranchTypesCard } from './BranchTypesCard';
 
 interface BranchDetails {
   code: string;
@@ -33,6 +35,8 @@ interface BranchDetails {
   business: string | null;
   openedAt: string;
   owners: string[];
+  location: { latitude: number; longitude: number } | null;
+  pincode: string | null;
 }
 
 const OPENED = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
@@ -47,7 +51,7 @@ const STARS = [
   [40, 112, 1.1, 0.35],
 ] as const;
 
-/** The night-indigo branch card at the top: stars, the logo as a watermark, name, code and status. */
+/** The night-indigo branch strip at the top: the logo as a watermark, name, city, code and status in one row. */
 function BranchHero({ name, city, code, status }: { name: string; city: string; code: string; status: 'active' | 'paused' | null }) {
   const g = brandGradients.hero;
   return (
@@ -58,48 +62,35 @@ function BranchHero({ name, city, code, status }: { name: string; city: string; 
       end={g.end}
       style={styles.hero}
     >
-      <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" viewBox="0 0 340 150" preserveAspectRatio="xMidYMid slice">
+      <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" viewBox="0 0 340 80" preserveAspectRatio="xMidYMid slice">
         {STARS.map(([x, y, r, o]) => (
-          <Circle key={`${x}-${y}`} cx={x} cy={y} r={r} fill="#FFFFFF" fillOpacity={o} />
+          <Circle key={`${x}-${y}`} cx={x} cy={y * 0.55} r={r} fill="#FFFFFF" fillOpacity={o} />
         ))}
       </Svg>
-      {/* The logo watermark, pinned to the corner and running off the card's edge. */}
-      <Svg style={styles.watermark} width={150} height={150} viewBox="0 0 256 256">
+      <Svg style={styles.watermark} width={96} height={96} viewBox="0 0 256 256">
         <G>
           <Path d={BRAND_MARK.drop} fill="#FFFFFF" fillOpacity={0.08} />
           <Path d={BRAND_MARK.arms} fill="#FFFFFF" fillOpacity={0.12} />
           <Path d={BRAND_MARK.centre} fill="#FFFFFF" fillOpacity={0.18} />
         </G>
       </Svg>
-      <View style={styles.heroTop}>
-        <View style={styles.heroIcon}>
-          <IconStore size={22} color={colors.indigo} />
-        </View>
-        <View style={styles.flex}>
-          <Text style={styles.heroName} numberOfLines={1}>
-            {name || 'Your branch'}
+      <View style={styles.heroIcon}>
+        <IconStore size={20} color={colors.indigo} />
+      </View>
+      <View style={styles.flex}>
+        <Text style={styles.heroName} numberOfLines={1}>
+          {name || 'Your branch'}
+        </Text>
+        <View style={styles.heroCityRow}>
+          {status ? <View style={[styles.statusDot, status === 'paused' && styles.statusDotPaused]} /> : null}
+          <Text style={styles.heroCity} numberOfLines={1}>
+            {[city, status === 'paused' ? 'Paused' : status === 'active' ? 'Active' : null].filter(Boolean).join(' · ')}
           </Text>
-          {city ? (
-            <View style={styles.heroCityRow}>
-              <IconMapPin size={13} color="rgba(255,255,255,0.75)" />
-              <Text style={styles.heroCity} numberOfLines={1}>
-                {city}
-              </Text>
-            </View>
-          ) : null}
         </View>
       </View>
-      <View style={styles.heroChips}>
-        <View style={styles.codeChip}>
-          <Text style={styles.codeChipLabel}>BRANCH</Text>
-          <Text style={styles.codeChipValue}>{code}</Text>
-        </View>
-        {status ? (
-          <View style={[styles.statusChip, status === 'paused' && styles.statusChipPaused]}>
-            <View style={[styles.statusDot, status === 'paused' && styles.statusDotPaused]} />
-            <Text style={styles.statusChipText}>{status === 'paused' ? 'Paused' : 'Active'}</Text>
-          </View>
-        ) : null}
+      <View style={styles.codeChip}>
+        <Text style={styles.codeChipLabel}>BRANCH</Text>
+        <Text style={styles.codeChipValue}>{code}</Text>
       </View>
     </LinearGradient>
   );
@@ -148,45 +139,45 @@ function Field({
   );
 }
 
-/** Each detail tile has its own soft colour: the background, border, icon and label all match. */
-const TILE_TONES = {
-  indigo: { bg: '#EEF0FF', border: '#D9DEFB', fg: '#1B2878' },
-  violet: { bg: '#F3EEFF', border: '#E2D6FD', fg: '#5B21B6' },
-  sky: { bg: '#EAF6FD', border: '#CBE8FA', fg: '#0369A1' },
-  teal: { bg: '#E7F8F3', border: '#C5EDE2', fg: '#0B5F57' },
-  amber: { bg: '#FFF6DF', border: '#FBE3A6', fg: '#9A5B00' },
-} as const;
-type TileTone = keyof typeof TILE_TONES;
-
-/** One read-only fact in the details grid. */
-function Tile({
+/** One read-only fact, on one line. */
+function InfoRow({
   icon: Icon,
   label,
   value,
-  tone,
+  color,
+  last,
 }: {
   icon: (p: { size?: number; color?: string }) => React.ReactElement;
   label: string;
   value: string;
-  tone: TileTone;
+  color: string;
+  last?: boolean;
 }) {
-  const t = TILE_TONES[tone];
   return (
-    <View style={[styles.tile, { backgroundColor: t.bg, borderColor: t.border }]}>
-      <View style={styles.tileIcon}>
-        <Icon size={15} color={t.fg} />
+    <View style={[styles.infoRow, !last && styles.infoDivider]}>
+      <View style={[styles.infoIcon, { backgroundColor: `${color}14` }]}>
+        <Icon size={15} color={color} />
       </View>
-      <Text style={[styles.tileLabel, { color: t.fg }]}>{label}</Text>
-      <Text style={styles.tileValue} numberOfLines={2}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={styles.infoValue} numberOfLines={2}>
         {value}
       </Text>
     </View>
   );
 }
 
+type Tab = 'name' | 'location' | 'types' | 'branch';
+const TABS: { key: Tab; label: string }[] = [
+  { key: 'name', label: 'Name' },
+  { key: 'location', label: 'Location' },
+  { key: 'types', label: 'Services' },
+  { key: 'branch', label: 'Info' },
+];
+
 /**
- * Owner: the branch's name and city (what customers see on messages and PDFs), and below them the
- * branch details Mana Wash HQ set when opening it, which the branch can't change.
+ * Owner: the branch's name and city (what customers see on messages and PDFs), where it is on the
+ * map (movable), and below them the branch details Mana Wash HQ set when opening it, which the
+ * branch can't change.
  */
 export function ShopDetailsSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const { info, refresh } = useShop();
@@ -196,6 +187,7 @@ export function ShopDetailsSheet({ visible, onClose }: { visible: boolean; onClo
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [details, setDetails] = useState<BranchDetails | null>(null);
+  const [tab, setTab] = useState<Tab>('name');
 
   useEffect(() => {
     if (!visible) return;
@@ -204,6 +196,10 @@ export function ShopDetailsSheet({ visible, onClose }: { visible: boolean; onClo
     setError(null);
     setSaving(false);
   }, [visible, info?.name, info?.city]);
+
+  useEffect(() => {
+    if (visible) setTab('name');
+  }, [visible]);
 
   // Read fresh each time it opens; offline, the cached branch code still shows.
   useEffect(() => {
@@ -250,152 +246,150 @@ export function ShopDetailsSheet({ visible, onClose }: { visible: boolean; onClo
       onClose={onClose}
       dismissable={!saving}
       title="Shop details"
-      subtitle="Customers see this name on WhatsApp messages and reports."
       footer={
-        <Button
-          label={trimmed.length < 2 ? 'Enter the shop name' : changed ? 'Save changes' : 'No changes yet'}
-          onPress={() => void save()}
-          disabled={!canSave}
-          loading={saving}
-        />
+        tab === 'name' ? (
+          <Button
+            label={trimmed.length < 2 ? 'Enter the shop name' : changed ? 'Save changes' : 'No changes yet'}
+            onPress={() => void save()}
+            disabled={!canSave}
+            loading={saving}
+          />
+        ) : undefined
       }
     >
       <BranchHero name={trimmed} city={city.trim()} code={code} status={status} />
 
-      <Field
-        label="Shop name"
-        icon={<IconStore size={17} color={focus === 'name' ? colors.indigo : colors.slate} />}
-        value={name}
-        onChangeText={setName}
-        placeholder="e.g. Kovur"
-        maxLength={60}
-        focused={focus === 'name'}
-        onFocus={() => setFocus('name')}
-        onBlur={() => setFocus(null)}
-      />
-      <Field
-        label="City"
-        icon={<IconMapPin size={17} color={focus === 'city' ? colors.indigo : colors.slate} />}
-        value={city}
-        onChangeText={setCity}
-        placeholder="e.g. Kovur"
-        maxLength={40}
-        focused={focus === 'city'}
-        onFocus={() => setFocus('city')}
-        onBlur={() => setFocus(null)}
-      />
-
-      <View style={styles.details}>
-        <View style={styles.detailsHead}>
-          <View style={styles.lockBadge}>
-            <IconLock size={12} color={colors.indigo} />
-          </View>
-          <View style={styles.flex}>
-            <Text style={styles.detailsTitle}>Branch details</Text>
-            <Text style={styles.detailsSub}>Set by Mana Wash HQ · can’t be changed here</Text>
-          </View>
-        </View>
-
-        <View style={styles.grid}>
-          <Tile icon={IconTag} tone="indigo" label="Branch code" value={code} />
-          <Tile icon={IconBuilding} tone="violet" label="Business" value={details?.business ?? '—'} />
-          <Tile
-            icon={IconCalendar}
-            tone="sky"
-            label="Opened on"
-            value={details ? OPENED.format(new Date(details.openedAt)) : '—'}
-          />
-          <Tile
-            icon={IconShield}
-            tone={status === 'paused' ? 'amber' : 'teal'}
-            label="Status"
-            value={
-              status === 'paused'
-                ? `Paused${details?.statusReason ? `: ${details.statusReason}` : ''}`
-                : status === 'active'
-                  ? 'Active'
-                  : '—'
-            }
-          />
-        </View>
-
-        <View style={styles.owners}>
-          <Text style={styles.tileLabel}>{details && details.owners.length > 1 ? 'Owners' : 'Owner'}</Text>
-          {details?.owners.length ? (
-            details.owners.map((owner) => (
-              <View key={owner} style={styles.ownerRow}>
-                <Avatar name={owner} size={34} />
-                <Text style={styles.ownerName} numberOfLines={1}>
-                  {owner}
-                </Text>
-              </View>
-            ))
-          ) : (
-            <Text style={styles.tileValue}>—</Text>
-          )}
-        </View>
+      <View style={styles.tabs} accessibilityRole="tablist">
+        {TABS.map((t) => {
+          const on = t.key === tab;
+          return (
+            <Pressable
+              key={t.key}
+              onPress={() => setTab(t.key)}
+              style={[styles.tab, on && styles.tabOn]}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: on }}
+            >
+              <Text style={[styles.tabText, on && styles.tabTextOn]} numberOfLines={1}>
+                {t.label}
+              </Text>
+            </Pressable>
+          );
+        })}
       </View>
 
-      {error ? (
-        <View style={styles.errorRow}>
-          <IconAlert size={15} color={colors.danger} />
-          <Text style={styles.errorText}>{error}</Text>
+      {tab === 'name' ? (
+        <>
+          <Field
+            label="Shop name"
+            icon={<IconStore size={17} color={focus === 'name' ? colors.indigo : colors.slate} />}
+            value={name}
+            onChangeText={setName}
+            placeholder="e.g. Kovur"
+            maxLength={60}
+            focused={focus === 'name'}
+            onFocus={() => setFocus('name')}
+            onBlur={() => setFocus(null)}
+          />
+          <Field
+            label="City"
+            icon={<IconMapPin size={17} color={focus === 'city' ? colors.indigo : colors.slate} />}
+            value={city}
+            onChangeText={setCity}
+            placeholder="e.g. Kovur"
+            maxLength={40}
+            focused={focus === 'city'}
+            onFocus={() => setFocus('city')}
+            onBlur={() => setFocus(null)}
+          />
+          <Text style={styles.hint}>Customers see this name on WhatsApp messages and reports.</Text>
+          {error ? (
+            <View style={styles.errorRow}>
+              <IconAlert size={15} color={colors.danger} />
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          ) : null}
+        </>
+      ) : tab === 'types' ? (
+        <BranchTypesCard />
+      ) : tab === 'location' ? (
+        <BranchLocationCard
+          location={details?.location ?? null}
+          pincode={details?.pincode ?? null}
+          canEdit
+          onSaved={(location) => setDetails((d) => (d ? { ...d, location } : d))}
+        />
+      ) : (
+        <View style={styles.info}>
+          <View style={styles.lockRow}>
+            <IconLock size={12} color={colors.indigo} />
+            <Text style={styles.lockText}>Set by Mana Wash HQ · can’t be changed here</Text>
+          </View>
+          <InfoRow icon={IconTag} color="#1B2878" label="Branch code" value={code} />
+          <InfoRow icon={IconBuilding} color="#5B21B6" label="Business" value={details?.business ?? '—'} />
+          <InfoRow icon={IconCalendar} color="#0369A1" label="Opened on" value={details ? OPENED.format(new Date(details.openedAt)) : '—'} />
+          <InfoRow
+            icon={IconShield}
+            color={status === 'paused' ? '#9A5B00' : '#0B5F57'}
+            label="Status"
+            value={status === 'paused' ? `Paused${details?.statusReason ? `: ${details.statusReason}` : ''}` : status === 'active' ? 'Active' : '—'}
+          />
+          <InfoRow
+            icon={IconPerson}
+            color="#0B5F57"
+            label={details && details.owners.length > 1 ? 'Owners' : 'Owner'}
+            value={details?.owners.length ? details.owners.join(', ') : '—'}
+            last
+          />
         </View>
-      ) : null}
+      )}
     </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
+  flex: { flex: 1, minWidth: 0 },
   hero: {
-    borderRadius: radius.xl,
-    padding: spacing.md + 2,
-    gap: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm + 2,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 4,
     overflow: 'hidden',
   },
-  watermark: { position: 'absolute', right: -18, top: -12 },
-  heroTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm + 4 },
+  watermark: { position: 'absolute', right: -14, top: -18 },
   heroIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 13,
     backgroundColor: colors.white,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  heroName: { ...typography.heading, fontSize: 24, color: colors.white, letterSpacing: -0.3 },
-  heroCityRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
-  heroCity: { ...typography.label, fontSize: 13.5, color: 'rgba(255,255,255,0.8)' },
-  heroChips: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  heroName: { ...typography.heading, fontSize: 19, color: colors.white, letterSpacing: -0.2 },
+  heroCityRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1 },
+  heroCity: { ...typography.label, fontSize: 13, color: 'rgba(255,255,255,0.8)', flexShrink: 1 },
+  statusDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.tealLight },
+  statusDotPaused: { backgroundColor: colors.amberLight },
   codeChip: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
-    height: 34,
-    borderRadius: radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radius.md,
     backgroundColor: 'rgba(255,255,255,0.14)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.28)',
   },
-  codeChipLabel: { ...typography.caption, fontSize: 10.5, color: 'rgba(255,255,255,0.7)', letterSpacing: 1.2, fontWeight: '700' },
-  codeChipValue: { ...typography.bodyStrong, fontSize: 15, color: colors.white, letterSpacing: 1.5, fontWeight: '800' },
-  statusChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    height: 34,
-    borderRadius: radius.pill,
-    backgroundColor: 'rgba(94,234,212,0.16)',
-    borderWidth: 1,
-    borderColor: 'rgba(94,234,212,0.4)',
-  },
-  statusChipPaused: { backgroundColor: 'rgba(253,230,138,0.16)', borderColor: 'rgba(253,230,138,0.45)' },
-  statusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.tealLight },
-  statusDotPaused: { backgroundColor: colors.amberLight },
-  statusChipText: { ...typography.label, fontSize: 13, color: colors.white, fontWeight: '700' },
+  codeChipLabel: { ...typography.caption, fontSize: 9.5, color: 'rgba(255,255,255,0.7)', letterSpacing: 1.2, fontWeight: '700' },
+  codeChipValue: { ...typography.bodyStrong, fontSize: 14, color: colors.white, letterSpacing: 1.2, fontWeight: '800' },
+
+  tabs: { flexDirection: 'row', padding: 4, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  tab: { flex: 1, height: 36, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  tabOn: { backgroundColor: colors.indigo },
+  tabText: { fontSize: 13, fontWeight: '800', color: colors.slateDeep },
+  tabTextOn: { color: colors.white },
+
   field: { gap: 6 },
   label: { ...typography.caption, color: colors.slateDeep },
   inputWrap: {
@@ -411,53 +405,17 @@ const styles = StyleSheet.create({
   },
   inputWrapFocus: { borderColor: colors.indigo, backgroundColor: colors.white },
   input: { ...typography.body, flex: 1, fontSize: 16, color: colors.ink, paddingVertical: 0 },
-  details: {
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
-    padding: spacing.md,
-    gap: spacing.md,
-  },
-  detailsHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  lockBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 10,
-    backgroundColor: colors.indigoPale,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  detailsTitle: { ...typography.bodyStrong, fontSize: 15.5, color: colors.ink, fontWeight: '700' },
-  detailsSub: { ...typography.caption, fontSize: 12, color: colors.slate, letterSpacing: 0 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  tile: {
-    flexBasis: '47%',
-    flexGrow: 1,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    padding: spacing.sm + 4,
-    gap: 4,
-  },
-  tileIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: 10,
-    backgroundColor: colors.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 2,
-  },
-  tileLabel: { ...typography.caption, fontSize: 11.5, color: colors.slate, letterSpacing: 0.2, fontWeight: '600' },
-  tileValue: { ...typography.bodyStrong, fontSize: 15, color: colors.ink, fontWeight: '700' },
-  owners: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    paddingTop: spacing.sm + 2,
-    gap: spacing.sm,
-  },
-  ownerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  ownerName: { ...typography.bodyStrong, fontSize: 15, color: colors.ink, fontWeight: '700', flex: 1 },
+  hint: { ...typography.caption, fontSize: 12.5, color: colors.slate, letterSpacing: 0 },
+
+  info: { borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white, paddingHorizontal: spacing.sm + 4, paddingVertical: spacing.sm },
+  lockRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4 },
+  lockText: { ...typography.caption, fontSize: 12, color: colors.slate, letterSpacing: 0 },
+  infoRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm + 2, paddingVertical: spacing.sm + 2 },
+  infoDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  infoIcon: { width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  infoLabel: { ...typography.label, fontSize: 13.5, color: colors.slateDeep, width: 96 },
+  infoValue: { ...typography.bodyStrong, fontSize: 14.5, color: colors.ink, fontWeight: '700', flex: 1, textAlign: 'right' },
+
   errorRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   errorText: { ...typography.caption, fontSize: 13, color: colors.danger, letterSpacing: 0, flex: 1 },
 });

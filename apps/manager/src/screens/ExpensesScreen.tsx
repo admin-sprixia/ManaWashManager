@@ -33,7 +33,6 @@ import {
   ScreenContainer,
   ScreenHeader,
   BottomSheet,
-  Button,
   showToast,
   IconAlert,
   IconCamera,
@@ -80,6 +79,8 @@ export interface ExpenseItem {
   voidReason: string | null;
   voidedBy: { id: string; name: string } | null;
   paymentMethod?: string;
+  /** Cash only: 'drawer' (the shop's box) or 'held' (doorstep cash the person who entered it held). */
+  cashSource?: string;
   hasBillPhoto?: boolean;
   hasItemPhoto?: boolean;
   edited?: boolean;
@@ -183,8 +184,14 @@ export function dayParts(iso: string): { weekday: string; day: number } {
   return { weekday: date.toLocaleDateString('en-IN', { weekday: 'short' }), day: d ?? 1 };
 }
 
-export function paidLabel(method: string | undefined): string {
-  return method === 'upi' ? 'UPI' : method === 'other' ? 'Other' : 'Cash';
+export function paidLabel(method: string | undefined, cashSource?: string | null): string {
+  if (method === 'upi') return 'UPI';
+  if (method === 'other') return 'Other';
+  return cashSource === 'held' ? 'Doorstep cash' : 'Cash';
+}
+
+export function cashSourceLabel(source: string | undefined | null): string {
+  return source === 'held' ? 'Doorstep cash they held' : 'Shop cash box';
 }
 
 function asUnit(value: string | null | undefined): ExpenseUnit | null {
@@ -711,7 +718,7 @@ export function ExpensesScreen({ navigation, route }: Props) {
                             </View>
                           ) : null}
                           <Text style={styles.rowMeta} numberOfLines={1}>
-                            · {paidLabel(e.paymentMethod)}
+                            · {paidLabel(e.paymentMethod, e.cashSource)}
                             {canManageTeam ? ` · ${e.createdBy.name}` : ''}
                           </Text>
                         </View>
@@ -903,6 +910,7 @@ const EDIT_FIELD_LABEL: Record<string, string> = {
   unit: 'Unit',
   description: 'Note',
   paymentMethod: 'Paid with',
+  cashSource: 'Paid from',
   date: 'Date',
 };
 
@@ -911,6 +919,7 @@ function editValue(field: string, value: unknown): string {
   if (field === 'amount' && typeof value === 'number') return formatRupees(value);
   if (field === 'category' && typeof value === 'string') return EXPENSE_CATEGORY_LABEL[asCategory(value)];
   if (field === 'paymentMethod' && typeof value === 'string') return paidLabel(value);
+  if (field === 'cashSource' && typeof value === 'string') return cashSourceLabel(value);
   if (field === 'date' && typeof value === 'string') return formatDay(value.slice(0, 10));
   if (field === 'unit' && typeof value === 'string') {
     const unit = asUnit(value);
@@ -993,6 +1002,7 @@ function ExpenseDetailSheet({
   const rows: { label: string; value: string }[] = [
     ...(qty ? [{ label: 'Quantity', value: rate ? `${qty} · ${rate}` : qty }] : []),
     { label: 'Paid with', value: paidLabel(expense.paymentMethod) },
+    ...((expense.paymentMethod ?? 'cash') === 'cash' ? [{ label: 'Paid from', value: cashSourceLabel(expense.cashSource) }] : []),
     { label: 'Date', value: formatDay(expense.date) },
     ...(expense.description ? [{ label: setup.noteLabel, value: expense.description }] : []),
     ...(showEnteredBy ? [{ label: 'Entered by', value: expense.createdBy.name }] : []),
@@ -1047,7 +1057,7 @@ function ExpenseDetailSheet({
           </Text>
           <Text style={[styles.detailMeta, { color: voided ? colors.slate : tone.fg }]}>
             {qty ? `${qty} · ` : ''}
-            {paidLabel(expense.paymentMethod)}
+            {paidLabel(expense.paymentMethod, expense.cashSource)}
           </Text>
         </View>
         {voided ? (

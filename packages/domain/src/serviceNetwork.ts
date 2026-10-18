@@ -37,6 +37,123 @@ export const DELIVERY_MODE_LABEL: Readonly<Record<DeliveryMode, string>> = {
   doorstep: 'Doorstep',
 };
 
+// ─── Where a service is done ────────────────────────────────────────────────
+
+/**
+ * A branch sells at three places: its shop, communities, and customers' homes (doorstep). The
+ * community team does both communities and homes, so a service is stored as `modes` (shop, team
+ * or both — what prices it gets) plus `teamAt` (where the team does it). Community and doorstep
+ * share the team's price.
+ */
+export type TeamPlaces = 'both' | 'community' | 'doorstep';
+export const TEAM_PLACES: readonly TeamPlaces[] = ['both', 'community', 'doorstep'];
+
+export function parseTeamPlaces(value: string | null | undefined): TeamPlaces {
+  return value === 'community' || value === 'doorstep' ? value : 'both';
+}
+
+export interface ServicePlaces {
+  shop: boolean;
+  community: boolean;
+  doorstep: boolean;
+}
+
+export function servicePlaces(modes: ServiceModes, teamAt: TeamPlaces): ServicePlaces {
+  const team = modes !== 'hub';
+  return {
+    shop: modes !== 'doorstep',
+    community: team && teamAt !== 'doorstep',
+    doorstep: team && teamAt !== 'community',
+  };
+}
+
+/** The stored form of three ticks; null when none is ticked (a service has to be done somewhere). */
+export function placesToModes(places: ServicePlaces): { modes: ServiceModes; teamAt: TeamPlaces } | null {
+  const team = places.community || places.doorstep;
+  if (!places.shop && !team) return null;
+  const modes: ServiceModes = places.shop && team ? 'both' : places.shop ? 'hub' : 'doorstep';
+  const teamAt: TeamPlaces = !team || (places.community && places.doorstep) ? 'both' : places.community ? 'community' : 'doorstep';
+  return { modes, teamAt };
+}
+
+export const SERVICE_PLACE_LABEL: Readonly<Record<keyof ServicePlaces, string>> = {
+  shop: 'Shop',
+  community: 'Community',
+  doorstep: 'Doorstep',
+};
+
+/** "Shop only", "Shop & community", "Shop, community & doorstep". */
+export function servicePlacesLabel(places: ServicePlaces): string {
+  const on = (Object.keys(SERVICE_PLACE_LABEL) as (keyof ServicePlaces)[]).filter((k) => places[k]);
+  if (on.length === 1) return `${SERVICE_PLACE_LABEL[on[0]!]} only`;
+  const names = on.map((k, i) => (i === 0 ? SERVICE_PLACE_LABEL[k] : SERVICE_PLACE_LABEL[k].toLowerCase()));
+  return names.length <= 2 ? names.join(' & ') : `${names.slice(0, -1).join(', ')} & ${names[names.length - 1]}`;
+}
+
+// ─── Service details ────────────────────────────────────────────────────────
+
+/** What kind of service it is: groups the menu (washes first, then protection, then add-ons). */
+export type ServiceKind = 'wash' | 'protection' | 'addon';
+export const SERVICE_KINDS: readonly ServiceKind[] = ['wash', 'protection', 'addon'];
+export const SERVICE_KIND_LABEL: Readonly<Record<ServiceKind, string>> = {
+  wash: 'Wash',
+  protection: 'Protection',
+  addon: 'Add-on',
+};
+
+export function parseServiceKind(value: string | null | undefined): ServiceKind {
+  return value === 'protection' || value === 'addon' ? value : 'wash';
+}
+
+/** How long a service takes, in minutes: from 1 minute up to 30 days (a long coating or repair). */
+export const SERVICE_DURATION_MAX_MIN = 30 * 24 * 60;
+
+/** The units a service's time is entered in. */
+export type DurationUnit = 'min' | 'hr' | 'day';
+export const DURATION_UNIT_MINUTES: Readonly<Record<DurationUnit, number>> = { min: 1, hr: 60, day: 24 * 60 };
+export const DURATION_UNIT_LABEL: Readonly<Record<DurationUnit, string>> = { min: 'Minutes', hr: 'Hours', day: 'Days' };
+
+/** A stored time shown in its biggest whole unit: 2880 → 2 days, 90 → 90 minutes, 120 → 2 hours. */
+export function durationParts(minutes: number): { amount: number; unit: DurationUnit } {
+  if (minutes % DURATION_UNIT_MINUTES.day === 0) return { amount: minutes / DURATION_UNIT_MINUTES.day, unit: 'day' };
+  if (minutes % DURATION_UNIT_MINUTES.hr === 0) return { amount: minutes / DURATION_UNIT_MINUTES.hr, unit: 'hr' };
+  return { amount: minutes, unit: 'min' };
+}
+/** "What's included" checklist: up to 12 short lines. */
+export const SERVICE_CHECKLIST_MAX = 12;
+export const SERVICE_CHECKLIST_ITEM_MAX = 40;
+
+/** A stored checklist (JSON list of lines); anything unreadable is an empty list. */
+export function parseChecklist(value: string | null | undefined): string[] {
+  if (!value) return [];
+  try {
+    const list: unknown = JSON.parse(value);
+    return Array.isArray(list) ? list.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).slice(0, SERVICE_CHECKLIST_MAX) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** "20 min", "1 hr", "1 hr 15 min", "2 days", "1 day 6 hr". */
+export function formatDuration(minutes: number): string {
+  const d = Math.floor(minutes / DURATION_UNIT_MINUTES.day);
+  const h = Math.floor((minutes % DURATION_UNIT_MINUTES.day) / 60);
+  const m = minutes % 60;
+  if (d) return h ? `${d} day${d === 1 ? '' : 's'} ${h} hr` : `${d} day${d === 1 ? '' : 's'}`;
+  if (!h) return `${m} min`;
+  return m ? `${h} hr ${m} min` : `${h} hr`;
+}
+
+/** Comma-separated text → checklist lines: trimmed, empty ones dropped, no repeats (any case). */
+export function splitChecklist(text: string): string[] {
+  const out: string[] = [];
+  for (const part of text.split(/[,\n]/)) {
+    const line = part.trim().replace(/\s+/g, ' ');
+    if (line && !out.some((x) => x.toLowerCase() === line.toLowerCase())) out.push(line);
+  }
+  return out;
+}
+
 // ─── Pricing rules ──────────────────────────────────────────────────────────
 
 /** Basis points: 10000 = 100%. Whole numbers keep money maths exact. */
@@ -58,7 +175,7 @@ export interface ModeAdjustment {
 
 /** The business's pricing policy, editable from the admin side at any time. */
 export interface PricingPolicy {
-  /** Every list price is rounded to the nearest multiple of this (₹10 = 1000 paise). */
+  /** Every list price is rounded to the nearest rupee (fixed: prices like ₹499 stay ₹499). */
   roundToPaise: number;
   /** Branch owners may set their own price for a service and vehicle. */
   branchOverrides: boolean;
@@ -69,15 +186,17 @@ export interface PricingPolicy {
   branchCanHideServices: boolean;
 }
 
+/** Worked-out prices (₹474.05 by the community rule) are rounded to the rupee. */
+export const PRICE_ROUND_PAISE = 100;
+
 export const DEFAULT_PRICING_POLICY: PricingPolicy = {
-  roundToPaise: 1000,
+  roundToPaise: PRICE_ROUND_PAISE,
   branchOverrides: true,
   maxIncreasePct: 20,
   maxDecreasePct: 20,
   branchCanHideServices: true,
 };
 
-export const ROUND_TO_CHOICES_PAISE: readonly number[] = [100, 500, 1000, 5000, 10000];
 export const MAX_OVERRIDE_PCT = 100;
 
 /** Reads stored policy values (strings from a settings table), falling back field by field. */
@@ -89,9 +208,8 @@ export function parsePricingPolicy(raw: Partial<Record<keyof PricingPolicy, stri
   const bool = (v: string | null | undefined, fallback: boolean) =>
     v === 'true' ? true : v === 'false' ? false : fallback;
   const d = DEFAULT_PRICING_POLICY;
-  const round = int(raw.roundToPaise, 1, 100_000, d.roundToPaise);
   return {
-    roundToPaise: ROUND_TO_CHOICES_PAISE.includes(round) ? round : d.roundToPaise,
+    roundToPaise: PRICE_ROUND_PAISE,
     branchOverrides: bool(raw.branchOverrides, d.branchOverrides),
     maxIncreasePct: int(raw.maxIncreasePct, 0, MAX_OVERRIDE_PCT, d.maxIncreasePct),
     maxDecreasePct: int(raw.maxDecreasePct, 0, MAX_OVERRIDE_PCT, d.maxDecreasePct),
@@ -134,7 +252,8 @@ export interface ListPrice {
 
 /**
  * A list price, always in the same order: base price (by class and size) → how it is delivered
- * → the branch's zone → rounded. Branch overrides and offers come after, elsewhere.
+ * → the branch's zone → rounded. Branch overrides and offers come after, elsewhere. A doorstep
+ * price set for the size (`doorstepBase`) replaces the base price and the doorstep rule.
  */
 export function listPrice(input: {
   base: number;
@@ -143,15 +262,20 @@ export function listPrice(input: {
   adjustments: readonly ModeAdjustment[];
   zonePercentBp: number;
   roundToPaise: number;
+  doorstepBase?: number | null;
 }): ListPrice {
-  const steps: PriceStep[] = [{ label: 'Base price', amount: input.base }];
-  let price = input.base;
+  const own = input.mode === 'doorstep' && input.doorstepBase != null;
+  const steps: PriceStep[] = [{ label: own ? 'Doorstep price' : 'Base price', amount: own ? input.doorstepBase! : input.base }];
+  let price = own ? input.doorstepBase! : input.base;
 
-  const adj = modeAdjustmentFor(input.adjustments, input.mode, input.classKey);
+  const adj = own ? null : modeAdjustmentFor(input.adjustments, input.mode, input.classKey);
   if (adj) {
-    const extra = Math.max(adj.minExtraPaise, Math.round((input.base * adj.percentBp) / 10_000) + adj.fixedPaise);
+    // A rule can be an extra ("15% more, at least ₹50") or a discount ("10% less"): the minimum
+    // only applies to an extra.
+    const raw = Math.round((input.base * adj.percentBp) / 10_000) + adj.fixedPaise;
+    const extra = raw > 0 || adj.minExtraPaise > 0 ? Math.max(adj.minExtraPaise, raw) : raw;
     if (extra !== 0) {
-      steps.push({ label: input.mode === 'doorstep' ? 'Doorstep extra' : 'Hub extra', amount: extra });
+      steps.push({ label: input.mode === 'doorstep' ? (extra < 0 ? 'Community discount' : 'Community extra') : 'Hub extra', amount: extra });
       price += extra;
     }
   }
@@ -197,12 +321,33 @@ export function effectivePrice(list: number, override: number | null, policy: Pr
 
 // ─── Branch menu planning ───────────────────────────────────────────────────
 
+/** What a branch's copy of a service carries besides name and places (checklist kept as stored JSON). */
+export interface ServiceMenuDetails {
+  teamAt: TeamPlaces;
+  durationMin: number | null;
+  kind: ServiceKind;
+  popular: boolean;
+  showInApp: boolean;
+  checklist: string | null;
+}
+export const DEFAULT_SERVICE_DETAILS: ServiceMenuDetails = {
+  teamAt: 'both',
+  durationMin: null,
+  kind: 'wash',
+  popular: false,
+  showInApp: true,
+  checklist: null,
+};
+
 export interface CatalogServiceInput {
   id: string;
   name: string;
   description: string | null;
   modes: ServiceModes;
+  details?: ServiceMenuDetails;
   classKeys: readonly string[];
+  /** Sizes it's for, as `classKey|sizeKey`; left out = every size of its classes. */
+  sizeKeys?: readonly string[];
   /** Catalog ids of the services a combo bundles; empty for a plain service. */
   includes: readonly string[];
   sortOrder: number;
@@ -220,6 +365,8 @@ export interface BranchPlanInput {
   services: readonly CatalogServiceInput[];
   /** Base prices keyed by `basePriceKey(serviceId, classKey, sizeKey)`. */
   basePrices: ReadonlyMap<string, number>;
+  /** Doorstep prices set for a size, same keys; they replace the doorstep rule. */
+  doorstepPrices?: ReadonlyMap<string, number>;
   adjustments: readonly ModeAdjustment[];
   policy: PricingPolicy;
   zonePercentBp: number;
@@ -238,6 +385,7 @@ export interface PlannedService {
   description: string | null;
   appliesTo: ServiceAppliesTo;
   modes: ServiceModes;
+  details: ServiceMenuDetails;
   sortOrder: number;
   includes: string[];
 }
@@ -281,12 +429,22 @@ export function planBranchMenu(input: BranchPlanInput): BranchPlan {
 
   for (const s of services) {
     const serviceClasses = new Set(s.classKeys);
+    const serviceSizes = s.sizeKeys ? new Set(s.sizeKeys) : null;
     for (const v of input.vehicles) {
       if (!v.classKey || !v.sizeKey || !serviceClasses.has(v.classKey)) continue;
-      const base = input.basePrices.get(basePriceKey(s.id, v.classKey, v.sizeKey));
+      if (serviceSizes && !serviceSizes.has(`${v.classKey}|${v.sizeKey}`)) continue;
+      const key = basePriceKey(s.id, v.classKey, v.sizeKey);
+      const base = input.basePrices.get(key);
       if (base == null) continue;
+      // A home wash is charged the hub price (plus a visit charge on the bill), so a service the
+      // team does at homes gets a hub price even where the shop itself doesn't do it.
+      const atHomes =
+        serviceModesInclude(s.modes, 'doorstep') &&
+        (s.details?.teamAt ?? 'both') !== 'community' &&
+        Boolean(input.classesByMode.get('doorstep')?.has(v.classKey));
       for (const mode of DELIVERY_MODES) {
-        if (!serviceModesInclude(s.modes, mode) || !input.classesByMode.get(mode)?.has(v.classKey)) continue;
+        const served = serviceModesInclude(s.modes, mode) && Boolean(input.classesByMode.get(mode)?.has(v.classKey));
+        if (!served && !(mode === 'hub' && atHomes)) continue;
         const list = listPrice({
           base,
           mode,
@@ -294,6 +452,7 @@ export function planBranchMenu(input: BranchPlanInput): BranchPlan {
           adjustments: input.adjustments,
           zonePercentBp: input.zonePercentBp,
           roundToPaise: input.policy.roundToPaise,
+          doorstepBase: input.doorstepPrices?.get(key),
         }).price;
         const stored = input.overrides.get(branchPriceKey(s.id, v.vehicleTypeId, mode)) ?? null;
         const eff = effectivePrice(list, stored, input.policy);
@@ -319,6 +478,7 @@ export function planBranchMenu(input: BranchPlanInput): BranchPlan {
         description: s.description,
         appliesTo: appliesToForClasses(s.classKeys),
         modes: s.modes,
+        details: s.details ?? DEFAULT_SERVICE_DETAILS,
         sortOrder: s.sortOrder,
         includes: s.includes.filter((id) => offered.has(id)),
       })),

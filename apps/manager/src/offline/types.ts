@@ -95,6 +95,8 @@ export interface StartJobPayload {
   services: { serviceId: string; quantity: number }[];
   /** Washed at the customer's place instead of the hub; priced from the doorstep menu. */
   mode?: DeliveryMode;
+  /** A home wash: where the home is (the phone at the home); the server measures the visit. */
+  visitPoint?: { latitude: number; longitude: number };
   discount: number;
   discountReason?: string;
   /** Comeback coupon; the server works out the discount. Never queued offline. */
@@ -105,6 +107,8 @@ export interface StartJobPayload {
   rewardServiceIds?: string[];
   /** A community plan pays for this wash; the server re-checks it and uses one wash. Never queued offline. */
   planOrderId?: string;
+  /** A plan bought at this counter for this vehicle pays for the wash. Never queued offline. */
+  shopPlanId?: string;
   /** Who got this service, when a picked service pays commission. Defaults to whoever enters it. */
   sellerIds?: string[];
 }
@@ -129,6 +133,8 @@ export interface ExpensePayload {
   unit?: ExpenseUnit;
   date?: string;
   paymentMethod?: ExpensePaymentMethod;
+  /** Cash only: from the shop's box, or the doorstep cash this person holds. */
+  cashSource?: ExpenseCashSource;
   /** Add the quantity to the stock item with the same name (the server creates it if new). */
   addToStock?: boolean;
   /** Local copies on this phone (see offline/photoFiles); uploaded with the entry in one request. */
@@ -142,6 +148,7 @@ export interface LocalPhoto {
 }
 
 export type ExpensePaymentMethod = 'cash' | 'upi' | 'other';
+export type ExpenseCashSource = 'drawer' | 'held';
 
 /** Stock taken off the shelf, added, or counted. `quantity` is in the unit it was typed in. */
 export interface StockMovePayload {

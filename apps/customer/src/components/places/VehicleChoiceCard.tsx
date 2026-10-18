@@ -1,10 +1,10 @@
 import React from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { formatInr } from '@mana/domain';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { formatDuration, formatInr } from '@mana/domain';
 import { IconCheck, IconClose, colors, radius, shadow } from '@mana/ui';
 import type { MenuVehicleType, PlaceInfo } from '../../api/types';
-import { partsFor, plansFor, servicesFor, type Choice } from '../../places/pricing';
-import { vehicleTypeImage } from '../VehicleTypePicker';
+import { partsFor, plansFor, servicesFor, upgradeLine, type Choice } from '../../places/pricing';
+import { VehicleTypeArt } from '../VehicleTypePicker';
 
 interface VehicleChoiceCardProps {
   info: PlaceInfo;
@@ -26,6 +26,12 @@ function laterParts(rest: readonly { amount: number }[]): string {
 }
 
 /** One vehicle being joined: its photo, then Plans (open first) or One wash, and how to pay. */
+/** "35 min · Foam wash · Vacuum · Tyre shine" — time, then what's included (or the note). */
+function serviceLine(service: { description: string | null; durationMin?: number | null; checklist?: string[] }): string | null {
+  const detail = service.checklist?.length ? service.checklist.join(' · ') : service.description;
+  return [service.durationMin ? formatDuration(service.durationMin) : null, detail].filter(Boolean).join(' · ') || null;
+}
+
 export function VehicleChoiceCard({ info, type, plate, choice, onChange, onRemove }: VehicleChoiceCardProps) {
   const plans = plansFor(info.menu, type.id);
   const services = servicesFor(info.menu, type.id);
@@ -51,7 +57,7 @@ export function VehicleChoiceCard({ info, type, plate, choice, onChange, onRemov
   return (
     <View style={styles.card}>
       <View style={styles.head}>
-        <Image source={vehicleTypeImage(type)} style={styles.photo} resizeMode="cover" />
+        <VehicleTypeArt type={type} style={styles.photo} />
         <View style={styles.headCopy}>
           <Text style={styles.name}>{type.name}</Text>
           {plate ? <Text style={styles.plate}>{plate}</Text> : null}
@@ -106,11 +112,12 @@ export function VehicleChoiceCard({ info, type, plate, choice, onChange, onRemov
                   </View>
                   <Text style={styles.optionMeta}>
                     {p.plan.washes} washes · {p.plan.months === 1 ? '1 month' : `${p.plan.months} months`} · {formatInr(Math.round(p.total / p.plan.washes))} a wash
+                    {upgradeLine(p.plan) ? ` · ${upgradeLine(p.plan)}` : ''}
                   </Text>
                 </View>
                 <View style={styles.priceCol}>
                   <Text style={styles.price}>{formatInr(p.total)}</Text>
-                  {p.plan.discountBp > 0 ? <Text style={styles.save}>Save {p.plan.discountBp / 100}%</Text> : null}
+                  {p.listTotal > p.total ? <Text style={styles.save}>Save {formatInr(p.listTotal - p.total)}</Text> : null}
                 </View>
               </Pressable>
             );
@@ -162,10 +169,13 @@ export function VehicleChoiceCard({ info, type, plate, choice, onChange, onRemov
               >
                 <View style={[styles.check, selected && styles.checkOn]}>{selected ? <IconCheck size={12} color={colors.white} /> : null}</View>
                 <View style={styles.optionCopy}>
-                  <Text style={styles.optionTitle}>{s.service.name}</Text>
-                  {s.service.description ? (
+                  <Text style={styles.optionTitle}>
+                    {s.service.name}
+                    {s.service.popular ? <Text style={styles.optionPopular}>{'  ·  Most popular'}</Text> : null}
+                  </Text>
+                  {serviceLine(s.service) ? (
                     <Text style={styles.optionMeta} numberOfLines={2}>
-                      {s.service.description}
+                      {serviceLine(s.service)}
                     </Text>
                   ) : null}
                 </View>
@@ -224,6 +234,7 @@ const styles = StyleSheet.create({
   optionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   optionTitle: { fontSize: 15.5, fontWeight: '700', color: colors.ink },
   optionMeta: { fontSize: 12.5, color: colors.slateDeep },
+  optionPopular: { fontSize: 11.5, fontWeight: '800', color: '#92400E' },
   popular: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.pill, backgroundColor: colors.amberPale },
   popularText: { fontSize: 11, fontWeight: '800', color: colors.amberDeep },
   priceCol: { alignItems: 'flex-end', gap: 2 },

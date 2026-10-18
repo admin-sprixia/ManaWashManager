@@ -1,11 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { cashDifference, closeNeedsNote, expectedCash } from '../cash';
+import { cashDifference, cashHeld, closeNeedsNote, expectedCash, handoverDifference } from '../cash';
 import { canMarkAttendance, daysWorked, jobCommission, noAbsences, splitCommission } from '../commission';
 import { checkReferral } from '../referrals';
 
 describe('cash close', () => {
-  it('expects float + cash taken − cash paid out', () => {
-    expect(expectedCash({ openingFloat: 50000, cashIn: 120000, cashExpenses: 30000 })).toBe(140000);
+  it('expects float + shop cash + doorstep cash handed in − cash paid out', () => {
+    expect(expectedCash({ openingFloat: 50000, cashIn: 120000, handedIn: 0, cashExpenses: 30000 })).toBe(140000);
+    expect(expectedCash({ openingFloat: 50000, cashIn: 120000, handedIn: 48000, cashExpenses: 30000 })).toBe(188000);
+  });
+
+  it('holds doorstep cash until a handover settles it, never below nothing', () => {
+    expect(cashHeld(96000, 0)).toBe(96000);
+    expect(cashHeld(96000, 48000)).toBe(48000);
+    expect(cashHeld(96000, 96000)).toBe(0);
+    // A doorstep payment moved from cash to UPI after it was handed over.
+    expect(cashHeld(48000, 96000)).toBe(0);
+  });
+
+  it('signs a handover as received − due', () => {
+    expect(handoverDifference(48000, 48000)).toBe(0);
+    expect(handoverDifference(48000, 40000)).toBe(-8000);
+    expect(handoverDifference(48000, 50000)).toBe(2000);
   });
 
   it('signs the difference as counted − expected and only asks for a note on a mismatch', () => {

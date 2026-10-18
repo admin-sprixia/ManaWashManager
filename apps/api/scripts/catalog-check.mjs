@@ -156,6 +156,16 @@ check('A non-admin can’t change base prices', r.status === 403, show(r));
 // ─── A branch menu built from it ─────────────────────────────────────────────
 
 r = await call(OA, 'GET', '/services');
+check('A new service reaches no branch by itself', r.status === 200 && !(r.body ?? []).some((s) => s.name === 'Full Wash'), show(r));
+const liveIds = ((await call(OA, 'GET', '/business/catalog')).body?.services ?? []).filter((s) => s.active).map((s) => s.id);
+for (const shop of [A, B, D]) {
+  r = await call(OA, 'PUT', `/business/branches/${shop}/menu`, { serviceIds: liveIds });
+  if (r.status !== 200) check(`HQ switches the services on at ${shop}`, false, show(r));
+}
+r = await call(OB, 'PUT', `/business/branches/${A}/menu`, { serviceIds: liveIds });
+check('Only HQ switches services on for a branch', r.status === 403, show(r));
+
+r = await call(OA, 'GET', '/services');
 const svcA = Object.fromEntries((r.body ?? []).map((s) => [s.name, s]));
 check('The branch menu has the catalog services', r.status === 200 && !!svcA['Full Wash'] && !!svcA['Underbody'] && !!svcA['Full + Underbody'], show(r));
 check('…linked to the catalog, the combo bundling both', svcA['Full Wash']?.catalogServiceId === FULL && svcA['Full + Underbody']?.includes?.length === 2);
@@ -202,17 +212,83 @@ let vts = (await call(OA, 'GET', '/services/vehicle-types')).body ?? [];
 const tractor = vts.find((v) => v.name === 'Tractor');
 check('Pricing farm vehicles adds a Tractor type to the branch with a farm doorstep team', !!tractor, vts.map((v) => v.name).join(', '));
 prices = (await call(OA, 'GET', '/services/prices')).body ?? [];
-check('…priced at the door (₹1,500 + 15% = ₹1,725 → ₹1,730)', priceOf(prices, fullA, tractor?.id, 'doorstep')?.price === 173000, JSON.stringify(priceOf(prices, fullA, tractor?.id, 'doorstep')));
-check('…but not at the hub, which doesn’t take tractors', !priceOf(prices, fullA, tractor?.id, 'hub'));
+check('…priced at the door (₹1,500 + 15% = ₹1,725, to the rupee)', priceOf(prices, fullA, tractor?.id, 'doorstep')?.price === 172500, JSON.stringify(priceOf(prices, fullA, tractor?.id, 'doorstep')));
+check('…and the hub price, which home washes are charged (plus the visit charge)', priceOf(prices, fullA, tractor?.id, 'hub')?.price === 150000, JSON.stringify(priceOf(prices, fullA, tractor?.id, 'hub')));
+r = await call(OA, 'GET', '/services/network');
+check('…but the hub doesn’t take tractors: they’re washed at homes only', r.body?.homeOnlyTypes?.includes(tractor?.id), show(r));
 r = await call(OB, 'GET', '/services/vehicle-types');
 check('A branch without a farm team gets no Tractor type', !(r.body ?? []).some((v) => v.name === 'Tractor'), show(r));
+
+// ─── The vehicles each branch washes ─────────────────────────────────────────
+
+const kindsOf = (classKey) => cat.bodyTypes.filter((b) => b.classId === cls[classKey].id).map((b) => b.id);
+const tractorBody = cat.bodyTypes.find((b) => b.key === 'tractor');
+r = await call(OA, 'GET', '/business/catalog');
+check('A branch with no list of vehicles washes every kind', r.body?.branches?.find((b) => b.id === A)?.vehicles?.length === cat.bodyTypes.length, show(r));
+r = await call(OA, 'PUT', `/business/branches/${A}/vehicles`, { bodyTypeIds: [] });
+check('A branch washes at least one kind of vehicle', r.status === 400, show(r));
+r = await call(OB, 'PUT', `/business/branches/${A}/vehicles`, { bodyTypeIds: kindsOf('car') });
+check('Only HQ sets the vehicles a branch washes', r.status === 403, show(r));
+r = await call(OA, 'PUT', `/business/branches/${A}/vehicles`, { bodyTypeIds: [...kindsOf('car'), ...kindsOf('twoWheeler')] });
+vts = (await call(OA, 'GET', '/services/vehicle-types')).body ?? [];
+check('HQ takes tractors off the branch: its Tractor type goes away', r.status === 200 && !vts.some((v) => v.name === 'Tractor'), vts.map((v) => v.name).join(', '));
+r = await call(OA, 'GET', '/services/vehicle-sizes');
+check('…and its size guide says it doesn’t wash them', r.body?.bodyTypes?.find((b) => b.key === 'tractor')?.active === false && r.body?.bodyTypes?.find((b) => b.key === 'hatch')?.active === true, show(r));
+r = await call(OA, 'GET', '/business/catalog');
+check('The branch’s page shows what it washes', r.body?.branches?.find((b) => b.id === A)?.vehicles?.length === kindsOf('car').length + kindsOf('twoWheeler').length);
+r = await call(OA, 'PUT', `/business/branches/${A}/vehicles`, { bodyTypeIds: [...kindsOf('car'), ...kindsOf('twoWheeler'), tractorBody.id] });
+vts = (await call(OA, 'GET', '/services/vehicle-types')).body ?? [];
+check('Putting tractors back brings its Tractor type back', r.status === 200 && vts.some((v) => v.name === 'Tractor'), vts.map((v) => v.name).join(', '));
+r = await call(OB, 'GET', '/services/vehicle-types');
+check('…at that branch only', !(r.body ?? []).some((v) => v.name === 'Tractor'));
+r = await call(OA, 'PATCH', `/business/body-types/${tractorBody.id}`, { active: false });
+check('There’s no switch for the whole business any more', r.status === 200 && (await call(OA, 'GET', '/business/catalog')).body?.bodyTypes?.find((b) => b.id === tractorBody.id)?.active === true, show(r));
+
+// ─── Companies and models (the vehicle size guide) ───────────────────────────
+
+r = await call(SA, 'GET', '/services/vehicle-sizes');
+check('Staff see the size guide but can’t edit it', r.status === 200 && r.body?.canEdit === false && Array.isArray(r.body?.models), show(r));
+r = await call(OA, 'GET', '/services/vehicle-sizes');
+check('HQ can edit it', r.body?.canEdit === true, show(r));
+const guideModels = async () => (await call(OA, 'GET', '/services/vehicle-sizes')).body?.models ?? [];
+const modelIn = (list, make, model) => list.find((m) => m.make.toLowerCase() === make.toLowerCase() && m.model.toLowerCase() === model.toLowerCase());
+r = await call(SA, 'PUT', '/business/vehicle-models', { make: 'Maruti Suzuki', model: 'Kovur K1', category: 'car', bodyKey: 'suvMini' });
+check('Staff can’t change the list of models', r.status === 403, show(r));
+r = await call(OB, 'PUT', '/business/vehicle-models', { make: 'Maruti Suzuki', model: 'Kovur K1', category: 'car', bodyKey: 'suvMini' });
+check('…nor a branch owner who isn’t HQ', r.status === 403, show(r));
+r = await call(OA, 'PUT', '/business/vehicle-models', { make: 'Maruti Suzuki', model: 'Kovur K1', category: 'car', bodyKey: 'suvMini' });
+check('HQ adds a new launch as a Compact SUV', r.status === 200 && modelIn(await guideModels(), 'Maruti Suzuki', 'Kovur K1')?.bodyKey === 'suvMini', show(r));
+r = await call(OA, 'PUT', '/business/vehicle-models', { make: 'maruti suzuki', model: 'KOVUR K1', category: 'car', bodyKey: 'sedan' });
+check('…and can’t add it twice (whatever the case)', r.status === 400, show(r));
+r = await call(OA, 'PUT', '/business/vehicle-models', { make: 'Maruti Suzuki', model: 'Kovur K1', category: 'car', bodyKey: 'scooter' });
+check('A car can’t be filed as a scooter', r.status === 400, show(r));
+r = await call(OA, 'PUT', '/business/vehicle-models', { make: 'Maruti Suzuki', model: 'Swift', category: 'car', bodyKey: 'sedan', from: { make: 'Maruti Suzuki', model: 'Swift' } });
+check('HQ moves a listed model to another kind (Swift → Sedan)', r.status === 200 && modelIn(await guideModels(), 'Maruti Suzuki', 'Swift')?.bodyKey === 'sedan', show(r));
+r = await call(OA, 'PUT', '/business/vehicle-models', { make: 'Maruti Suzuki', model: 'Swift', category: 'car', bodyKey: 'hatch', from: { make: 'Maruti Suzuki', model: 'Swift' } });
+check('…and moving it back to how it ships leaves no change', r.status === 200 && !modelIn(await guideModels(), 'Maruti Suzuki', 'Swift'), show(r));
+r = await call(OA, 'PUT', '/business/vehicle-models', { make: 'Maruti Suzuki', model: 'Kovur K2', category: 'car', bodyKey: 'suvMini', from: { make: 'Maruti Suzuki', model: 'Kovur K1' } });
+let models = await guideModels();
+check('HQ renames an added model', r.status === 200 && !modelIn(models, 'Maruti Suzuki', 'Kovur K1') && modelIn(models, 'Maruti Suzuki', 'Kovur K2')?.bodyKey === 'suvMini', JSON.stringify(models));
+r = await call(OA, 'DELETE', '/business/vehicle-models', { make: 'Maruti Suzuki', model: 'Alto 800', category: 'car' });
+r = await call(OA, 'GET', '/services/vehicle-sizes');
+check('HQ takes a listed model off the list (and can see it to put back)', modelIn(r.body?.models ?? [], 'Maruti Suzuki', 'Alto 800')?.bodyKey === null && r.body?.removed?.some((m) => m.model === 'Alto 800'), show(r));
+r = await call(OA, 'POST', '/business/vehicle-models/reset', { make: 'Maruti Suzuki', model: 'Alto 800' });
+check('…and puts it back', r.status === 200 && !modelIn(await guideModels(), 'Maruti Suzuki', 'Alto 800'), show(r));
+r = await call(OA, 'POST', '/business/vehicle-models/reset', { make: 'Maruti Suzuki', model: 'Kovur K2' });
+check('Only a model from the original list can be put back', r.status === 400, show(r));
+d1Run(`UPDATE shops SET in_customer_app = 1 WHERE id = '${A}';`);
+r = await call(null, 'GET', '/c/branches');
+check('The customer app gets the changes for “add your vehicle”', modelIn(r.body?.vehicleModels ?? [], 'Maruti Suzuki', 'Kovur K2')?.bodyKey === 'suvMini', JSON.stringify(r.body?.vehicleModels));
+d1Run(`UPDATE shops SET in_customer_app = 0 WHERE id = '${A}';`);
+r = await call(OA, 'DELETE', '/business/vehicle-models', { make: 'Maruti Suzuki', model: 'Kovur K2', category: 'car' });
+check('Taking an added model off deletes it', r.status === 200 && !modelIn(await guideModels(), 'Maruti Suzuki', 'Kovur K2'), show(r));
 
 r = await call(OA, 'GET', '/services/network');
 check('With washing at homes off, the doorstep team only goes to communities: New Wash is at the shop', r.status === 200 && r.body?.homeWash === false && r.body?.modes?.join() === 'hub', show(r));
 r = await call(OA, 'GET', '/branch/points');
 check('…and the branch’s setup knows it', r.body?.homeWash === false, show(r));
-r = await call(OA, 'PATCH', '/business/plan-rules', { homeWash: true });
-check('The admin turns washing at homes on', r.status === 200 && r.body?.rules?.homeWash === true, show(r));
+r = await call(OA, 'PUT', '/branch/types', { hub: true, community: true, doorstep: true });
+check('The owner switches washing at homes on for the branch', r.status === 200 && r.body?.services?.live?.doorstep === true, show(r));
 r = await call(OA, 'GET', '/services/network');
 check('The branch sees how it works and the policy', r.status === 200 && r.body?.homeWash === true && r.body?.modes?.join() === 'hub,doorstep' && r.body?.isBusinessAdmin === true && r.body?.policy?.maxIncreasePct === 20, show(r));
 r = await call(OA, 'GET', '/business/catalog');
@@ -279,7 +355,7 @@ r = await call(OA, 'POST', '/business/zones', { name: 'Town centre', percentBp: 
 const ZONE = r.body?.id;
 r = await call(OA, 'PATCH', `/business/branches/${B}`, { priceZoneId: ZONE });
 pricesB = (await call(OB, 'GET', '/services/prices')).body ?? [];
-check('A branch in a +10% zone charges ₹460 for ₹420 (₹462, rounded to ₹10)', r.status === 200 && priceOf(pricesB, svcB['Full Wash']?.id, vtB.Hatchback?.id)?.price === 46000, JSON.stringify(priceOf(pricesB, svcB['Full Wash']?.id, vtB.Hatchback?.id)));
+check('A branch in a +10% zone charges ₹462 for ₹420', r.status === 200 && priceOf(pricesB, svcB['Full Wash']?.id, vtB.Hatchback?.id)?.price === 46200, JSON.stringify(priceOf(pricesB, svcB['Full Wash']?.id, vtB.Hatchback?.id)));
 r = await call(OA, 'PATCH', `/business/zones/${ZONE}`, { active: false });
 pricesB = (await call(OB, 'GET', '/services/prices')).body ?? [];
 check('Switching the zone off goes back to ₹420', priceOf(pricesB, svcB['Full Wash']?.id, vtB.Hatchback?.id)?.price === 42000);
@@ -304,14 +380,19 @@ const start = (extra) =>
     registrationNumber: `AP${rand(2)}CC${rand(4)}`,
     vehicleTypeId: vtA.Hatchback.id,
     services: [{ serviceId: fullA, quantity: 1 }],
+    // The phone at the home (here: next to the branch, inside the free distance).
+    visitPoint: { latitude: 15.5, longitude: 80.05 },
     ...extra,
   });
 r = await start({ mode: 'doorstep' });
-check('A doorstep wash is charged the doorstep price (₹420 + 15% = ₹483 → ₹480)', r.status === 201 && r.body?.total === 48000 && r.body?.deliveryMode === 'doorstep', show(r));
+check('A doorstep wash is the hub price plus the visit charge (₹420 + ₹49)', r.status === 201 && r.body?.total === 46900 && r.body?.deliveryMode === 'doorstep', show(r));
+check('…with the visit charge on its own line', r.body?.jobServices?.some((l) => l.service?.name === 'Visit charge' && l.priceAtTime === 4900), JSON.stringify(r.body?.jobServices));
 r = await start({});
 check('A wash with no mode is a hub wash at the hub price', r.status === 201 && r.body?.total === 42000 && r.body?.deliveryMode === 'hub', show(r));
 r = await start({ mode: 'doorstep', services: [{ serviceId: underA, quantity: 1 }] });
-check('A hub-only service can’t be done at the door', r.status === 400 && r.body?.error === 'price_not_set', show(r));
+check('A hub-only service can’t be done at the door', r.status === 400 && r.body?.error === 'not_at_homes', show(r));
+r = await start({ vehicleTypeId: tractor?.id });
+check('A tractor can’t be washed at the shop, which doesn’t take them', r.status === 400 && r.body?.error === 'not_at_shop', show(r));
 r = await call(OB, 'POST', '/jobs/start', {
   id: `job_cc_${run}_${rand(6)}`,
   customer: { phone: `98${rand(8)}`, name: 'Door Customer' },
@@ -325,16 +406,18 @@ check('A branch without a doorstep team can’t take doorstep washes', r.status 
 // ─── Customer app ────────────────────────────────────────────────────────────
 
 d1Run(`UPDATE shops SET in_customer_app = 1 WHERE id = '${A}';`);
-await call(OA, 'PATCH', '/business/plan-rules', { homeWash: false });
+await call(OA, 'PUT', '/branch/types', { hub: true, community: true, doorstep: false });
 r = await call(null, 'GET', '/c/branches');
 check('With washing at homes off, the app offers no wash at home', (r.body?.branches ?? []).find((b) => b.id === A)?.modes?.join() === 'hub', show(r));
-await call(OA, 'PATCH', '/business/plan-rules', { homeWash: true });
+await call(OA, 'PUT', '/branch/types', { hub: true, community: true, doorstep: true });
 r = await call(null, 'GET', '/c/branches');
 const listed = (r.body?.branches ?? []).find((b) => b.id === A);
 const fullListed = listed?.services?.find((s) => s.name === 'Full Wash');
 const hatchListed = listed?.vehicleTypes?.find((v) => v.name === 'Hatchback');
 check('The customer app lists how the branch washes', listed?.modes?.join() === 'hub,doorstep', show(r));
-check('…with hub and doorstep prices', fullListed?.prices?.some((p) => p.vehicleTypeId === hatchListed?.id && p.price === 42000) && fullListed?.doorstepPrices?.some((p) => p.vehicleTypeId === hatchListed?.id && p.price === 48000), JSON.stringify(fullListed));
+check('…with hub prices, the same at the door', fullListed?.prices?.some((p) => p.vehicleTypeId === hatchListed?.id && p.price === 42000) && fullListed?.doorstepPrices?.some((p) => p.vehicleTypeId === hatchListed?.id && p.price === 42000), JSON.stringify(fullListed));
+check('…plus the visit charge rules for a wash at home', listed?.visit?.visitFeePaise === 4900 && listed?.visit?.maxKm === 15, JSON.stringify(listed?.visit));
+check('…and a tractor isn’t on the shop’s list (the hub doesn’t take them)', !fullListed?.prices?.some((p) => p.vehicleTypeId === tractor?.id) && fullListed?.doorstepPrices?.some((p) => p.vehicleTypeId === tractor?.id), JSON.stringify(fullListed));
 check('…and each vehicle type’s body type for its picture', hatchListed?.bodyKey === 'hatch', JSON.stringify(hatchListed));
 r = await call(null, 'POST', '/c/service-area/check', { location: { latitude: 15.7, longitude: 80.06 } });
 check('A place only the doorstep team reaches is served', r.status === 200 && r.body?.served === true && r.body?.branch?.name === 'Catalog Hub', show(r));
@@ -345,7 +428,10 @@ d1Run(`UPDATE shops SET in_customer_app = 0 WHERE id = '${A}';`);
 const hubId = (await call(OA, 'GET', '/branch/points')).body?.points?.find((p) => p.kind === 'hub')?.id;
 r = await call(OA, 'PATCH', `/branch/points/${hubId}`, { active: false });
 prices = (await call(OA, 'GET', '/services/prices')).body ?? [];
-check('Closing the hub leaves doorstep prices only', r.status === 200 && !prices.some((p) => p.mode === 'hub' && p.source !== 'manual') && prices.some((p) => p.mode === 'doorstep'), show(r));
+check('Closing the hub keeps hub prices for home washes', r.status === 200 && prices.some((p) => p.mode === 'hub' && p.serviceId === fullA) && prices.some((p) => p.mode === 'doorstep'), show(r));
+check('…but not for a service done at the shop only', !prices.some((p) => p.serviceId === underA), JSON.stringify(prices.filter((p) => p.serviceId === underA)));
+r = await call(OA, 'GET', '/services/network');
+check('…and New Wash is at homes only', r.body?.modes?.join() === 'doorstep', show(r));
 r = await call(OA, 'PATCH', `/branch/points/${VAN}`, { active: false });
 check('The last working point can’t be switched off', r.status === 400, show(r));
 await call(OA, 'PATCH', `/branch/points/${hubId}`, { active: true });

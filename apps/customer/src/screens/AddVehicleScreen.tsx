@@ -38,7 +38,7 @@ type Errors = Partial<Record<'branch' | 'type' | 'plate' | 'make' | 'model', str
 export function AddVehicleScreen({ navigation }: Props) {
   const pageStyle = usePageStyle();
   const account = useAccount();
-  const { byId, loading: branchesLoading, error: branchesError, reload } = useBranches();
+  const { byId, vehicleModels, loading: branchesLoading, error: branchesError, reload } = useBranches();
 
   const [branchId, setBranchId] = useState<string | null>(
     account.branches.length === 1 ? account.branches[0]!.id : null,
@@ -55,8 +55,8 @@ export function AddVehicleScreen({ navigation }: Props) {
 
   const branch = branchId ? byId(branchId) : undefined;
   const types = branch?.vehicleTypes ?? [];
-  const makes = useMemo(() => vehicleMakeNames(), []);
-  const models = useMemo(() => vehicleModelNames(make), [make]);
+  const makes = useMemo(() => vehicleMakeNames(null, vehicleModels), [vehicleModels]);
+  const models = useMemo(() => vehicleModelNames(make, null, vehicleModels), [make, vehicleModels]);
 
   /** Picks the type that suits the make and model; a type the customer chose stays unless this one fits. */
   const applySuggestion = (
@@ -64,7 +64,7 @@ export function AddVehicleScreen({ navigation }: Props) {
     nextMake: string,
     nextModel: string,
   ) => {
-    const suggested = nextModel ? suggestedTypeId(branchTypes, nextMake, nextModel) : null;
+    const suggested = nextModel ? suggestedTypeId(branchTypes, nextMake, nextModel, vehicleModels) : null;
     if (suggested) {
       setTypeId(suggested);
       setTypeFromModel(true);
@@ -146,7 +146,7 @@ export function AddVehicleScreen({ navigation }: Props) {
                   setTypeFromModel(false);
                   setErrors((e) => ({ ...e, branch: undefined }));
                   const nextTypes = byId(v)?.vehicleTypes ?? [];
-                  const suggested = model ? suggestedTypeId(nextTypes, make, model) : null;
+                  const suggested = model ? suggestedTypeId(nextTypes, make, model, vehicleModels) : null;
                   if (suggested) {
                     setTypeId(suggested);
                     setTypeFromModel(true);

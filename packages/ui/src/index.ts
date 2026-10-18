@@ -4,9 +4,10 @@ export * from './vehicleCatalog';
 export * from './components/Icons';
 export { AlertHost, showAlert, type AlertButton, type AlertOptions } from './components/AppAlert';
 export { AuthHero } from './components/AuthHero';
+export { VehicleArt, vehicleKind } from './components/VehicleArt';
 export { Avatar, initials } from './components/Avatar';
 export { BottomSheet } from './components/BottomSheet';
-export { BRAND_MARK, BrandMark } from './components/BrandMark';
+export { BRAND_MARK, BRAND_SRI, BRAND_SRI_GOLD, BrandMark } from './components/BrandMark';
 export { Button } from './components/Button';
 export { Gradient } from './components/Gradient';
 export { Card } from './components/Card';
@@ -30,7 +31,7 @@ export {
   TextField,
 } from './components/Form';
 export { Notice } from './components/Notice';
-export { GradientHero } from './components/GradientHero';
+export { GradientHero, type HeroPalette } from './components/GradientHero';
 export { ScreenContainer } from './components/ScreenContainer';
 export { ScreenHeader } from './components/ScreenHeader';
 export { SPLASH_BACKGROUND, SplashIntro } from './components/SplashIntro';

@@ -6,9 +6,19 @@ import Svg, { Circle, Defs, G, Path, RadialGradient, Rect, Stop } from 'react-na
 import { brandGradients, radius } from '../theme';
 import { BRAND_MARK } from './BrandMark';
 
+/** A hero tint: the gradient top to bottom, and the two soft lights behind it. */
+export interface HeroPalette {
+  colors: readonly string[];
+  locations?: readonly number[];
+  glowA: string;
+  glowB: string;
+}
+
 interface GradientHeroProps extends PropsWithChildren {
   /** Extra height beyond the safe-area top inset. Omit to size from content. */
   height?: number;
+  /** Defaults to the brand indigo. */
+  palette?: HeroPalette;
 }
 
 /** [x, y, radius, opacity] in a 390 × 230 box. */
@@ -25,7 +35,7 @@ const STARS = [
 
 /** The light, faint stars and the logo watermark behind a hero's content. Measured, so the glows
  * keep their shape at any width and height. */
-function HeroDecor() {
+function HeroDecor({ glowA = '#9BAEF5', glowB = '#5468D4' }: { glowA?: string; glowB?: string }) {
   const [box, setBox] = React.useState({ w: 0, h: 0 });
   const { w, h } = box;
   // The stars and watermark are drawn in a 390 × 230 box and scaled to cover the hero (like CSS "cover").
@@ -46,12 +56,12 @@ function HeroDecor() {
         <Svg width={w} height={h}>
           <Defs>
             <RadialGradient id="heroGlowA" gradientUnits="userSpaceOnUse" cx={0.88 * w} cy={-0.06 * h} r={r1}>
-              <Stop offset="0" stopColor="#9BAEF5" stopOpacity={0.65} />
-              <Stop offset="1" stopColor="#9BAEF5" stopOpacity={0} />
+              <Stop offset="0" stopColor={glowA} stopOpacity={0.65} />
+              <Stop offset="1" stopColor={glowA} stopOpacity={0} />
             </RadialGradient>
             <RadialGradient id="heroGlowB" gradientUnits="userSpaceOnUse" cx={0} cy={1.05 * h} r={r2}>
-              <Stop offset="0" stopColor="#5468D4" stopOpacity={0.55} />
-              <Stop offset="1" stopColor="#5468D4" stopOpacity={0} />
+              <Stop offset="0" stopColor={glowB} stopOpacity={0.55} />
+              <Stop offset="1" stopColor={glowB} stopOpacity={0} />
             </RadialGradient>
           </Defs>
           <Rect x={0} y={0} width={w} height={h} fill="url(#heroGlowA)" />
@@ -74,20 +84,20 @@ function HeroDecor() {
 
 /** The indigo hero band at the top of sign-in, Home and the Job Board: a gradient with soft light,
  * faint stars and the logo as a watermark. Includes the safe-area top inset. */
-export function GradientHero({ children, height }: GradientHeroProps) {
+export function GradientHero({ children, height, palette }: GradientHeroProps) {
   const insets = useSafeAreaInsets();
   const sized = height != null;
   const g = brandGradients.hero;
 
   return (
     <LinearGradient
-      colors={g.colors as unknown as string[]}
-      locations={g.locations as unknown as number[]}
+      colors={(palette?.colors ?? g.colors) as unknown as string[]}
+      locations={(palette ? palette.locations : g.locations) as unknown as number[] | undefined}
       start={g.start}
       end={g.end}
       style={[styles.hero, sized ? { minHeight: height + insets.top } : null, { paddingTop: insets.top }]}
     >
-      <HeroDecor />
+      <HeroDecor glowA={palette?.glowA} glowB={palette?.glowB} />
       <View style={[styles.content, sized && styles.contentFill]}>{children}</View>
     </LinearGradient>
   );

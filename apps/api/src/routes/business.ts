@@ -1,27 +1,48 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { catalogRepo, createPlatformDb, createShopDb, menuRepo, planRepo, shopRepo, userRepo, type DbClient } from '@mana/db';
+import { awayPricingRepo, branchServiceRepo, branchTownRepo, vehicleModelRepo, VehicleModelError, CatalogError, catalogRepo, createPlatformDb, createShopDb, menuRepo, planRepo, shopRepo, userRepo, type DbClient } from '@mana/db';
 import {
   GSTIN_RE,
   isClockTime,
-  isValidTownCode,
+  isValidPincode,
+  ALL_BRANCH_SERVICES,
+  BRANCH_SERVICES_SELECT,
+  branchServicesOf,
+  branchServicesProblem,
+  liveBranchServices,
+  offerWithin,
+  pincodeCentre,
+  pincodePlace,
+  TOWN_NAME_MAX,
+  BRANCH_CHECK_KINDS,
   WASH_PLAN_MAX_DISCOUNT_BP,
   WASH_PLAN_MAX_MONTHS,
   WASH_PLAN_MAX_WASHES,
   WASH_PLAN_NAME_MAX,
   WASH_PLAN_RULE_LIMITS,
+  WASH_PLAN_UPGRADE_EVERY,
+  MAX_PLAN_PRICE_PAISE,
   CATALOG_NAME_MAX,
   CATALOG_SERVICE_DESCRIPTION_MAX,
   CATALOG_SERVICE_NAME_MAX,
+  SERVICE_CHECKLIST_ITEM_MAX,
+  SERVICE_CHECKLIST_MAX,
+  SERVICE_DURATION_MAX_MIN,
+  SERVICE_KINDS,
+  placesToModes,
+  type ServiceKind,
   MAX_ADJUSTMENT_BP,
   MAX_ADJUSTMENT_FIXED_PAISE,
   MAX_OVERRIDE_PCT,
   MAX_SERVICE_PRICE_PAISE,
   MIN_ADJUSTMENT_BP,
+  VEHICLE_MAKE_MAX,
+  COMMUNITY_TIERS_MAX,
+  COMMUNITY_TIER_MAX_BP,
+  DOORSTEP_LIMITS,
   PRICE_BOOK_NAME_MAX,
   PRICE_ZONE_NAME_MAX,
-  ROUND_TO_CHOICES_PAISE,
   MAX_BRANCHES_PER_PERSON,
   normalizePhone,
   BRANCH_STATUSES,
@@ -31,9 +52,10 @@ import {
 } from '@mana/domain';
 import { forgetShop, requireAuth } from '../middleware/auth';
 import { catalogError, publishBusiness, requireBusinessAdmin } from '../lib/catalog';
-import { phoneBusy, withPhoneLock } from '../lib/phoneLock';
+import { phoneBusy, withLock, withPhoneLock } from '../lib/phoneLock';
 import { placeError } from '../lib/places';
-import { createShopWithOwner } from '../lib/shops';
+import { openBranch } from '../lib/shops';
+import { isPlanError, planBranch, type PlanError } from '../lib/branchPlan';
 import { resetPin } from '../lib/pinReset';
 import { endOfIstDay, startOfIstDay, startOfIstMonth } from '../lib/istDate';
 import type { Env } from '../types';
@@ -59,14 +81,50 @@ const serviceFields = {
   description: z.string().trim().max(CATALOG_SERVICE_DESCRIPTION_MAX).nullable(),
   modes: z.enum(['hub', 'doorstep', 'both']),
   classIds: z.array(idSchema).min(1, 'Pick at least one vehicle class.').max(20),
+  /** Sizes of those vehicles it's for; left out = every size (new) or unchanged (edit). */
+  sizeIds: z.array(idSchema).min(1).max(60).optional(),
   /** A combo bundles at least two services; empty for a plain service. */
   includes: z
     .array(idSchema)
     .max(30)
     .refine((ids) => ids.length !== 1, 'A combo needs at least two services.'),
 };
+const priceSchema = z.number().int().nonnegative().max(MAX_SERVICE_PRICE_PAISE, 'That price looks too large');
+/** The rest of a service: where it's done as three ticks, time, kind, badge, app, checklist, and prices. */
+/**
+ * Community prices are the hub price with the community rule (HQ › Base prices › Community):
+ * a size can't be given its own. `null` clears an old one.
+ */
+const communityPriceSchema = z
+  .number()
+  .int()
+  .nullable()
+  .optional()
+  .refine((v) => v == null, 'Community prices follow the community rule: change the rule instead.');
+
+const serviceDetails = {
+  /** Shop, community, doorstep in any combination; replaces `modes` when given. */
+  places: z
+    .object({ shop: z.boolean(), community: z.boolean(), doorstep: z.boolean() })
+    .refine((p) => p.shop || p.community || p.doorstep, 'Tick where it’s done: shop, community or doorstep.')
+    .optional(),
+  durationMin: z.number().int().min(1, 'Enter how long it takes').max(SERVICE_DURATION_MAX_MIN, 'That’s more than 30 days').nullable().optional(),
+  kind: z.enum(SERVICE_KINDS as [ServiceKind, ...ServiceKind[]]).optional(),
+  popular: z.boolean().optional(),
+  showInApp: z.boolean().optional(),
+  checklist: z
+    .array(z.string().trim().min(1).max(SERVICE_CHECKLIST_ITEM_MAX, `Keep each line under ${SERVICE_CHECKLIST_ITEM_MAX} letters`))
+    .max(SERVICE_CHECKLIST_MAX, `Up to ${SERVICE_CHECKLIST_MAX} lines`)
+    .optional(),
+  /** Prices in the default price book, per size; `price: null` = not offered for that size. */
+  prices: z
+    .array(z.object({ sizeId: idSchema, price: priceSchema.nullable(), doorstepPrice: communityPriceSchema }))
+    .max(60)
+    .optional(),
+};
 const createServiceSchema = z.object({
   ...serviceFields,
+  ...serviceDetails,
   description: serviceFields.description.default(null),
   modes: serviceFields.modes.default('both'),
   includes: serviceFields.includes.default([]),
@@ -76,9 +134,33 @@ const updateServiceSchema = z.object({
   description: serviceFields.description.optional(),
   modes: serviceFields.modes.optional(),
   classIds: serviceFields.classIds.optional(),
+  sizeIds: serviceFields.sizeIds,
   includes: serviceFields.includes.optional(),
   active: z.boolean().optional(),
+  ...serviceDetails,
 });
+
+/** `places` → the stored modes and where the team does it. */
+function withPlaces<T extends { places?: { shop: boolean; community: boolean; doorstep: boolean }; modes?: 'hub' | 'doorstep' | 'both' }>(
+  body: T,
+) {
+  const { places, ...rest } = body;
+  const stored = places ? placesToModes(places) : null;
+  return stored ? { ...rest, modes: stored.modes, teamAt: stored.teamAt } : rest;
+}
+
+/** Saves a service's prices in the default price book, when the form sent them. */
+async function saveServicePrices(
+  d1: Env['DB'],
+  businessId: string,
+  serviceId: string,
+  prices: { sizeId: string; price: number | null; doorstepPrice?: number | null }[] | undefined,
+) {
+  if (!prices?.length) return;
+  const book = await catalogRepo.defaultPriceBookId(d1, businessId);
+  if (!book) return;
+  await catalogRepo.setPrices(d1, businessId, book, prices.map((p) => ({ ...p, serviceId })));
+}
 const pricesSchema = z.object({
   priceBookId: idSchema,
   entries: z
@@ -87,6 +169,7 @@ const pricesSchema = z.object({
         serviceId: idSchema,
         sizeId: idSchema,
         price: z.number().int().nonnegative().max(MAX_SERVICE_PRICE_PAISE, 'That price looks too large').nullable(),
+        doorstepPrice: communityPriceSchema,
       }),
     )
     .min(1)
@@ -95,9 +178,33 @@ const pricesSchema = z.object({
 const adjustmentKey = { mode: modeSchema, classId: idSchema.nullable() };
 const adjustmentSchema = z.object({
   ...adjustmentKey,
+  // Only the community rule: shop prices are the hub prices themselves (Base prices › Hub).
+  mode: modeSchema.refine((m) => m === 'doorstep', 'Shop prices are the hub prices: change them in Base prices.'),
   percentBp: z.number().int().min(MIN_ADJUSTMENT_BP).max(MAX_ADJUSTMENT_BP),
   fixedPaise: z.number().int().min(-MAX_ADJUSTMENT_FIXED_PAISE).max(MAX_ADJUSTMENT_FIXED_PAISE),
   minExtraPaise: z.number().int().min(0).max(MAX_ADJUSTMENT_FIXED_PAISE),
+});
+const doorstepRulesSchema = z.object({
+  visitFeePaise: z.number().int().min(0).max(DOORSTEP_LIMITS.visitFeeMaxPaise),
+  freeKm: z.number().min(0).max(DOORSTEP_LIMITS.freeKmMax),
+  perKmPaise: z.number().int().min(0).max(DOORSTEP_LIMITS.perKmMaxPaise),
+  maxKm: z.number().min(1).max(DOORSTEP_LIMITS.maxKmMax),
+  roundTo9: z.boolean(),
+  busy: z
+    .array(
+      z.object({
+        days: z.array(z.number().int().min(0).max(6)).min(1).max(7),
+        from: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+        to: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+        extraPaise: z.number().int().min(1).max(DOORSTEP_LIMITS.visitFeeMaxPaise),
+      }),
+    )
+    .max(DOORSTEP_LIMITS.busyMax),
+});
+const communityTiersSchema = z.object({
+  tiers: z
+    .array(z.object({ minCars: z.number().int().min(2).max(1000), discountBp: z.number().int().min(100).max(COMMUNITY_TIER_MAX_BP) }))
+    .max(COMMUNITY_TIERS_MAX),
 });
 const zoneSchema = z.object({
   name: nameSchema(PRICE_ZONE_NAME_MAX),
@@ -105,10 +212,6 @@ const zoneSchema = z.object({
 });
 const policySchema = z
   .object({
-    roundToPaise: z
-      .number()
-      .int()
-      .refine((v) => ROUND_TO_CHOICES_PAISE.includes(v), 'Pick one of the rounding choices.'),
     branchOverrides: z.boolean(),
     maxIncreasePct: z.number().int().min(0).max(MAX_OVERRIDE_PCT),
     maxDecreasePct: z.number().int().min(0).max(MAX_OVERRIDE_PCT),
@@ -124,7 +227,31 @@ const planSchema = z.object({
   discountBp: z.number().int().min(0).max(WASH_PLAN_MAX_DISCOUNT_BP).default(0),
   allowParts: z.boolean().default(false),
   popular: z.boolean().default(false),
+  /** Where it's sold: communities, the shop counter, or both. */
+  soldAt: z.enum(['community', 'shop', 'both']).default('community'),
+  /** A community plan can also pay for a wash at the shop. */
+  shopUse: z.boolean().default(true),
+  /** Every Nth wash is this service instead; both or neither. */
+  upgradeServiceId: idSchema.nullable().default(null),
+  upgradeEvery: z.number().int().min(WASH_PLAN_UPGRADE_EVERY[0]).max(WASH_PLAN_UPGRADE_EVERY[1]).nullable().default(null),
+  /** Fixed prices per size and way of washing; the whole list is replaced when sent. */
+  prices: z
+    .array(
+      z.object({
+        sizeId: idSchema,
+        mode: modeSchema,
+        price: z.number().int().nonnegative().max(MAX_PLAN_PRICE_PAISE, 'That price looks too large'),
+      }),
+    )
+    .max(200)
+    .optional(),
 });
+const planPatchSchema = planSchema
+  .extend({ active: z.boolean(), sortOrder: z.number().int().min(0).max(1000) })
+  .partial()
+  .refine((p) => (p.upgradeServiceId === undefined) === (p.upgradeEvery === undefined), {
+    message: 'Send the upgraded wash and how often together.',
+  });
 const ruleInt = (key: keyof typeof WASH_PLAN_RULE_LIMITS) =>
   z.number().int().min(WASH_PLAN_RULE_LIMITS[key][0]).max(WASH_PLAN_RULE_LIMITS[key][1]).optional();
 const clockSchema = z.string().refine(isClockTime, 'Pick a time');
@@ -141,7 +268,6 @@ const planRulesSchema = z.object({
   renewalReminderDays: ruleInt('renewalReminderDays'),
   unpaidCloseDays: ruleInt('unpaidCloseDays'),
   priceMode: z.enum(['doorstep', 'hub']).optional(),
-  homeWash: z.boolean().optional(),
   gstRateBp: ruleInt('gstRateBp'),
   gstin: z
     .string()
@@ -154,16 +280,46 @@ const planRulesSchema = z.object({
 });
 
 const personName = z.string().trim().min(1, 'Enter the owner’s name').max(60);
-const openBranchSchema = z.object({
-  /** The branch is named after its town. */
-  town: z.string().trim().min(2, 'Enter the town').max(40),
-  townCode: z
-    .string()
-    .trim()
-    .transform((s) => s.toUpperCase())
-    .refine(isValidTownCode, 'Town code is 3 letters, like KVR'),
+const pincodeSchema = z
+  .string()
+  .transform((s) => s.replace(/\D/g, ''))
+  .refine(isValidPincode, 'Enter the branch’s 6-digit pincode');
+const branchPlaceSchema = z.object({
+  pincode: pincodeSchema,
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  /** One of the town choices the preview gave; null = the best one. */
+  town: z.string().trim().max(TOWN_NAME_MAX).nullable().default(null),
+  /** One of the area choices, or null for none; left out = the default. */
+  area: z.string().trim().max(TOWN_NAME_MAX).nullable().optional(),
+});
+const servicesSchema = z
+  .object({ hub: z.boolean(), community: z.boolean(), doorstep: z.boolean() })
+  .refine((v) => branchServicesProblem(v) == null, (v) => ({ message: branchServicesProblem(v) ?? '' }));
+const openBranchSchema = branchPlaceSchema.extend({
   ownerName: personName,
   ownerPhone: phoneSchema,
+  /** What the branch's agreement allows; it opens with all of them switched on. */
+  services: servicesSchema.default(ALL_BRANCH_SERVICES),
+  /** The head-office services it sells from the start (more can be switched on later). */
+  menu: z.array(idSchema).max(200).default([]),
+  /** The kinds of vehicle it washes (body type ids); left out: cars and two-wheelers. */
+  vehicles: z.array(idSchema).max(200).optional(),
+  /** The checks HQ has looked at and accepted (near_branch, new_state…). */
+  confirmed: z.array(z.enum(BRANCH_CHECK_KINDS)).max(10).default([]),
+});
+/** What a new branch washes when HQ doesn't say: cars and two-wheelers. */
+async function defaultVehicles(d1: Env['DB'], businessId: string): Promise<string[]> {
+  const data = await catalogRepo.load(d1, businessId);
+  if (!data) return [];
+  const wanted = new Set(data.classes.filter((k) => k.key === 'car' || k.key === 'twoWheeler').map((k) => k.id));
+  return data.bodyTypes.filter((b) => wanted.has(b.classId)).map((b) => b.id);
+}
+const modelKeySchema = z.object({ make: z.string().trim().min(1).max(VEHICLE_MAKE_MAX), model: z.string().trim().min(1).max(VEHICLE_MAKE_MAX) });
+const vehicleModelSchema = modelKeySchema.extend({
+  category: z.enum(['car', 'bike']),
+  bodyKey: z.string().min(1).max(40),
+  from: modelKeySchema.optional(),
 });
 const ownerSchema = z.object({ name: personName, phone: phoneSchema });
 const ownerParam = z.object({ id: idSchema, userId: idSchema });
@@ -178,6 +334,19 @@ const statusSchema = z
   });
 
 type Ctx = Context<{ Bindings: Env }>;
+
+const PLAN_ERROR_STATUS = {
+  unknown_pincode: 404,
+  outside_india: 400,
+  bad_choice: 400,
+  no_code: 409,
+  no_offices: 503,
+  needs_confirmation: 409,
+} as const satisfies Record<PlanError['error'], number>;
+
+function planErrorResponse(c: Ctx, e: PlanError) {
+  return c.json(e, PLAN_ERROR_STATUS[e.error]);
+}
 
 type OwnerProblem = { status: 404 | 409; body: { error: string; message: string } };
 
@@ -231,12 +400,13 @@ export const businessRoutes = new Hono<{ Bindings: Env }>()
   .use('*', requireBusinessAdmin)
   .get('/catalog', async (c) => {
     const businessId = c.get('businessId');
-    const [view, rules] = await Promise.all([
+    const [view, shops] = await Promise.all([
       catalogRepo.view(c.env.DB, businessId),
-      planRepo.rules(createPlatformDb(c.env.DB), businessId),
+      createPlatformDb(c.env.DB).shop.findMany({ where: { businessId, status: { not: 'closed' } }, select: BRANCH_SERVICES_SELECT }),
     ]);
     if (!view) return c.json({ error: 'not_found' as const }, 404);
-    return c.json({ ...view, homeWash: rules.homeWash });
+    // Whether any branch washes at customers' homes: the community price column is then also doorstep.
+    return c.json({ ...view, homeWash: shops.some((sh) => branchServicesOf(sh).live.doorstep) });
   })
   .patch('/', zValidator('json', z.object({ name: nameSchema(80) })), async (c) => {
     await catalogRepo.renameBusiness(c.env.DB, c.get('businessId'), c.req.valid('json').name);
@@ -273,16 +443,45 @@ export const businessRoutes = new Hono<{ Bindings: Env }>()
     zValidator('param', idParam),
     zValidator(
       'json',
-      z.object({ name: nameSchema(CATALOG_NAME_MAX).optional(), sizeId: idSchema.optional(), active: z.boolean().optional() }),
+      z.object({ name: nameSchema(CATALOG_NAME_MAX).optional(), sizeId: idSchema.optional() }),
     ),
     (c) => change(c, () => catalogRepo.updateBodyType(c.env.DB, c.get('businessId'), c.req.valid('param').id, c.req.valid('json'))),
   )
 
+  // ---------- Companies and models (the vehicle size guide) ----------
+  /** Adds a model or changes one (its company, name or kind); `from` is the model being edited. */
+  .put('/vehicle-models', zValidator('json', vehicleModelSchema), async (c) => {
+    try {
+      const saved = await vehicleModelRepo.save(c.env.DB, c.get('businessId'), c.req.valid('json'), c.get('session').phone);
+      return c.json({ ok: true as const, ...saved });
+    } catch (e) {
+      if (e instanceof VehicleModelError) return c.json({ error: 'invalid' as const, message: e.message }, 400);
+      throw e;
+    }
+  })
+  /** Takes a model off the list. */
+  .delete('/vehicle-models', zValidator('json', modelKeySchema.extend({ category: z.enum(['car', 'bike']) })), async (c) => {
+    await vehicleModelRepo.remove(c.env.DB, c.get('businessId'), c.req.valid('json'), c.get('session').phone);
+    return c.json({ ok: true as const });
+  })
+  /** Puts a listed model back as it ships (undoes head office's change). */
+  .post('/vehicle-models/reset', zValidator('json', modelKeySchema), async (c) => {
+    try {
+      await vehicleModelRepo.reset(c.env.DB, c.get('businessId'), c.req.valid('json'));
+      return c.json({ ok: true as const });
+    } catch (e) {
+      if (e instanceof VehicleModelError) return c.json({ error: 'invalid' as const, message: e.message }, 400);
+      throw e;
+    }
+  })
+
   // ---------- Services ----------
   .post('/services', zValidator('json', createServiceSchema), async (c) => {
     let id: string;
+    const { prices, ...body } = withPlaces(c.req.valid('json'));
     try {
-      id = await catalogRepo.createService(c.env.DB, c.get('businessId'), c.req.valid('json'));
+      id = await catalogRepo.createService(c.env.DB, c.get('businessId'), body as Parameters<typeof catalogRepo.createService>[2]);
+      await saveServicePrices(c.env.DB, c.get('businessId'), id, prices);
     } catch (e) {
       return catalogError(c, e);
     }
@@ -290,7 +489,26 @@ export const businessRoutes = new Hono<{ Bindings: Env }>()
     return c.json({ id, branches }, 201);
   })
   .patch('/services/:id', zValidator('param', idParam), zValidator('json', updateServiceSchema), (c) =>
-    change(c, () => catalogRepo.updateService(c.env.DB, c.get('businessId'), c.req.valid('param').id, c.req.valid('json'))),
+    change(c, async () => {
+      const raw = c.req.valid('json');
+      const { prices, ...body } = withPlaces(raw);
+      const id = c.req.valid('param').id;
+      // Wash plans are sold at communities: their wash can't stop being done there.
+      if (raw.places && !raw.places.community) {
+        const plan = await createPlatformDb(c.env.DB).washPlan.findFirst({
+          where: { businessId: c.get('businessId'), active: true, OR: [{ catalogServiceId: id }, { upgradeServiceId: id }] },
+          select: { name: true },
+        });
+        if (plan) throw new CatalogError('in_use', `${plan.name} uses this service, so it has to stay at communities.`);
+      }
+      await catalogRepo.updateService(c.env.DB, c.get('businessId'), id, body);
+      await saveServicePrices(c.env.DB, c.get('businessId'), id, prices);
+    }),
+  )
+  // Deletes a service: off every branch's menu for good. Past washes keep its name. A service a
+  // wash plan or a combo uses can't go until it's taken out of them.
+  .delete('/services/:id', zValidator('param', idParam), (c) =>
+    change(c, () => catalogRepo.deleteService(c.env.DB, c.get('businessId'), c.req.valid('param').id)),
   )
   .put('/services/order', zValidator('json', z.object({ ids: z.array(idSchema).min(1).max(200) })), (c) =>
     change(c, () => catalogRepo.reorderServices(c.env.DB, c.get('businessId'), c.req.valid('json').ids)),
@@ -360,29 +578,85 @@ export const businessRoutes = new Hono<{ Bindings: Env }>()
   .patch('/policy', zValidator('json', policySchema), (c) =>
     change(c, () => catalogRepo.setPolicy(c.env.DB, c.get('businessId'), c.req.valid('json'), c.get('session').phone)),
   )
+  /** What a home visit costs on top of the hub price. */
+  .put('/doorstep-rules', zValidator('json', doorstepRulesSchema), async (c) => {
+    const saved = await awayPricingRepo.setDoorstep(c.env.DB, c.get('businessId'), c.req.valid('json'), c.get('session').phone);
+    if (!saved.ok) return c.json({ error: 'invalid_rules' as const, message: saved.message }, 400);
+    return c.json({ rules: saved.rules });
+  })
+  /** Bigger communities pay less: from N cars, X% off the community price. */
+  .put('/community-tiers', zValidator('json', communityTiersSchema), async (c) => {
+    const saved = await awayPricingRepo.setCommunityTiers(c.env.DB, c.get('businessId'), c.req.valid('json').tiers, c.get('session').phone);
+    if (!saved.ok) return c.json({ error: 'invalid_tiers' as const, message: saved.message }, 400);
+    return c.json({ tiers: saved.tiers });
+  })
 
   // ---------- Branches ----------
   // Only HQ opens a branch: always inside its business, with HQ's menu, and an owner who signs
   // in with a WhatsApp code and picks a PIN (or uses the PIN they already have as an owner).
+  /** A pincode's district, state and post offices, as soon as HQ has typed it. */
+  .get('/pincodes/:pincode', zValidator('param', z.object({ pincode: pincodeSchema })), async (c) => {
+    const { pincode } = c.req.valid('param');
+    const pdb = createPlatformDb(c.env.DB);
+    const offices = await branchTownRepo.postOffices(pdb, pincode);
+    if (!offices.length) {
+      const loaded = await branchTownRepo.hasPostOffices(pdb);
+      return c.json(
+        loaded
+          ? { error: 'unknown_pincode' as const, message: `India Post has no pincode ${pincode}. Check it and try again.` }
+          : { error: 'no_offices' as const, message: 'The pincode list isn’t loaded on the server yet. Ask Sprixia to load it.' },
+        404,
+      );
+    }
+    const place = pincodePlace(offices)!;
+    return c.json({ pincode, district: place.district, state: place.state, offices: offices.length, centre: pincodeCentre(offices) });
+  })
+  /** What opening a branch here would make: town, code, name, choices and checks. Writes nothing. */
+  .post('/branches/preview', zValidator('json', branchPlaceSchema), async (c) => {
+    const plan = await planBranch(c.env, c.get('businessId'), c.req.valid('json'));
+    if (isPlanError(plan)) return planErrorResponse(c, plan);
+    return c.json({ plan });
+  })
+  // Only HQ opens a branch: always inside its business, with HQ's menu, and an owner who signs
+  // in with a WhatsApp code and picks a PIN (or uses the PIN they already have as an owner). The
+  // server decides the town, code, number and name again; the checks the preview showed must be
+  // confirmed (a new one that appeared meanwhile sends HQ back to look).
   .post('/branches', zValidator('json', openBranchSchema), async (c) => {
     const body = c.req.valid('json');
+    const businessId = c.get('businessId');
     const platform = createPlatformDb(c.env.DB);
-    const result = await withPhoneLock(c.env, body.ownerPhone, async () => {
-      const candidate = await ownerCandidate(platform, body.ownerPhone);
-      if ('problem' in candidate) return candidate;
-      const created = await createShopWithOwner(c.env, {
-        town: body.town,
-        townCode: body.townCode,
-        ownerName: candidate.name ?? body.ownerName,
-        phone: body.ownerPhone,
-        pin: candidate.pin,
-        businessId: c.get('businessId'),
-      });
-      return created;
-    });
-    if (result === null) return c.json(phoneBusy, 409);
+    const confirmed = new Set(body.confirmed);
+    let menu: string[];
+    let vehicles: string[];
+    try {
+      menu = await catalogRepo.checkBranchMenu(c.env.DB, businessId, body.menu);
+      vehicles = await catalogRepo.checkBranchVehicles(c.env.DB, businessId, body.vehicles ?? (await defaultVehicles(c.env.DB, businessId)));
+    } catch (e) {
+      return catalogError(c, e);
+    }
+    const result = await withLock(c.env, `branches:${businessId}`, () =>
+      withPhoneLock(c.env, body.ownerPhone, async () => {
+        const candidate = await ownerCandidate(platform, body.ownerPhone);
+        if ('problem' in candidate) return candidate;
+        return openBranch(
+          c.env,
+          businessId,
+          body,
+          { name: candidate.name ?? body.ownerName, phone: body.ownerPhone, pin: candidate.pin },
+          body.services,
+          menu,
+          vehicles,
+          (plan) => {
+            const open = plan.checks.filter((k) => !confirmed.has(k.kind));
+            return open.length ? { error: 'needs_confirmation', message: open[0]!.message, checks: open, plan } : null;
+          },
+        );
+      }),
+    );
+    if (result === null) return c.json({ error: 'busy' as const, message: 'Another branch is being opened right now. Try again in a moment.' }, 409);
     if ('problem' in result) return c.json(result.problem.body, result.problem.status);
-    return c.json({ id: result.shop.id, code: result.shop.code, name: result.shop.name }, 201);
+    if ('error' in result) return planErrorResponse(c, result);
+    return c.json({ id: result.shopId, code: result.plan.code, name: result.plan.name, town: result.plan.town.name }, 201);
   })
   // Only HQ makes someone an owner: a teammate of the branch is promoted, anyone else is added.
   .post('/branches/:id/owners', zValidator('param', idParam), zValidator('json', ownerSchema), async (c) => {
@@ -512,6 +786,73 @@ export const businessRoutes = new Hono<{ Bindings: Env }>()
       return c.json({ ok: true as const });
     },
   )
+  /**
+   * What a branch's agreement allows (hub, communities, doorstep). The owner's switches stay
+   * inside it; taking Community away waits until the branch's community plans have finished.
+   */
+  .put('/branches/:id/services', zValidator('param', idParam), zValidator('json', servicesSchema), async (c) => {
+    const { id } = c.req.valid('param');
+    if (!(await hqBranch(c, id))) return c.json(branchNotFound, 404);
+    const pdb = createPlatformDb(c.env.DB);
+    const services = await branchServiceRepo.get(pdb, id);
+    if (!services) return c.json(branchNotFound, 404);
+    const allowed = c.req.valid('json');
+    const offered = offerWithin(allowed, services.offered);
+    if (services.live.community && !liveBranchServices(allowed, offered).community) {
+      const running = await branchServiceRepo.runningPlans(pdb, id);
+      if (running > 0) {
+        return c.json(
+          {
+            error: 'plans_running' as const,
+            message: `${running} community plan${running === 1 ? ' is' : 's are'} still running at this branch. Let them finish (or cancel them) before taking Community away.`,
+          },
+          409,
+        );
+      }
+    }
+    await branchServiceRepo.setAllowed(c.env.DB, id, allowed, offered);
+    await menuRepo.publish(c.env.DB, id);
+    forgetShop(id);
+    return c.json({ services: { allowed, offered, live: liveBranchServices(allowed, offered) } });
+  })
+  // Which head-office services this branch sells. Nothing reaches a branch until HQ switches it on
+  // here; a combo brings the services it bundles with it.
+  /** The kinds of vehicle a branch washes; its hub and team take their vehicle groups. */
+  .put(
+    '/branches/:id/vehicles',
+    zValidator('param', idParam),
+    zValidator('json', z.object({ bodyTypeIds: z.array(idSchema).max(200) })),
+    async (c) => {
+      const { id } = c.req.valid('param');
+      if (!(await hqBranch(c, id))) return c.json(branchNotFound, 404);
+      let vehicles: string[];
+      try {
+        vehicles = await catalogRepo.checkBranchVehicles(c.env.DB, c.get('businessId'), c.req.valid('json').bodyTypeIds);
+      } catch (e) {
+        return catalogError(c, e);
+      }
+      await catalogRepo.saveBranchVehicles(c.env.DB, c.get('businessId'), id, vehicles);
+      await menuRepo.markStale(c.env.DB, id);
+      await menuRepo.publish(c.env.DB, id);
+      forgetShop(id);
+      return c.json({ ok: true as const, vehicles });
+    },
+  )
+  .put('/branches/:id/menu', zValidator('param', idParam), zValidator('json', z.object({ serviceIds: z.array(idSchema).max(200) })), async (c) => {
+    const { id } = c.req.valid('param');
+    if (!(await hqBranch(c, id))) return c.json(branchNotFound, 404);
+    let menu: string[];
+    try {
+      menu = await catalogRepo.checkBranchMenu(c.env.DB, c.get('businessId'), c.req.valid('json').serviceIds);
+    } catch (e) {
+      return catalogError(c, e);
+    }
+    await catalogRepo.saveBranchMenu(c.env.DB, id, menu);
+    await menuRepo.markStale(c.env.DB, id);
+    await menuRepo.publish(c.env.DB, id);
+    forgetShop(id);
+    return c.json({ ok: true as const, menu });
+  })
   /** Starts the catalog from a branch's own menu (the signed-in branch unless another is named). */
   .post('/import', zValidator('json', z.object({ shopId: idSchema.optional() })), async (c) => {
     const session = c.get('session');
@@ -548,7 +889,7 @@ export const businessRoutes = new Hono<{ Bindings: Env }>()
   .patch(
     '/plans/:id',
     zValidator('param', idParam),
-    zValidator('json', planSchema.partial().extend({ active: z.boolean().optional(), sortOrder: z.number().int().min(0).max(1000).optional() })),
+    zValidator('json', planPatchSchema),
     async (c) => {
       try {
         await planRepo.update(c.env.DB, c.get('businessId'), c.req.valid('param').id, c.req.valid('json'));

@@ -116,7 +116,7 @@ async function loadVisitRows(db: DbClient, vehicleWhere: Prisma.VehicleWhereInpu
     }),
     db.jobService.findMany({
       where: { job: { vehicle: vehicleWhere, ...LIVE_JOB }, ...STAMPING_LINE },
-      select: { jobId: true, serviceId: true },
+      select: { jobId: true, serviceId: true, job: { select: { planServiceId: true } } },
     }),
     db.rewardClaim.findMany({ where: { vehicle: vehicleWhere }, select: { jobId: true, serviceId: true } }),
   ]);
@@ -126,6 +126,7 @@ async function loadVisitRows(db: DbClient, vehicleWhere: Prisma.VehicleWhereInpu
 /**
  * Every paid (or free-wash) visit that touches a stamp-card service, grouped by vehicle then
  * service. A combo stamps each card service it includes; one wash stamps a card at most once.
+ * The line a community plan paid for stamps nothing: it was prepaid with the plan.
  */
 function visitsByVehicle(
   { jobs, lines, claims }: Awaited<ReturnType<typeof loadVisitRows>>,
@@ -135,6 +136,10 @@ function visitsByVehicle(
   const covered = new Map<string, Set<string>>();
   for (const line of lines) {
     const set = covered.get(line.jobId) ?? new Set<string>();
+    if (line.serviceId === line.job.planServiceId) {
+      covered.set(line.jobId, set);
+      continue;
+    }
     if (ruleIds.has(line.serviceId)) set.add(line.serviceId);
     for (const s of combos.get(line.serviceId) ?? []) set.add(s);
     covered.set(line.jobId, set);

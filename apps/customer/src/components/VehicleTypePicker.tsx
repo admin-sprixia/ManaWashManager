@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { vehicleTypeKeysFor } from '@mana/domain';
-import { Image, Pressable, StyleSheet, Text, View, type ImageSourcePropType } from 'react-native';
+import { vehicleTypeKeysFor, type VehicleModelEdit } from '@mana/domain';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import {
   FieldLabel,
   FieldMessage,
   IconCheck,
-  VEHICLE_CATALOG,
+  VehicleArt,
   catalogVehicleForType,
   colors,
   radius,
@@ -14,21 +14,16 @@ import {
 const COLUMNS = 3;
 const GAP = 10;
 
-const FALLBACK = {
-  car: VEHICLE_CATALOG.find((v) => v.key === 'sedan')!.image,
-  bike: VEHICLE_CATALOG.find((v) => v.key === 'bike')!.image,
-};
-
 /** A branch's vehicle type: its catalog body type when it has one, else matched by name. */
-interface TypeLike {
+export interface TypeLike {
   name: string;
   category: 'car' | 'bike';
   bodyKey?: string | null;
 }
 
-/** The catalogue photo for a branch's vehicle type. */
-export function vehicleTypeImage(type: TypeLike): ImageSourcePropType {
-  return catalogVehicleForType(type)?.image ?? FALLBACK[type.category];
+/** A branch's vehicle type drawn as a bike or car icon, filling `style`. */
+export function VehicleTypeArt({ type, style }: { type: TypeLike; style?: React.ComponentProps<typeof VehicleArt>['style'] }) {
+  return <VehicleArt name={type.name} bodyKey={type.bodyKey} category={type.category} style={style} />;
 }
 
 /** The branch's type that best suits a listed make and model (Swift → Hatchback), or null. */
@@ -36,8 +31,10 @@ export function suggestedTypeId(
   types: readonly { id: string; name: string; bodyKey?: string | null }[],
   make: string,
   model: string,
+  /** Head office's changes to the list of models. */
+  edits: readonly VehicleModelEdit[] = [],
 ): string | null {
-  const keys = vehicleTypeKeysFor(make, model);
+  const keys = vehicleTypeKeysFor(make, model, edits);
   if (!keys) return null;
   for (const key of keys) {
     const match = types.find((t) => catalogVehicleForType(t)?.key === key);
@@ -97,11 +94,7 @@ export function VehicleTypePicker({
                       selected && styles.frameOn,
                     ]}
                   >
-                    <Image
-                      source={vehicleTypeImage(t)}
-                      style={styles.photo}
-                      resizeMode="cover"
-                    />
+                    <VehicleTypeArt type={t} style={styles.photo} />
                     {selected ? (
                       <View style={styles.tick}>
                         <IconCheck size={12} color={colors.white} />

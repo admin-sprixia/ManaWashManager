@@ -27,9 +27,12 @@ import {
   IconChevronRight,
   IconClock,
   IconDownload,
+  IconBuilding,
   IconGift,
+  IconHome,
   IconReceipt,
   IconStar,
+  IconStore,
   IconTag,
   IconUserPlus,
   IconUsers,
@@ -67,6 +70,11 @@ interface Stats {
   /** Paid for community plans in the period, less refunds. */
   planIncome?: number;
   planPayments?: number;
+  /** Washes at customers' homes (part of carsWashed) and what they brought in (part of revenue). */
+  doorstepWashes?: number;
+  doorstepRevenue?: number;
+  /** Plan cars washed at communities; their money is plan income. */
+  communityWashes?: number;
   net: number;
   label?: string;
   from?: string;
@@ -496,8 +504,9 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
                 index={0}
                 icon={<IconCar size={18} color={colors.indigo} />}
                 tint={colors.indigoPale}
-                value={String(stats.carsWashed)}
+                value={String(stats.carsWashed + (stats.communityWashes ?? 0))}
                 label="Vehicles washed"
+                hint={(stats.communityWashes ?? 0) > 0 ? `${stats.communityWashes} at communities` : undefined}
               />
               <StatTile
                 index={1}
@@ -524,6 +533,33 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
                 hint={totalCustomers > 0 ? `${pct(stats.repeatCustomers, totalCustomers)}% came back` : 'Came back'}
               />
             </View>
+
+            {(stats.doorstepWashes ?? 0) > 0 || (stats.communityWashes ?? 0) > 0 ? (
+              <>
+                <Text style={styles.sectionTitle}>Where we washed</Text>
+                <View style={styles.band}>
+                  <DetailRow
+                    icon={<IconStore size={16} color={colors.indigo} />}
+                    tint={colors.indigoPale}
+                    label={`At the shop · ${stats.carsWashed - (stats.doorstepWashes ?? 0)}`}
+                    value={formatRupees(stats.revenue - (stats.doorstepRevenue ?? 0))}
+                  />
+                  <DetailRow
+                    icon={<IconHome size={16} color={colors.amberDeep} />}
+                    tint="#FEF3C7"
+                    label={`At customers’ homes · ${stats.doorstepWashes ?? 0}`}
+                    value={formatRupees(stats.doorstepRevenue ?? 0)}
+                  />
+                  <DetailRow
+                    icon={<IconBuilding size={16} color={colors.tealDeep} />}
+                    tint="#CCFBF1"
+                    label={`At communities · ${stats.communityWashes ?? 0}`}
+                    value={stats.planIncome ? 'Paid by plans' : '—'}
+                    last
+                  />
+                </View>
+              </>
+            ) : null}
 
             <Text style={styles.sectionTitle}>How money came in</Text>
             <View style={styles.band}>

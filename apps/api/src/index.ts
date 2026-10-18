@@ -10,6 +10,7 @@ import { authRoutes } from './routes/auth';
 import { customerRoutes } from './routes/customer';
 import { serviceRoutes } from './routes/service';
 import { jobRoutes } from './routes/job';
+import { shopPlanRoutes } from './routes/shopPlan';
 import { teamRoutes } from './routes/team';
 import { expenseRoutes } from './routes/expense';
 import { reportRoutes } from './routes/report';
@@ -108,6 +109,7 @@ const routes = app
   .route('/customers', customerRoutes)
   .route('/services', serviceRoutes)
   .route('/jobs', jobRoutes)
+  .route('/shop-plans', shopPlanRoutes)
   .route('/team', teamRoutes)
   .route('/expenses', expenseRoutes)
   .route('/reports', reportRoutes)

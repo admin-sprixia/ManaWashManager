@@ -4,8 +4,8 @@ import LinearGradient from 'react-native-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   GradientHero,
+  IconAlert,
   IconBell,
-  IconBuilding,
   IconChart,
   IconChevronDown,
   IconGrid,
@@ -15,13 +15,12 @@ import {
   radius,
   spacing,
   typography,
+  type HeroPalette,
 } from '@mana/ui';
-import { formatRupees } from '../../utils/format';
 
-export interface BoardStats {
-  cars: number;
-  revenue: number;
-  open: number;
+export interface HeroFigure {
+  label: string;
+  value: string;
 }
 
 interface HeaderActionsProps {
@@ -29,11 +28,8 @@ interface HeaderActionsProps {
   onReports: () => void;
   onMore: () => void;
   onReminders: () => void;
-  onCommunities: () => void;
   /** Vehicles nobody has followed up on yet — shown as a badge on the bell. */
   reminderCount: number;
-  /** Communities waiting on this person (the owner's approvals) — a badge on the buildings. */
-  communityCount?: number;
   /** What in More needs a look (e.g. "stock running low") — a dot on its button, read out by screen readers. */
   moreAlert?: string;
   compact?: boolean;
@@ -46,39 +42,11 @@ function greeting(): string {
   return 'Good evening';
 }
 
-function washesLabel(n: number): string {
-  return `${n} ${n === 1 ? 'wash' : 'washes'}`;
-}
-
-function HeaderActions({
-  isOwner,
-  onReports,
-  onMore,
-  onReminders,
-  onCommunities,
-  reminderCount,
-  communityCount = 0,
-  moreAlert,
-  compact,
-}: HeaderActionsProps) {
+function HeaderActions({ isOwner, onReports, onMore, onReminders, reminderCount, moreAlert, compact }: HeaderActionsProps) {
   const size = compact ? 38 : 42;
   const btn = [styles.iconBtn, { width: size, height: size, borderRadius: size / 2 }];
   return (
     <View style={styles.actions}>
-      <Pressable
-        onPress={onCommunities}
-        style={({ pressed }) => [btn, pressed && styles.iconBtnPressed]}
-        hitSlop={8}
-        accessibilityRole="button"
-        accessibilityLabel={communityCount > 0 ? `Communities, ${communityCount} waiting for you` : 'Communities'}
-      >
-        <IconBuilding size={19} color={colors.white} />
-        {communityCount > 0 ? (
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>{communityCount > 99 ? '99+' : communityCount}</Text>
-          </View>
-        ) : null}
-      </Pressable>
       <Pressable
         onPress={onReminders}
         style={({ pressed }) => [btn, pressed && styles.iconBtnPressed]}
@@ -122,7 +90,17 @@ function HeaderActions({
 
 interface BoardHeroProps extends HeaderActionsProps {
   name: string;
-  stats: BoardStats;
+  /** Today's numbers for the selected tab. */
+  figures: HeroFigure[];
+  /** One line about the selected tab under the name ("Lakshmi Towers 7:00 am"). */
+  tagline?: string | null;
+  /** Shows the tagline as a warning (a wash recorded away from its community). */
+  taglineWarn?: boolean;
+  /** Changes when the tab changes, so the numbers fade in fresh. */
+  laneKey?: string;
+  palette?: HeroPalette;
+  /** The lane tabs; left out when the branch washes only one way. */
+  tabs?: React.ReactNode;
   onLayout?: (e: LayoutChangeEvent) => void;
   /** Owners with several branches: which shop the board shows, tap to switch. */
   shopSwitch?: { name: string; onPress: () => void };
@@ -131,22 +109,33 @@ interface BoardHeroProps extends HeaderActionsProps {
 }
 
 /** Large greeting + today's numbers. Scrolls away with the list; `BoardCompactBar` takes over. */
-export function BoardHero({ name, stats, onLayout, shopSwitch, shopName, ...actions }: BoardHeroProps) {
+export function BoardHero({
+  name,
+  figures,
+  tagline,
+  taglineWarn,
+  laneKey,
+  palette,
+  tabs,
+  onLayout,
+  shopSwitch,
+  shopName,
+  ...actions
+}: BoardHeroProps) {
   const { isOwner } = actions;
-  const figures = isOwner
-    ? [
-        { label: 'Washes', value: String(stats.cars) },
-        { label: 'Revenue', value: formatRupees(stats.revenue) },
-        { label: 'In shop', value: String(stats.open) },
-      ]
-    : [
-        { label: 'Washes', value: String(stats.cars) },
-        { label: 'In shop', value: String(stats.open) },
-      ];
+  const fade = useRef(new Animated.Value(1)).current;
+  const firstLane = useRef(laneKey);
+
+  useEffect(() => {
+    if (firstLane.current === laneKey) return;
+    firstLane.current = laneKey;
+    fade.setValue(0.25);
+    Animated.timing(fade, { toValue: 1, duration: 260, useNativeDriver: true }).start();
+  }, [laneKey, fade]);
 
   return (
     <View onLayout={onLayout}>
-      <GradientHero>
+      <GradientHero palette={palette}>
         <View style={styles.heroContent}>
           <View style={styles.topRow}>
             {shopSwitch ? (
@@ -186,9 +175,19 @@ export function BoardHero({ name, stats, onLayout, shopSwitch, shopName, ...acti
                 {name}
               </Text>
             ) : null}
+            {tagline ? (
+              <Animated.View style={[styles.taglineRow, { opacity: fade }]}>
+                {taglineWarn ? <IconAlert size={14} color="#FDE68A" /> : null}
+                <Text style={[styles.tagline, taglineWarn && styles.taglineWarn]} numberOfLines={2}>
+                  {tagline}
+                </Text>
+              </Animated.View>
+            ) : null}
           </View>
 
-          <View style={styles.split} accessibilityRole="summary">
+          {tabs}
+
+          <Animated.View style={[styles.split, { opacity: fade }]} accessibilityRole="summary">
             {figures.map((f, i) => (
               <View
                 key={f.label}
@@ -202,7 +201,7 @@ export function BoardHero({ name, stats, onLayout, shopSwitch, shopName, ...acti
                 </Text>
               </View>
             ))}
-          </View>
+          </Animated.View>
         </View>
       </GradientHero>
     </View>
@@ -211,12 +210,13 @@ export function BoardHero({ name, stats, onLayout, shopSwitch, shopName, ...acti
 
 interface BoardCompactBarProps extends HeaderActionsProps {
   visible: boolean;
-  stats: BoardStats;
+  title: string;
+  summary: string;
+  palette?: HeroPalette;
 }
 
 /** Slim pinned bar that fades in once the hero has scrolled off — like an iOS large title collapsing. */
-export function BoardCompactBar({ visible, stats, ...actions }: BoardCompactBarProps) {
-  const { isOwner } = actions;
+export function BoardCompactBar({ visible, title, summary, palette, ...actions }: BoardCompactBarProps) {
   const insets = useSafeAreaInsets();
   const opacity = useRef(new Animated.Value(0)).current;
 
@@ -228,23 +228,19 @@ export function BoardCompactBar({ visible, stats, ...actions }: BoardCompactBarP
     }).start();
   }, [visible, opacity]);
 
-  const summary = isOwner
-    ? `${washesLabel(stats.cars)} · ${formatRupees(stats.revenue)}`
-    : `${washesLabel(stats.cars)} · ${stats.open} in shop`;
-
   return (
     <Animated.View
       pointerEvents={visible ? 'auto' : 'none'}
       style={[styles.compactWrap, { opacity }]}
     >
       <LinearGradient
-        colors={gradients.hero as unknown as string[]}
+        colors={(palette?.colors ?? gradients.hero) as unknown as string[]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 0 }}
         style={[styles.compact, { paddingTop: insets.top + 8 }]}
       >
         <View style={styles.compactCopy}>
-          <Text style={styles.compactTitle}>Today</Text>
+          <Text style={styles.compactTitle}>{title}</Text>
           <Text style={styles.compactSub} numberOfLines={1}>
             {summary}
           </Text>
@@ -299,6 +295,16 @@ const styles = StyleSheet.create({
     ...textShadow,
   },
   leadRole: { fontSize: 12, fontWeight: '700', letterSpacing: 1.2, color: 'rgba(255,255,255,0.8)' },
+  taglineRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  tagline: {
+    ...typography.label,
+    flexShrink: 1,
+    fontSize: 13.5,
+    lineHeight: 18,
+    color: 'rgba(255,255,255,0.86)',
+    ...textShadow,
+  },
+  taglineWarn: { color: '#FDE68A', fontWeight: '700' },
   name: {
     ...typography.title,
     color: colors.white,

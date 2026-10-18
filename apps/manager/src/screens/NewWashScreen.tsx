@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
   Keyboard,
   KeyboardAvoidingView,
   LayoutAnimation,
@@ -20,12 +19,17 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   calculatePrice,
   couponDiscount,
+  formatDuration,
   isValidPhone,
   normalizePhone,
   parseServiceAppliesTo,
   parseVehicleCategory,
   serviceAppliesToCategory,
+  distanceKm,
+  roadKm,
+  visitCharge,
   type DeliveryMode,
+  type DoorstepVisitRules,
   type Service,
   type ServicePrice,
   type VehicleCategory,
@@ -46,11 +50,11 @@ import {
   radius,
   spacing,
   typography,
+  VehicleArt,
 } from '@mana/ui';
 import {
   VEHICLE_CARD_COMPACT_WIDTH,
   VehicleTypeCard,
-  vehicleImageFor,
 } from '../components/VehicleTypeIcon';
 import { GROUP_TONE, ServicePickRow } from '../components/ServicePickRow';
 import { FieldRow, StepHeader, type StepState } from '../components/newWash/FormParts';
@@ -62,6 +66,9 @@ import { PlanWashCard, type ShopPlan } from '../components/newWash/PlanWashCard'
 import { ReferralField, useReferralQuote } from '../components/newWash/ReferralField';
 import { SellerField } from '../components/newWash/SellerField';
 import { RewardsPanel } from '../components/newWash/RewardsPanel';
+import { VisitCard } from '../components/newWash/VisitCard';
+import { SellPlanSheet } from '../components/newWash/SellPlanSheet';
+import type { Point } from '../utils/location';
 import { useVehicleRewards } from '../components/newWash/useVehicleRewards';
 import type { RewardCard } from '../offline/types';
 import { useShop } from '../offline/ShopProvider';
@@ -122,6 +129,12 @@ interface CachedCatalog {
   commissions?: CommissionRate[];
   /** How this branch washes: at its hub, at the customer's door, or both. */
   modes: DeliveryMode[];
+  /** What a home visit adds to the bill; missing from catalogs saved by older versions. */
+  visit?: DoorstepVisitRules | null;
+  /** The branch's map pin, to measure how far a home is. */
+  branchPoint?: Point | null;
+  /** Vehicle types washed at homes only (the hub doesn't take them). */
+  homeOnlyTypes?: string[];
 }
 
 const WASH_MODES: { id: DeliveryMode; label: string }[] = [
@@ -188,7 +201,17 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
   const [allPrices, setAllPrices] = useState<ServicePrice[]>([]);
   const [modes, setModes] = useState<DeliveryMode[]>(['hub']);
-  const [washMode, setWashMode] = useState<DeliveryMode>('hub');
+  const [visitRules, setVisitRules] = useState<DoorstepVisitRules | null>(null);
+  const [branchPoint, setBranchPoint] = useState<Point | null>(null);
+  const [homeOnlyTypes, setHomeOnlyTypes] = useState<string[]>([]);
+  /** A home wash: where the phone was measured at the home; null = not yet. */
+  const [visitPoint, setVisitPoint] = useState<Point | null>(null);
+  /** Bumped to clear the visit card for the next customer. */
+  const [visitKey, setVisitKey] = useState(0);
+  const preferredMode = route.params?.mode;
+  const [washMode, setWashMode] = useState<DeliveryMode>(preferredMode ?? 'hub');
+  /** Once someone flips the menu by hand, the home tab's choice stops applying. */
+  const pickedMode = useRef(false);
   const [commissions, setCommissions] = useState<CommissionRate[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState<string | null>(null);
@@ -219,6 +242,9 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   /** The customer's community plans, and the one paying for this wash. */
   const [shopPlans, setShopPlans] = useState<ShopPlan[]>([]);
   const [planOrderId, setPlanOrderId] = useState<string | null>(null);
+  /** Plans bought at this counter for the vehicle. */
+  const [counterPlans, setCounterPlans] = useState<ShopPlan[]>([]);
+  const [selling, setSelling] = useState(false);
   /** Who got a commission service; `null` means whoever is entering the wash. */
   const [sellers, setSellers] = useState<Person[] | null>(null);
 
@@ -232,6 +258,9 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
       setVehicleTypes(normalizeVehicleTypes(cached.vehicleTypes));
       setAllPrices(cached.prices);
       setModes(cached.modes);
+      setVisitRules(cached.visit ?? null);
+      setBranchPoint(cached.branchPoint ?? null);
+      setHomeOnlyTypes(cached.homeOnlyTypes ?? []);
       setCommissions(cached.commissions ?? []);
       setCatalogLoading(false);
     }
@@ -262,11 +291,17 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
           ? commissionsJson.map(({ serviceId, vehicleTypeId, amount }) => ({ serviceId, vehicleTypeId, amount }))
           : [],
         modes: network?.modes.length ? network.modes : ['hub'],
+        visit: network?.visit ?? cached?.visit ?? null,
+        branchPoint: network ? network.location : (cached?.branchPoint ?? null),
+        homeOnlyTypes: network ? network.homeOnlyTypes : (cached?.homeOnlyTypes ?? []),
       };
       setServices(normalizeServices(fresh.services));
       setVehicleTypes(normalizeVehicleTypes(fresh.vehicleTypes));
       setAllPrices(fresh.prices);
       setModes(fresh.modes);
+      setVisitRules(fresh.visit ?? null);
+      setBranchPoint(fresh.branchPoint ?? null);
+      setHomeOnlyTypes(fresh.homeOnlyTypes ?? []);
       setCommissions(fresh.commissions ?? []);
       await writeCache(CacheKeys.catalog, fresh);
     } catch (e) {
@@ -291,13 +326,36 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   // A doorstep-only branch starts on the doorstep menu; a branch that closed its doorstep team
   // falls back to the hub.
   useEffect(() => {
+    if (!pickedMode.current && preferredMode && modes.includes(preferredMode)) {
+      if (washMode !== preferredMode) setWashMode(preferredMode);
+      return;
+    }
     if (!modes.includes(washMode)) setWashMode(modes[0] ?? 'hub');
-  }, [modes, washMode]);
+  }, [modes, washMode, preferredMode]);
 
-  /** The menu for how this wash is delivered: hub and doorstep prices differ. */
+  /**
+   * The menu for how this wash is delivered. A home wash is head office's hub price (the visit
+   * charge is its own line); a branch's hand-made service keeps its own doorstep price. Services
+   * done only at communities or only at the shop aren't sold at homes, and home-only ones aren't
+   * sold at the shop.
+   */
+  const menuFilter = useMemo(() => {
+    const notAtHomes = new Set(services.filter((s) => s.teamAt === 'community' || s.modes === 'hub').map((s) => s.id));
+    const homesOnly = new Set(services.filter((s) => s.catalogServiceId && s.modes === 'doorstep').map((s) => s.id));
+    const fromHq = new Set(services.filter((s) => s.catalogServiceId).map((s) => s.id));
+    return { notAtHomes, homesOnly, fromHq, homeOnlyTypes: new Set(homeOnlyTypes) };
+  }, [services, homeOnlyTypes]);
   const prices = useMemo(
-    () => allPrices.filter((p) => (p.mode ?? 'hub') === washMode),
-    [allPrices, washMode],
+    () =>
+      allPrices.filter((p) => {
+        const m = p.mode ?? 'hub';
+        if (washMode === 'doorstep') {
+          if (menuFilter.notAtHomes.has(p.serviceId)) return false;
+          return m === (menuFilter.fromHq.has(p.serviceId) ? 'hub' : 'doorstep');
+        }
+        return m === 'hub' && !menuFilter.homesOnly.has(p.serviceId) && !menuFilter.homeOnlyTypes.has(p.vehicleTypeId);
+      }),
+    [allPrices, washMode, menuFilter],
   );
 
   const [keyboardOpen, setKeyboardOpen] = useState(false);
@@ -372,6 +430,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
 
   const switchWashMode = (next: DeliveryMode) => {
     if (next === washMode) return;
+    pickedMode.current = true;
     animate();
     setWashMode(next);
     setSelectedServiceIds(new Set());
@@ -802,10 +861,41 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     };
   }, [planPhone]);
 
+  // Plans bought at this counter belong to the vehicle (its number plate).
+  const counterReg = mode !== 'search' && regOk && online ? reg : null;
+  const loadCounterPlans = useCallback(async () => {
+    if (!counterReg) return setCounterPlans([]);
+    try {
+      const res = await api['shop-plans'].vehicle.$get({ query: { registrationNumber: counterReg } });
+      if (!res.ok) return;
+      const body = await res.json();
+      setCounterPlans(
+        body.plans.map((p) => ({
+          orderId: p.orderId,
+          placeName: 'Bought at the shop',
+          unit: `ends ${new Date(`${p.endsOn}T00:00:00Z`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'UTC' })}`,
+          planName: p.title,
+          vehicle: p.vehicle,
+          washesUsed: p.washesUsed,
+          washesTotal: p.washesTotal,
+          service: p.service,
+          problem: p.problem,
+          source: 'shop' as const,
+        })),
+      );
+    } catch {
+      // Offline: no counter plans shown (using one needs internet anyway).
+    }
+  }, [counterReg]);
+  useEffect(() => {
+    setCounterPlans([]);
+    void loadCounterPlans();
+  }, [loadCounterPlans]);
+
   // A plan belongs to one car: hide plans for the customer's other plates.
   const visiblePlans = useMemo(
-    () => shopPlans.filter((p) => !p.vehicle.registrationNumber || !regOk || p.vehicle.registrationNumber === reg),
-    [shopPlans, reg, regOk],
+    () => [...shopPlans.filter((p) => !p.vehicle.registrationNumber || !regOk || p.vehicle.registrationNumber === reg), ...counterPlans],
+    [shopPlans, counterPlans, reg, regOk],
   );
 
   const planBlocked = (plan: ShopPlan): string | null => {
@@ -890,7 +980,14 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
       : referralActive
         ? referralSaving
         : manualDiscount;
-  const finalTotal = Math.max(0, subtotal - appliedDiscount);
+  // A home visit's charge (the server works it out again and charges it once per visit).
+  const visit =
+    washMode === 'doorstep' && visitRules && visitPoint && branchPoint
+      ? visitCharge(roadKm(distanceKm(branchPoint, visitPoint)), visitRules, new Date())
+      : null;
+  const needsLocation = washMode === 'doorstep' && visitRules != null && (visitRules.perKmPaise > 0 || visitRules.maxKm < 100);
+  const visitAmount = visit && !visit.tooFar && selectedServiceIds.size > 0 ? visit.total : 0;
+  const finalTotal = Math.max(0, subtotal - appliedDiscount) + visitAmount;
 
   // A live comeback coupon for the customer at the counter. Asked only for a picked (known)
   // customer and only online — redemption is always re-checked by the server.
@@ -990,6 +1087,10 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
                 ? 'Choose a vehicle type'
                 : selectedServiceIds.size === 0
                   ? 'Pick at least one service'
+                  : visit?.tooFar && visitRules
+                    ? `Too far: the team goes up to ${visitRules.maxKm} km`
+                  : needsLocation && !visitPoint && mode !== 'known'
+                    ? 'Turn on location to measure the visit'
                   : !breakdown
                     ? 'A selected service has no price for this vehicle'
                     : freeActive && !online
@@ -1027,6 +1128,8 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     setCustomerName('');
     setVehicleTypeId(null);
     setReferrerPhone('');
+    setVisitPoint(null);
+    setVisitKey((k) => k + 1);
     clearOrder();
   };
 
@@ -1059,23 +1162,28 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
             vehicleTypeId,
             services: lineItems,
             mode: washMode,
+            visitPoint: washMode === 'doorstep' && visitPoint ? visitPoint : undefined,
             discount: manualDiscount,
             discountReason: manualDiscount > 0 ? discountReason.trim() : undefined,
             couponCode: couponActive ? offer.code : undefined,
             referralToken: referralQuote?.token,
             rewardServiceIds: freeActive ? freeActiveIds : undefined,
-            planOrderId: planActive && activePlan ? activePlan.orderId : undefined,
+            planOrderId: planActive && activePlan && activePlan.source !== 'shop' ? activePlan.orderId : undefined,
+            shopPlanId: planActive && activePlan && activePlan.source === 'shop' ? activePlan.orderId : undefined,
             sellerIds: commissionTotal > 0 ? pickedSellers.map((s) => s.id) : undefined,
           },
           meta: {
             vehicleTypeName: selectedVehicle?.name ?? 'Vehicle',
             vehicleCategory: selectedVehicle?.category ?? 'car',
-            services: selectedServices.map((s) => ({
-              name: s.name,
-              price: priceFor(s.id) ?? 0,
-              commission: commissionFor(s.id),
-            })),
-            subtotal,
+            services: [
+              ...selectedServices.map((s) => ({
+                name: s.name,
+                price: priceFor(s.id) ?? 0,
+                commission: commissionFor(s.id),
+              })),
+              ...(visitAmount > 0 ? [{ name: 'Visit charge', price: visitAmount, commission: 0 }] : []),
+            ],
+            subtotal: subtotal + visitAmount,
             total: finalTotal,
             sellers: commissionTotal > 0 ? pickedSellers : undefined,
           },
@@ -1338,13 +1446,20 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
             summary={selectedVehicle?.name ?? null}
             hint={selectedVehicle ? undefined : 'Pick Cars or Bikes, then a size'}
           />
+          {!selectedVehicle || vehiclePickerOpen ? (
+            <Pressable
+              onPress={() => navigation.navigate('VehicleGuide', { category: vehicleFamily === 'bike' ? 'bike' : 'car' })}
+              hitSlop={6}
+              style={({ pressed }) => [styles.guideLink, pressed && { opacity: 0.7 }]}
+              accessibilityRole="button"
+            >
+              <Text style={styles.guideLinkText}>Not sure which size? Look it up in the size guide ›</Text>
+            </Pressable>
+          ) : null}
           {mode === 'known' && selectedVehicle && !vehiclePickerOpen ? (
             <View style={styles.group}>
               <View style={styles.savedVehicle}>
-                <Image
-                  source={vehicleImageFor(selectedVehicle.name)}
-                  style={styles.savedVehicleImg}
-                />
+                <VehicleArt name={selectedVehicle.name} style={styles.savedVehicleImg} />
                 <View style={styles.flex}>
                   <Text style={styles.savedVehicleName}>{selectedVehicle.name}</Text>
                   <Text style={styles.savedVehicleHint}>
@@ -1406,7 +1521,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
               ) : typesInFamily.length === 0 ? (
                 <View style={styles.notice}>
                   <Text style={styles.noticeText}>
-                    No {vehicleFamily} sizes yet. The owner can add them in Services & prices.
+                    No {vehicleFamily} sizes yet. The owner can add them in This branch’s prices.
                   </Text>
                 </View>
               ) : (
@@ -1468,6 +1583,18 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
             </View>
           ) : null}
 
+          {washMode === 'doorstep' && visitRules ? (
+            <VisitCard
+              key={visitKey}
+              rules={visitRules}
+              point={visitPoint}
+              charge={visit}
+              canUseSavedHome={mode === 'known'}
+              onPoint={setVisitPoint}
+              formatMoney={formatRupees}
+            />
+          ) : null}
+
           {rewardsEnabled ? (
             <RewardsPanel
               cards={vehicleRewards.cards}
@@ -1480,6 +1607,16 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
               online={online}
               onGiven={onGiftGiven}
             />
+          ) : null}
+
+          {washMode === 'hub' && selectedVehicle && regOk && phoneOk && online && mode !== 'search' ? (
+            <Pressable
+              onPress={() => setSelling(true)}
+              style={({ pressed }) => [styles.sellPlan, pressed && styles.sellPlanPressed]}
+              accessibilityRole="button"
+            >
+              <Text style={styles.sellPlanText}>Sell a plan for {reg}</Text>
+            </Pressable>
           ) : null}
 
           {visiblePlans.map((plan) => (
@@ -1507,7 +1644,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
               <Text style={styles.noticeText}>
                 {washMode === 'doorstep'
                   ? `No doorstep services for ${selectedVehicle.name}. Switch to At the shop, or ask the owner to add this vehicle to the doorstep team.`
-                  : `No services for ${selectedVehicle.name} yet. The owner can add them in Services & prices.`}
+                  : `No services for ${selectedVehicle.name} yet. The owner can add them in This branch’s prices.`}
               </Text>
             </View>
           ) : (
@@ -1560,7 +1697,13 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
                             key={s.id}
                             name={s.name}
                             group={group}
-                            meta={group === 'Combos' ? comboMeta(s, price) : s.description?.trim() || null}
+                            meta={
+                              group === 'Combos'
+                                ? comboMeta(s, price)
+                                : [s.popular ? 'Most popular' : null, s.durationMin ? formatDuration(s.durationMin) : null, s.description?.trim() || null]
+                                    .filter(Boolean)
+                                    .join(' · ') || null
+                            }
                             priceLabel={price != null ? formatRupees(price) : 'No price'}
                             selected={selectedServiceIds.has(s.id)}
                             onPress={() => toggleService(s.id)}
@@ -1673,7 +1816,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
         {mode === 'search' && keyboardOpen ? null : (
           <CheckoutBar
             serviceCount={selectedServiceIds.size}
-            subtotal={subtotal}
+            subtotal={subtotal + visitAmount}
             discount={appliedDiscount}
             discountLabel={
               freeActive
@@ -1695,11 +1838,39 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
           />
         )}
       </KeyboardAvoidingView>
+      {selectedVehicle ? (
+        <SellPlanSheet
+          visible={selling}
+          vehicleTypeId={selectedVehicle.id}
+          vehicleName={selectedVehicle.name}
+          customer={{ phone: phoneDigits, name: customerName.trim() || known?.customerName?.trim() || 'Customer' }}
+          registrationNumber={reg}
+          ownership={conflict && ownership ? ownership : undefined}
+          onClose={() => setSelling(false)}
+          onSold={() => void loadCounterPlans()}
+          formatMoney={formatRupees}
+        />
+      ) : null}
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
+  sellPlan: {
+    marginHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: colors.indigoMist,
+    backgroundColor: colors.indigoPale,
+    alignItems: 'center',
+  },
+  sellPlanPressed: { opacity: 0.7 },
+  sellPlanText: { ...typography.label, fontSize: 14, color: colors.indigo, fontWeight: '800' },
+  guideLink: { alignSelf: 'flex-start', paddingVertical: 2 },
+  guideLinkText: { ...typography.caption, fontSize: 12.5, color: colors.indigo, fontWeight: '700', letterSpacing: 0 },
   flex: { flex: 1 },
   header: {
     paddingHorizontal: spacing.md,

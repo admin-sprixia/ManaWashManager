@@ -24,7 +24,7 @@ export interface VehicleClassDef {
 }
 
 export const VEHICLE_CLASSES: readonly VehicleClassDef[] = [
-  { key: 'twoWheeler', name: 'Two-wheeler', category: 'bike', sizes: ['S', 'M', 'L'] },
+  { key: 'twoWheeler', name: 'Two-wheeler', category: 'bike', sizes: ['S', 'M', 'L', 'XL'] },
   { key: 'car', name: 'Car', category: 'car', sizes: ['S', 'M', 'L', 'XL'] },
   { key: 'threeWheeler', name: 'Three-wheeler', category: 'car', sizes: ['M'] },
   { key: 'commercial', name: 'Commercial', category: 'car', sizes: ['M', 'L', 'XL'] },
@@ -94,6 +94,15 @@ export const BODY_TYPES: readonly BodyTypeDef[] = [
   { key: 'sportsBike', label: 'Sports bike', hint: 'R15, KTM, Ninja', group: 'Two-wheelers', classKey: 'twoWheeler', size: 'L', match: /sports? bike|ktm|r15|ninja|superbike/ },
   { key: 'cruiser', label: 'Cruiser bike', hint: 'Royal Enfield, Jawa', group: 'Two-wheelers', classKey: 'twoWheeler', size: 'L', match: /cruiser|bullet|enfield|classic|jawa|harley/ },
   { key: 'moped', label: 'Moped', hint: 'TVS XL', group: 'Two-wheelers', classKey: 'twoWheeler', size: 'S', match: /moped|\bxl\b|luna/ },
+  {
+    key: 'premiumBike',
+    label: 'Premium bike',
+    hint: 'Harley, Ducati, Hayabusa, big BMW',
+    group: 'Two-wheelers',
+    classKey: 'twoWheeler',
+    size: 'XL',
+    match: /premium bike|luxury bike|superbike|big bike|harley|ducati|hayabusa|gold ?wing/,
+  },
 ];
 
 /**
@@ -101,7 +110,7 @@ export const BODY_TYPES: readonly BodyTypeDef[] = [
  * "Compact SUV" before "SUV", "E-rickshaw" before "Auto rickshaw", "Mini truck" before "Truck").
  */
 const MATCH_ORDER = [
-  'sportsBike', 'cruiser', 'eScooter', 'moped', 'scooter', 'bike',
+  'premiumBike', 'sportsBike', 'cruiser', 'eScooter', 'moped', 'scooter', 'bike',
   'eRickshaw', 'cargoAuto', 'auto',
   'miniTruck', 'lightTruck', 'tipper', 'tanker', 'trailer', 'lorry', 'pickup', 'truck',
   'shareVan', 'tempoTraveller', 'bus', 'van',

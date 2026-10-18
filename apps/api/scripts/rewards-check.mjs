@@ -381,5 +381,20 @@ r = await call(O, 'PUT', `/rewards/rules/${FW}`, { every: 3 });
 r = await lookup(B.reg);
 check('Switching it back on picks up where the car was', card(r).stamps === 2, show(r));
 
+// ─── Community plan washes ────────────────────────────────────────────────
+
+// A plan wash at the shop is prepaid with the plan: the line it paid for earns no stamp, while
+// anything else paid on the same bill still does. (places-check makes a real one; here the job
+// is marked the way New Wash marks it.)
+await call(O, 'PUT', `/rewards/rules/${PL}`, { every: 3 });
+const P = { reg: plate(), phone: customerPhone() };
+await paidWash(P);
+const ps = await start(O, { ...P, services: [FW, PL] });
+sql(`UPDATE jobs SET plan_service_id = '${FW}' WHERE id = '${ps.body?.id}'`);
+r = await pay(O, ps.body?.id);
+r = await lookup(P.reg);
+check('A plan wash’s Full Wash earns no stamp (still 1 from the paid wash)', card(r).stamps === 1, show(r));
+check('…but the Polish paid on the same bill does', card(r, PL).stamps === 1, show(r));
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

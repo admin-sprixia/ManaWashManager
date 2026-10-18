@@ -50,6 +50,7 @@ import {
   orderSummary,
   phaseOf,
   placeFail,
+  planWashOf,
   scheduleOf,
   shopContext,
   type OrderStateRow,
@@ -153,6 +154,7 @@ type PlaceRow = {
   capacity: number | null;
   status: string;
   stage: string;
+  createdAt?: Date;
 };
 
 /** Only live, running communities are open to customers. */
@@ -179,6 +181,8 @@ export function placeView(p: PlaceRow, now: Date) {
     status: p.status as PlaceStatus,
     stage: p.stage as PlaceStage,
     nextWashDays: p.stage === 'live' ? nextWashDays(washDays, istDay(now), 3) : [],
+    /** When the team first saved it (the visit). */
+    createdAt: p.createdAt?.toISOString() ?? null,
   };
 }
 
@@ -316,6 +320,7 @@ function loadDayOrders(db: DbClient, where: Prisma.PlaceOrderWhereInput) {
     where,
     select: {
       ...orderStateSelect,
+      snapshot: true,
       visits: {
         select: {
           id: true,
@@ -827,6 +832,10 @@ export const placeRepo = {
           paid: phase === 'active' || phase === 'payment_due',
           firstWash: o.washesUsed === 0,
           washesLeft: o.washesTotal - o.washesUsed,
+          washNo: visit?.outcome === 'done' ? o.washesUsed : o.washesUsed + 1,
+          washesTotal: o.washesTotal,
+          /** On plans with a better wash every few washes: which one this is ("Premium Wash"). */
+          planWash: o.kind === 'plan' ? planWashOf(o.snapshot, visit?.outcome === 'done' ? o.washesUsed : o.washesUsed + 1) : null,
           visit: visit
             ? {
                 id: visit.id,

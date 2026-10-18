@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -25,10 +24,10 @@ import {
   VEHICLE_CATALOG,
   catalogGroups,
   catalogVehicleFor,
+  VehicleArt,
 } from '@mana/ui';
 import { VehicleStack } from './VehicleStack';
 import { VehicleTile } from './VehicleTile';
-import { vehicleImageFor } from './VehicleTypeIcon';
 
 interface VehiclePickerSheetProps {
   visible: boolean;
@@ -220,7 +219,6 @@ export function VehiclePickerSheet({
               <VehicleTile
                 key={t.id}
                 label={t.name}
-                image={vehicleImageFor(t.name)}
                 width={tileWidth}
                 selected
                 busy={busyKey === t.id}
@@ -270,7 +268,7 @@ export function VehiclePickerSheet({
                   key={v.key}
                   label={v.label}
                   hint={v.hint}
-                  image={v.image}
+                  bodyKey={v.key}
                   width={tileWidth}
                   selected={isPicked(v.label)}
                   busy={busyKey === v.key}
@@ -292,7 +290,7 @@ export function VehiclePickerSheet({
         <View style={styles.customHead}>
           <View style={styles.customIcon}>
             {customMatch ? (
-              <Image source={customMatch.image} style={styles.customPhoto} resizeMode="cover" />
+              <VehicleArt name={customMatch.label} bodyKey={customMatch.key} style={styles.customPhoto} />
             ) : (
               <IconPlus size={18} color={colors.waterDeep} />
             )}

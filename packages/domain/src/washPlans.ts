@@ -61,11 +61,6 @@ export interface WashPlanRules {
   unpaidCloseDays: number;
   /** Which branch price a place wash is charged at. */
   priceMode: PlacePriceMode;
-  /**
-   * Washing one customer's vehicle at their home. Off: the shop and communities only — the
-   * doorstep choice is hidden everywhere (the team that goes to communities stays).
-   */
-  homeWash: boolean;
   /** GST included in every price, in basis points (1800 = 18%). */
   gstRateBp: number;
   gstin: string | null;
@@ -85,7 +80,6 @@ export const DEFAULT_WASH_PLAN_RULES: WashPlanRules = {
   renewalReminderDays: 7,
   unpaidCloseDays: 28,
   priceMode: 'doorstep',
-  homeWash: false,
   gstRateBp: 1800,
   gstin: null,
   legalName: null,
@@ -105,7 +99,6 @@ export const WASH_PLAN_RULE_KEYS: Readonly<Record<keyof WashPlanRules, string>> 
   renewalReminderDays: 'places.renewalReminderDays',
   unpaidCloseDays: 'places.unpaidCloseDays',
   priceMode: 'places.priceMode',
-  homeWash: 'branch.homeWash',
   gstRateBp: 'places.gstRateBp',
   gstin: 'places.gstin',
   legalName: 'places.legalName',
@@ -150,7 +143,6 @@ export function parseWashPlanRules(raw: Partial<Record<keyof WashPlanRules, stri
     renewalReminderDays: intIn(raw.renewalReminderDays, L.renewalReminderDays, d.renewalReminderDays),
     unpaidCloseDays: intIn(raw.unpaidCloseDays, L.unpaidCloseDays, d.unpaidCloseDays),
     priceMode: raw.priceMode === 'hub' ? 'hub' : 'doorstep',
-    homeWash: raw.homeWash === 'true',
     gstRateBp: intIn(raw.gstRateBp, L.gstRateBp, d.gstRateBp),
     gstin: text(raw.gstin)?.toUpperCase() ?? null,
     legalName: text(raw.legalName),
@@ -173,6 +165,31 @@ export const roundRupee = (paise: number) => Math.round(paise / 100) * 100;
 /** A plan's price: the per-wash price × washes, less the plan's discount. */
 export function washPlanPrice(perWash: number, washes: number, discountBp: number): number {
   return roundRupee((perWash * washes * (10000 - discountBp)) / 10000);
+}
+
+/** A plan's fixed price at a branch: the zone moves it like any list price; whole rupees. */
+export function fixedPlanPrice(price: number, zonePercentBp: number): number {
+  return roundRupee((price * (10000 + zonePercentBp)) / 10000);
+}
+
+export const WASH_PLAN_UPGRADE_EVERY: readonly [number, number] = [2, 12];
+/** ₹10,00,000: a year of washes for a big vehicle stays far below this. */
+export const MAX_PLAN_PRICE_PAISE = 100_000_000;
+
+/** Plans whose every Nth wash is a better one (Shine: every 4th is Premium). */
+export interface PlanUpgrade {
+  every: number;
+  name: string;
+}
+
+/** Whether wash number `washNo` (1 = the first) of a plan is its upgraded wash. */
+export function isUpgradeWash(washNo: number, upgrade: Pick<PlanUpgrade, 'every'> | null | undefined): boolean {
+  return upgrade != null && upgrade.every > 1 && washNo > 0 && washNo % upgrade.every === 0;
+}
+
+/** How many of a plan's washes are the upgraded one. */
+export function upgradeWashes(washes: number, upgrade: Pick<PlanUpgrade, 'every'> | null | undefined): number {
+  return upgrade && upgrade.every > 1 ? Math.floor(washes / upgrade.every) : 0;
 }
 
 /** Washes a vehicle gets each week on a plan (a monthly plan of 4 → 1). */
@@ -366,7 +383,50 @@ export function financialYear(day: string): string {
   return `${String(start % 100).padStart(2, '0')}-${String((start + 1) % 100).padStart(2, '0')}`;
 }
 
-/** "MW-KVR-01/26-27/00042". */
+/** "MW-KVR-001/26-27/00042". */
 export function formatReceiptNumber(prefix: string, fy: string, n: number): string {
   return `${prefix}/${fy}/${String(n).padStart(5, '0')}`;
+}
+
+// ─── Plans at the shop ───────────────────────────────────────────────────────
+
+/** Where a plan is sold: when joining a community, at the shop counter, or both. */
+export type PlanSoldAt = 'community' | 'shop' | 'both';
+export const PLAN_SOLD_AT: readonly PlanSoldAt[] = ['community', 'shop', 'both'];
+export const PLAN_SOLD_AT_LABEL: Readonly<Record<PlanSoldAt, string>> = {
+  community: 'Communities',
+  shop: 'At the shop',
+  both: 'Shop and communities',
+};
+export const parsePlanSoldAt = (v: string | null | undefined): PlanSoldAt =>
+  v === 'shop' || v === 'both' ? v : 'community';
+export const soldAtCommunities = (s: PlanSoldAt) => s !== 'shop';
+export const soldAtShop = (s: PlanSoldAt) => s !== 'community';
+
+/**
+ * The last day a plan sold on `startDay` can be used: its months later, less a day (sold 18 Oct
+ * for 1 month: until 17 Nov). A start late in a month ends on the last day of a shorter month.
+ */
+export function planLastDay(startDay: string, months: number): string {
+  const [y, m, d] = startDay.split('-').map(Number) as [number, number, number];
+  const monthIndex = m - 1 + months;
+  const lastOfMonth = new Date(Date.UTC(y, monthIndex + 1, 0)).getUTCDate();
+  // A start past the end of the shorter month runs to that month's last day.
+  if (d > lastOfMonth) return new Date(Date.UTC(y, monthIndex, lastOfMonth)).toISOString().slice(0, 10);
+  const end = new Date(Date.UTC(y, monthIndex, d));
+  end.setUTCDate(end.getUTCDate() - 1);
+  return end.toISOString().slice(0, 10);
+}
+
+/** Why a shop plan can't pay for a wash today, or null when it can. */
+export function shopPlanProblem(
+  plan: { status: string; washesUsed: number; washesTotal: number; endsOn: string },
+  today: string,
+  usedToday: boolean,
+): string | null {
+  if (plan.status === 'void') return 'This plan was cancelled.';
+  if (plan.washesUsed >= plan.washesTotal) return 'Every wash on this plan is used.';
+  if (today > plan.endsOn) return 'This plan has ended.';
+  if (usedToday) return 'This plan was already used today: one wash a day.';
+  return null;
 }

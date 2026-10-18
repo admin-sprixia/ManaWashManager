@@ -3,6 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { expenseRepo, stockRepo } from '@mana/db';
 import {
+  EXPENSE_CASH_SOURCES,
   EXPENSE_CATEGORIES,
   EXPENSE_CATEGORY_SETUP,
   EXPENSE_PHOTO_KINDS,
@@ -10,11 +11,14 @@ import {
   MAX_PHOTO_BYTES,
   MIN_REASON_LENGTH,
   STOCK_CATEGORIES,
+  type ExpenseCashSource,
   type ExpenseCategory,
   type ExpensePhotoKind,
   type ExpenseUnit,
 } from '@mana/domain';
 import { requireAuth } from '../middleware/auth';
+import { cashHeldNow, heldBusy, heldLockKey } from '../lib/cashHeld';
+import { withLock } from '../lib/phoneLock';
 import { formatIstDateOnly, parseIstDateOnly, startOfIstDay, startOfIstDaysAgo } from '../lib/istDate';
 import { reportQuerySchema, resolveReportWindow, windowMeta } from '../lib/reportWindow';
 import { addPurchaseToStock, reverseExpenseStock, type StockResult } from '../lib/stock';
@@ -37,6 +41,8 @@ const createExpenseSchema = z
     quantity: z.number().positive('Quantity must be more than zero').max(1_000_000, 'Quantity looks too large').optional(),
     unit: z.enum(EXPENSE_UNITS as [ExpenseUnit, ...ExpenseUnit[]]).optional(),
     paymentMethod: z.enum(['cash', 'upi', 'other']).default('cash'),
+    /** Cash from the shop's box, or doorstep cash the person entering it holds. */
+    cashSource: z.enum(EXPENSE_CASH_SOURCES as unknown as [ExpenseCashSource, ...ExpenseCashSource[]]).default('drawer'),
     date: z.string().optional(),
     /** Add the quantity to the stock item with the same name (created if it's new). */
     addToStock: z.boolean().optional(),
@@ -44,6 +50,10 @@ const createExpenseSchema = z
   .refine((b) => (b.quantity == null) === (b.unit == null), {
     message: 'Quantity and unit go together',
     path: ['unit'],
+  })
+  .refine((b) => b.cashSource === 'drawer' || b.paymentMethod === 'cash', {
+    message: 'Doorstep cash is cash: pick Cash as how it was paid',
+    path: ['cashSource'],
   })
   .refine((b) => b.unit == null || EXPENSE_CATEGORY_SETUP[b.category].units.includes(b.unit), {
     message: 'That unit doesn’t fit this category',
@@ -66,6 +76,17 @@ const photoParamSchema = z.object({
   id: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/, 'Invalid id'),
   kind: z.enum(EXPENSE_PHOTO_KINDS as [ExpensePhotoKind, ...ExpensePhotoKind[]]),
 });
+
+/** Paying more doorstep cash than someone holds is refused: the rest came from somewhere else. */
+function moreThanHeld(held: number) {
+  return {
+    error: 'more_than_held' as const,
+    message: held
+      ? `Only ₹${(held / 100).toLocaleString('en-IN')} of doorstep cash is held. Pay the rest from the shop box as its own expense.`
+      : 'No doorstep cash is held right now. Pick the shop box.',
+    held,
+  };
+}
 
 function photoProblem(file: File, label: string): string | null {
   if (!ALLOWED_PHOTO_TYPES.has(file.type)) return `The ${label} photo must be JPEG, PNG or WebP.`;
@@ -90,6 +111,7 @@ const editExpenseSchema = z.object({
   unit: z.enum(EXPENSE_UNITS as [ExpenseUnit, ...ExpenseUnit[]]).nullable().optional(),
   description: z.string().trim().max(200).nullable().optional(),
   paymentMethod: z.enum(['cash', 'upi', 'other']).optional(),
+  cashSource: z.enum(EXPENSE_CASH_SOURCES as unknown as [ExpenseCashSource, ...ExpenseCashSource[]]).optional(),
   date: z.string().optional(),
   reason: z
     .string()
@@ -154,55 +176,68 @@ export const expenseRoutes = new Hono<{ Bindings: Env }>()
       date = parsed;
     }
 
-    const prefix = `shops/${session.shopId}/expenses/${body.id}`;
-    const billPhotoKey = `${prefix}/bill.${photoExt(form.billPhoto.type)}`;
-    const itemPhotoKey = `${prefix}/item.${photoExt(form.itemPhoto.type)}`;
-    await Promise.all([
-      c.env.PHOTOS.put(billPhotoKey, await form.billPhoto.arrayBuffer(), {
-        httpMetadata: { contentType: form.billPhoto.type },
-      }),
-      c.env.PHOTOS.put(itemPhotoKey, await form.itemPhoto.arrayBuffer(), {
-        httpMetadata: { contentType: form.itemPhoto.type },
-      }),
-    ]);
+    // Saves the photos and the entry; for doorstep cash, only while it's still held.
+    const save = async () => {
+      const prefix = `shops/${session.shopId}/expenses/${body.id}`;
+      const billPhotoKey = `${prefix}/bill.${photoExt(form.billPhoto.type)}`;
+      const itemPhotoKey = `${prefix}/item.${photoExt(form.itemPhoto.type)}`;
+      await Promise.all([
+        c.env.PHOTOS.put(billPhotoKey, await form.billPhoto.arrayBuffer(), {
+          httpMetadata: { contentType: form.billPhoto.type },
+        }),
+        c.env.PHOTOS.put(itemPhotoKey, await form.itemPhoto.arrayBuffer(), {
+          httpMetadata: { contentType: form.itemPhoto.type },
+        }),
+      ]);
 
-    try {
-      const expense = await expenseRepo.create(db, {
-        id: body.id,
-        category: body.category,
-        amount: body.amount,
-        description: body.description || undefined,
-        itemName: body.itemName,
-        quantity: body.quantity,
-        unit: body.unit,
-        billPhotoKey,
-        itemPhotoKey,
-        paymentMethod: body.paymentMethod,
-        date,
-        createdByUserId: session.sub,
-      });
-      // The expense is saved either way; a stock hiccup only means it wasn't added to stock.
-      let stock: StockResult | null = null;
-      if (body.addToStock && body.quantity != null && body.unit && STOCK_CATEGORIES.includes(body.category)) {
-        stock = await addPurchaseToStock(db, {
-          expenseId: expense.id,
+      try {
+        const expense = await expenseRepo.create(db, {
+          id: body.id,
+          category: body.category,
+          amount: body.amount,
+          description: body.description || undefined,
           itemName: body.itemName,
           quantity: body.quantity,
           unit: body.unit,
-          userId: session.sub,
-        }).catch((e: unknown) => {
-          console.error(e);
-          return null;
+          billPhotoKey,
+          itemPhotoKey,
+          paymentMethod: body.paymentMethod,
+          cashSource: body.paymentMethod === 'cash' ? body.cashSource : 'drawer',
+          date,
+          createdByUserId: session.sub,
         });
+        // The expense is saved either way; a stock hiccup only means it wasn't added to stock.
+        let stock: StockResult | null = null;
+        if (body.addToStock && body.quantity != null && body.unit && STOCK_CATEGORIES.includes(body.category)) {
+          stock = await addPurchaseToStock(db, {
+            expenseId: expense.id,
+            itemName: body.itemName,
+            quantity: body.quantity,
+            unit: body.unit,
+            userId: session.sub,
+          }).catch((e: unknown) => {
+            console.error(e);
+            return null;
+          });
+        }
+        return c.json({ id: expense.id, stock }, 201);
+      } catch (e) {
+        // A replay of this same upload may have saved the expense first — it uses these same keys.
+        const winner = await expenseRepo.findById(db, body.id);
+        if (winner) return c.json({ id: winner.id }, 200);
+        await Promise.all([c.env.PHOTOS.delete(billPhotoKey), c.env.PHOTOS.delete(itemPhotoKey)]);
+        throw e;
       }
-      return c.json({ id: expense.id, stock }, 201);
-    } catch (e) {
-      // A replay of this same upload may have saved the expense first — it uses these same keys.
-      const winner = await expenseRepo.findById(db, body.id);
-      if (winner) return c.json({ id: winner.id }, 200);
-      await Promise.all([c.env.PHOTOS.delete(billPhotoKey), c.env.PHOTOS.delete(itemPhotoKey)]);
-      throw e;
+    };
+    if (body.cashSource === 'held') {
+      const saved = await withLock(c.env, heldLockKey(session.shopId, session.sub), async () => {
+        const held = (await cashHeldNow(db)).get(session.sub) ?? 0;
+        if (body.amount > held) return c.json(moreThanHeld(held), 409);
+        return save();
+      });
+      return saved ?? c.json(heldBusy, 503);
     }
+    return save();
   })
   // Proof photos stay as long as the expense. Staff can open only their own entries; owners and
   // managers open any.
@@ -234,16 +269,7 @@ export const expenseRoutes = new Hono<{ Bindings: Env }>()
     const items = await expenseRepo.list(db, window.from, window.to, {
       createdByUserId: managesExpenses(session.role) ? undefined : session.sub,
     });
-    const edited = new Set(
-      items.length
-        ? (
-            await db.expenseEdit.findMany({
-              where: { expenseId: { in: items.map((e) => e.id) } },
-              select: { expenseId: true },
-            })
-          ).map((x) => x.expenseId)
-        : [],
-    );
+    const edited = await expenseRepo.editedIds(db, items.map((e) => e.id));
     const total = items.filter((e) => !e.voidedAt).reduce((sum, e) => sum + e.amount, 0);
 
     const byCategory: Record<string, number> = {};
@@ -327,8 +353,13 @@ export const expenseRoutes = new Hono<{ Bindings: Env }>()
       unit: expense.unit,
       description: expense.description,
       paymentMethod: expense.paymentMethod,
+      cashSource: expense.cashSource,
       date: formatIstDateOnly(expense.date),
     };
+    const paymentMethod = body.paymentMethod ?? (expense.paymentMethod as 'cash' | 'upi' | 'other');
+    // Only cash has a source; moving off cash puts it back to the box.
+    const cashSource: ExpenseCashSource =
+      paymentMethod === 'cash' ? (body.cashSource ?? (expense.cashSource as ExpenseCashSource)) : 'drawer';
     const after: Record<string, unknown> = {
       category,
       amount: body.amount ?? expense.amount,
@@ -336,7 +367,8 @@ export const expenseRoutes = new Hono<{ Bindings: Env }>()
       quantity,
       unit,
       description: body.description !== undefined ? body.description || null : expense.description,
-      paymentMethod: body.paymentMethod ?? expense.paymentMethod,
+      paymentMethod,
+      cashSource,
       date: formatIstDateOnly(date),
     };
     const changes = Object.keys(before)
@@ -347,19 +379,39 @@ export const expenseRoutes = new Hono<{ Bindings: Env }>()
     }
 
     const editId = crypto.randomUUID();
-    const done = await expenseRepo.edit(db, id, {
-      fields: {
-        category,
-        amount: after.amount as number,
-        itemName: after.itemName as string,
-        quantity,
-        unit,
-        description: after.description as string | null,
-        paymentMethod: after.paymentMethod as 'cash' | 'upi' | 'other',
-        date,
-      },
-      edit: { id: editId, userId: session.sub, reason: body.reason, changes },
-    });
+    const amount = after.amount as number;
+    const applyEdit = () =>
+      expenseRepo.edit(db, id, {
+        fields: {
+          category,
+          amount,
+          itemName: after.itemName as string,
+          quantity,
+          unit,
+          description: after.description as string | null,
+          paymentMethod,
+          cashSource,
+          date,
+        },
+        edit: { id: editId, userId: session.sub, reason: body.reason, changes },
+      });
+    let done: boolean;
+    if (cashSource === 'held') {
+      // Paid from the doorstep cash of whoever entered it: they must hold enough, counting this
+      // expense's own amount if it already came from there.
+      const holder = expense.createdByUserId;
+      const result = await withLock(c.env, heldLockKey(session.shopId, holder), async () => {
+        const held = (await cashHeldNow(db)).get(holder) ?? 0;
+        const already = expense.paymentMethod === 'cash' && expense.cashSource === 'held' ? expense.amount : 0;
+        if (amount > held + already) return { ok: false as const, held: held + already };
+        return { ok: true as const, done: await applyEdit() };
+      });
+      if (!result) return c.json(heldBusy, 503);
+      if (!result.ok) return c.json(moreThanHeld(result.held), 409);
+      done = result.done;
+    } else {
+      done = await applyEdit();
+    }
     if (!done) return c.json({ error: 'voided' as const, message: 'This expense was just deleted.' }, 409);
 
     // Stock follows a purchase that went into it, when what was bought or how much changed.

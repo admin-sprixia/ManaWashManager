@@ -32,6 +32,15 @@ export interface Service {
   sortOrder: number;
   /** For a combo, the services it bundles; empty or missing for a plain service. */
   includes?: string[];
+  /** Where the community team does it: 'community' = not at customers' homes. */
+  teamAt?: string;
+  /** How long it takes, in minutes. */
+  durationMin?: number | null;
+  popular?: boolean;
+  /** 'hub' = shop only, 'doorstep' = away from the shop only, 'both'. */
+  modes?: string;
+  /** Set when it comes from head office's services; null = made by hand at the branch. */
+  catalogServiceId?: string | null;
 }
 
 /** True when a service should appear for the given vehicle category. */

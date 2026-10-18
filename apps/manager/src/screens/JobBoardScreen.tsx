@@ -30,9 +30,14 @@ import { PeoplePickerSheet } from '../components/PeoplePickerSheet';
 import { ReadyPromptSheet } from '../components/ReadyPromptSheet';
 import { ShopSwitcherSheet } from '../components/ShopSwitcherSheet';
 import { Fab } from '../components/Fab';
-import { BoardCompactBar, BoardHero, type BoardStats } from '../components/board/BoardHeader';
-import { CommunityTodayCard, useCommunityToday } from '../components/board/CommunityTodayCard';
+import { BoardCompactBar, BoardHero } from '../components/board/BoardHeader';
+import { LaneTabs } from '../components/board/LaneTabs';
+import { LANE_META, inLane, useBoardLanes, visibleLanes, type Lane } from '../components/board/lanes';
+import { LANE_EMPTY, LANE_FAB, jobStats, laneBadges, laneHero, sectionDefs } from '../components/board/laneView';
+import { useCommunityToday } from '../components/board/useCommunityToday';
 import { JobRow } from '../components/board/JobRow';
+import { BoardSectionHeader } from '../components/board/BoardSectionHeader';
+import { CommunitiesPanel, type CommunitiesPanelHandle } from './places/CommunitiesPanel';
 import { useAuth } from '../api/auth';
 import { useBoardJobs } from '../offline/useBoardJobs';
 import { useReminderCount } from '../offline/useReminderCount';
@@ -43,7 +48,7 @@ import { buildThankYouMessage } from '../utils/messages';
 import { openWhatsApp } from '../utils/whatsapp';
 import { activityAt, customerLine, firstName, isToday, NEXT_STATUS, vehicleHeadline } from '../utils/jobs';
 import type { RootStackParamList } from '../navigation/RootNavigator';
-import { MAX_WASHERS_PER_JOB, type JobStatus } from '@mana/domain';
+import { MAX_WASHERS_PER_JOB } from '@mana/domain';
 
 type JobBoardScreenProps = NativeStackScreenProps<RootStackParamList, 'JobBoard'>;
 
@@ -52,13 +57,6 @@ interface JobSection {
   title: string;
   data: BoardJob[];
 }
-
-const SECTION_DEFS: { key: string; title: string; statuses: JobStatus[]; todayOnly?: boolean }[] = [
-  { key: 'ready', title: 'Ready for pickup', statuses: ['ready'] },
-  { key: 'active', title: 'In progress', statuses: ['washing', 'waiting'] },
-  { key: 'done', title: 'Paid today', statuses: ['paid'], todayOnly: true },
-  { key: 'void', title: 'Voided today', statuses: ['void'], todayOnly: true },
-];
 
 /** Height of the pinned compact bar below the status bar. */
 const COMPACT_BAR_HEIGHT = 58;
@@ -96,9 +94,21 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
   const [fabCollapsed, setFabCollapsed] = useState(false);
   const lastY = useRef(0);
 
+  // One tab per way this branch washes: the hub, community wash days, and customers' homes.
+  const laneState = useBoardLanes();
+  const communities = useCommunityToday();
+  const panel = useRef<CommunitiesPanelHandle>(null);
+  const lanes = useMemo(
+    () => visibleLanes(laneState.available, jobs, communities.places.length > 0 || communities.review > 0),
+    [laneState.available, jobs, communities.places.length, communities.review],
+  );
+  const lane: Lane = laneState.saved && lanes.includes(laneState.saved) ? laneState.saved : lanes[0]!;
+  const multi = lanes.length > 1;
+  const laneJobs = useMemo(() => (multi ? jobs.filter((j) => inLane(j, lane)) : jobs), [jobs, lane, multi]);
+
   const onRefresh = async () => {
     setRefreshing(true);
-    await refresh();
+    await Promise.all([refresh(), communities.refresh(), lane === 'community' ? panel.current?.refresh() : undefined]);
     setRefreshing(false);
   };
 
@@ -165,45 +175,36 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
     [googleReviewUrl],
   );
 
-  const stats = useMemo<BoardStats>(() => {
-    // Paid washes count on payment day (`completedAt`) — same clock as reports / cash drawer.
-    const paidToday = jobs.filter((j) => j.status === 'paid' && isToday(activityAt(j)));
-    const cars = paidToday.length;
-    const revenue = paidToday.reduce((sum, j) => sum + j.total, 0);
-    const open = jobs.filter(
-      (j) => j.status === 'waiting' || j.status === 'washing' || j.status === 'ready',
-    ).length;
-    return { cars, revenue, open };
-  }, [jobs]);
+  const stats = useMemo(() => jobStats(laneJobs), [laneJobs]);
+  const hero = laneHero({ lane, multi, isOwner, stats, community: communities });
+  const badges = useMemo(() => laneBadges(jobs, communities, isOwner), [jobs, communities, isOwner]);
+  const meta = LANE_META[lane];
+  const palette = multi ? meta.palette : undefined;
 
-  const sections = useMemo<JobSection[]>(
-    () =>
-      SECTION_DEFS.map((def) => ({
+  const sections = useMemo<JobSection[]>(() => {
+    if (lane === 'community') return [];
+    return sectionDefs(lane)
+      .map((def) => ({
         key: def.key,
         title: def.title,
-        data: jobs
-          .filter(
-            (j) =>
-              def.statuses.includes(j.status) &&
-              (!def.todayOnly || isToday(activityAt(j))),
-          )
+        data: laneJobs
+          .filter((j) => def.statuses.includes(j.status) && (!def.todayOnly || isToday(activityAt(j))))
           .sort((a, b) => def.statuses.indexOf(a.status) - def.statuses.indexOf(b.status)),
-      })).filter((s) => s.data.length > 0),
-    [jobs],
-  );
+      }))
+      .filter((s) => s.data.length > 0);
+  }, [lane, laneJobs]);
 
   const goReports = useCallback(() => navigation.navigate('Reports'), [navigation]);
-  const goCommunities = useCallback(() => navigation.navigate('Communities'), [navigation]);
-  const communities = useCommunityToday();
-  const communityCount = isOwner ? communities.review : 0;
   const goMore = useCallback(() => navigation.navigate('More'), [navigation]);
   const goReminders = useCallback(() => navigation.navigate('Reminders'), [navigation]);
   const paused = shopInfo?.status === 'paused';
-  const newWash = useCallback(
-    () => (paused ? showToast('Mana Wash HQ has paused this branch — no new washes for now.', 'error') : navigation.navigate('NewWash')),
-    [navigation, paused],
-  );
+  const onFab = useCallback(() => {
+    if (lane === 'community') return navigation.navigate('CommunitySetup');
+    if (paused) return showToast('Mana Wash HQ has paused this branch — no new washes for now.', 'error');
+    navigation.navigate('NewWash', { mode: lane });
+  }, [lane, navigation, paused]);
   const name = firstName(user?.name);
+  const empty = lane === 'community' ? null : LANE_EMPTY[lane];
 
   return (
     <ScreenContainer noPadding edges={['bottom']}>
@@ -231,14 +232,17 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
                 shopSwitch={shopSwitch}
                 shopName={shopInfo?.name}
                 name={name}
-                stats={stats}
+                figures={hero.figures}
+                tagline={hero.tagline}
+                taglineWarn={hero.taglineWarn}
+                laneKey={lane}
+                palette={palette}
+                tabs={multi ? <LaneTabs lanes={lanes} value={lane} onChange={laneState.choose} badges={badges} /> : undefined}
                 isOwner={isOwner}
                 onReports={goReports}
                 onMore={goMore}
                 onReminders={goReminders}
                 reminderCount={reminderCount}
-                onCommunities={goCommunities}
-                communityCount={communityCount}
                 moreAlert={moreAlert}
                 onLayout={(e) => setHeroHeight(e.nativeEvent.layout.height)}
               />
@@ -251,16 +255,11 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
                   </View>
                 ) : null}
                 <SyncBanner onReview={goMore} />
-                <CommunityTodayCard places={communities.places} onPress={goCommunities} />
               </View>
+              {lane === 'community' ? <CommunitiesPanel ref={panel} /> : null}
             </>
           }
-          renderSectionHeader={({ section }) => (
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>{section.title}</Text>
-              <Text style={styles.sectionCount}>{section.data.length}</Text>
-            </View>
-          )}
+          renderSectionHeader={({ section }) => <BoardSectionHeader title={section.title} count={section.data.length} />}
           renderSectionFooter={() => <View style={styles.sectionFooter} />}
           renderItem={({ item, index }) => (
             <JobRow
@@ -273,21 +272,17 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
             />
           )}
           ListEmptyComponent={
-            loading ? (
+            !empty ? null : loading ? (
               <View style={styles.empty}>
-                <ActivityIndicator color={colors.water} />
+                <ActivityIndicator color={meta.accent} />
               </View>
             ) : (
               <View style={styles.empty}>
                 <View style={styles.emptyIconWrap}>
-                  <IconSparkle size={32} color={colors.water} />
+                  {lane === 'doorstep' ? <meta.Icon size={30} color={meta.accent} /> : <IconSparkle size={32} color={colors.water} />}
                 </View>
-                <Text style={styles.emptyText}>
-                  {error ? 'Couldn’t load jobs' : 'No washes yet today'}
-                </Text>
-                <Text style={styles.emptySubtext}>
-                  {error ?? 'Tap New Wash when the first vehicle rolls in.'}
-                </Text>
+                <Text style={styles.emptyText}>{error ? 'Couldn’t load jobs' : empty.title}</Text>
+                <Text style={styles.emptySubtext}>{error ?? empty.body}</Text>
                 {error ? (
                   <Pressable onPress={() => void refresh()} style={styles.retryBtn}>
                     <Text style={styles.retryBtnText}>Retry</Text>
@@ -300,23 +295,24 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
 
         <BoardCompactBar
           visible={compact}
-          stats={stats}
+          title={hero.compactTitle}
+          summary={hero.compactSummary}
+          palette={palette}
           isOwner={isOwner}
           onReports={goReports}
           onMore={goMore}
           onReminders={goReminders}
           reminderCount={reminderCount}
-          onCommunities={goCommunities}
-          communityCount={communityCount}
           moreAlert={moreAlert}
         />
 
         <Fab
-          label="New Wash"
+          label={LANE_FAB[lane]}
           icon={<IconPlus size={22} color={colors.white} />}
-          onPress={newWash}
+          onPress={onFab}
           collapsed={fabCollapsed}
           bottom={spacing.lg}
+          tint={multi ? meta.fabTint : undefined}
         />
       </View>
 
@@ -369,22 +365,6 @@ const styles = StyleSheet.create({
   list: { paddingBottom: 112, flexGrow: 1 },
   bannerWrap: { paddingTop: spacing.sm },
   pausedWrap: { paddingHorizontal: spacing.md, paddingBottom: spacing.sm },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.sm,
-  },
-  sectionTitle: {
-    ...typography.label,
-    color: colors.slateDeep,
-    letterSpacing: 0.7,
-    textTransform: 'uppercase',
-    fontSize: 12,
-  },
-  sectionCount: { ...typography.label, color: colors.slate, fontSize: 12 },
   sectionFooter: { height: spacing.xs },
   empty: { alignItems: 'center', marginTop: spacing.xxl, paddingHorizontal: spacing.lg },
   emptyIconWrap: {

@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { createPlatformDb, jobRepo, opsRepo, settingsRepo, shopRepo } from '@mana/db';
-import { daysWorked, type AttendanceStatus } from '@mana/domain';
+import { daysWorked, inIndia, type AttendanceStatus } from '@mana/domain';
 import {
   ERRORS_SEEN_SETTING,
   formatSettingDate,
@@ -47,6 +47,10 @@ const shopInfoSchema = z.object({
   city: z.string().trim().max(40).nullable().optional(),
 });
 
+const locationSchema = z
+  .object({ latitude: z.number().min(-90).max(90), longitude: z.number().min(-180).max(180) })
+  .refine(inIndia, 'That location isn’t in India. Pin the branch again.');
+
 const errorReportSchema = z.object({
   message: z.string().min(1).max(2000),
   stack: z.string().max(8000).optional(),
@@ -84,7 +88,18 @@ export const shopRoutes = new Hono<{ Bindings: Env }>()
     const platform = createPlatformDb(c.env.DB);
     const shop = await platform.shop.findUnique({
       where: { id: c.get('session').shopId },
-      select: { code: true, name: true, city: true, status: true, statusReason: true, createdAt: true, businessId: true },
+      select: {
+        code: true,
+        name: true,
+        city: true,
+        status: true,
+        statusReason: true,
+        createdAt: true,
+        businessId: true,
+        latitude: true,
+        longitude: true,
+        pincode: true,
+      },
     });
     if (!shop) return c.json({ error: 'not_found' as const }, 404);
     const [business, owners] = await Promise.all([
@@ -104,7 +119,19 @@ export const shopRoutes = new Hono<{ Bindings: Env }>()
       business: business?.name ?? null,
       openedAt: shop.createdAt.toISOString(),
       owners: owners.map((o) => o.name),
+      location: shop.latitude != null && shop.longitude != null ? { latitude: shop.latitude, longitude: shop.longitude } : null,
+      pincode: shop.pincode,
     });
+  })
+  // Where the branch is. Its hub moves with it when it has just one (the usual case); a branch
+  // with several hubs moves each from How this branch washes.
+  .put('/location', requireRole('owner'), zValidator('json', locationSchema), async (c) => {
+    const { latitude, longitude } = c.req.valid('json');
+    const db = c.get('db');
+    await createPlatformDb(c.env.DB).shop.update({ where: { id: c.get('session').shopId }, data: { latitude, longitude } });
+    const hubs = await db.servicePoint.findMany({ where: { kind: 'hub', active: true }, select: { id: true } });
+    if (hubs.length === 1) await db.servicePoint.updateMany({ where: { id: hubs[0]!.id }, data: { latitude, longitude } });
+    return c.json({ location: { latitude, longitude }, hubMoved: hubs.length === 1 });
   })
   // The name customers see on WhatsApp messages, PDFs and every phone in the shop.
   .put('/info', requireRole('owner'), zValidator('json', shopInfoSchema), async (c) => {

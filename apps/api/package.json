@@ -15,10 +15,18 @@
     "test:team": "node scripts/team-check.mjs",
     "test:access": "node scripts/access-check.mjs",
     "test:races": "node scripts/race-check.mjs",
+    "test:cash": "node scripts/cash-check.mjs",
+    "test:stock": "node scripts/stock-check.mjs",
+    "test:reports": "node scripts/reports-check.mjs",
+    "test:services": "node scripts/services-check.mjs",
     "test:rewards": "node scripts/rewards-check.mjs",
     "test:customer-app": "node scripts/customer-app-check.mjs",
     "test:catalog": "node scripts/catalog-check.mjs",
     "test:places": "node scripts/places-check.mjs",
+    "test:branch-towns": "node scripts/branch-towns-check.mjs",
+    "test:branch-services": "node scripts/branch-services-check.mjs",
+    "test:pricing": "node scripts/pricing-check.mjs",
+    "test:shop-plans": "node scripts/shop-plans-check.mjs",
     "perf:trips": "node scripts/trips-check.mjs",
     "perf:report": "node scripts/perf-report.mjs",
     "db:check": "node --no-warnings scripts/db-check.mjs",
@@ -32,7 +40,11 @@
     "db:seed:staging": "node scripts/seed-demo.mjs --staging",
     "backup:restore": "node scripts/restore-backup.mjs",
     "support:reset-pin": "node scripts/reset-pin.mjs",
-    "setup:business": "node scripts/setup-business.mjs"
+    "setup:business": "node scripts/setup-business.mjs",
+    "db:seed:flats": "node scripts/seed-flats.mjs",
+    "db:seed:menu": "node scripts/seed-menu.mjs",
+    "data:post-offices": "node scripts/import-post-offices.mjs",
+    "docs:price-list": "npx --yes tsx scripts/price-sheet.mts"
   },
   "dependencies": {
     "@hono/zod-validator": "^0.2.2",
@@ -45,6 +57,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240502.0",
+    "india-pincode": "^2.5.9",
     "typescript": "^5.4.5",
     "wrangler": "^3.57.0"
   }

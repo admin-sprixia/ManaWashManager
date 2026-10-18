@@ -119,7 +119,11 @@ wipe the live database.
    `WHATSAPP_OTP_TEMPLATE` / `WHATSAPP_OTP_LANGUAGE`. Meta charges a small per-message fee for
    authentication messages. Until this is set up, nobody can sign in on a new phone.
 4. **Create the tables** — `npm run db:migrate:remote` applies every file in `migrations/`.
-   The live database starts empty: no demo shop, no demo accounts.
+   The live database starts empty: no demo shop, no demo accounts. Then load India Post's
+   pincode list (about 165,000 offices, used to open branches):
+   `npm run data:post-offices -- --into remote --yes`. Run it again any time to refresh it.
+   Then set up the business and its first branch once:
+   `npm run setup:business -- --name "…" --phone … --town Kovur --town-code KVR --pincode 524137 --lat … --lng … --business "Sri Mana Wash" --into remote --yes`.
 5. **Deploy** — `npm run deploy`. Note the `https://mana-api.<subdomain>.workers.dev` URL it
    prints.
 6. **Point the app at it** — from `apps/manager`:
@@ -132,7 +136,14 @@ wipe the live database.
    to it under `bundle/release` is the Play Store upload).
 8. **First sign-in** — nobody can start a shop from the app. Mana Wash HQ (a phone in
    `business_admins`) opens each branch from **More → Mana Wash HQ → All branches → Open a
-   branch** (branch name, city, owner's name and phone). The branch gets the
+   branch**: the pincode, a pin on the map, and the owner's name and phone. Nothing else is
+   typed: the server finds the town from India Post's offices, gives each town one 3-letter
+   code for good (big cities their known one: HYD, BLR, MAA…; others from the name, never one
+   another town has), numbers the branch (KVR-001, KVR-002), names it, and asks HQ to confirm
+   anything odd (a branch next door, a pin far from its pincode, a new state, a look-alike town
+   name). Codes never change after opening, because receipts carry them. HQ also ticks the
+   services in the branch's agreement (Hub, Community, Doorstep); the owner switches those on
+   and off in Shop details › Services, never more. The branch gets the
    business menu straight away; its owner signs in with their phone and a WhatsApp code, then sets
    a 6-digit PIN. The owner (or a manager, for staff) adds the team in **More → Team**; each person
    signs in with a WhatsApp code and chooses their own PIN. Only HQ adds or removes branch owners.
@@ -263,7 +274,7 @@ npm run db:reset:local   # inside apps/api — wipes the LOCAL database, applies
 npm run db:seed:demo     # optional, with the API running: 90 days of realistic shop data
 ```
 
-`seed.sql` adds a test branch (code `HYD-01`), its menu and prices, and the sign-in accounts
+`seed.sql` adds the test branch Mana Wash Nellore City (code `NLR-01`), its menu and prices, and the sign-in accounts
 listed under [Run the app](#run-the-app). `db:seed:demo` resets again and fills in customers,
 washes, photos, expenses, stock, cash days, a second branch and three staff (PIN `258025` for
 everyone; it prints the phone numbers). There is no remote reset — the live database is only
@@ -317,7 +328,7 @@ npm run android
 If you ever do need an iOS build, the native `ios/` folder was never generated (CocoaPods
 isn't installed on this machine and MANA doesn't need it) — generate it the same way `android/`
 was: extract the `template/ios` folder from the `react-native` npm package and rename the
-`HelloWorld` placeholders to `ManaWashPartner` / `com.sprixia.manawashpartner`.
+`HelloWorld` placeholders to `SriManaWashPartner` / `com.sprixia.srimanawashpartner`.
 
 ### 7. Deploy the API
 
@@ -349,8 +360,13 @@ cd apps/api && npm run test:team        # no self sign-up, HQ opens branches and
 cd apps/api && npm run test:access      # roles (owner, manager, staff), PIN resets, trusted phones, 6-digit PINs, pause and close
 cd apps/api && npm run test:rewards     # stamp cards, free washes, welcome gifts and owed gifts, including voids and retries
 cd apps/api && npm run test:races       # double taps and parallel requests can't double-count
+cd apps/api && npm run test:cash        # cash drawer: shop cash, doorstep handovers, carry-over, undo
+cd apps/api && npm run test:stock       # inventory: items, use/add/count, never below zero, replays
+cd apps/api && npm run test:reports     # reports, staff report, corrections feed, attendance, team cash guard
+cd apps/api && npm run test:services    # HQ services: places, sizes and prices, details, branch menus, app, plans
 cd apps/api && npm run test:customer-app  # the Mana Wash app (customers): sign-in, branches, vehicles, washes, requests
 cd apps/api && npm run test:catalog     # business price list, vehicle sizes, branches and service points
+cd apps/api && npm run test:pricing     # community rule and volume discount, doorstep visit charge, same visit, too far
 cd apps/api && npm run test:places      # places, joining (flows A–E), plans, payments, receipts, refunds, nightly
 ```
 

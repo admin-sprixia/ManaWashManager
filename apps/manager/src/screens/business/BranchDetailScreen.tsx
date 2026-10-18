@@ -32,25 +32,29 @@ import {
   TextField,
   brandGradients,
   colors,
-  radius,
   shadow,
   showAlert,
   spacing,
   typography,
 } from '@mana/ui';
 import {
+  ALL_BRANCH_SERVICES,
   BRANCH_STATUS_LABEL,
   BRANCH_STATUS_REASON_MAX,
   BRANCH_STATUS_REASON_MIN,
   USER_ROLE_LABEL,
   isValidPhone,
   normalizePhone,
+  type BranchServices,
   type BranchStatus,
 } from '@mana/domain';
 import { api } from '../../api/client';
 import { formatDateTime, formatRupees } from '../../utils/format';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
-import { formatPercent, useCatalog, type Catalog } from './shared';
+import { formatPercent, plural, useCatalog, type Catalog } from './shared';
+import { AgreementServices } from '../../components/AgreementServices';
+import { BranchMenuPane } from './BranchMenuPane';
+import { BranchVehiclesPane } from './BranchVehiclesPane';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -60,13 +64,11 @@ type Props = NativeStackScreenProps<RootStackParamList, 'BusinessBranch'>;
 type Branch = Catalog['branches'][number];
 type Owner = Branch['owners'][number];
 type Overview = InferResponseType<(typeof api)['business']['overview']['$get'], 200>;
-type BranchNumbers = Overview['branches'][number];
 type TeamMember = InferResponseType<(typeof api)['business']['branches'][':id']['team']['$get'], 200>['team'][number];
 type StatusEvent = InferResponseType<(typeof api)['business']['branches'][':id']['status']['$get'], 200>['history'][number];
-type Workspace = 'today' | 'team' | 'prices';
+type Workspace = 'today' | 'team' | 'menu' | 'vehicles' | 'prices' | 'services';
 
 const DEFAULT_BOOK = 'default';
-const NO_ZONE = 'none';
 
 const STATUS_VERB: Record<BranchStatus, string> = {
   active: 'Reopened',
@@ -102,7 +104,6 @@ export function BranchDetailScreen({ navigation, route }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [workspace, setWorkspace] = useState<Workspace>('today');
   const [bookId, setBookId] = useState(DEFAULT_BOOK);
-  const [zoneId, setZoneId] = useState(NO_ZONE);
   const [addingOwner, setAddingOwner] = useState(false);
   const [ownerName, setOwnerName] = useState('');
   const [ownerPhone, setOwnerPhone] = useState('');
@@ -111,6 +112,7 @@ export function BranchDetailScreen({ navigation, route }: Props) {
   const [statusSheet, setStatusSheet] = useState<'paused' | 'closed' | null>(null);
   const [history, setHistory] = useState<StatusEvent[] | null>(null);
   const [team, setTeam] = useState<TeamMember[] | null>(null);
+  const [agreement, setAgreement] = useState<BranchServices>(ALL_BRANCH_SERVICES);
 
   const reloadOverview = useCallback(async () => {
     try {
@@ -149,12 +151,16 @@ export function BranchDetailScreen({ navigation, route }: Props) {
   const numbers = overview?.branches.find((b) => b.id === branchId);
   const signedInHere = branchId === overview?.currentShopId;
 
+  const allowed = branch?.services.allowed;
+  useEffect(() => {
+    if (allowed) setAgreement(allowed);
+  }, [allowed]);
+
   useEffect(() => {
     if (!branch) return;
     setBookId(branch.priceBookId ?? DEFAULT_BOOK);
-    setZoneId(branch.priceZoneId ?? NO_ZONE);
     setFormError(null);
-  }, [branch?.id, branch?.priceBookId, branch?.priceZoneId]);
+  }, [branch?.id, branch?.priceBookId]);
 
   useEffect(() => {
     void loadHistory();
@@ -162,23 +168,20 @@ export function BranchDetailScreen({ navigation, route }: Props) {
 
   const bookOptions = useMemo(() => {
     if (!catalog) return [];
+    const using = (id: string | null) => catalog.branches.filter((br) => (br.priceBookId ?? null) === id).length;
+    const fallback = catalog.priceBooks.find((b) => b.isDefault);
     return [
-      { value: DEFAULT_BOOK, label: 'Default book', hint: 'Shared business prices' },
+      {
+        value: DEFAULT_BOOK,
+        label: fallback?.name ?? 'Standard',
+        hint: `The business’s main prices · ${plural(using(null) + (fallback ? using(fallback.id) : 0), 'branch')}`,
+      },
       ...catalog.priceBooks
         .filter((b) => !b.isDefault)
-        .map((b) => ({ value: b.id, label: b.name, hint: 'This branch only' })),
+        .map((b) => ({ value: b.id, label: b.name, hint: `Any branch can use it · ${plural(using(b.id), 'branch')}` })),
     ];
   }, [catalog]);
 
-  const zoneOptions = useMemo(() => {
-    if (!catalog) return [];
-    return [
-      { value: NO_ZONE, label: 'No zone', hint: 'List price' },
-      ...catalog.zones
-        .filter((z) => z.active || z.id === zoneId)
-        .map((z) => ({ value: z.id, label: z.name, hint: formatPercent(z.percentBp) })),
-    ];
-  }, [catalog, zoneId]);
 
   if (!catalog) {
     return (
@@ -214,7 +217,6 @@ export function BranchDetailScreen({ navigation, route }: Props) {
 
   const chip = STATUS_CHIP[branch.status];
   const selectedBook = bookOptions.find((b) => b.value === bookId) ?? bookOptions[0]!;
-  const selectedZone = zoneOptions.find((z) => z.value === zoneId) ?? zoneOptions[0]!;
   const phone = normalizePhone(ownerPhone);
   const g = brandGradients.hero;
 
@@ -316,10 +318,21 @@ export function BranchDetailScreen({ navigation, route }: Props) {
           param: { id: branch.id },
           json: {
             priceBookId: bookId === DEFAULT_BOOK ? null : bookId,
-            priceZoneId: zoneId === NO_ZONE ? null : zoneId,
+            priceZoneId: null,
           },
         }),
       `${branch.name} prices updated`,
+    );
+    setBusy(false);
+    if (message) setFormError(message);
+  };
+
+  const saveServices = async () => {
+    setBusy(true);
+    setFormError(null);
+    const message = await run(
+      () => api.business.branches[':id'].services.$put({ param: { id: branch.id }, json: agreement }),
+      `${branch.name} services updated`,
     );
     setBusy(false);
     if (message) setFormError(message);
@@ -454,7 +467,10 @@ export function BranchDetailScreen({ navigation, route }: Props) {
             [
               { key: 'today' as const, label: 'Today' },
               { key: 'team' as const, label: 'Team' },
+              { key: 'menu' as const, label: 'Services' },
+              { key: 'vehicles' as const, label: 'Vehicles' },
               { key: 'prices' as const, label: 'Prices' },
+              { key: 'services' as const, label: 'Agreement' },
             ] as const
           ).map((t) => {
             const on = workspace === t.key;
@@ -466,7 +482,9 @@ export function BranchDetailScreen({ navigation, route }: Props) {
                 accessibilityRole="tab"
                 accessibilityState={{ selected: on }}
               >
-                <Text style={[styles.tabText, on && styles.tabTextOn]}>{t.label}</Text>
+                <Text style={[styles.tabText, on && styles.tabTextOn]} numberOfLines={1} adjustsFontSizeToFit>
+                  {t.label}
+                </Text>
                 <View style={[styles.tabUnderline, on && styles.tabUnderlineOn]} />
               </Pressable>
             );
@@ -482,8 +500,7 @@ export function BranchDetailScreen({ navigation, route }: Props) {
             owners={branch.owners}
             teamCount={numbers?.team ?? team?.length ?? 0}
             bookLabel={selectedBook.label}
-            zoneLabel={selectedZone.label}
-            zoneHint={selectedZone.hint}
+            bookHint={selectedBook.hint}
             onReopen={() =>
               showAlert(`Reopen ${branch.name}?`, 'The team can sign in and start washes again.', [
                 { text: 'Cancel', style: 'cancel' },
@@ -512,21 +529,44 @@ export function BranchDetailScreen({ navigation, route }: Props) {
           />
         ) : null}
 
+        {workspace === 'menu' ? <BranchMenuPane catalog={catalog} branch={branch} run={run} /> : null}
+        {workspace === 'vehicles' ? <BranchVehiclesPane catalog={catalog} branch={branch} run={run} /> : null}
+
         {workspace === 'prices' ? (
           <PricesPane
             bookId={bookId}
-            zoneId={zoneId}
             bookOptions={bookOptions}
-            zoneOptions={zoneOptions}
             busy={busy}
             error={formError}
             onBook={setBookId}
-            onZone={setZoneId}
             onSave={() => void savePrices()}
           />
         ) : null}
 
-        {formError && workspace !== 'prices' ? <Text style={styles.error}>{formError}</Text> : null}
+        {workspace === 'services' ? (
+          <View style={styles.pane}>
+            <Text style={styles.sectionTitle}>Services in the agreement</Text>
+            <Text style={styles.hint}>What this branch may offer. Its owner switches these on and off; never anything outside them.</Text>
+            <AgreementServices value={agreement} onChange={setAgreement} disabled={busy} live={branch.services.live} />
+            {formError ? <Text style={styles.error}>{formError}</Text> : null}
+            <Pressable
+              onPress={() => void saveServices()}
+              disabled={busy || (agreement.hub === branch.services.allowed.hub && agreement.community === branch.services.allowed.community && agreement.doorstep === branch.services.allowed.doorstep)}
+              style={({ pressed }) => [pressed && styles.pressed]}
+            >
+              <LinearGradient
+                colors={brandGradients.primary.colors as unknown as string[]}
+                start={brandGradients.primary.start}
+                end={brandGradients.primary.end}
+                style={styles.saveBtn}
+              >
+                {busy ? <ActivityIndicator color={colors.white} /> : <Text style={styles.saveBtnText}>Save services</Text>}
+              </LinearGradient>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {formError && workspace !== 'prices' && workspace !== 'services' ? <Text style={styles.error}>{formError}</Text> : null}
         <View style={styles.bottomPad} />
       </ScrollView>
 
@@ -582,8 +622,7 @@ function TodayPane({
   owners,
   teamCount,
   bookLabel,
-  zoneLabel,
-  zoneHint,
+  bookHint,
   onReopen,
   onPause,
   onClose,
@@ -597,8 +636,7 @@ function TodayPane({
   owners: Owner[];
   teamCount: number;
   bookLabel: string;
-  zoneLabel: string;
-  zoneHint: string;
+  bookHint: string;
   onReopen: () => void;
   onPause: () => void;
   onClose: () => void;
@@ -668,8 +706,8 @@ function TodayPane({
             ) : null}
           </View>
           <Text style={styles.snapValue}>
-            {owners.length} owner{owners.length === 1 ? '' : 's'}
-            {teamCount ? ` · ${teamCount} people` : ''}
+            {plural(owners.length, 'owner')}
+            {teamCount ? ` · ${teamCount === 1 ? '1 person' : `${teamCount} people`}` : ''}
           </Text>
         </Pressable>
 
@@ -682,8 +720,7 @@ function TodayPane({
             {bookLabel}
           </Text>
           <Text style={styles.snapValue} numberOfLines={1}>
-            {zoneLabel}
-            {zoneHint && zoneHint !== 'List price' ? ` · ${zoneHint}` : ''}
+            {bookHint}
           </Text>
         </Pressable>
       </View>
@@ -836,32 +873,25 @@ function TeamPane({
 
 function PricesPane({
   bookId,
-  zoneId,
   bookOptions,
-  zoneOptions,
   busy,
   error,
   onBook,
-  onZone,
   onSave,
 }: {
   bookId: string;
-  zoneId: string;
   bookOptions: { value: string; label: string; hint: string }[];
-  zoneOptions: { value: string; label: string; hint: string }[];
   busy: boolean;
   error: string | null;
   onBook: (id: string) => void;
-  onZone: (id: string) => void;
   onSave: () => void;
 }) {
   const book = bookOptions.find((o) => o.value === bookId) ?? bookOptions[0]!;
-  const zone = zoneOptions.find((o) => o.value === zoneId) ?? zoneOptions[0]!;
 
   return (
     <View style={styles.pane}>
       <Text style={styles.sectionTitle}>How this branch prices</Text>
-      <Text style={styles.hint}>Book × zone rebuilds the menu for New Wash and the customer app.</Text>
+      <Text style={styles.hint}>The price book its menu is built from, for New Wash and the customer app.</Text>
 
       {/* Equation preview */}
       <View style={styles.equation}>
@@ -871,14 +901,6 @@ function PricesPane({
             {book.label}
           </Text>
           <Text style={styles.ticketHint}>{book.hint}</Text>
-        </View>
-        <Text style={styles.equationOp}>×</Text>
-        <View style={[styles.ticket, styles.ticketZone]}>
-          <Text style={styles.ticketEyebrow}>Zone</Text>
-          <Text style={styles.ticketTitle} numberOfLines={2}>
-            {zone.label}
-          </Text>
-          <Text style={styles.ticketHint}>{zone.hint}</Text>
         </View>
       </View>
 
@@ -904,27 +926,6 @@ function PricesPane({
         })}
       </View>
 
-      <Text style={[styles.sectionTitle, styles.sectionGap]}>Price zone</Text>
-      <View style={styles.listCard}>
-        {zoneOptions.map((o, i) => {
-          const on = o.value === zoneId;
-          return (
-            <Pressable
-              key={o.value}
-              onPress={() => onZone(o.value)}
-              style={({ pressed }) => [styles.pickRow, i > 0 && styles.listDivider, on && styles.pickRowOn, pressed && styles.pressed]}
-            >
-              <View style={styles.flex}>
-                <Text style={[styles.pickLabel, on && styles.pickLabelOn]}>{o.label}</Text>
-                <Text style={styles.pickHint}>{o.hint}</Text>
-              </View>
-              <View style={[styles.radio, on && styles.radioOn]}>
-                {on ? <IconCheck size={12} color={colors.white} /> : null}
-              </View>
-            </Pressable>
-          );
-        })}
-      </View>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <Pressable onPress={onSave} disabled={busy} style={({ pressed }) => [pressed && styles.pressed]}>
@@ -1328,7 +1329,6 @@ const styles = StyleSheet.create({
     minHeight: 110,
   },
   ticketBook: { backgroundColor: colors.indigoPale },
-  ticketZone: { backgroundColor: colors.tealPale },
   ticketEyebrow: {
     ...typography.caption,
     fontSize: 11,

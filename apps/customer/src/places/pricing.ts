@@ -8,6 +8,16 @@ export interface PricedPlan {
   plan: MenuPlan;
   perWash: number;
   total: number;
+  /** What the plan's washes would cost one by one. */
+  listTotal: number;
+}
+
+/** "Every 4th wash is Premium Wash" for plans with a better wash now and then. */
+export function upgradeLine(plan: MenuPlan): string | null {
+  if (!plan.upgrade) return null;
+  const n = plan.upgrade.every;
+  const nth = n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`;
+  return `every ${nth} wash is ${plan.upgrade.name}`;
 }
 
 export interface PricedService {
@@ -19,7 +29,7 @@ export interface PricedService {
 export function plansFor(menu: PlaceMenu, vehicleTypeId: string): PricedPlan[] {
   return menu.plans.flatMap((plan) => {
     const price = plan.prices.find((p) => p.vehicleTypeId === vehicleTypeId);
-    return price ? [{ plan, perWash: price.perWash, total: price.total }] : [];
+    return price ? [{ plan, perWash: price.perWash, total: price.total, listTotal: price.listTotal }] : [];
   });
 }
 

@@ -1,35 +1,35 @@
-import React, { useState } from 'react';
-import { ActivityIndicator, Linking, RefreshControl, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { ActivityIndicator, Linking, RefreshControl, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { describeWashDays, formatClock, formatDay, MEMBER_CHECK_LABEL } from '@mana/domain';
+import { describeWashDays, formatClock, formatDay, MEMBER_CHECK_LABEL, WEEKDAY_SHORT, weekdayOf } from '@mana/domain';
 import {
   Button,
-  EdgeGroup,
-  EdgeRow,
-  EdgePanel,
-  IconBike,
-  IconCalendar,
-  IconCar,
+  IconChevronRight,
   IconEdit,
   IconGrid,
   IconImage,
+  IconSearch,
   IconShare,
   IconUserPlus,
   Notice,
   Pill,
   ScreenContainer,
   ScreenHeader,
-  SectionLabel,
   colors,
+  radius,
   showAlert,
   spacing,
   typography,
 } from '@mana/ui';
 import { API_BASE_URL, api } from '../../api/client';
 import { useAuth } from '../../api/auth';
+import { Band, BandRow, ScreenHero } from '../../components/ScreenChrome';
+import { BoardSectionHeader } from '../../components/board/BoardSectionHeader';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
-import { InspectionSummary, PhotoStrip } from './communityParts';
+import { ActionTile, FormSection, StageTrack, StickyActions, TileRow, UnitTile } from './kit';
+import { VisitReport } from './visit/VisitReport';
 import { MemberSheet } from './MemberSheet';
+import { ActionPill, Chip, PanelRow, QuietRow, TEAL, TEAL_MIST, TEAL_PALE, plural } from './panel/parts';
 import {
   PHASE_STAFF_LABEL,
   PHASE_STAFF_TONE,
@@ -44,31 +44,36 @@ import { UnitsSheet } from './UnitsSheet';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Place'>;
 
-const STATUS_PILL = { active: null, paused: { label: 'PAUSED', tone: 'slate' }, closed: { label: 'CLOSED', tone: 'slate' } } as const;
-const STAGE_PILL = { draft: { label: 'DRAFT', tone: 'slate' }, review: { label: 'TO APPROVE', tone: 'amber' }, live: null } as const;
+const UNPAID = new Set(['awaiting_payment', 'payment_due', 'paused_unpaid']);
 
-function memberSubtitle(m: PlaceMember): string {
-  if (m.status === 'pending') return m.checks.length ? m.checks.map((c) => MEMBER_CHECK_LABEL[c]).join(' · ') : 'To confirm';
-  return m.vehicles.map((v) => v.vehicle?.registrationNumber ?? v.typeName).join(', ') || 'No vehicles';
-}
+const memberName = (m: PlaceMember) => m.customer.name?.trim() || `+91 ${m.customer.phone}`;
+const memberUnpaid = (m: PlaceMember) => m.vehicles.some((v) => v.orders[0] && UNPAID.has(v.orders[0].phase));
+const vehiclesLine = (m: PlaceMember) => m.vehicles.map((v) => v.vehicle?.registrationNumber ?? v.typeName).join(', ') || 'No vehicles';
 
-/** One place for the team: its wash day, members (confirm, pay links, remove), flats, poster and setup. */
+/** One community for the team: its wash days, members (confirm, pay links, remove), flats, poster and setup. */
 export function PlaceScreen({ navigation, route }: Props) {
   const { placeId } = route.params;
   const { isOwner } = useAuth();
-  const detail = useApiData<PlaceDetail>(() => api.places[':id'].$get({ param: { id: placeId } }), 'Couldn’t load this place.');
+  const detail = useApiData<PlaceDetail>(() => api.places[':id'].$get({ param: { id: placeId } }), 'Couldn’t load this community.');
   const members = useApiData<{ members: PlaceMember[] }>(
     () => api.places[':id'].members.$get({ param: { id: placeId }, query: { filter: 'live' } }),
     'Couldn’t load the members.',
   );
   const [openMember, setOpenMember] = useState<string | null>(null);
   const [unitsOpen, setUnitsOpen] = useState(false);
+  const [search, setSearch] = useState('');
 
   const place = detail.data?.place ?? null;
   const list = members.data?.members ?? [];
   const pending = list.filter((m) => m.status === 'pending');
   const active = list.filter((m) => m.status === 'active');
   const member = list.find((m) => m.id === openMember) ?? null;
+  const unpaid = active.filter(memberUnpaid).length;
+  const shown = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return active;
+    return active.filter((m) => `${m.unit} ${m.customer.name ?? ''} ${m.customer.phone} ${vehiclesLine(m)}`.toLowerCase().includes(q));
+  }, [active, search]);
 
   const refresh = () => void Promise.all([detail.refresh(), members.refresh()]);
 
@@ -89,7 +94,7 @@ export function PlaceScreen({ navigation, route }: Props) {
     return (
       <ScreenContainer noPadding>
         <View style={styles.headerPad}>
-          <ScreenHeader title="Place" onBack={() => navigation.goBack()} />
+          <ScreenHeader title="Community" onBack={() => navigation.goBack()} />
         </View>
         {detail.error ? (
           <View style={styles.pad}>
@@ -97,84 +102,109 @@ export function PlaceScreen({ navigation, route }: Props) {
             <Button label="Try again" variant="secondary" onPress={() => void detail.load()} />
           </View>
         ) : (
-          <ActivityIndicator color={colors.water} style={styles.loading} />
+          <ActivityIndicator color={colors.teal} style={styles.loading} />
         )}
       </ScreenContainer>
     );
   }
 
   const noun = place.type === 'building' ? 'Flat' : 'House';
-  const nextDay = place.nextWashDays[0];
-  const status = place.stage === 'live' ? STATUS_PILL[place.status] : STAGE_PILL[place.stage];
-  const joinLink = `${API_BASE_URL}/p/${place.code}`;
   const setup = place.setup;
+  const joinLink = `${API_BASE_URL}/p/${place.code}`;
+  const team = setup.team.map((t) => t.name);
 
+  // ─── Not live yet: where it is on the way, and what the visit found ───────────
   if (place.stage !== 'live') {
+    const dropped = place.status === 'closed';
     const canEdit = isOwner || place.stage === 'draft';
+    const sentBack = place.stage === 'draft' && setup.reviewNote;
     return (
       <ScreenContainer noPadding>
         <View style={styles.headerPad}>
-          <ScreenHeader title={placeTitle(place)} onBack={() => navigation.goBack()} right={status ? <Pill label={status.label} tone={status.tone} /> : undefined} />
+          <ScreenHeader title={place.stage === 'review' ? 'Waiting for approval' : 'Community draft'} onBack={() => navigation.goBack()} />
         </View>
         <ScrollView contentContainerStyle={styles.scroll} refreshControl={<RefreshControl refreshing={detail.refreshing} onRefresh={refresh} />}>
-          <View style={styles.pad}>
-            {place.status === 'closed' ? (
-              <Notice>This draft was dropped.</Notice>
-            ) : place.stage === 'review' ? (
-              <Notice title={isOwner ? 'Waiting for your approval' : 'With the owner'}>
-                {isOwner
-                  ? 'Check what the visit found, pick the days, time and team, then make it live.'
-                  : 'The owner will pick the final days and team. Customers can join once it’s live.'}
-              </Notice>
-            ) : setup.reviewNote ? (
-              <Notice tone="warning" title="Sent back by the owner">
-                {setup.reviewNote}
-              </Notice>
-            ) : (
-              <Notice>Draft. Customers can’t see it yet. Fill in what you found and send it for approval.</Notice>
-            )}
+          <ScreenHero
+            tone={dropped ? 'brand' : sentBack ? 'alert' : 'teal'}
+            eyebrow={placeKindLine(place)}
+            title={placeTitle(place)}
+            meta={
+              dropped
+                ? 'This draft was dropped.'
+                : place.stage === 'review'
+                  ? isOwner
+                    ? 'Check what the visit found, pick the days, time and team, then make it live.'
+                    : 'With the owner. Customers can join once it’s live.'
+                  : sentBack
+                    ? `Sent back: ${setup.reviewNote}`
+                    : 'Customers can’t see it yet. Finish it and send it to the owner.'
+            }
+            chips={[
+              { label: 'Photos', value: place.photos.length },
+              { label: 'Still to add', value: setup.missing.length },
+              { label: 'By', value: setup.createdBy?.name.split(' ')[0] ?? '—' },
+            ]}
+          />
+
+          <View style={styles.trackBand}>
+            <StageTrack stage={place.stage} />
           </View>
-          <SectionLabel>What the visit found</SectionLabel>
-          <EdgePanel style={styles.summary}>
-            <Text style={styles.kind}>{placeKindLine(place)}</Text>
-            {setup.createdBy ? <Text style={styles.code}>Inspected by {setup.createdBy.name}</Text> : null}
-            <InspectionSummary inspection={setup.inspection} slots={setup.slots} contactName={setup.contactName} contactPhone={setup.contactPhone} notes={setup.notes} />
-            {place.photos.length ? <PhotoStrip placeId={placeId} photos={place.photos} /> : null}
-          </EdgePanel>
-          {place.status !== 'closed' ? (
-            <View style={styles.actions}>
-              {isOwner ? <Button label="Review and approve" size="lg" onPress={() => navigation.navigate('PlaceForm', { placeId })} /> : null}
-              {canEdit ? (
-                <Button
-                  label={place.stage === 'draft' ? 'Continue the draft' : 'Edit what the visit found'}
-                  variant={isOwner ? 'secondary' : 'primary'}
-                  size={isOwner ? undefined : 'lg'}
-                  onPress={() => navigation.navigate('CommunitySetup', { placeId })}
-                />
-              ) : null}
-              {isOwner ? <Button label="Drop this community" variant="ghost" onPress={() => dropDraft()} /> : null}
-            </View>
-          ) : null}
+
+          <FormSection icon={<IconImage size={14} color={TEAL} />} title="What the visit found" caption={setup.createdBy ? `Inspected by ${setup.createdBy.name}` : undefined}>
+            <VisitReport setup={setup} placeId={placeId} photos={place.photos} location={place.location} />
+          </FormSection>
           <View style={styles.bottomPad} />
         </ScrollView>
+
+        {!dropped ? (
+          <StickyActions>
+            {isOwner && place.stage === 'review' ? (
+              <Button label="Review and approve" size="lg" onPress={() => navigation.navigate('PlaceForm', { placeId })} />
+            ) : null}
+            {canEdit ? (
+              <Button
+                label={place.stage === 'draft' ? (sentBack ? 'Fix and resend' : 'Continue the draft') : 'Edit what the visit found'}
+                variant={isOwner && place.stage === 'review' ? 'secondary' : 'primary'}
+                size={isOwner && place.stage === 'review' ? undefined : 'lg'}
+                onPress={() => navigation.navigate('CommunitySetup', { placeId })}
+              />
+            ) : null}
+            {isOwner ? <Button label="Drop this community" variant="ghost" onPress={() => dropDraft()} /> : null}
+          </StickyActions>
+        ) : null}
       </ScreenContainer>
     );
   }
 
-  const memberRow = (m: PlaceMember) => {
+  // ─── Live ─────────────────────────────────────────────────────────────────────
+  const statusPill =
+    place.status === 'paused' ? <Pill label="PAUSED" tone="amber" /> : place.status === 'closed' ? <Pill label="CLOSED" tone="slate" /> : null;
+
+  const memberRow = (m: PlaceMember, i: number) => {
     const order = m.vehicles.flatMap((v) => (v.orders[0] ? [v.orders[0]] : []))[0];
+    const isPending = m.status === 'pending';
     return (
-      <EdgeRow
+      <PanelRow
         key={m.id}
-        icon={m.vehicles[0]?.category === 'bike' ? <IconBike size={18} color={colors.waterDeep} /> : <IconCar size={18} color={colors.waterDeep} />}
-        title={`${m.unit} · ${m.customer.name ?? m.customer.phone}`}
-        subtitle={memberSubtitle(m)}
+        first={i === 0}
+        leading={<UnitTile unit={m.unit} tone={isPending ? 'danger' : order && UNPAID.has(order.phase) ? 'slate' : 'teal'} />}
+        title={memberName(m)}
+        meta={isPending ? (m.checks.length ? m.checks.map((c) => MEMBER_CHECK_LABEL[c]).join(' · ') : 'Joined · waiting for you') : vehiclesLine(m)}
         right={
-          m.status === 'pending' ? (
-            <Pill label="CONFIRM" tone="danger" />
+          isPending ? (
+            <ActionPill label="Confirm" onPress={() => setOpenMember(m.id)} />
           ) : order ? (
             <Pill label={PHASE_STAFF_LABEL[order.phase].toUpperCase()} tone={PHASE_STAFF_TONE[order.phase]} />
-          ) : undefined
+          ) : (
+            <IconChevronRight size={18} color={colors.slate} />
+          )
+        }
+        footer={
+          !isPending && order && order.kind === 'plan' ? (
+            <Chip label={`${order.title} · ${order.washesUsed}/${order.washesTotal} washes`} tone="teal" />
+          ) : !isPending && order ? (
+            <Chip label={order.title} tone="slate" />
+          ) : null
         }
         onPress={() => setOpenMember(m.id)}
       />
@@ -184,93 +214,148 @@ export function PlaceScreen({ navigation, route }: Props) {
   return (
     <ScreenContainer noPadding>
       <View style={styles.headerPad}>
-        <ScreenHeader title={placeTitle(place)} onBack={() => navigation.goBack()} right={status ? <Pill label={status.label} tone={status.tone} /> : undefined} />
+        <ScreenHeader title="Community" onBack={() => navigation.goBack()} />
       </View>
-      <ScrollView contentContainerStyle={styles.scroll} refreshControl={<RefreshControl refreshing={detail.refreshing} onRefresh={refresh} />}>
-        <EdgePanel style={styles.summary}>
-          <Text style={styles.kind}>{placeKindLine(place)}</Text>
-          <Text style={styles.line}>
-            {describeWashDays(place.washDays)} · {formatClock(place.washTime)}
-          </Text>
-          <Text style={styles.code}>
-            {setup.team.length ? `Team: ${setup.team.map((t) => t.name).join(', ')} · ` : ''}Code {place.code}
-          </Text>
-        </EdgePanel>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={<RefreshControl refreshing={detail.refreshing || members.refreshing} onRefresh={refresh} />}
+      >
+        <ScreenHero
+          tone={place.status === 'active' ? 'teal' : 'brand'}
+          eyebrow={placeKindLine(place)}
+          title={placeTitle(place)}
+          meta={[`${describeWashDays(place.washDays)} · ${formatClock(place.washTime)}`, team.length ? `Team: ${team.join(', ')}` : 'No team set']
+            .filter(Boolean)
+            .join('\n')}
+          right={statusPill ?? <Text style={styles.code}>{place.code}</Text>}
+          chips={[
+            { label: 'Members', value: active.length },
+            { label: 'To confirm', value: pending.length },
+            { label: 'Not paid', value: unpaid },
+            { label: `${noun}s`, value: detail.data?.units.length ?? 0 },
+          ]}
+        />
 
-        <SectionLabel>Wash day</SectionLabel>
-        <EdgeGroup>
-          <EdgeRow
-            icon={<IconCalendar size={18} color={colors.waterDeep} />}
-            title={nextDay ? `Next wash · ${formatDay(nextDay)}` : 'No wash day set'}
-            subtitle="Who to wash, paid or not"
-            onPress={nextDay ? () => navigation.navigate('PlaceDay', { placeId, day: nextDay }) : undefined}
-          />
-        </EdgeGroup>
+        {/* Next wash days */}
+        <BoardSectionHeader title="Next wash days" />
+        {place.nextWashDays.length ? (
+          place.nextWashDays.map((d, i) => (
+            <PanelRow
+              key={d}
+              first={i === 0}
+              leading={
+                <View style={[styles.dateTile, i === 0 && styles.dateTileNext]}>
+                  <Text style={[styles.dateDay, i === 0 && styles.dateOn]}>{WEEKDAY_SHORT[weekdayOf(d)]}</Text>
+                  <Text style={[styles.dateNum, i === 0 && styles.dateOn]}>{Number(d.slice(8))}</Text>
+                </View>
+              }
+              title={i === 0 ? `Next · ${formatDay(d)}` : formatDay(d)}
+              meta={`${formatClock(place.washTime)} · who to wash, paid or not`}
+              right={i === 0 ? <ActionPill label="Open list" onPress={() => navigation.navigate('PlaceDay', { placeId, day: d })} /> : <IconChevronRight size={18} color={colors.slate} />}
+              onPress={() => navigation.navigate('PlaceDay', { placeId, day: d })}
+            />
+          ))
+        ) : (
+          <QuietRow first title="No wash days set" body={isOwner ? 'Pick the days in Wash settings below.' : 'The owner picks the days.'} />
+        )}
 
-        {pending.length ? (
-          <>
-            <SectionLabel>To confirm</SectionLabel>
-            <EdgeGroup>{pending.map(memberRow)}</EdgeGroup>
-          </>
-        ) : null}
-
-        <SectionLabel right={active.length ? `${active.length}` : undefined}>Members</SectionLabel>
-        <EdgeGroup>
-          {active.map(memberRow)}
-          <EdgeRow
-            icon={<IconUserPlus size={18} color={colors.waterDeep} />}
-            title="Add a member"
-            subtitle="For someone without a smartphone"
-            onPress={() => navigation.navigate('AddMember', { placeId })}
-          />
-        </EdgeGroup>
-        {members.error ? <Text style={[styles.error, styles.pad]}>{members.error}</Text> : null}
-
-        <SectionLabel>Get members</SectionLabel>
-        <EdgeGroup>
-          <EdgeRow
-            icon={<IconGrid size={18} color={colors.waterDeep} />}
-            title="QR poster"
-            subtitle="Print it for the notice board or lift"
+        {/* Get members */}
+        <BoardSectionHeader title="Get members" />
+        <TileRow>
+          <ActionTile
+            icon={<IconGrid size={19} color={TEAL} />}
+            label="QR poster"
+            caption="Print for the lift or notice board"
             onPress={() => void Linking.openURL(`${joinLink}/poster`).catch(() => undefined)}
           />
-          <EdgeRow
-            icon={<IconShare size={18} color={colors.waterDeep} />}
-            title="Share the join link"
-            subtitle="For the residents’ WhatsApp group"
+          <ActionTile
+            icon={<IconShare size={19} color={TEAL} />}
+            label="Share link"
+            caption="For the residents’ WhatsApp group"
             onPress={() =>
               void Share.share({
-                message: `Car wash at ${placeTitle(place)}, ${describeWashDays(place.washDays).toLowerCase()} morning. Join in a minute: ${joinLink}`,
+                message: `Car wash at ${placeTitle(place)}, ${describeWashDays(place.washDays).toLowerCase()} at ${formatClock(place.washTime)}. Join in a minute: ${joinLink}`,
               }).catch(() => undefined)
             }
           />
-        </EdgeGroup>
+          <ActionTile
+            icon={<IconUserPlus size={19} color={TEAL} />}
+            label="Add member"
+            caption="Someone without a smartphone"
+            onPress={() => navigation.navigate('AddMember', { placeId })}
+          />
+        </TileRow>
 
-        <SectionLabel>Setup</SectionLabel>
-        <EdgeGroup>
-          <EdgeRow
-            icon={<IconImage size={18} color={colors.waterDeep} />}
+        {/* To confirm */}
+        {pending.length ? (
+          <>
+            <BoardSectionHeader title="To confirm" count={pending.length} tone="alert" />
+            {pending.map(memberRow)}
+          </>
+        ) : null}
+
+        {/* Members */}
+        <BoardSectionHeader title="Members" count={active.length || undefined} />
+        {active.length > 8 ? (
+          <View style={styles.searchWrap}>
+            <IconSearch size={17} color={colors.slate} />
+            <TextInput
+              style={styles.search}
+              value={search}
+              onChangeText={setSearch}
+              placeholder={`Search by ${noun.toLowerCase()}, name or plate`}
+              placeholderTextColor={colors.slate}
+              accessibilityLabel="Search members"
+              disableFullscreenUI
+            />
+          </View>
+        ) : null}
+        {shown.length ? (
+          shown.map(memberRow)
+        ) : (
+          <QuietRow
+            first
+            title={search ? 'Nobody matches' : 'No members yet'}
+            body={search ? 'Try a flat number, name or plate.' : 'Share the link or put up the QR poster to get the first ones.'}
+          />
+        )}
+        {members.error ? <Text style={[styles.error, styles.pad]}>{members.error}</Text> : null}
+
+        {/* Setup */}
+        <BoardSectionHeader title="Setup" />
+        <Band>
+          <BandRow
+            icon={<IconImage size={18} color={TEAL} />}
+            iconBg={TEAL_PALE}
             title="Inspection & photos"
-            subtitle={`${place.photos.length} photo${place.photos.length === 1 ? '' : 's'}${setup.notes ? ' · notes' : ''}${setup.contactPhone ? ' · contact' : ''}`}
+            subtitle={[plural(place.photos.length, 'photo'), setup.notes ? 'notes' : null, setup.contactPhone ? 'contact' : null].filter(Boolean).join(' · ')}
+            right={<IconChevronRight size={18} color={colors.slate} />}
+            last={!isOwner}
             onPress={() => navigation.navigate('CommunitySetup', { placeId })}
           />
           {isOwner ? (
             <>
-              <EdgeRow
-                icon={<IconGrid size={18} color={colors.waterDeep} />}
+              <BandRow
+                icon={<IconGrid size={18} color={TEAL} />}
+                iconBg={TEAL_PALE}
                 title={`${noun}s`}
-                subtitle={detail.data?.units.length ? `${detail.data.units.length} on the list` : `Add the ${noun.toLowerCase()} numbers`}
+                subtitle={detail.data?.units.length ? `${detail.data.units.length} on the list people pick from` : `Add the ${noun.toLowerCase()} numbers people pick from`}
+                right={<IconChevronRight size={18} color={colors.slate} />}
                 onPress={() => setUnitsOpen(true)}
               />
-              <EdgeRow
-                icon={<IconEdit size={18} color={colors.waterDeep} />}
+              <BandRow
+                icon={<IconEdit size={18} color={colors.indigo} />}
+                iconBg={colors.indigoPale}
                 title="Wash settings"
-                subtitle="Days, time, team, approval, pause or close"
+                subtitle="Days, time, team, who can join, pause or close"
+                right={<IconChevronRight size={18} color={colors.slate} />}
+                last
                 onPress={() => navigation.navigate('PlaceForm', { placeId })}
               />
             </>
           ) : null}
-        </EdgeGroup>
+        </Band>
         <View style={styles.bottomPad} />
       </ScrollView>
 
@@ -283,6 +368,7 @@ export function PlaceScreen({ navigation, route }: Props) {
           noun={noun}
           onClose={() => setUnitsOpen(false)}
           run={detail.run}
+          members={list}
         />
       ) : null}
     </ScreenContainer>
@@ -292,13 +378,48 @@ export function PlaceScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   headerPad: { paddingHorizontal: spacing.md },
   loading: { marginTop: spacing.xl },
-  scroll: { paddingTop: spacing.sm },
+  scroll: { paddingTop: spacing.xs },
   pad: { paddingHorizontal: spacing.md, gap: spacing.md },
-  summary: { gap: 4 },
-  actions: { paddingHorizontal: spacing.md, paddingTop: spacing.lg, gap: spacing.sm },
-  kind: { ...typography.label, color: colors.slateDeep },
-  line: { ...typography.bodyStrong, color: colors.waterInk },
-  code: { ...typography.caption, color: colors.slate, letterSpacing: 1 },
-  error: { ...typography.label, color: colors.danger },
+  error: { ...typography.label, color: colors.danger, marginTop: spacing.sm },
   bottomPad: { height: spacing.xxl },
+  code: {
+    ...typography.label,
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1.6,
+    color: colors.white,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderRadius: radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    overflow: 'hidden',
+  },
+  trackBand: {
+    marginTop: spacing.md,
+    marginHorizontal: spacing.md,
+    backgroundColor: colors.white,
+    borderRadius: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
+  },
+  dateTile: { width: 46, height: 46, borderRadius: 15, backgroundColor: TEAL_MIST, alignItems: 'center', justifyContent: 'center' },
+  dateTileNext: { backgroundColor: TEAL },
+  dateDay: { ...typography.caption, fontSize: 10.5, fontWeight: '800', color: colors.slate, letterSpacing: 0.4 },
+  dateNum: { ...typography.heading, fontSize: 17, color: colors.waterInk, lineHeight: 20 },
+  dateOn: { color: colors.white },
+  searchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+  },
+  search: { flex: 1, paddingVertical: 9, ...typography.body, fontSize: 15, color: colors.waterInk },
 });

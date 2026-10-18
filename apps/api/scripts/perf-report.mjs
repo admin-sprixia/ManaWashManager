@@ -19,7 +19,7 @@ const WARMUP = 2;
 const PIN = '258025';
 const OWNER_PHONE = process.env.PERF_OWNER ?? '9888626111';
 const STAFF_PHONE = process.env.PERF_STAFF ?? '9300000011';
-const PHOTO = readFileSync(join(API_DIR, '..', 'manager', 'src', 'assets', 'vehicles', 'vehicle-sedan.jpg'));
+const PHOTO = readFileSync(join(API_DIR, 'scripts', 'fixtures', 'sample-photo.jpg'));
 
 const cid = (p) => `${p}_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
 const istDate = (d = new Date()) => new Date(d.getTime() + 5.5 * 3600_000).toISOString().slice(0, 10);

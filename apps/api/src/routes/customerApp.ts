@@ -6,6 +6,7 @@ import {
   createShopDb,
   customerAccountRepo,
   customerAppRepo,
+  vehicleModelRepo,
   customerCareRepo,
   customerRepo,
   serviceAreaRepo,
@@ -379,9 +380,16 @@ export const customerAppRoutes = new Hono<{ Bindings: Env }>()
 
   // ---------- Branches: contact, hours, prices (public, like the starting prices) ----------
   .get('/branches', async (c) => {
-    const branches = await customerAppRepo.branches(createPlatformDb(c.env.DB));
+    const pdb = createPlatformDb(c.env.DB);
+    const [branches, shops] = await Promise.all([
+      customerAppRepo.branches(pdb),
+      pdb.shop.findMany({ where: { inCustomerApp: true, status: 'active', businessId: { not: null } }, select: { businessId: true } }),
+    ]);
+    // Head office's changes to the list of companies and models, for "add your vehicle".
+    const businessIds = [...new Set(shops.map((s) => s.businessId!))];
+    const vehicleModels = [...(await vehicleModelRepo.listMany(pdb, businessIds)).values()].flat();
     c.header('Cache-Control', 'public, max-age=300');
-    return c.json({ branches });
+    return c.json({ branches, vehicleModels });
   })
 
   // ---------- Signed in ----------

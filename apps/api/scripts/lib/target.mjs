@@ -16,7 +16,9 @@ export const STAGING_API = 'https://api-staging.manawashmanager.com';
 export const API = process.env.API_URL ?? (STAGING ? STAGING_API : 'http://localhost:8787');
 export const DB_NAME = STAGING ? 'mana_db_staging' : 'mana_db';
 /** `wrangler d1 …` arguments that pick the database, after the sub-command. */
-export const DB_FLAGS = STAGING ? ['--remote', '--env', 'staging'] : ['--local'];
+/** MANA_PERSIST=<dir>: a separate local database (a second `wrangler dev --persist-to <dir>`), for tests that wipe. */
+const PERSIST = process.env.MANA_PERSIST;
+export const DB_FLAGS = STAGING ? ['--remote', '--env', 'staging'] : PERSIST ? ['--local', '--persist-to', PERSIST] : ['--local'];
 export const API_DIR = fileURLToPath(new URL('../..', import.meta.url));
 
 const STALE_SOCKET = new Set(['UND_ERR_SOCKET', 'ECONNRESET', 'EPIPE']);

@@ -61,7 +61,17 @@ function rowSubtitle(r: WashDayRow): string {
       .filter(Boolean)
       .join(' · ');
   }
-  return [r.firstWash ? 'First wash · note the plate' : null, r.parkingNote, r.customer.name].filter(Boolean).join(' · ') || r.title;
+  return (
+    [r.planWash?.upgraded ? `${r.planWash.name} today` : null, r.firstWash ? 'First wash · note the plate' : null, r.parkingNote, r.customer.name]
+      .filter(Boolean)
+      .join(' · ') || r.title
+  );
+}
+
+/** "Wash 4 of 13 · Premium Wash" on plans with a better wash now and then. */
+function washLine(r: WashDayRow): string | null {
+  if (r.kind !== 'plan' || !r.planWash) return null;
+  return `Wash ${r.washNo} of ${r.washesTotal} · ${r.planWash.name}`;
 }
 
 /**
@@ -125,7 +135,13 @@ export function PlaceDayScreen({ navigation, route }: Props) {
                     title={`${r.unit} · ${r.vehicle.registrationNumber ?? r.vehicle.typeName}`}
                     subtitle={rowSubtitle(r)}
                     tone={r.visit || !r.paid ? 'muted' : 'default'}
-                    right={<Pill label={pill.label} tone={pill.tone} />}
+                    right={
+                      r.planWash?.upgraded && !r.visit && r.paid ? (
+                        <Pill label={r.planWash.name.replace(/ wash$/i, '').toUpperCase()} tone="amber" />
+                      ) : (
+                        <Pill label={pill.label} tone={pill.tone} />
+                      )
+                    }
                     onPress={() => setOpen(r.orderId)}
                   />
                 );
@@ -275,6 +291,13 @@ function VisitSheet({
       subtitle={`${row.title}${row.kind === 'plan' ? ` · ${row.washesLeft} washes left` : ''}`}
     >
       <View style={styles.sheet}>
+        {washLine(row) && !row.visit ? (
+          <Notice tone={row.planWash?.upgraded ? 'warning' : 'info'} title={washLine(row)!}>
+            {row.planWash?.upgraded
+              ? `This visit is the ${row.planWash.name} on their plan. Do the full ${row.planWash.name}, not the regular wash.`
+              : 'A regular wash on their plan.'}
+          </Notice>
+        ) : null}
         {row.visit ? (
           <>
             <Notice tone={row.visit.outcome === 'done' ? 'success' : 'info'}>

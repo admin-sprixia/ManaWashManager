@@ -96,7 +96,7 @@ export const opsRepo = {
   /** Closes an open day. A conditional update, so two people closing at once can't both win. */
   async closeDay(
     db: DbClient,
-    data: { date: string; expected: number; counted: number; note: string | null; userId: string },
+    data: { date: string; expected: number; counted: number; note: string | null; heldAtClose: number; userId: string },
   ) {
     const res = await db.cashDay.updateMany({
       where: { date: data.date, closedAt: null },
@@ -104,6 +104,7 @@ export const opsRepo = {
         expected: data.expected,
         counted: data.counted,
         note: data.note,
+        heldAtClose: data.heldAtClose,
         closedByUserId: data.userId,
         closedAt: new Date(),
       },
@@ -130,6 +131,7 @@ export const opsRepo = {
           expected: day.expected,
           counted: day.counted,
           note: day.note,
+          heldAtClose: day.heldAtClose,
           closedByUserId: day.closedByUserId,
           closedAt,
         },
@@ -144,6 +146,7 @@ export const opsRepo = {
         expected: null,
         counted: null,
         note: null,
+        heldAtClose: null,
         closedByUserId: null,
         closedAt: null,
         reopenedByUserId: data.userId,
@@ -171,6 +174,7 @@ export const opsRepo = {
       expected: r.expected,
       counted: r.counted,
       note: r.note,
+      heldAtClose: r.heldAtClose,
       closedBy: r.closedByUserId ? (name.get(r.closedByUserId) ?? null) : null,
       closedAt: r.closedAt,
       reopenedBy: r.reopenedByUserId ? (name.get(r.reopenedByUserId) ?? null) : null,
@@ -193,6 +197,118 @@ export const opsRepo = {
       closedBy: person(d.closedByUserId),
       reopenedBy: person(d.reopenedByUserId),
     }));
+  },
+
+  // ─── Doorstep cash handovers ──────────────────────────────────────────────
+
+  /** Everyone who has been on the team, removed people included: they may still hold cash. */
+  async personNames(db: DbClient) {
+    const users = await db.user.findMany(personSelect);
+    return new Map(users.map((u) => [u.id, u.name]));
+  },
+
+  /** What each collector's live handovers settled, ever: subtracted from what they collected. */
+  async handoverSettledByCollector(db: DbClient) {
+    const rows = await db.cashHandover.groupBy({
+      by: ['collectorUserId'],
+      where: { voidedAt: null },
+      _sum: { due: true },
+    });
+    return new Map(rows.map((r) => [r.collectorUserId, r._sum.due ?? 0]));
+  },
+
+  /** Handovers into one day's drawer, newest first, voided ones included (marked). */
+  async listHandovers(db: DbClient, date: string) {
+    const [rows, users] = await Promise.all([
+      db.cashHandover.findMany({ where: { date }, orderBy: { createdAt: 'desc' } }),
+      db.user.findMany(personSelect),
+    ]);
+    const byId = new Map(users.map((u) => [u.id, u]));
+    const name = (id: string | null) => (id ? (byId.get(id)?.name ?? null) : null);
+    return rows.map((r) => ({
+      ...r,
+      collector: name(r.collectorUserId),
+      receivedBy: name(r.receivedByUserId),
+      voidedBy: name(r.voidedByUserId),
+    }));
+  },
+
+  /** Doorstep cash each person handed in short in `[from, to)` (live handovers), as a positive amount. */
+  async handoverShortByCollector(db: DbClient, from: Date, to: Date) {
+    const rows = await db.cashHandover.findMany({
+      where: { createdAt: { gte: from, lt: to }, voidedAt: null },
+      select: { collectorUserId: true, due: true, received: true },
+    });
+    const short = new Map<string, number>();
+    for (const r of rows) {
+      if (r.received < r.due) short.set(r.collectorUserId, (short.get(r.collectorUserId) ?? 0) + r.due - r.received);
+    }
+    return short;
+  },
+
+  /** Handovers undone in `[from, to)`, newest first — for the owner's corrections feed. */
+  async listVoidedHandovers(db: DbClient, from: Date, to: Date) {
+    const [rows, names] = await Promise.all([
+      db.cashHandover.findMany({ where: { voidedAt: { gte: from, lt: to } }, orderBy: { voidedAt: 'desc' } }),
+      this.personNames(db),
+    ]);
+    return rows.map((r) => ({
+      ...r,
+      collector: names.get(r.collectorUserId) ?? 'Someone removed',
+      voidedBy: r.voidedByUserId ? { id: r.voidedByUserId, name: names.get(r.voidedByUserId) ?? 'Someone' } : null,
+    }));
+  },
+
+  /** Cash days reopened in `[from, to)`, with the count each reopen set aside — for the corrections feed. */
+  async listReopens(db: DbClient, from: Date, to: Date) {
+    const [rows, names] = await Promise.all([
+      db.cashDayClose.findMany({ where: { reopenedAt: { gte: from, lt: to } }, orderBy: { reopenedAt: 'desc' } }),
+      this.personNames(db),
+    ]);
+    return rows.map((r) => ({
+      ...r,
+      reopenedBy: r.reopenedByUserId ? { id: r.reopenedByUserId, name: names.get(r.reopenedByUserId) ?? 'Someone' } : null,
+    }));
+  },
+
+  async findHandover(db: DbClient, id: string) {
+    return db.cashHandover.findFirst({ where: { id } });
+  },
+
+  /**
+   * Records a handover. Its id is fixed by how many handovers the collector already has, so two
+   * people taking the same cash at once make the same id: one is recorded, the other gets false.
+   */
+  async createHandover(
+    db: DbClient,
+    data: { date: string; collectorUserId: string; due: number; received: number; note: string | null; userId: string },
+  ) {
+    const n = await db.cashHandover.count({ where: { collectorUserId: data.collectorUserId } });
+    try {
+      return await db.cashHandover.create({
+        data: {
+          id: `${db.$shopId()}:${data.collectorUserId}:${n + 1}`,
+          date: data.date,
+          collectorUserId: data.collectorUserId,
+          due: data.due,
+          received: data.received,
+          note: data.note,
+          receivedByUserId: data.userId,
+        },
+      });
+    } catch (e) {
+      if (isUniqueClash(e)) return null;
+      throw e;
+    }
+  },
+
+  /** Voids a live handover: the cash counts as held again. A conditional update, so it voids once. */
+  async voidHandover(db: DbClient, data: { id: string; reason: string; userId: string }) {
+    const res = await db.cashHandover.updateMany({
+      where: { id: data.id, voidedAt: null },
+      data: { voidedAt: new Date(), voidedByUserId: data.userId, voidReason: data.reason },
+    });
+    return res.count === 1;
   },
 
   // ─── Photos ───────────────────────────────────────────────────────────────

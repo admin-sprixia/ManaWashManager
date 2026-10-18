@@ -2,12 +2,15 @@ import {
   canRateWash,
   DELIVERY_MODES,
   LIVE_WASH_HOURS,
+  parseChecklist,
+  parseServiceKind,
   parseServiceModes,
-  WASH_PLAN_RULE_KEYS,
-  type DeliveryMode,
+  BRANCH_SERVICES_SELECT,
+  branchServicesOf,
   type ProblemKind,
 } from '@mana/domain';
 import type { DbClient } from '../client';
+import { awayPricingRepo } from './awayPricingRepo';
 import { rewardRepo } from './rewardRepo';
 
 /** A listed branch where this phone is a customer. */
@@ -277,19 +280,21 @@ export const customerAppRepo = {
         latitude: true,
         longitude: true,
         businessId: true,
+        ...BRANCH_SERVICES_SELECT,
       },
     });
     if (shops.length === 0) return [];
     const shopIds = shops.map((s) => s.id);
     const businessIds = [...new Set(shops.map((s) => s.businessId).filter((id): id is string => !!id))];
-    const [types, services, reviewLinks, points, homeWash] = await Promise.all([
+    const [types, services, reviewLinks, points, away] = await Promise.all([
       platform.vehicleType.findMany({
         where: { shopId: { in: shopIds }, active: true },
         orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
         select: { id: true, shopId: true, name: true, category: true, bodyTypeId: true },
       }),
+      // Services marked shop-only for staff aren't offered in the app.
       platform.service.findMany({
-        where: { shopId: { in: shopIds }, active: true },
+        where: { shopId: { in: shopIds }, active: true, showInApp: true },
         orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
         select: {
           id: true,
@@ -297,6 +302,11 @@ export const customerAppRepo = {
           name: true,
           description: true,
           modes: true,
+          teamAt: true,
+          durationMin: true,
+          kind: true,
+          popular: true,
+          checklist: true,
           prices: { where: { price: { gt: 0 } }, select: { vehicleTypeId: true, price: true, mode: true } },
           comboItems: { select: { service: { select: { name: true, active: true } } } },
         },
@@ -307,25 +317,32 @@ export const customerAppRepo = {
       }),
       platform.servicePoint.findMany({
         where: { shopId: { in: shopIds }, active: true },
-        select: { shopId: true, kind: true },
+        select: { shopId: true, kind: true, classes: { select: { classId: true } } },
       }),
-      platform.businessSetting.findMany({
-        where: { businessId: { in: businessIds }, key: WASH_PLAN_RULE_KEYS.homeWash, value: 'true' },
-        select: { businessId: true },
-      }),
+      awayPricingRepo.many(platform, businessIds),
     ]);
-    const washesAtHome = new Set(homeWash.map((h) => h.businessId));
     const bodyIds = [...new Set(types.map((t) => t.bodyTypeId).filter((id): id is string => !!id))];
     const bodies = bodyIds.length
-      ? await platform.bodyType.findMany({ where: { id: { in: bodyIds } }, select: { id: true, key: true } })
+      ? await platform.bodyType.findMany({ where: { id: { in: bodyIds } }, select: { id: true, key: true, classId: true } })
       : [];
     const bodyKey = new Map(bodies.map((b) => [b.id, b.key]));
+    const bodyClass = new Map(bodies.map((b) => [b.id, b.classId]));
     return shops.map((s) => {
       const shopTypes = types.filter((t) => t.shopId === s.id);
       const typeIds = new Set(shopTypes.map((t) => t.id));
-      const kinds = new Set(points.filter((p) => p.shopId === s.id).map((p) => p.kind));
-      // Doorstep teams that only go to communities aren't a way to book a wash at home.
-      if (!(s.businessId && washesAtHome.has(s.businessId))) kinds.delete('doorstep');
+      const shopPoints = points.filter((p) => p.shopId === s.id);
+      const kinds = new Set(shopPoints.map((p) => p.kind));
+      // Classes the hub takes; a vehicle only the doorstep team washes isn't on the shop's list.
+      const hubPoints = shopPoints.filter((p) => p.kind !== 'doorstep');
+      const atHub = new Set(hubPoints.flatMap((p) => p.classes.map((c) => c.classId)));
+      const shopWashes = (vehicleTypeId: string) => {
+        if (!hubPoints.length || !kinds.has('doorstep')) return true;
+        const bodyTypeId = shopTypes.find((t) => t.id === vehicleTypeId)?.bodyTypeId;
+        const classId = bodyTypeId ? bodyClass.get(bodyTypeId) : undefined;
+        return classId == null || atHub.has(classId);
+      };
+      // A team that only goes to communities isn't a way to book a wash at home.
+      if (!branchServicesOf(s).live.doorstep) kinds.delete('doorstep');
       // No hub or home washing: a plain hub, as before the service network.
       const modes = DELIVERY_MODES.filter((m) => (kinds.size ? kinds.has(m) : m === 'hub'));
       return {
@@ -337,6 +354,8 @@ export const customerAppRepo = {
         location: s.latitude != null && s.longitude != null ? { latitude: s.latitude, longitude: s.longitude } : null,
         hours: { opensAt: s.opensAt, closesAt: s.closesAt, weeklyOff: s.weeklyOff },
         reviewUrl: reviewLinks.find((r) => r.shopId === s.id)?.value ?? null,
+        /** What a visit to a home costs on top of the price (once per visit, whatever the cars). */
+        visit: modes.includes('doorstep') ? ((s.businessId && away.get(s.businessId)?.doorstep) || null) : null,
         /** Ways this branch washes: at its hub, at the customer's door, or both. */
         modes,
         vehicleTypes: shopTypes.map((t) => ({
@@ -349,19 +368,29 @@ export const customerAppRepo = {
         services: services
           .filter((sv) => sv.shopId === s.id)
           .map((sv) => {
-            const priced = sv.prices.filter((p) => typeIds.has(p.vehicleTypeId) && modes.includes(p.mode as DeliveryMode));
-            const of = (mode: DeliveryMode) =>
-              priced.filter((p) => p.mode === mode).map((p) => ({ vehicleTypeId: p.vehicleTypeId, price: p.price }));
+            // A home wash is the hub price plus the branch's visit charge; a service done only at
+            // communities isn't offered at homes, and one done only at homes isn't sold at the shop.
+            const svModes = parseServiceModes(sv.modes);
+            const atShop = modes.includes('hub') && svModes !== 'doorstep';
+            const atHomes = modes.includes('doorstep') && svModes !== 'hub' && sv.teamAt !== 'community';
+            const hubRows = sv.prices
+              .filter((p) => p.mode === 'hub' && typeIds.has(p.vehicleTypeId))
+              .map((p) => ({ vehicleTypeId: p.vehicleTypeId, price: p.price }));
             return {
               id: sv.id,
               name: sv.name,
               description: sv.description,
               includes: sv.comboItems.filter((c) => c.service.active).map((c) => c.service.name),
-              modes: parseServiceModes(sv.modes),
+              modes: svModes,
+              durationMin: sv.durationMin,
+              kind: parseServiceKind(sv.kind),
+              popular: sv.popular,
+              /** What's included, one short line each. */
+              checklist: parseChecklist(sv.checklist),
               /** Prices at the hub. */
-              prices: of('hub'),
-              /** Prices at the customer's door (usually a little more). */
-              doorstepPrices: of('doorstep'),
+              prices: atShop ? hubRows.filter((p) => shopWashes(p.vehicleTypeId)) : [],
+              /** Prices at the customer's door: the same, plus the visit charge once per visit. */
+              doorstepPrices: atHomes ? hubRows : [],
             };
           })
           .filter((sv) => sv.prices.length > 0 || sv.doorstepPrices.length > 0),

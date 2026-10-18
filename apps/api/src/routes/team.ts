@@ -13,6 +13,7 @@ import {
 } from '@mana/domain';
 import { phoneBusy, withPhoneLock } from '../lib/phoneLock';
 import { isHq } from '../lib/catalog';
+import { cashHeldNow } from '../lib/cashHeld';
 import { resetPin, worksElsewhere } from '../lib/pinReset';
 import { requireAuth, requireRole } from '../middleware/auth';
 import type { Env } from '../types';
@@ -69,6 +70,17 @@ const otherBranchesReset = {
   error: 'works_elsewhere' as const,
   message: 'This person works at another branch too, so only Mana Wash HQ can reset their PIN.',
 };
+
+/** Doorstep cash still with someone: they can't leave the team (or be switched off) until it's in. */
+async function holdsCash(db: DbClient, userId: string, name: string) {
+  const held = (await cashHeldNow(db)).get(userId) ?? 0;
+  if (held === 0) return null;
+  return {
+    error: 'cash_held' as const,
+    message: `${name} still holds ₹${(held / 100).toLocaleString('en-IN')} of doorstep cash. Take it in the Cash drawer first (or record it as short there).`,
+    held,
+  };
+}
 
 /** Who's asking, and whether they're HQ — looked up only when an owner's row is involved. */
 async function actor(c: Ctx, involvesOwner: boolean) {
@@ -150,6 +162,10 @@ export const teamRoutes = new Hono<{ Bindings: Env }>()
         400,
       );
     }
+    if (body.active === false && target.active) {
+      const cash = await holdsCash(db, id, target.name);
+      if (cash) return c.json(cash, 409);
+    }
 
     const losesOwner =
       current === 'owner' && target.active && ((body.role !== undefined && body.role !== 'owner') || body.active === false);
@@ -182,6 +198,8 @@ export const teamRoutes = new Hono<{ Bindings: Env }>()
         400,
       );
     }
+    const cash = await holdsCash(db, id, target.name);
+    if (cash) return c.json(cash, 409);
     if (
       target.role === 'owner' &&
       target.active &&

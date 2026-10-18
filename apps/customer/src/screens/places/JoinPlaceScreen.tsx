@@ -253,6 +253,13 @@ export function JoinPlaceScreen({ navigation, route }: Props) {
           )}
 
           <SectionLabel right={drafts.length > 1 ? `${drafts.length} vehicles` : undefined}>Vehicles to wash</SectionLabel>
+          {info.menu.volume ? (
+            <View style={styles.volume}>
+              <Text style={styles.volumeText}>
+                {info.menu.volume.discountBp / 100}% off every price here: {info.menu.volume.cars} vehicles at {info.place.name} already wash with us.
+              </Text>
+            </View>
+          ) : null}
           <View style={styles.vehicles}>
             {drafts.map((d) => (
               <VehicleChoiceCard
@@ -370,6 +377,8 @@ const styles = StyleSheet.create({
   content: { paddingBottom: spacing.xl },
   pad: { paddingHorizontal: 16, paddingTop: 16 },
   vehicles: { gap: 12 },
+  volume: { padding: 12, borderRadius: 14, backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#A7F3D0' },
+  volumeText: { fontSize: 13.5, lineHeight: 19, fontWeight: '700', color: '#065F46' },
   add: {
     flexDirection: 'row',
     alignItems: 'center',

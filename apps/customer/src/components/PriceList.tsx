@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { formatDuration } from '@mana/domain';
 import { colors, formatRupees, radius } from '@mana/ui';
 import { EdgeGroup } from './CardList';
-import { vehicleTypeImage } from './VehicleTypePicker';
+import { VehicleTypeArt } from './VehicleTypePicker';
 import type { Branch } from '../api/types';
 
 const TILE = 92;
@@ -35,8 +36,11 @@ export function PriceList({ branch }: { branch: Branch }) {
     const price = pricesFor(s, mode).find((p) => p.vehicleTypeId === picked.id);
     if (!price) return [];
     const detail =
-      s.description || (s.includes.length > 0 ? `Includes ${s.includes.join(', ')}` : null);
-    return [{ id: s.id, name: s.name, detail, price: price.price }];
+      (s.checklist.length > 0 ? s.checklist.join(' · ') : null) ||
+      s.description ||
+      (s.includes.length > 0 ? `Includes ${s.includes.join(', ')}` : null);
+    const time = s.durationMin ? formatDuration(s.durationMin) : null;
+    return [{ id: s.id, name: s.name, detail, time, popular: s.popular, price: price.price }];
   });
 
   return (
@@ -77,11 +81,7 @@ export function PriceList({ branch }: { branch: Branch }) {
               accessibilityLabel={`Prices for ${t.name}`}
             >
               <View style={[styles.photoFrame, on && styles.photoFrameOn]}>
-                <Image
-                  source={vehicleTypeImage(t)}
-                  style={styles.photo}
-                  resizeMode="cover"
-                />
+                <VehicleTypeArt type={t} style={styles.photo} />
               </View>
               <Text style={[styles.tileName, on && styles.tileNameOn]} numberOfLines={2}>
                 {t.name}
@@ -95,12 +95,19 @@ export function PriceList({ branch }: { branch: Branch }) {
         {rows.map((r) => (
           <View key={r.id} style={styles.row}>
             <View style={styles.copy}>
-              <Text style={styles.name} numberOfLines={1}>
-                {r.name}
-              </Text>
-              {r.detail ? (
-                <Text style={styles.detail} numberOfLines={1}>
-                  {r.detail}
+              <View style={styles.nameRow}>
+                <Text style={styles.name} numberOfLines={1}>
+                  {r.name}
+                </Text>
+                {r.popular ? (
+                  <View style={styles.popular}>
+                    <Text style={styles.popularText}>Most popular</Text>
+                  </View>
+                ) : null}
+              </View>
+              {r.time || r.detail ? (
+                <Text style={styles.detail} numberOfLines={2}>
+                  {[r.time, r.detail].filter(Boolean).join(' · ')}
                 </Text>
               ) : null}
             </View>
@@ -108,9 +115,22 @@ export function PriceList({ branch }: { branch: Branch }) {
           </View>
         ))}
       </EdgeGroup>
+      {mode === 'doorstep' && branch.visit ? (
+        <View style={styles.visit}>
+          <Text style={styles.visitTitle}>
+            + {formatRupees(branch.visit.visitFeePaise)} visit charge
+            {branch.visit.perKmPaise
+              ? `, and ${formatRupees(branch.visit.perKmPaise)} a km after ${branch.visit.freeKm} km`
+              : ''}
+          </Text>
+          <Text style={styles.visitBody}>
+            Once per visit, however many vehicles we wash at your home. We come up to {branch.visit.maxKm} km from the branch.
+          </Text>
+        </View>
+      ) : null}
       <Text style={styles.note}>
         {mode === 'doorstep'
-          ? `${picked.name} prices, washed at your door. They can change; the team confirms before washing.`
+          ? `${picked.name} prices, washed at your door${branch.visit ? ', plus the visit charge' : ''}. They can change; the team confirms before washing.`
           : `${picked.name} prices at the shop. They can change; the team confirms before washing.`}
       </Text>
     </View>
@@ -118,6 +138,18 @@ export function PriceList({ branch }: { branch: Branch }) {
 }
 
 const styles = StyleSheet.create({
+  visit: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    padding: 12,
+    gap: 4,
+    borderRadius: radius.lg,
+    backgroundColor: '#F0FDFA',
+    borderWidth: 1,
+    borderColor: '#99F6E4',
+  },
+  visitTitle: { fontSize: 14.5, fontWeight: '800', color: colors.tealDeep },
+  visitBody: { fontSize: 13, lineHeight: 18, color: colors.slateDeep },
   segment: {
     flexDirection: 'row',
     marginHorizontal: 16,
@@ -163,7 +195,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
   },
   copy: { flex: 1, minWidth: 0, gap: 1 },
-  name: { fontSize: 15.5, fontWeight: '700', color: colors.ink },
+  name: { flexShrink: 1, fontSize: 15.5, fontWeight: '700', color: colors.ink },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  popular: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, backgroundColor: '#FEF3C7' },
+  popularText: { fontSize: 10.5, fontWeight: '800', color: '#92400E' },
   detail: { fontSize: 12.5, color: colors.slateDeep },
   price: { fontSize: 15.5, fontWeight: '800', color: colors.indigoMid },
   note: {

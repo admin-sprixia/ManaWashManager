@@ -1,18 +1,29 @@
 import {
+  BRANCH_SERVICES_SELECT,
+  branchServicesOf,
+  type BranchServices,
   BODY_TYPES,
   VEHICLE_CLASSES,
   SIZE_NAMES,
   catalogIds,
   categoryForClass,
+  parseChecklist,
   parsePricingPolicy,
+  parseServiceKind,
   parseServiceModes,
+  parseTeamPlaces,
+  servicePlaces,
   type BranchStatus,
+  type ServiceKind,
+  type ServicePlaces,
+  type TeamPlaces,
   type DeliveryMode,
   type PricingPolicy,
   type ServiceModes,
   type VehicleCategory,
 } from '@mana/domain';
 import { createPlatformDb, type D1Database, type DbClient } from '../client';
+import { awayPricingRepo, type AwayPricing } from './awayPricingRepo';
 import { newId } from '../ids';
 import { insertRows, runStatements, SQL_NOW, type SqlStatement } from '../sql';
 
@@ -81,14 +92,35 @@ export interface CatalogClassView {
   sizes: { id: string; key: string; name: string; sortOrder: number }[];
 }
 
+/** A service's details besides its name, places, vehicles and combo; left out = unchanged. */
+export interface ServiceDetails {
+  teamAt?: TeamPlaces;
+  durationMin?: number | null;
+  kind?: ServiceKind;
+  popular?: boolean;
+  showInApp?: boolean;
+  checklist?: string[];
+}
+
 export interface CatalogServiceView {
   id: string;
   name: string;
   description: string | null;
   modes: ServiceModes;
+  /** Where the community team does it; with `modes`, the three places below. */
+  teamAt: TeamPlaces;
+  places: ServicePlaces;
+  durationMin: number | null;
+  kind: ServiceKind;
+  popular: boolean;
+  showInApp: boolean;
+  /** What's included, one short line each. */
+  checklist: string[];
   sortOrder: number;
   active: boolean;
   classIds: string[];
+  /** The sizes of those vehicles it's for: prices and branch menus cover only these. */
+  sizeIds: string[];
   /** Catalog ids of the services a combo bundles; empty for a plain service. */
   includes: string[];
 }
@@ -115,7 +147,8 @@ export interface CatalogData {
 }
 
 export interface CatalogView extends CatalogData {
-  prices: { priceBookId: string; serviceId: string; sizeId: string; price: number }[];
+  /** `doorstepPrice` null = base price + the doorstep rule. */
+  prices: { priceBookId: string; serviceId: string; sizeId: string; price: number; doorstepPrice: number | null }[];
   branches: {
     id: string;
     /** The branch ID new staff type to ask to join. */
@@ -128,13 +161,21 @@ export interface CatalogView extends CatalogData {
     status: BranchStatus;
     statusReason: string | null;
     upToDate: boolean;
+    /** Head-office services switched on for this branch. */
+    menu: string[];
+    /** The kinds of vehicle it washes (body type ids). */
+    vehicles: string[];
+    /** What its agreement allows, what the owner switched on, and what runs. */
+    services: { allowed: BranchServices; offered: BranchServices; live: BranchServices };
     owners: { id: string; name: string; phone: string; active: boolean; pinSet: boolean }[];
   }[];
   admins: string[];
+  /** Visit charges for home washes and the community volume discount. */
+  away: AwayPricing;
 }
 
 async function readData(pdb: DbClient, businessId: string): Promise<CatalogData | null> {
-  const [business, classes, sizes, bodyTypes, services, serviceClasses, comboItems, books, adjustments, zones, settings] =
+  const [business, classes, sizes, bodyTypes, services, serviceClasses, comboItems, books, adjustments, zones, settings, serviceSizes] =
     await Promise.all([
       pdb.business.findUnique({ where: { id: businessId } }),
       pdb.vehicleClass.findMany({ where: { businessId }, orderBy: { sortOrder: 'asc' } }),
@@ -147,8 +188,11 @@ async function readData(pdb: DbClient, businessId: string): Promise<CatalogData 
       pdb.modeAdjustment.findMany({ where: { businessId } }),
       pdb.priceZone.findMany({ where: { businessId }, orderBy: { name: 'asc' } }),
       pdb.businessSetting.findMany({ where: { businessId, key: { startsWith: 'pricing.' } } }),
+      pdb.catalogServiceSize.findMany({ where: { businessId } }),
     ]);
   if (!business) return null;
+  const sizeIdsByService = new Map<string, string[]>();
+  for (const row of serviceSizes) sizeIdsByService.set(row.serviceId, [...(sizeIdsByService.get(row.serviceId) ?? []), row.sizeId]);
 
   const setting = new Map(settings.map((s) => [s.key, s.value]));
   const policy = parsePricingPolicy(
@@ -190,9 +234,20 @@ async function readData(pdb: DbClient, businessId: string): Promise<CatalogData 
       name: s.name,
       description: s.description,
       modes: parseServiceModes(s.modes),
+      teamAt: parseTeamPlaces(s.teamAt),
+      places: servicePlaces(parseServiceModes(s.modes), parseTeamPlaces(s.teamAt)),
+      durationMin: s.durationMin,
+      kind: parseServiceKind(s.kind),
+      popular: s.popular,
+      showInApp: s.showInApp,
+      checklist: parseChecklist(s.checklist),
       sortOrder: s.sortOrder,
       active: s.active,
       classIds: classIdsByService.get(s.id) ?? [],
+      // Its sizes; a service saved before sizes existed (or imported) is for every size of its vehicles.
+      sizeIds:
+        sizeIdsByService.get(s.id) ??
+        sizes.filter((z) => (classIdsByService.get(s.id) ?? []).includes(z.classId)).map((z) => z.id),
       includes: includesByCombo.get(s.id) ?? [],
     })),
     priceBooks: books.map((b) => ({ id: b.id, name: b.name, isDefault: b.isDefault })),
@@ -223,6 +278,28 @@ async function requireData(d1: D1Database, businessId: string): Promise<CatalogD
 
 function requireService(data: CatalogData, id: string) {
   return data.services.find((s) => s.id === id) ?? fail('not_found', 'Service not found.');
+}
+
+/**
+ * The sizes a service is for, within its vehicle classes. Given sizes must belong to those classes;
+ * left out, it keeps the sizes it had there and takes every size of a class it didn't have. Every
+ * class needs at least one size.
+ */
+function resolveSizes(data: CatalogData, classIds: string[], sizeIds: string[] | undefined, previous: string[] = []): string[] {
+  const classes = data.classes.filter((c) => classIds.includes(c.id));
+  const allowed = new Set(classes.flatMap((c) => c.sizes.map((z) => z.id)));
+  let chosen: string[];
+  if (sizeIds) {
+    if (sizeIds.some((id) => !allowed.has(id))) fail('invalid', 'A size doesn’t belong to the vehicles picked.');
+    chosen = [...new Set(sizeIds)];
+  } else {
+    chosen = previous.filter((id) => allowed.has(id));
+    for (const c of classes) if (!c.sizes.some((z) => chosen.includes(z.id))) chosen.push(...c.sizes.map((z) => z.id));
+  }
+  for (const c of classes) {
+    if (!c.sizes.some((z) => chosen.includes(z.id))) fail('invalid', `Pick at least one ${c.name.toLowerCase()} size.`);
+  }
+  return chosen;
 }
 
 /** Classes must be the business's own and at least one; combo items plain services of it. */
@@ -317,20 +394,43 @@ export const catalogRepo = {
   /** The full catalog for the admin screens: every price book's prices, branches and admins. */
   async view(d1: D1Database, businessId: string): Promise<CatalogView | null> {
     const pdb = createPlatformDb(d1);
-    const [data, prices, branches, admins] = await Promise.all([
+    const [data, prices, branches, admins, away] = await Promise.all([
       catalogRepo.load(d1, businessId),
       pdb.priceBookEntry.findMany({
         where: { businessId },
-        select: { priceBookId: true, serviceId: true, sizeId: true, price: true },
+        select: { priceBookId: true, serviceId: true, sizeId: true, price: true, doorstepPrice: true },
       }),
       pdb.shop.findMany({
         where: { businessId },
         orderBy: { name: 'asc' },
-        select: { id: true, code: true, name: true, city: true, priceBookId: true, priceZoneId: true, menuVersion: true, status: true, statusReason: true },
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          city: true,
+          priceBookId: true,
+          priceZoneId: true,
+          menuVersion: true,
+          status: true,
+          statusReason: true,
+          ...BRANCH_SERVICES_SELECT,
+        },
       }),
       pdb.businessAdmin.findMany({ where: { businessId }, orderBy: { createdAt: 'asc' }, select: { phone: true } }),
+      awayPricingRepo.get(d1, businessId),
     ]);
     if (!data) return null;
+    const vehicleRows = await pdb.$queryRaw<{ shop_id: string; body_type_id: string }[]>`
+      SELECT v.shop_id, v.body_type_id FROM branch_body_types v JOIN shops s ON s.id = v.shop_id
+       WHERE s.business_id = ${businessId}`;
+    const allBodies = data.bodyTypes.map((b) => b.id);
+    const vehiclesOf = (shopId: string) => {
+      const mine = vehicleRows.filter((r) => r.shop_id === shopId).map((r) => r.body_type_id);
+      return mine.length ? mine : allBodies;
+    };
+    const menus = await pdb.$queryRaw<{ shop_id: string; catalog_service_id: string }[]>`
+      SELECT m.shop_id, m.catalog_service_id FROM branch_menu_services m JOIN shops s ON s.id = m.shop_id
+       WHERE s.business_id = ${businessId}`;
     const owners = await pdb.$queryRaw<
       { id: string; shop_id: string; name: string; phone: string; active: number; pin_set: number }[]
     >`
@@ -341,23 +441,105 @@ export const catalogRepo = {
     return {
       ...data,
       prices,
-      branches: branches.map(({ menuVersion, ...b }) => ({
+      branches: branches.map(({ menuVersion, allowHub, allowCommunity, allowDoorstep, offerHub, offerCommunity, offerDoorstep, ...b }) => ({
         ...b,
+        services: branchServicesOf({ allowHub, allowCommunity, allowDoorstep, offerHub, offerCommunity, offerDoorstep }),
         status: b.status as BranchStatus,
         upToDate: menuVersion >= data.business.catalogVersion,
+        /** Head-office services switched on for this branch. */
+        menu: menus.filter((m) => m.shop_id === b.id).map((m) => m.catalog_service_id),
+        /** The kinds of vehicle this branch washes (body type ids). */
+        vehicles: vehiclesOf(b.id),
         owners: owners
           .filter((o) => o.shop_id === b.id)
           .map((o) => ({ id: o.id, name: o.name, phone: o.phone, active: Number(o.active) === 1, pinSet: Number(o.pin_set) === 1 })),
       })),
       admins: admins.map((a) => a.phone),
+      away,
     };
+  },
+
+  // ─── Branch menus ─────────────────────────────────────────────────────────
+
+  /**
+   * The services a branch would sell, checked: each must be the business's and live at HQ, and a
+   * combo brings the services it bundles with it. Throws a CatalogError otherwise.
+   */
+  async checkBranchMenu(d1: D1Database, businessId: string, serviceIds: string[]): Promise<string[]> {
+    const data = await requireData(d1, businessId);
+    const byId = new Map(data.services.map((s) => [s.id, s]));
+    const want = new Set<string>();
+    for (const id of serviceIds) {
+      const s = byId.get(id) ?? fail('not_found', 'Service not found.');
+      if (!s.active) fail('invalid', `${s.name} is switched off at head office.`);
+      want.add(id);
+      for (const part of s.includes) want.add(part);
+    }
+    return [...want];
+  },
+
+  /** Replaces the services switched on for a branch (already checked). */
+  async saveBranchMenu(d1: D1Database, shopId: string, serviceIds: string[]) {
+    await runStatements(d1, [
+      { sql: 'DELETE FROM branch_menu_services WHERE shop_id = ?', params: [shopId] },
+      ...insertRows(
+        'branch_menu_services',
+        ['shop_id', 'catalog_service_id'],
+        [...new Set(serviceIds)].map((id) => [shopId, id]),
+      ),
+    ]);
+  },
+
+  // ─── The vehicles a branch washes ─────────────────────────────────────────
+
+  /** The kinds of vehicle (body type ids) a branch washes; null = every kind (no list yet). */
+  async branchVehicles(pdb: DbClient, shopId: string): Promise<Set<string> | null> {
+    const rows = await pdb.branchBodyType.findMany({ where: { shopId }, select: { bodyTypeId: true } });
+    return rows.length ? new Set(rows.map((r) => r.bodyTypeId)) : null;
+  },
+
+  /** Checks a list of kinds for a branch: the business's own body types, at least one. */
+  async checkBranchVehicles(d1: D1Database, businessId: string, bodyTypeIds: string[]): Promise<string[]> {
+    const data = await requireData(d1, businessId);
+    const known = new Set(data.bodyTypes.map((b) => b.id));
+    const ids = [...new Set(bodyTypeIds)];
+    if (!ids.length) fail('invalid', 'Pick at least one kind of vehicle the branch washes.');
+    if (ids.some((id) => !known.has(id))) fail('not_found', 'Vehicle kind not found.');
+    return ids;
+  },
+
+  /**
+   * Replaces the kinds a branch washes (already checked). A vehicle group nobody at the branch
+   * takes yet (tractors, and no team takes Farm) is given to its hub and community team, so the
+   * kind gets prices; groups a hub or team already takes are left as the owner set them.
+   */
+  async saveBranchVehicles(d1: D1Database, businessId: string, shopId: string, bodyTypeIds: string[]) {
+    const data = await requireData(d1, businessId);
+    const points = await createPlatformDb(d1).servicePoint.findMany({
+      where: { shopId, active: true },
+      select: { id: true, classes: { select: { classId: true } } },
+    });
+    const taken = new Set(points.flatMap((p) => p.classes.map((c) => c.classId)));
+    const classIds = [...new Set(data.bodyTypes.filter((b) => bodyTypeIds.includes(b.id)).map((b) => b.classId))].filter(
+      (id) => !taken.has(id),
+    );
+    await runStatements(d1, [
+      { sql: 'DELETE FROM branch_body_types WHERE shop_id = ?', params: [shopId] },
+      ...insertRows('branch_body_types', ['shop_id', 'body_type_id'], bodyTypeIds.map((id) => [shopId, id])),
+      ...points.flatMap((p) =>
+        classIds.map((classId) => ({
+          sql: 'INSERT OR IGNORE INTO service_point_classes (shop_id, point_id, class_id) VALUES (?, ?, ?)',
+          params: [shopId, p.id, classId],
+        })),
+      ),
+    ]);
   },
 
   /** One price book's base prices (paise), for building branch menus. */
   async entries(pdb: DbClient, businessId: string, priceBookId: string) {
     return pdb.priceBookEntry.findMany({
       where: { businessId, priceBookId },
-      select: { serviceId: true, sizeId: true, price: true },
+      select: { serviceId: true, sizeId: true, price: true, doorstepPrice: true },
     });
   },
 
@@ -423,7 +605,7 @@ export const catalogRepo = {
     d1: D1Database,
     businessId: string,
     id: string,
-    patch: { name?: string; sizeId?: string; active?: boolean },
+    patch: { name?: string; sizeId?: string },
   ) {
     const data = await requireData(d1, businessId);
     const body = data.bodyTypes.find((b) => b.id === id) ?? fail('not_found', 'Body type not found.');
@@ -434,7 +616,6 @@ export const catalogRepo = {
     const set = setClause([
       ['name', patch.name],
       ['size_id', patch.sizeId],
-      ['active', patch.active],
     ]);
     if (!set) return;
     await runStatements(d1, [
@@ -443,27 +624,45 @@ export const catalogRepo = {
     ]);
   },
 
+  /** Head office's switch for many kinds of vehicle at once (a whole group). */
+
   // ─── Services ─────────────────────────────────────────────────────────────
 
   async createService(
     d1: D1Database,
     businessId: string,
-    input: { name: string; description: string | null; modes: ServiceModes; classIds: string[]; includes: string[] },
+    input: { name: string; description: string | null; modes: ServiceModes; classIds: string[]; sizeIds?: string[]; includes: string[] } & ServiceDetails,
   ): Promise<string> {
     const data = await requireData(d1, businessId);
     checkServiceShape(data, null, input.classIds, input.includes);
+    const sizeIds = resolveSizes(data, input.classIds, input.sizeIds);
     const id = newId();
     const sortOrder = data.services.reduce((n, s) => Math.max(n, s.sortOrder + 1), 0);
     await runStatements(d1, [
       {
-        sql: 'INSERT INTO catalog_services (id, business_id, name, description, modes, sort_order) VALUES (?, ?, ?, ?, ?, ?)',
-        params: [id, businessId, input.name, input.description, input.modes, sortOrder],
+        sql: `INSERT INTO catalog_services (id, business_id, name, description, modes, team_at, duration_minutes, kind, popular,
+                show_in_app, checklist, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        params: [
+          id,
+          businessId,
+          input.name,
+          input.description,
+          input.modes,
+          input.teamAt ?? 'both',
+          input.durationMin ?? null,
+          input.kind ?? 'wash',
+          input.popular ? 1 : 0,
+          input.showInApp === false ? 0 : 1,
+          input.checklist?.length ? JSON.stringify(input.checklist) : null,
+          sortOrder,
+        ],
       },
       ...insertRows(
         'catalog_service_classes',
         ['business_id', 'service_id', 'class_id'],
         [...new Set(input.classIds)].map((c) => [businessId, id, c]),
       ),
+      ...insertRows('catalog_service_sizes', ['business_id', 'service_id', 'size_id'], sizeIds.map((z) => [businessId, id, z])),
       ...insertRows(
         'catalog_combo_items',
         ['business_id', 'combo_id', 'service_id'],
@@ -485,16 +684,25 @@ export const catalogRepo = {
       sortOrder?: number;
       active?: boolean;
       classIds?: string[];
+      sizeIds?: string[];
       includes?: string[];
-    },
+    } & ServiceDetails,
   ) {
     const data = await requireData(d1, businessId);
-    requireService(data, id);
+    const current = requireService(data, id);
     checkServiceShape(data, id, patch.classIds, patch.includes);
+    const sizeIds =
+      patch.classIds || patch.sizeIds ? resolveSizes(data, patch.classIds ?? current.classIds, patch.sizeIds, current.sizeIds) : null;
     const set = setClause([
       ['name', patch.name],
       ['description', patch.description],
       ['modes', patch.modes],
+      ['team_at', patch.teamAt],
+      ['duration_minutes', patch.durationMin],
+      ['kind', patch.kind],
+      ['popular', patch.popular],
+      ['show_in_app', patch.showInApp],
+      ['checklist', patch.checklist === undefined ? undefined : patch.checklist.length ? JSON.stringify(patch.checklist) : null],
       ['sort_order', patch.sortOrder],
       ['active', patch.active],
     ]);
@@ -515,6 +723,12 @@ export const catalogRepo = {
         ),
       );
     }
+    if (sizeIds) {
+      statements.push(
+        { sql: 'DELETE FROM catalog_service_sizes WHERE business_id = ? AND service_id = ?', params: [businessId, id] },
+        ...insertRows('catalog_service_sizes', ['business_id', 'service_id', 'size_id'], sizeIds.map((z) => [businessId, id, z])),
+      );
+    }
     if (patch.includes) {
       statements.push(
         { sql: 'DELETE FROM catalog_combo_items WHERE business_id = ? AND combo_id = ?', params: [businessId, id] },
@@ -527,6 +741,30 @@ export const catalogRepo = {
     }
     if (!statements.length) return;
     await runStatements(d1, [...statements, bump(businessId)]);
+  },
+
+  /**
+   * Deletes a service. It leaves the catalog and every branch's menu (the branches' copies are
+   * retired at their next build, so past washes keep its name); a wash plan or combo that uses it
+   * has to let go of it first.
+   */
+  async deleteService(d1: D1Database, businessId: string, id: string) {
+    const data = await requireData(d1, businessId);
+    const service = requireService(data, id);
+    if (!service.active) fail('not_found', 'Service not found.');
+    const plan = await createPlatformDb(d1).washPlan.findFirst({
+      where: { businessId, active: true, OR: [{ catalogServiceId: id }, { upgradeServiceId: id }] },
+      select: { name: true },
+    });
+    if (plan) fail('in_use', `${service.name} is used by the wash plan “${plan.name}”. Change or remove that plan first.`);
+    const combo = data.services.find((s) => s.active && s.includes.includes(id));
+    if (combo) fail('in_use', `${service.name} is in the ${combo.name} combo. Take it out of the combo first.`);
+    await runStatements(d1, [
+      { sql: `UPDATE catalog_services SET active = 0, updated_at = ${SQL_NOW} WHERE business_id = ? AND id = ?`, params: [businessId, id] },
+      { sql: 'DELETE FROM branch_menu_services WHERE catalog_service_id = ?', params: [id] },
+      { sql: 'DELETE FROM catalog_combo_items WHERE business_id = ? AND combo_id = ?', params: [businessId, id] },
+      bump(businessId),
+    ]);
   },
 
   /** New order of the whole list, top first. */
@@ -545,12 +783,22 @@ export const catalogRepo = {
 
   // ─── Prices ───────────────────────────────────────────────────────────────
 
-  /** Base prices in one save; `price: null` stops offering the service for that size. */
+  /** The business's default price book (every branch without its own uses it). */
+  async defaultPriceBookId(d1: D1Database, businessId: string): Promise<string | null> {
+    const book = await createPlatformDb(d1).priceBook.findFirst({ where: { businessId, isDefault: true }, select: { id: true } });
+    return book?.id ?? null;
+  },
+
+  /**
+   * Base prices in one save; `price: null` stops offering the service for that size.
+   * `doorstepPrice` sets the size's own community price (null = back to the doorstep rule;
+   * left out = unchanged).
+   */
   async setPrices(
     d1: D1Database,
     businessId: string,
     priceBookId: string,
-    entries: { serviceId: string; sizeId: string; price: number | null }[],
+    entries: { serviceId: string; sizeId: string; price: number | null; doorstepPrice?: number | null }[],
   ) {
     const data = await requireData(d1, businessId);
     if (!data.priceBooks.some((b) => b.id === priceBookId)) fail('not_found', 'Price book not found.');
@@ -563,12 +811,23 @@ export const catalogRepo = {
     const last = new Map(entries.map((e) => [`${e.serviceId}|${e.sizeId}`, e]));
     const set = [...last.values()].filter((e) => e.price != null);
     const cleared = [...last.values()].filter((e) => e.price == null);
+    const withDoorstep = set.filter((e) => e.doorstepPrice !== undefined);
+    const baseOnly = set.filter((e) => e.doorstepPrice === undefined);
     await runStatements(d1, [
       ...insertRows(
         'price_book_entries',
         ['business_id', 'price_book_id', 'service_id', 'size_id', 'price'],
-        set.map((e) => [businessId, priceBookId, e.serviceId, e.sizeId, e.price]),
+        baseOnly.map((e) => [businessId, priceBookId, e.serviceId, e.sizeId, e.price]),
         { onConflict: `ON CONFLICT (price_book_id, service_id, size_id) DO UPDATE SET price = excluded.price, updated_at = ${SQL_NOW}` },
+      ),
+      ...insertRows(
+        'price_book_entries',
+        ['business_id', 'price_book_id', 'service_id', 'size_id', 'price', 'doorstep_price'],
+        withDoorstep.map((e) => [businessId, priceBookId, e.serviceId, e.sizeId, e.price, e.doorstepPrice]),
+        {
+          onConflict: `ON CONFLICT (price_book_id, service_id, size_id) DO UPDATE SET price = excluded.price,
+            doorstep_price = excluded.doorstep_price, updated_at = ${SQL_NOW}`,
+        },
       ),
       ...cleared.map((e) => ({
         sql: 'DELETE FROM price_book_entries WHERE business_id = ? AND price_book_id = ? AND service_id = ? AND size_id = ?',
@@ -587,8 +846,8 @@ export const catalogRepo = {
     ];
     if (copyFrom) {
       statements.push({
-        sql: `INSERT INTO price_book_entries (business_id, price_book_id, service_id, size_id, price)
-              SELECT business_id, ?, service_id, size_id, price FROM price_book_entries
+        sql: `INSERT INTO price_book_entries (business_id, price_book_id, service_id, size_id, price, doorstep_price)
+              SELECT business_id, ?, service_id, size_id, price, doorstep_price FROM price_book_entries
               WHERE business_id = ? AND price_book_id = ?`,
         params: [id, businessId, copyFrom],
       });

@@ -57,6 +57,16 @@ model Shop {
   status           String    @default("active")
   statusReason     String?   @map("status_reason")
   statusChangedAt  DateTime? @map("status_changed_at")
+  /// Its town (the code's 3 letters, for good) and pincode, from opening it.
+  townId           String?   @map("town_id")
+  pincode          String?
+  /// What the branch offers: head office allows (its agreement), the owner switches on (now).
+  allowHub         Boolean   @default(true) @map("allow_hub")
+  allowCommunity   Boolean   @default(true) @map("allow_community")
+  allowDoorstep    Boolean   @default(true) @map("allow_doorstep")
+  offerHub         Boolean   @default(true) @map("offer_hub")
+  offerCommunity   Boolean   @default(false) @map("offer_community")
+  offerDoorstep    Boolean   @default(false) @map("offer_doorstep")
 
   @@index([businessId])
   @@map("shops")
@@ -216,6 +226,8 @@ model VehicleType {
   /// The business body type it stands for (prices come from that body type's class and size).
   /// A plain id, not a relation: body types are business-level, outside the shop scope.
   bodyTypeId String? @map("body_type_id")
+  /// Hidden because head office switched its body type off; switching it back on shows it again.
+  hqHidden   Boolean @default(false) @map("hq_hidden")
 
   servicePrices   ServicePrice[]
   commissionRates CommissionRate[]
@@ -243,6 +255,13 @@ model Service {
   modes            String  @default("both")
   /// The branch stopped offering this catalog service (when the pricing policy allows it).
   branchHidden     Boolean @default(false) @map("branch_hidden")
+  /// Copied from the catalog service: where the team does it, time, kind, badge, app, checklist.
+  teamAt           String  @default("both") @map("team_at")
+  durationMin      Int?    @map("duration_min")
+  kind             String  @default("wash")
+  popular          Boolean @default(false)
+  showInApp        Boolean @default(true) @map("show_in_app")
+  checklist        String?
 
   prices          ServicePrice[]
   commissionRates CommissionRate[]
@@ -367,6 +386,9 @@ model Customer {
   source           String? // google | friend | board | instagram | other | app (Mana Wash request)
   marketingConsent Boolean  @default(false) @map("marketing_consent")
   createdAt        DateTime @default(now()) @map("created_at")
+  /// Where they live, from their last doorstep wash: the next visit is measured from it.
+  homeLatitude     Float?   @map("home_latitude")
+  homeLongitude    Float?   @map("home_longitude")
 
   vehicles        Vehicle[]
   jobs            Job[]
@@ -437,6 +459,15 @@ model Job {
   deliveryMode    String    @default("hub") @map("delivery_mode")
   /// The hub or doorstep team that did it, when known.
   servicePointId  String?   @map("service_point_id")
+  /// The service a community plan paid for on this wash: that line earns no loyalty stamp.
+  planServiceId   String?   @map("plan_service_id")
+  /// A doorstep wash: how far the home is from the branch, in km (the visit charge used it).
+  visitKm         Float?    @map("visit_km")
+  /// Where the home was (the visit charge was measured from the branch to here).
+  visitLatitude   Float?    @map("visit_latitude")
+  visitLongitude  Float?    @map("visit_longitude")
+  /// A bill a wash plan was sold on: money in, not a wash.
+  planSaleId      String?   @map("plan_sale_id")
 
   customer    Customer      @relation(fields: [customerId], references: [id])
   vehicle     Vehicle       @relation(fields: [vehicleId], references: [id])
@@ -549,6 +580,8 @@ model CashDay {
   reopenedByUserId String?   @map("reopened_by_user_id")
   reopenedAt       DateTime? @map("reopened_at")
   reopenReason     String?   @map("reopen_reason")
+  /// Doorstep cash team members still held when the day closed.
+  heldAtClose      Int?      @map("held_at_close")
 
   floatSetBy User  @relation("CashDayFloatSetBy", fields: [floatSetByUserId], references: [id])
   closedBy   User? @relation("CashDayClosedBy", fields: [closedByUserId], references: [id])
@@ -572,9 +605,32 @@ model CashDayClose {
   reopenedByUserId String?   @map("reopened_by_user_id")
   reopenedAt       DateTime? @map("reopened_at")
   reopenReason     String?   @map("reopen_reason")
+  heldAtClose      Int?      @map("held_at_close")
 
   @@index([shopId, date])
   @@map("cash_day_closes")
+}
+
+/// Doorstep cash handed in by the team member who collected it. Append-only; voided, never edited.
+model CashHandover {
+  id               String    @id
+  shopId           String    @default("") @map("shop_id")
+  /// The IST day it was handed in: its drawer gets `received`.
+  date             String
+  collectorUserId  String    @map("collector_user_id")
+  /// What this handover settles of what they held (all of it, or the part handed in when the rest comes later).
+  due              Int
+  received         Int
+  note             String?
+  receivedByUserId String    @map("received_by_user_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  voidedByUserId   String?   @map("voided_by_user_id")
+  voidedAt         DateTime? @map("voided_at")
+  voidReason       String?   @map("void_reason")
+
+  @@index([shopId, date])
+  @@index([shopId, collectorUserId])
+  @@map("cash_handovers")
 }
 
 model Referral {
@@ -897,6 +953,8 @@ model Expense {
   billPhotoKey    String?   @map("bill_photo_key")
   itemPhotoKey    String?   @map("item_photo_key")
   paymentMethod   String    @default("cash") @map("payment_method") // cash | upi | other
+  /// Cash only: "drawer" (the shop's box) or "held" (doorstep cash the person who entered it held).
+  cashSource      String    @default("drawer") @map("cash_source")
   date            DateTime
   createdByUserId String    @map("created_by_user_id")
   voidedByUserId  String?   @map("voided_by_user_id")
@@ -1181,13 +1239,60 @@ model BodyType {
   @@map("body_types")
 }
 
+/// A head-office service switched on for one branch: the branch's menu is built from these.
+/// Head office's changes to the built-in list of companies and models (bodyKey null = removed).
+model VehicleModel {
+  businessId     String   @map("business_id")
+  modelKey       String   @map("model_key")
+  make           String
+  model          String
+  category       String
+  bodyKey        String?  @map("body_key")
+  updatedByPhone String?  @map("updated_by_phone")
+  updatedAt      DateTime @default(now()) @map("updated_at")
+
+  @@id([businessId, modelKey])
+  @@map("vehicle_models")
+}
+
+/// The kinds of vehicle a branch washes (a body type: Hatchback, Tractor…). No rows = every kind.
+model BranchBodyType {
+  shopId     String   @default("") @map("shop_id")
+  bodyTypeId String   @map("body_type_id")
+  addedAt    DateTime @default(now()) @map("added_at")
+
+  @@id([shopId, bodyTypeId])
+  @@index([bodyTypeId])
+  @@map("branch_body_types")
+}
+
+model BranchMenuService {
+  shopId           String   @default("") @map("shop_id")
+  catalogServiceId String   @map("catalog_service_id")
+  addedAt          DateTime @default(now()) @map("added_at")
+
+  @@id([shopId, catalogServiceId])
+  @@index([catalogServiceId])
+  @@map("branch_menu_services")
+}
+
 model CatalogService {
   id          String   @id
   businessId  String   @map("business_id")
   name        String
   description String?
-  /// "hub" | "doorstep" | "both" — where it can be done.
+  /// "hub" | "doorstep" | "both" — shop, the community team, or both.
   modes       String   @default("both")
+  /// "both" | "community" | "doorstep" — where the community team does it.
+  teamAt      String   @default("both") @map("team_at")
+  /// How long it takes, in minutes (up to 30 days).
+  durationMin Int?     @map("duration_minutes")
+  /// "wash" | "protection" | "addon"
+  kind        String   @default("wash")
+  popular     Boolean  @default(false)
+  showInApp   Boolean  @default(true) @map("show_in_app")
+  /// JSON list of short lines: what's included.
+  checklist   String?
   sortOrder   Int      @default(0) @map("sort_order")
   active      Boolean  @default(true)
   createdAt   DateTime @default(now()) @map("created_at")
@@ -1202,6 +1307,16 @@ model CatalogService {
   @@unique([businessId, id])
   @@index([businessId, sortOrder])
   @@map("catalog_services")
+}
+
+/// A size a catalog service is for (within one of its vehicle classes).
+model CatalogServiceSize {
+  businessId String @map("business_id")
+  serviceId  String @map("service_id")
+  sizeId     String @map("size_id")
+
+  @@id([serviceId, sizeId])
+  @@map("catalog_service_sizes")
 }
 
 model CatalogServiceClass {
@@ -1251,6 +1366,8 @@ model PriceBookEntry {
   sizeId      String   @map("size_id")
   price       Int
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+  /// Its own community (doorstep) price; null = base price + the doorstep rule.
+  doorstepPrice Int?   @map("doorstep_price")
 
   priceBook PriceBook      @relation(fields: [priceBookId], references: [id])
   service   CatalogService @relation(fields: [serviceId], references: [id])
@@ -1443,10 +1560,72 @@ model WashPlan {
   sortOrder        Int      @default(0) @map("sort_order")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @default(now()) @updatedAt @map("updated_at")
+  /// Every Nth wash is this service instead (Shine: every 4th is Premium).
+  upgradeServiceId String?  @map("upgrade_service_id")
+  upgradeEvery     Int?     @map("upgrade_every")
+  /// "community" | "shop" | "both": where it's sold.
+  soldAt           String   @default("community") @map("sold_at")
+  /// A community plan can also pay for a wash at the shop.
+  shopUse          Boolean  @default(true) @map("shop_use")
 
   @@unique([businessId, id])
   @@index([businessId, sortOrder])
   @@map("wash_plans")
+}
+
+/// A wash plan sold at the counter, for one vehicle, at this branch.
+model ShopPlanOrder {
+  id               String    @id @default(uuid())
+  shopId           String    @default("") @map("shop_id")
+  planId           String    @map("plan_id")
+  customerId       String    @map("customer_id")
+  vehicleId        String    @map("vehicle_id")
+  title            String
+  catalogServiceId String    @map("catalog_service_id")
+  upgradeServiceId String?   @map("upgrade_service_id")
+  upgradeEvery     Int?      @map("upgrade_every")
+  washesTotal      Int       @map("washes_total")
+  washesUsed       Int       @default(0) @map("washes_used")
+  price            Int
+  paymentMethod    String    @map("payment_method")
+  saleJobId        String    @map("sale_job_id")
+  startsOn         String    @map("starts_on")
+  endsOn           String    @map("ends_on")
+  status           String    @default("active")
+  soldByUserId     String    @map("sold_by_user_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  endedAt          DateTime? @map("ended_at")
+
+  @@unique([shopId, id])
+  @@index([shopId, vehicleId, status])
+  @@map("shop_plan_orders")
+}
+
+/// One wash a shop plan paid for (one a day).
+model ShopPlanUse {
+  id        String   @id @default(uuid())
+  shopId    String   @default("") @map("shop_id")
+  orderId   String   @map("order_id")
+  jobId     String   @map("job_id")
+  day       String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([shopId, orderId, day])
+  @@unique([shopId, jobId])
+  @@map("shop_plan_uses")
+}
+
+/// A plan's fixed price for one vehicle size and way of washing. No row = priced from its wash.
+model WashPlanPrice {
+  businessId String   @map("business_id")
+  planId     String   @map("plan_id")
+  sizeId     String   @map("size_id")
+  mode       String
+  price      Int
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@id([planId, sizeId, mode])
+  @@map("wash_plan_prices")
 }
 
 /// A plan or one-time wash for one member vehicle.
@@ -1617,4 +1796,37 @@ model ReceiptSeries {
 
   @@id([shopId, financialYear])
   @@map("receipt_series")
+}
+
+// ─── Towns and pincodes (opening branches) ─────────────────────────────────
+
+/// India Post offices (data.gov.in): pincode → district, state, places. Loaded by a script.
+model PostOffice {
+  pincode   String
+  name      String
+  kind      String // HO | PO | BO
+  district  String
+  state     String
+  latitude  Float?
+  longitude Float?
+
+  @@id([pincode, name, kind, district])
+  @@index([pincode])
+  @@map("post_offices")
+}
+
+/// A town a business has branches in, with its 3-letter code for good.
+model BranchTown {
+  id         String   @id
+  businessId String   @map("business_id")
+  code       String
+  name       String
+  nameKey    String   @map("name_key")
+  district   String
+  state      String
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@unique([businessId, code])
+  @@unique([businessId, state, district, nameKey])
+  @@map("branch_towns")
 }

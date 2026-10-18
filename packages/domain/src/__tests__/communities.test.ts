@@ -35,7 +35,7 @@ describe('inspection', () => {
 });
 
 describe('proposed slots', () => {
-  it('cleans, sorts days Monday first, and keeps at most three', () => {
+  it('cleans, sorts days Monday first, and keeps at most five', () => {
     const slots = parseSlots(
       JSON.stringify([
         { days: [0, 3, 5, 9], time: '06:30' },
@@ -44,12 +44,16 @@ describe('proposed slots', () => {
         { days: [2, 4], time: '06:00' },
         { days: [1], time: '05:30' },
         { days: [6], time: '08:00' },
+        { days: [0], time: '09:00' },
+        { days: [3], time: '17:00' },
       ]),
     );
     expect(slots).toEqual([
       { days: [3, 5, 0], time: '06:30' },
       { days: [2, 4], time: '06:00' },
       { days: [1], time: '05:30' },
+      { days: [6], time: '08:00' },
+      { days: [0], time: '09:00' },
     ]);
     expect(formatSlots([])).toBeNull();
     expect(describeSlot({ days: [0, 3, 5], time: '06:30' })).toBe('Wed, Fri, Sun · 6:30 am');

@@ -103,12 +103,13 @@ export const customerPlaceRoutes = new Hono<{ Bindings: Env }>()
     const now = new Date();
     const [units, menu] = await Promise.all([
       placeRepo.units(createShopDb(c.env.DB, place.shopId), place.id),
-      planRepo.menu(pdb, place.shopId, shop?.businessId ?? null, rules.priceMode),
+      planRepo.menu(pdb, place.shopId, shop?.businessId ?? null, rules.priceMode, place.id),
     ]);
     return c.json({
       place: { ...placeView(place, now), branchId: place.shopId, branchName: found.branchName, branchPhone: shop?.contactPhone ?? null },
       units,
-      menu,
+      // Services HQ keeps for staff to sell aren't offered here.
+      menu: { ...menu, services: menu.services.filter((s) => s.showInApp) },
       firstWash: firstWashes(place.washDays, menu.plans.map((p) => p.perWeek), rules, now),
       rules: {
         partsFirstPct: rules.partsFirstPct,

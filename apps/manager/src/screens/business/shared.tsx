@@ -43,7 +43,8 @@ export function failure(e: unknown): string {
 }
 
 export function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? '' : 's'}`;
+  if (n === 1) return `${n} ${word}`;
+  return `${n} ${word}${/(s|x|z|ch|sh)$/.test(word) ? 'es' : 's'}`;
 }
 
 /** Brand or alert hero used across Business catalog screens. */
@@ -279,8 +280,8 @@ export function useCatalog() {
       if (!res.ok) {
         setError(
           res.status === 403
-            ? 'Only business admins can change the business price list.'
-            : await apiErrorMessage(res, 'Couldn’t load the business price list.'),
+            ? 'Only HQ admins can change services and prices for every branch.'
+            : await apiErrorMessage(res, 'Couldn’t load HQ’s services and prices.'),
         );
         return;
       }

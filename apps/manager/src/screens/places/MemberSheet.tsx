@@ -1,9 +1,29 @@
 import React, { useState } from 'react';
-import { Linking, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { MEMBER_CHECK_LABEL, formatInr, unitTitle } from '@mana/domain';
-import { BottomSheet, Button, Notice, Pill, colors, formatPhone, showAlert, showToast, spacing, typography } from '@mana/ui';
+import {
+  BottomSheet,
+  Button,
+  IconAlert,
+  IconBike,
+  IconCar,
+  IconPhone,
+  IconTrash,
+  IconUserPlus,
+  IconWhatsApp,
+  Pill,
+  colors,
+  formatPhone,
+  radius,
+  showAlert,
+  showToast,
+  spacing,
+  typography,
+} from '@mana/ui';
 import { api, type ApiResponse } from '../../api/client';
+import { SheetHead, SheetNotice, SheetPill } from '../../components/SheetBits';
 import { openWhatsApp } from '../../utils/whatsapp';
+import { TEAL, TEAL_MIST, TEAL_PALE } from './panel/parts';
 import { PHASE_STAFF_LABEL, PHASE_STAFF_TONE, failure, type PlaceMember } from './shared';
 
 const NEEDS_LINK = new Set(['awaiting_payment', 'payment_due', 'paused_unpaid']);
@@ -92,17 +112,21 @@ export function MemberSheet({
       ],
     );
 
+  const pending = m?.status === 'pending';
+  const unpaid = m ? m.vehicles.some((v) => v.orders[0] && NEEDS_LINK.has(v.orders[0].phase)) : false;
+  const tone = pending ? 'amber' : unpaid ? 'danger' : 'teal';
+  const headColor = pending ? colors.amberDeep : unpaid ? colors.danger : TEAL;
+
   return (
     <BottomSheet
       visible={m != null}
       onClose={onClose}
       dismissable={busy == null}
       title={m ? unitTitle(noun, m.unit) : ''}
-      subtitle={m ? [m.customer.name, `+91 ${formatPhone(m.customer.phone)}`].filter(Boolean).join(' · ') : undefined}
       footer={
         m ? (
           <View style={styles.footer}>
-            {m.status === 'pending' ? (
+            {pending ? (
               <Button
                 label="Confirm member"
                 size="lg"
@@ -117,39 +141,105 @@ export function MemberSheet({
                 onPress={() => void act('clear', () => api.places.members[':id']['clear-checks'].$post({ param: { id: m.id } }), 'Marked as checked', true)}
               />
             ) : null}
-            <Button label="Call" variant="secondary" onPress={() => void Linking.openURL(`tel:+91${m.customer.phone}`).catch(() => undefined)} />
+            <View style={styles.contactRow}>
+              <Pressable
+                onPress={() => void Linking.openURL(`tel:+91${m.customer.phone}`).catch(() => undefined)}
+                style={({ pressed }) => [styles.contact, pressed && styles.pressed]}
+                accessibilityRole="button"
+                accessibilityLabel="Call"
+              >
+                <IconPhone size={17} color={TEAL} />
+                <Text style={styles.contactText}>Call</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void openWhatsApp(m.customer.phone, `Hi${m.customer.name ? ` ${m.customer.name.split(' ')[0]}` : ''}, this is the Mana Wash team.`)}
+                style={({ pressed }) => [styles.contact, pressed && styles.pressed]}
+                accessibilityRole="button"
+                accessibilityLabel="WhatsApp"
+              >
+                <IconWhatsApp size={17} />
+                <Text style={styles.contactText}>WhatsApp</Text>
+              </Pressable>
+            </View>
           </View>
         ) : undefined
       }
     >
       {m ? (
         <View style={styles.body}>
+          <SheetHead
+            tone={tone}
+            icon={pending ? <IconUserPlus size={20} color={headColor} /> : <IconCar size={20} color={headColor} />}
+            title={m.customer.name?.trim() || 'No name given'}
+            caption={`${unitTitle(noun, m.unit)}  ·  +91 ${formatPhone(m.customer.phone)}`}
+            right={<SheetPill label={pending ? 'To confirm' : unpaid ? 'Not paid' : 'Member'} tone={tone} />}
+          />
+
           {m.checks.length ? (
-            <Notice tone="warning" title="Please check">
-              {m.checks.map((c) => MEMBER_CHECK_LABEL[c]).join(' · ')}
-            </Notice>
+            <SheetNotice tone="amber" icon={<IconAlert size={15} color={colors.amberDeep} />}>
+              {`Please check: ${m.checks.map((c) => MEMBER_CHECK_LABEL[c]).join(' · ')}`}
+            </SheetNotice>
           ) : null}
-          {m.parkingNote ? <Text style={styles.note}>Parked: {m.parkingNote}</Text> : null}
+
+          {m.parkingNote ? (
+            <View style={styles.parking}>
+              <Text style={styles.label}>Where it’s parked</Text>
+              <Text style={styles.parkingText}>{m.parkingNote}</Text>
+            </View>
+          ) : null}
+
+          <Text style={styles.label}>{m.vehicles.length === 1 ? 'Vehicle' : `${m.vehicles.length} vehicles`}</Text>
           {m.vehicles.map((v) => {
             const order = v.orders[0];
+            const plan = order && order.kind === 'plan';
+            const pct = plan && order.washesTotal ? Math.min(1, order.washesUsed / order.washesTotal) : 0;
             return (
               <View key={v.id} style={styles.vehicle}>
                 <View style={styles.vehicleHead}>
+                  <View style={styles.vehicleIcon}>
+                    {v.category === 'bike' ? <IconBike size={18} color={TEAL} /> : <IconCar size={18} color={TEAL} />}
+                  </View>
                   <View style={styles.flex}>
-                    <Text style={styles.plate}>{v.vehicle?.registrationNumber ?? v.typeName}</Text>
-                    <Text style={styles.meta}>{order ? `${order.title} · ${formatInr(order.total)}` : 'No plan'}</Text>
-                    {order && order.kind === 'plan' ? (
-                      <Text style={styles.meta}>
-                        {order.washesUsed} of {order.washesTotal} washes · {formatInr(order.paid)} paid
-                      </Text>
-                    ) : null}
+                    {v.vehicle?.registrationNumber ? (
+                      <View style={styles.plate}>
+                        <Text style={styles.plateText}>{v.vehicle.registrationNumber}</Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.noPlate}>Plate noted on the first wash</Text>
+                    )}
+                    <Text style={styles.meta}>{v.typeName}</Text>
                   </View>
                   {order ? <Pill label={PHASE_STAFF_LABEL[order.phase].toUpperCase()} tone={PHASE_STAFF_TONE[order.phase]} /> : null}
                 </View>
+
+                {order ? (
+                  <View style={styles.order}>
+                    <View style={styles.orderLine}>
+                      <Text style={styles.orderTitle} numberOfLines={1}>
+                        {order.title}
+                      </Text>
+                      <Text style={styles.orderPrice}>{formatInr(order.total)}</Text>
+                    </View>
+                    {plan ? (
+                      <>
+                        <View style={styles.bar}>
+                          <View style={[styles.barFill, { width: `${pct * 100}%` }]} />
+                        </View>
+                        <Text style={styles.meta}>
+                          {order.washesUsed} of {order.washesTotal} washes used  ·  {formatInr(order.paid)} paid
+                        </Text>
+                      </>
+                    ) : null}
+                  </View>
+                ) : (
+                  <Text style={styles.meta}>No plan yet</Text>
+                )}
+
                 {order && m.status === 'active' && NEEDS_LINK.has(order.phase) ? (
                   <Button
                     label="Send payment link on WhatsApp"
                     variant="secondary"
+                    icon={<IconWhatsApp size={17} />}
                     loading={busy === `link:${order.id}`}
                     onPress={() => void sendLink(order.id)}
                   />
@@ -157,9 +247,19 @@ export function MemberSheet({
               </View>
             );
           })}
-          {error ? <Text style={styles.error}>{error}</Text> : null}
-          <View style={styles.removeGap} />
-          <Button label="Remove from community" variant="danger" loading={busy === 'remove'} onPress={remove} />
+
+          {error ? <SheetNotice tone="danger">{error}</SheetNotice> : null}
+
+          <Pressable
+            onPress={remove}
+            disabled={busy === 'remove'}
+            style={({ pressed }) => [styles.remove, pressed && styles.pressed]}
+            accessibilityRole="button"
+            accessibilityLabel="Remove from community"
+          >
+            <IconTrash size={16} color={colors.danger} />
+            <Text style={styles.removeText}>{busy === 'remove' ? 'Removing…' : 'Remove from community'}</Text>
+          </Pressable>
         </View>
       ) : null}
     </BottomSheet>
@@ -168,13 +268,61 @@ export function MemberSheet({
 
 const styles = StyleSheet.create({
   body: { gap: spacing.md },
-  removeGap: { height: spacing.sm },
   footer: { gap: spacing.sm },
-  flex: { flex: 1, gap: 2 },
-  note: { ...typography.body, fontSize: 14, color: colors.slateDeep },
-  vehicle: { gap: spacing.sm, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
-  vehicleHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  plate: { fontSize: 16, fontWeight: '800', letterSpacing: 0.6, color: colors.waterInk },
-  meta: { fontSize: 13.5, color: colors.slateDeep },
-  error: { ...typography.label, color: colors.danger },
+  flex: { flex: 1, gap: 3 },
+  pressed: { opacity: 0.75 },
+  label: { ...typography.caption, fontSize: 12.5, fontWeight: '700', color: colors.slateDeep, letterSpacing: 0.1 },
+  parking: { gap: 4, backgroundColor: colors.surface, borderRadius: radius.md, padding: spacing.sm + 4 },
+  parkingText: { ...typography.body, fontSize: 14, color: colors.waterInk },
+  vehicle: {
+    gap: spacing.sm + 2,
+    padding: spacing.sm + 4,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+  },
+  vehicleHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm + 2 },
+  vehicleIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: TEAL_PALE, alignItems: 'center', justifyContent: 'center' },
+  plate: {
+    alignSelf: 'flex-start',
+    borderWidth: 1.5,
+    borderColor: colors.waterInk,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    backgroundColor: colors.white,
+  },
+  plateText: { fontSize: 14.5, fontWeight: '800', letterSpacing: 1.2, color: colors.waterInk },
+  noPlate: { ...typography.label, fontSize: 13, color: colors.slateDeep, fontStyle: 'italic' },
+  meta: { fontSize: 13, color: colors.slateDeep },
+  order: { gap: 6, backgroundColor: TEAL_MIST, borderRadius: radius.md, padding: spacing.sm + 2 },
+  orderLine: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm },
+  orderTitle: { ...typography.bodyStrong, fontSize: 14.5, fontWeight: '800', color: colors.waterInk, flex: 1 },
+  orderPrice: { ...typography.bodyStrong, fontSize: 14.5, fontWeight: '800', color: TEAL },
+  bar: { height: 6, borderRadius: 3, backgroundColor: TEAL_PALE, overflow: 'hidden' },
+  barFill: { height: 6, borderRadius: 3, backgroundColor: colors.teal },
+  contactRow: { flexDirection: 'row', gap: spacing.sm },
+  contact: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    height: 48,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    backgroundColor: TEAL_MIST,
+  },
+  contactText: { ...typography.label, fontSize: 14.5, fontWeight: '700', color: TEAL },
+  remove: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: spacing.sm + 2,
+    marginTop: spacing.xs,
+  },
+  removeText: { ...typography.label, fontSize: 14, fontWeight: '700', color: colors.danger },
 });

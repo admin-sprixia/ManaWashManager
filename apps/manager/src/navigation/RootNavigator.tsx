@@ -24,25 +24,29 @@ import { ServiceRequestsScreen } from '../screens/ServiceRequestsScreen';
 import { ServicePointsScreen } from '../screens/ServicePointsScreen';
 import { BusinessScreen } from '../screens/business/BusinessScreen';
 import { CatalogServicesScreen } from '../screens/business/CatalogServicesScreen';
+import { ServiceEditorScreen } from '../screens/business/ServiceEditorScreen';
+import { VehicleGuideScreen } from '../screens/VehicleGuideScreen';
 import { PriceListScreen } from '../screens/business/PriceListScreen';
 import { PricingRulesScreen } from '../screens/business/PricingRulesScreen';
-import { VehicleSizesScreen } from '../screens/business/VehicleSizesScreen';
 import { BranchesScreen } from '../screens/business/BranchesScreen';
 import { BranchDetailScreen } from '../screens/business/BranchDetailScreen';
-import { WashPlansScreen } from '../screens/business/WashPlansScreen';
+import { OpenBranchScreen } from '../screens/business/OpenBranchScreen';
 import { AddMemberScreen } from '../screens/places/AddMemberScreen';
 import { CommunitiesScreen } from '../screens/places/CommunitiesScreen';
 import { CommunitySetupScreen } from '../screens/places/CommunitySetupScreen';
 import { PlaceDayScreen } from '../screens/places/PlaceDayScreen';
 import { PlaceDemandScreen } from '../screens/places/PlaceDemandScreen';
 import { PlaceFormScreen } from '../screens/places/PlaceFormScreen';
+import { PlaceLiveScreen } from '../screens/places/PlaceLiveScreen';
 import { PlaceScreen } from '../screens/places/PlaceScreen';
 import { useAuth } from '../api/auth';
 import { colors } from '@mana/ui';
+import type { DeliveryMode } from '@mana/domain';
 
 export type RootStackParamList = {
   JobBoard: undefined;
-  NewWash: { registration?: string } | undefined;
+  /** `mode`: open on that menu (the home tab it was started from), when the branch offers it. */
+  NewWash: { registration?: string; mode?: DeliveryMode } | undefined;
   JobDetail: { jobId: string };
   CustomerProfile: { customerId: string };
   More: undefined;
@@ -64,19 +68,24 @@ export type RootStackParamList = {
   AppFeedback: { tab?: 'problems' | 'vehicles' | 'ratings' } | undefined;
   ServicePoints: undefined;
   Business: undefined;
-  BusinessServices: undefined;
+  BusinessServices: { tab?: 'services' | 'plans' } | undefined;
+  /** Add (no id) or edit one business service. */
+  BusinessServiceEdit: { serviceId?: string } | undefined;
+  /** Which size every vehicle is priced as; opened on a tab or size. */
+  VehicleGuide: { category?: 'car' | 'bike'; size?: string } | undefined;
   BusinessPrices: undefined;
   BusinessRules: undefined;
-  BusinessVehicles: undefined;
   BusinessBranches: undefined;
+  OpenBranch: undefined;
   BusinessBranch: { branchId: string };
-  WashPlans: undefined;
   Communities: undefined;
   Place: { placeId: string };
   /** A new community, or a draft/live one's inspection. `at`/`label`: prefilled from where people are asking. */
   CommunitySetup: { placeId?: string; at?: { latitude: number; longitude: number }; label?: string; name?: string } | undefined;
   /** The owner reviews a draft and makes it live, or changes a live community's wash settings. */
   PlaceForm: { placeId: string };
+  /** Shown once, straight after a community is approved. */
+  PlaceLive: { placeId: string; invited: number };
   PlaceDay: { placeId: string; day?: string };
   AddMember: { placeId: string };
   PlaceDemand: undefined;
@@ -123,12 +132,13 @@ export function RootNavigator() {
         {/* Business admins are picked by phone, so the API decides who may use these. */}
         <Stack.Screen name="Business" component={BusinessScreen} options={slide} />
         <Stack.Screen name="BusinessServices" component={CatalogServicesScreen} options={slide} />
+        <Stack.Screen name="BusinessServiceEdit" component={ServiceEditorScreen} options={slide} />
+        <Stack.Screen name="VehicleGuide" component={VehicleGuideScreen} options={slide} />
         <Stack.Screen name="BusinessPrices" component={PriceListScreen} options={slide} />
         <Stack.Screen name="BusinessRules" component={PricingRulesScreen} options={slide} />
-        <Stack.Screen name="BusinessVehicles" component={VehicleSizesScreen} options={slide} />
         <Stack.Screen name="BusinessBranches" component={BranchesScreen} options={slide} />
+        <Stack.Screen name="OpenBranch" component={OpenBranchScreen} options={slide} />
         <Stack.Screen name="BusinessBranch" component={BranchDetailScreen} options={slide} />
-        <Stack.Screen name="WashPlans" component={WashPlansScreen} options={slide} />
         {/* Anyone can inspect and draft a community and work its wash days; the owner approves. */}
         <Stack.Screen name="Communities" component={CommunitiesScreen} options={slide} />
         <Stack.Screen name="CommunitySetup" component={CommunitySetupScreen} options={slide} />
@@ -149,6 +159,7 @@ export function RootNavigator() {
             <Stack.Screen name="ServiceArea" component={ServiceAreaScreen} options={slide} />
             <Stack.Screen name="ServicePoints" component={ServicePointsScreen} options={slide} />
             <Stack.Screen name="PlaceForm" component={PlaceFormScreen} options={slide} />
+            <Stack.Screen name="PlaceLive" component={PlaceLiveScreen} options={{ ...slide, gestureEnabled: false }} />
           </>
         ) : null}
       </Stack.Navigator>

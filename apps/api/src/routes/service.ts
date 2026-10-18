@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { businessRules, catalogRepo, createPlatformDb, menuRepo, serviceRepo, type DbClient } from '@mana/db';
+import { awayPricingRepo, branchServiceRepo, catalogRepo, vehicleModelRepo, createPlatformDb, menuRepo, serviceRepo, type DbClient } from '@mana/db';
 import {
   BODY_TYPES,
   DELIVERY_MODES,
@@ -21,7 +21,7 @@ import type { Env } from '../types';
 const modeSchema = z.enum(DELIVERY_MODES as unknown as ['hub', 'doorstep']);
 const catalogManaged = {
   error: 'catalog_managed' as const,
-  message: 'This service comes from the business price list. Ask a business admin to change it.',
+  message: 'This service comes from Mana Wash HQ. Ask an HQ admin to change it.',
 };
 
 const vehicleCategorySchema = z.enum(['car', 'bike']);
@@ -121,6 +121,9 @@ export const serviceRoutes = new Hono<{ Bindings: Env }>()
     const session = c.get('session');
     const db = c.get('db');
     const pdb = createPlatformDb(c.env.DB);
+    // Switching a service on makes its hub or team in the next menu build: do it now, so the
+    // home screen's tabs and New Wash see them straight away.
+    await menuRepo.publishIfStale(c.env.DB, session.shopId);
     const [caps, hidden] = await Promise.all([
       menuRepo.capabilities(c.env.DB, session.shopId),
       db.service.findMany({
@@ -129,20 +132,39 @@ export const serviceRoutes = new Hono<{ Bindings: Env }>()
         select: { id: true, name: true },
       }),
     ]);
-    const [isAdmin, rules] = await Promise.all([
+    const [isAdmin, services, away, shop] = await Promise.all([
       caps.businessId ? catalogRepo.isAdmin(pdb, caps.businessId, session.phone) : false,
-      businessRules(pdb, caps.businessId),
+      branchServiceRepo.get(pdb, session.shopId),
+      awayPricingRepo.forShop(c.env.DB, session.shopId),
+      pdb.shop.findUnique({ where: { id: session.shopId }, select: { latitude: true, longitude: true } }),
     ]);
-    // With home washing off, the doorstep team only goes to communities: walk-ins are at the shop.
-    const atHome = rules.homeWash ? caps.modes : caps.modes.filter((m) => m !== 'doorstep');
+    const homeOnly = await menuRepo.homeOnlyTypes(c.env.DB, session.shopId);
+    const live = services?.live ?? { hub: true, community: false, doorstep: false };
+    // Without doorstep washes, the community team only goes to communities: walk-ins are at the shop.
+    const atHome = live.doorstep ? caps.modes : caps.modes.filter((m) => m !== 'doorstep');
+    const hasTeam = caps.modes.includes('doorstep');
     return c.json({
       businessId: caps.businessId,
       isBusinessAdmin: isAdmin,
       policy: caps.policy,
-      homeWash: rules.homeWash,
+      homeWash: live.doorstep,
       modes: atHome.length ? atHome : caps.modes,
+      /**
+       * The home screen's tabs: the shop, community wash days, and washes at customers' homes —
+       * what the branch offers (its agreement and the owner's switches), with its hub and team.
+       */
+      lanes: { hub: live.hub && caps.modes.includes('hub'), community: live.community && hasTeam, doorstep: live.doorstep && hasTeam },
+      /** What head office's agreement allows this branch, and what the owner switched on. */
+      services: services ?? null,
       classesByMode: Object.fromEntries([...caps.classesByMode].map(([m, set]) => [m, [...set]])),
       hidden,
+      /** A home wash: the hub price plus this visit charge, once per visit. */
+      visit: away.doorstep,
+      /** Vehicle types washed at homes only: not on the shop's menu. */
+      homeOnlyTypes: [...homeOnly],
+      /** Where the branch is, to measure how far a home is. */
+      location:
+        shop?.latitude != null && shop.longitude != null ? { latitude: shop.latitude, longitude: shop.longitude } : null,
     });
   })
   // Owner-only: add a new service from the settings screen — no code change, no deploy.
@@ -205,6 +227,45 @@ export const serviceRoutes = new Hono<{ Bindings: Env }>()
       return c.json({ ok: true as const });
     },
   )
+  // Everyone: which size each kind of vehicle is priced as (the vehicle size guide), as head
+  // office set it, and whether it's washed at all.
+  .get('/vehicle-sizes', async (c) => {
+    const businessId = await catalogRepo.businessForShop(c.env.DB, c.get('session').shopId).catch(() => null);
+    const data = businessId ? await catalogRepo.load(c.env.DB, businessId) : null;
+    if (!data || !businessId) return c.json({ canEdit: false, models: [], removed: [], classes: [], bodyTypes: [] });
+    const classKey = new Map(data.classes.map((k) => [k.id, k.key]));
+    const sizeKey = new Map(data.classes.flatMap((k) => k.sizes.map((s) => [s.id, s.key] as const)));
+    // "We don't wash these" is about this branch: the kinds on its list.
+    const pdb = createPlatformDb(c.env.DB);
+    const [kinds, models, canEdit] = await Promise.all([
+      catalogRepo.branchVehicles(pdb, c.get('session').shopId),
+      vehicleModelRepo.list(pdb, businessId),
+      catalogRepo.isAdmin(pdb, businessId, c.get('session').phone),
+    ]);
+    return c.json({
+      /** Head office edits the guide (sizes, names, models); everyone else looks things up. */
+      canEdit,
+      /** Head office's changes to the built-in list of models. */
+      models,
+      removed: canEdit ? await vehicleModelRepo.removed(pdb, businessId) : [],
+      classes: data.classes.map((k) => ({
+        id: k.id,
+        key: k.key,
+        name: k.name,
+        category: categoryForClass(k.key),
+        sizes: k.sizes.map((s) => ({ id: s.id, key: s.key, name: s.name })),
+      })),
+      bodyTypes: data.bodyTypes.map((b) => ({
+        id: b.id,
+        sizeId: b.sizeId,
+        key: b.key,
+        name: b.name,
+        classKey: classKey.get(b.classId) ?? null,
+        sizeKey: sizeKey.get(b.sizeId) ?? null,
+        active: b.active && (kinds == null || kinds.has(b.id)),
+      })),
+    });
+  })
   .get('/vehicle-types', zValidator('query', listVehicleTypesQuerySchema), async (c) => {
     const db = c.get('db');
     const { category } = c.req.valid('query');
@@ -225,7 +286,16 @@ export const serviceRoutes = new Hono<{ Bindings: Env }>()
       const def = body.bodyKey ? (BODY_TYPES.find((b) => b.key === body.bodyKey) ?? null) : bodyTypeForName(body.name);
       if (body.bodyKey && !def) return c.json({ error: 'not_found' as const, message: 'Unknown body type.' }, 404);
       const bodyTypeId = def && categoryForClass(def.classKey) === category ? catalogIds.bodyType(businessId, def.key) : null;
-      if (bodyTypeId) await catalogRepo.load(c.env.DB, businessId);
+      if (bodyTypeId) {
+        const catalog = await catalogRepo.load(c.env.DB, businessId);
+        const body = catalog?.bodyTypes.find((b) => b.id === bodyTypeId);
+        if (body && !body.active) {
+          return c.json(
+            { error: 'hq_off' as const, message: `Head office has switched off ${body.name}. Ask them to switch it on first.` },
+            409,
+          );
+        }
+      }
       const created = await serviceRepo.createVehicleType(db, { name: body.name, category, bodyTypeId });
       if (bodyTypeId) {
         await menuRepo.markStale(c.env.DB, shopId);

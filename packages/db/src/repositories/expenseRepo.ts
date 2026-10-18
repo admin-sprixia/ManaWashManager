@@ -1,5 +1,6 @@
 import type { DbClient } from '../client';
-import type { ExpenseCategory, ExpenseUnit, PaymentMethod } from '@mana/domain';
+import type { ExpenseCashSource, ExpenseCategory, ExpenseUnit, PaymentMethod } from '@mana/domain';
+import { chunk } from '../chunk';
 
 const personSelect = { select: { id: true, name: true } } as const;
 
@@ -35,6 +36,7 @@ export const expenseRepo = {
       billPhotoKey?: string;
       itemPhotoKey?: string;
       paymentMethod: PaymentMethod;
+      cashSource?: ExpenseCashSource;
       date: Date;
       createdByUserId: string;
     },
@@ -63,14 +65,33 @@ export const expenseRepo = {
     return result._sum.amount ?? 0;
   },
 
-  /** Cash paid out of the drawer: non-voided cash expenses dated in `[from, to)`. */
+  /** Cash paid out of the drawer: non-voided cash expenses from the box dated in `[from, to)`. */
   async cashTotal(db: DbClient, from: Date, to: Date): Promise<{ total: number; count: number }> {
     const result = await db.expense.aggregate({
-      where: { date: { gte: from, lt: to }, voidedAt: null, paymentMethod: 'cash' },
+      where: { date: { gte: from, lt: to }, voidedAt: null, paymentMethod: 'cash', cashSource: 'drawer' },
       _sum: { amount: true },
       _count: true,
     });
     return { total: result._sum.amount ?? 0, count: result._count };
+  },
+
+  /**
+   * Doorstep cash spent by who entered it: dated in `[from, to)`, or ever when no window is given.
+   * It comes off what they hold; a deleted expense gives it back.
+   */
+  async heldSpendByUser(db: DbClient, window?: { from: Date; to: Date }) {
+    const rows = await db.expense.groupBy({
+      by: ['createdByUserId'],
+      where: {
+        voidedAt: null,
+        paymentMethod: 'cash',
+        cashSource: 'held',
+        ...(window ? { date: { gte: window.from, lt: window.to } } : {}),
+      },
+      _sum: { amount: true },
+      _count: { _all: true },
+    });
+    return new Map(rows.map((r) => [r.createdByUserId, { total: r._sum.amount ?? 0, count: r._count._all }]));
   },
 
   /** Expenses voided in `[from, to)` — feeds the owner's audit log alongside job corrections. */
@@ -98,6 +119,7 @@ export const expenseRepo = {
         quantity?: number | null;
         unit?: ExpenseUnit | null;
         paymentMethod?: PaymentMethod;
+        cashSource?: ExpenseCashSource;
         date?: Date;
       };
       edit: { id: string; userId: string; reason: string; changes: { field: string; from: unknown; to: unknown }[] };
@@ -115,6 +137,16 @@ export const expenseRepo = {
       },
     });
     return true;
+  },
+
+  /** Which of these expenses were ever edited (a year of entries is far past D1's 100-value IN list). */
+  async editedIds(db: DbClient, ids: string[]) {
+    const edited = new Set<string>();
+    for (const slice of chunk(ids)) {
+      const rows = await db.expenseEdit.findMany({ where: { expenseId: { in: slice } }, select: { expenseId: true } });
+      for (const r of rows) edited.add(r.expenseId);
+    }
+    return edited;
   },
 
   /** An expense's edits, newest first, with who made each. */

@@ -2,7 +2,7 @@
 //   CARD_URL=https://… PYTHON=/path/to/python-with-fonttools node branding/card/build-card.mjs
 //
 // Card: 55 × 110 mm, 1 unit = 0.1 mm.
-// Front: the indigo glass mark (white centre line), శ్రీ MANA / WASH (Sri in Telugu), a fine-line water ribbon
+// Front: the indigo glass mark (white centre line), శ్రీ over MANA / WASH (Sri in Telugu), a fine-line water ribbon
 // and the line "Some journeys stay with us forever."
 // Back: a QR code for CARD_URL with the mark in its centre, GET THE APP · REVIEW US, and Thank you.
 // All lettering is outlined from macOS system fonts (Didot, Avenir Next) by outline-text.py,
@@ -76,25 +76,15 @@ const T = JSON.parse(
 
 /** Outlined text centred on x, baseline at y. */
 /**
- * Several outlined pieces in one row, `gap` apart, the whole row centred on x, baseline at y.
- * A piece can be [id, fill, fitTo]: it is then scaled so its ink runs exactly from the top to the
- * bottom of the `fitTo` piece's ink (శ్రీ stands as tall as MANA's capitals, no taller).
+ * శ్రీ standing above a word: scaled to `share` of the word's cap height, centred on x, its ink
+ * ending `gap` above the top of the word whose baseline is at y.
  */
-const row = (parts, x, y, gap) => {
-  const placed = parts.map(([id, fill, fitTo]) => {
-    if (!fitTo) return { id, fill, k: 1, dy: 0, w: T[id].width };
-    const k = (T[fitTo].bottom - T[fitTo].top) / (T[id].bottom - T[id].top);
-    return { id, fill, k, dy: T[fitTo].top - T[id].top * k, w: T[id].width * k };
-  });
-  const total = placed.reduce((w, p) => w + p.w, 0) + gap * (placed.length - 1);
-  let left = x - total / 2;
-  return placed
-    .map(({ id, fill, k, dy, w }) => {
-      const out = `<path d="${T[id].d}" transform="translate(${n(left)} ${n(y + dy)}) scale(${n(k)})" fill="${fill}"/>`;
-      left += w + gap;
-      return out;
-    })
-    .join('');
+const sriOver = (sriId, wordId, x, y, fill, share, gap) => {
+  const capTop = y + T[wordId].top;
+  const k = ((T[wordId].bottom - T[wordId].top) * share) / (T[sriId].bottom - T[sriId].top);
+  const left = x - (T[sriId].width * k) / 2;
+  const top = capTop - gap - (T[sriId].bottom - T[sriId].top) * k;
+  return `<path d="${T[sriId].d}" transform="translate(${n(left)} ${n(top - T[sriId].top * k)}) scale(${n(k)})" fill="${fill}"/>`;
 };
 
 const text = (id, x, y, fill, extra = '') =>
@@ -224,13 +214,15 @@ ${body}
 function front() {
   const p = 'f';
   const rib = ribbon(p, { y0: 735, amp: 46, width: 92, phase: 0.35, opacity: 0.75 });
-  const ruleY = 566;
+  const nameY = 548;
+  const ruleY = 614;
   const half = T.wash.width / 2;
   const body = `
 ${paper(p)}
 <g clip-path="url(#${p}-card)">${rib}</g>
 ${mark(CX, 168, 160)}
-${row([['sri', `url(#${p}-gandham)`, 'mana'], ['mana', C.white]], CX, 500, 26)}
+${sriOver('sri', 'mana', CX, nameY, `url(#${p}-gandham)`, 1.4, 16)}
+${text('mana', CX, nameY, C.white)}
 <line x1="${n(CX - half - 74)}" y1="${ruleY}" x2="${n(CX - half - 22)}" y2="${ruleY}" stroke="${C.soft}" stroke-opacity="0.6" stroke-width="1"/>
 <line x1="${n(CX + half + 22)}" y1="${ruleY}" x2="${n(CX + half + 74)}" y2="${ruleY}" stroke="${C.soft}" stroke-opacity="0.6" stroke-width="1"/>
 ${text('wash', CX, ruleY + 7, C.soft)}
@@ -256,7 +248,8 @@ function back() {
   const body = `
 ${paper(p)}
 <g clip-path="url(#${p}-card)">${rib}</g>
-${row([['sriSmall', `url(#${p}-gandham)`, 'manaSmall'], ['manaSmall', C.white]], CX, 190, 13)}
+${sriOver('sriSmall', 'manaSmall', CX, 204, `url(#${p}-gandham)`, 1.7, 10)}
+${text('manaSmall', CX, 204, C.white)}
 <rect x="${CX - frame / 2}" y="${qrCy - frame / 2}" width="${frame}" height="${frame}" rx="30" fill="#FFFFFF" stroke="${C.soft}" stroke-opacity="0.5" stroke-width="1"/>
 ${corners(CX, qrCy, frame + 22)}
 ${qr(CX, qrCy, qrSize)}

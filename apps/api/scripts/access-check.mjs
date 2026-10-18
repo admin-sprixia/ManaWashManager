@@ -79,7 +79,11 @@ async function startWash(token) {
 
 const hq = (await session(HQ_PHONE)).token;
 const ownerPhone = newPhone();
-const opened = await call(hq, 'POST', '/business/branches', { town: 'Ongole', townCode: 'ONG', ownerName: 'Lakshmi', ownerPhone });
+const ongole = { pincode: '523001', latitude: 15.5057, longitude: 80.0499, town: null };
+const plan = (await call(hq, 'POST', '/business/branches/preview', ongole)).body?.plan;
+// HQ picks the services it sells while opening it: here, all of HQ's.
+const hqMenu = ((await call(hq, 'GET', '/business/catalog')).body?.services ?? []).filter((s) => s.active).map((s) => s.id);
+const opened = await call(hq, 'POST', '/business/branches', { ...ongole, ownerName: 'Lakshmi', ownerPhone, confirmed: (plan?.checks ?? []).map((k) => k.kind), menu: hqMenu });
 check('HQ opens a branch', opened.status === 201, show(opened));
 const branchId = opened.body.id;
 const branchCode = opened.body.code;

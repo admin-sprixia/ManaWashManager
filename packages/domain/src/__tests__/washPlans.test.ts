@@ -6,9 +6,12 @@ import {
   DEFAULT_WASH_PLAN_RULES as RULES,
   financialYear,
   firstWashDay,
+  fixedPlanPrice,
   formatReceiptNumber,
   gstBreakup,
   installmentPlan,
+  isUpgradeWash,
+  upgradeWashes,
   nextDue,
   orderPhase,
   paidTotal,
@@ -45,6 +48,20 @@ describe('prices', () => {
     expect(washPlanPrice(58000, 4, 0)).toBe(232000);
     expect(washPlanPrice(58000, 48, 1000)).toBe(2505600);
     expect(washPlanPrice(33333, 12, 500)).toBe(380000);
+  });
+
+  it('moves a fixed plan price by the zone, in whole rupees', () => {
+    expect(fixedPlanPrice(109900, 0)).toBe(109900);
+    expect(fixedPlanPrice(109900, -1000)).toBe(98900);
+  });
+
+  it('knows which washes are the upgraded one', () => {
+    const shine = { every: 4 };
+    expect([1, 2, 3, 4, 5, 8].map((n) => isUpgradeWash(n, shine))).toEqual([false, false, false, true, false, true]);
+    expect(isUpgradeWash(4, null)).toBe(false);
+    expect(upgradeWashes(13, shine)).toBe(3);
+    expect(upgradeWashes(52, shine)).toBe(13);
+    expect(upgradeWashes(4, null)).toBe(0);
   });
 
   it('works out washes per week from the plan', () => {

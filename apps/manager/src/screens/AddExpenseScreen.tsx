@@ -72,7 +72,8 @@ import { useAuth } from '../api/auth';
 import { useSync } from '../offline/SyncProvider';
 import { useShop } from '../offline/ShopProvider';
 import { deleteLocalCopy, keepLocalCopy } from '../offline/photoFiles';
-import type { ExpensePaymentMethod, LocalPhoto } from '../offline/types';
+import { CacheKeys, readCache, writeCache } from '../offline/cache';
+import type { ExpenseCashSource, ExpensePaymentMethod, LocalPhoto } from '../offline/types';
 import { newId } from '../utils/id';
 import { formatRupees } from '../utils/format';
 import type { RootStackParamList } from '../navigation/RootNavigator';
@@ -84,6 +85,7 @@ import {
   dayParts,
   formatDay,
   isoDaysAgo,
+  cashSourceLabel,
   paidLabel,
   parseQuantity,
   ratePerUnit,
@@ -102,6 +104,7 @@ interface ExpensePatch {
   unit?: ExpenseUnit | null;
   description?: string | null;
   paymentMethod?: ExpensePaymentMethod;
+  cashSource?: ExpenseCashSource;
   date?: string;
 }
 
@@ -346,7 +349,7 @@ function ProofTile({
 export function AddExpenseScreen({ navigation, route }: Props) {
   const original = route.params?.edit ?? null;
   const editing = original != null;
-  const { isOwner } = useAuth();
+  const { isOwner, user } = useAuth();
   const { submit } = useSync();
   const { stock, refreshStock } = useShop();
   const insets = useSafeAreaInsets();
@@ -371,6 +374,9 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   const [paymentMethod, setPaymentMethod] = useState<ExpensePaymentMethod>(
     (original?.paymentMethod as ExpensePaymentMethod | undefined) ?? 'cash',
   );
+  const [cashSource, setCashSource] = useState<ExpenseCashSource>(original?.cashSource === 'held' ? 'held' : 'drawer');
+  /** Doorstep cash this person holds now; null until known (offline, or not loaded yet). */
+  const [heldNow, setHeldNow] = useState<number | null>(null);
   const [billPhoto, setBillPhoto] = useState<LocalPhoto | null>(null);
   const [itemPhoto, setItemPhoto] = useState<LocalPhoto | null>(null);
   const [savedPhotos, setSavedPhotos] = useState<Record<ExpensePhotoKind, PhotoSource | null>>({ bill: null, item: null });
@@ -395,6 +401,29 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       }),
     [navigation],
   );
+
+  // Someone on doorstep washes may pay from the cash they hold: offer it only then. Offline, the
+  // last figure seen on this phone stands in; the server checks it again when the entry syncs.
+  const userId = user?.id;
+  useEffect(() => {
+    if (editing || !userId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await api.cash.held.$get();
+        if (!res.ok) return;
+        const { held } = await res.json();
+        if (!cancelled) setHeldNow(held);
+        void writeCache(CacheKeys.held, { userId, held });
+      } catch {
+        const last = await readCache<{ userId: string; held: number }>(CacheKeys.held);
+        if (!cancelled && last?.userId === userId) setHeldNow(last.held);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [editing, userId]);
 
   // When editing, show the photos that were taken (they can't be changed).
   useEffect(() => {
@@ -443,15 +472,20 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     }
     if ((note.trim() || null) !== (original.description ?? null)) p.description = note.trim() || null;
     if (paymentMethod !== (original.paymentMethod ?? 'cash')) p.paymentMethod = paymentMethod;
+    if (paymentMethod === 'cash' && cashSource !== (original.cashSource === 'held' ? 'held' : 'drawer')) p.cashSource = cashSource;
     if (date !== original.date) p.date = date;
     return p;
-  }, [original, category, paise, item, quantity, unit, note, paymentMethod, date]);
+  }, [original, category, paise, item, quantity, unit, note, paymentMethod, cashSource, date]);
   const changedCount = Object.keys(patch).filter((k) => k !== 'unit' || !('quantity' in patch)).length;
 
+  // A new expense can come from doorstep cash only while this person holds enough of it.
+  const offerHeld = paymentMethod === 'cash' && (editing ? original?.cashSource === 'held' : (heldNow ?? 0) > 0);
+  const fromHeld = paymentMethod === 'cash' && cashSource === 'held' && offerHeld;
+  const heldShort = fromHeld && !editing && heldNow != null && paise > heldNow;
   const stepReady = [
     paise > 0 && category != null,
     item.trim().length > 0 && (!setup.quantityRequired || quantity != null),
-    editing ? changedCount > 0 : billPhoto != null && itemPhoto != null,
+    (editing ? changedCount > 0 : billPhoto != null && itemPhoto != null) && !heldShort,
   ];
   const stepMissing = useMemo(
     () =>
@@ -460,9 +494,13 @@ export function AddExpenseScreen({ navigation, route }: Props) {
         [item.trim() ? null : setup.itemLabel.toLowerCase(), setup.quantityRequired && !quantity ? 'the quantity' : null],
         editing
           ? ['a change — nothing is different yet']
-          : [billPhoto ? null : `${setup.billPhotoLabel.toLowerCase()} photo`, itemPhoto ? null : `${setup.itemPhotoLabel.toLowerCase()} photo`],
+          : [
+              billPhoto ? null : `${setup.billPhotoLabel.toLowerCase()} photo`,
+              itemPhoto ? null : `${setup.itemPhotoLabel.toLowerCase()} photo`,
+              heldShort && heldNow != null ? `an amount within the ${formatRupees(heldNow)} doorstep cash you hold` : null,
+            ],
       ].map((list) => list.filter((m): m is string => m != null)),
-    [paise, category, item, setup, quantity, billPhoto, itemPhoto, editing],
+    [paise, category, item, setup, quantity, billPhoto, itemPhoto, editing, heldShort, heldNow],
   );
 
   const onKey = (k: Key) => {
@@ -548,6 +586,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
         ...(addToStock && quantity ? { addToStock: true } : {}),
         date,
         paymentMethod,
+        ...(fromHeld ? { cashSource: 'held' as const } : {}),
         billPhoto,
         itemPhoto,
       },
@@ -610,6 +649,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     ...(quantity ? [{ label: 'Quantity', value: rate ? `${formatExpenseQuantity(quantity, unit)} · ${rate}` : formatExpenseQuantity(quantity, unit) }] : []),
     { label: 'Spent on', value: EXPENSE_CATEGORY_LABEL[cat] },
     { label: 'Paid with', value: paidLabel(paymentMethod) },
+    ...(offerHeld ? [{ label: 'Paid from', value: cashSourceLabel(fromHeld ? 'held' : 'drawer') }] : []),
     { label: 'Date', value: formatDay(date) },
   ];
 
@@ -962,6 +1002,46 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                     );
                   })}
                 </View>
+                {offerHeld ? (
+                  <View style={styles.sourceBlock}>
+                    <Text style={styles.sourceTitle}>Paid from</Text>
+                    <View style={styles.sourceRow}>
+                      {(
+                        [
+                          ['drawer', 'Shop cash box', 'Comes off the drawer'],
+                          [
+                            'held',
+                            'My doorstep cash',
+                            heldNow != null ? `${formatRupees(heldNow)} with you` : 'Cash from doorstep washes',
+                          ],
+                        ] as const
+                      ).map(([key, label, hint]) => {
+                        const on = cashSource === key;
+                        return (
+                          <Pressable
+                            key={key}
+                            onPress={() => setCashSource(key)}
+                            style={({ pressed }) => [styles.sourceCard, on && styles.sourceCardOn, pressed && !on && styles.pressed]}
+                            accessibilityRole="radio"
+                            accessibilityState={{ selected: on }}
+                          >
+                            <Text style={[styles.sourceLabel, on && styles.sourceLabelOn]}>{label}</Text>
+                            <Text style={styles.payHint} numberOfLines={1}>
+                              {hint}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                    {fromHeld ? (
+                      <Text style={styles.infoText}>
+                        {heldShort && heldNow != null
+                          ? `You hold ${formatRupees(heldNow)}. Pay the rest from the shop box as its own expense.`
+                          : 'It comes off the doorstep cash you hand in, not the shop box.'}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
               </Section>
 
               <Section title="When was it paid?" tint={{ fg: colors.indigo, bg: colors.indigoPale }} icon={<IconCalendar size={16} color={colors.indigo} />}>
@@ -1419,6 +1499,21 @@ const styles = StyleSheet.create({
   },
   proofTapText: { ...typography.caption, fontSize: 11, color: colors.indigo, fontWeight: '800', letterSpacing: 0 },
   payRow: { flexDirection: 'row', gap: spacing.sm },
+  sourceBlock: { gap: spacing.sm, paddingTop: spacing.sm },
+  sourceTitle: { ...typography.caption, fontSize: 12, color: colors.slateDeep, letterSpacing: 0.3, fontWeight: '700' },
+  sourceRow: { flexDirection: 'row', gap: spacing.sm },
+  sourceCard: {
+    flex: 1,
+    padding: spacing.sm + 2,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+    gap: 2,
+  },
+  sourceCardOn: { borderColor: colors.tealDeep, backgroundColor: '#ECFDF5' },
+  sourceLabel: { ...typography.bodyStrong, fontSize: 14, color: colors.ink, fontWeight: '700' },
+  sourceLabelOn: { color: colors.tealDeep },
   payCard: {
     flex: 1,
     padding: spacing.sm + 2,

@@ -34,6 +34,7 @@ import {
   IconLogout,
   IconMapPin,
   IconReceipt,
+  IconRupee,
   IconSettings,
   IconShield,
   IconSparkle,
@@ -61,6 +62,7 @@ import { api, apiErrorMessage } from '../api/client';
 import { NetworkError } from '../api/network';
 import { useAuth } from '../api/auth';
 import { useSync } from '../offline/SyncProvider';
+import { CacheKeys, readCache, writeCache } from '../offline/cache';
 import { useShop } from '../offline/ShopProvider';
 import { describeOp } from '../offline/types';
 import { APP_VERSION } from '../config/app';
@@ -119,26 +121,37 @@ export function MoreScreen({ navigation }: Props) {
   } = useShop();
   const giftsOwed = rewards?.giftsOwed ?? 0;
   const [businessAdmin, setBusinessAdmin] = useState(false);
-  // Whether this person is Mana Wash HQ; quietly left off when offline.
+  // Whether this person is Mana Wash HQ. The last answer is kept on the phone, so being offline
+  // (or one failed request) doesn't hide the HQ section; a fresh answer replaces it.
+  const userId = user?.id;
   useFocusEffect(
     useCallback(() => {
       let alive = true;
+      void readCache<{ userId: string; admin: boolean }>(CacheKeys.hq).then((last) => {
+        if (alive && last && last.userId === userId) setBusinessAdmin(last.admin);
+      });
       api.services.network
         .$get()
         .then((res) => (res.ok ? res.json() : null))
         .then((network) => {
-          if (alive && network) setBusinessAdmin(network.isBusinessAdmin);
+          if (!alive || !network || !userId) return;
+          setBusinessAdmin(network.isBusinessAdmin);
+          void writeCache(CacheKeys.hq, { userId, admin: network.isBusinessAdmin });
         })
         .catch(() => undefined);
       return () => {
         alive = false;
       };
-    }, []),
+    }, [userId]),
   );
   if (!user) return null;
 
   const failed = myItems.filter((i) => i.state === 'failed');
-  const othersWaiting = items.filter((i) => i.userId !== user.id).length;
+  // A person on two branches has an account at each: their own changes from the other branch wait
+  // for that branch, not for "a teammate".
+  const notMine = items.filter((i) => i.userId !== user.id);
+  const mineElsewhere = notMine.filter((i) => i.userName === user.name).length;
+  const othersWaiting = notMine.length - mineElsewhere;
 
   const confirmSignOut = () => {
     const waiting = myItems.length;
@@ -311,6 +324,13 @@ export function MoreScreen({ navigation }: Props) {
             </View>
           ))}
         </EdgeGroup>
+        {mineElsewhere > 0 ? (
+          <Text style={styles.footnote}>
+            {mineElsewhere} change{mineElsewhere === 1 ? '' : 's'} you made at another branch{' '}
+            {mineElsewhere === 1 ? 'is' : 'are'} waiting on this phone —{' '}
+            {mineElsewhere === 1 ? 'it syncs' : 'they sync'} when you switch back to that branch.
+          </Text>
+        ) : null}
         {othersWaiting > 0 ? (
           <Text style={styles.footnote}>
             {othersWaiting} change{othersWaiting === 1 ? '' : 's'} from another teammate{' '}
@@ -373,6 +393,13 @@ export function MoreScreen({ navigation }: Props) {
             right={giftsOwed > 0 ? <Pill label={String(giftsOwed)} tone="amber" /> : undefined}
             onPress={() => navigation.navigate('Rewards')}
           />
+          <EdgeRow
+            icon={<IconCar size={19} color={colors.indigo} />}
+            iconBg={colors.indigoPale}
+            title="Vehicle size guide"
+            subtitle="Which size (S, M, L, XL) every car and bike is priced as"
+            onPress={() => navigation.navigate('VehicleGuide')}
+          />
         </EdgeGroup>
 
         {customerApp.listed ? (
@@ -430,10 +457,30 @@ export function MoreScreen({ navigation }: Props) {
                 onPress={() => navigation.navigate('BusinessBranches')}
               />
               <EdgeRow
-                icon={<IconSparkle size={19} color={colors.tealDeep} />}
+                icon={<IconSparkle size={19} color={colors.indigo} />}
+                iconBg={colors.indigoPale}
+                title="Services and plans"
+                subtitle="What every branch can sell, and wash plans"
+                onPress={() => navigation.navigate('BusinessServices')}
+              />
+              <EdgeRow
+                icon={<IconRupee size={19} color={colors.tealDeep} />}
                 iconBg="#CCFBF1"
-                title="Business price list"
-                subtitle="Services, prices and rules for every branch"
+                title="Base prices"
+                subtitle="Hub, community and doorstep prices, price books"
+                onPress={() => navigation.navigate('BusinessPrices')}
+              />
+              <EdgeRow
+                icon={<IconChart size={19} color={colors.amberDeep} />}
+                iconBg="#FEF3C7"
+                title="Pricing rules"
+                subtitle="How much branch owners may change prices"
+                onPress={() => navigation.navigate('BusinessRules')}
+              />
+              <EdgeRow
+                icon={<IconSettings size={19} color={colors.slateDeep} />}
+                title="HQ settings"
+                subtitle="Business name, admins, update every branch"
                 onPress={() => navigation.navigate('Business')}
               />
             </EdgeGroup>
@@ -496,8 +543,8 @@ export function MoreScreen({ navigation }: Props) {
               <EdgeRow
                 icon={<IconSettings size={19} color={colors.amberDeep} />}
                 iconBg="#FEF3C7"
-                title="Services & prices"
-                subtitle="Price list and staff commission"
+                title="This branch’s prices"
+                subtitle="Its price list and staff commission"
                 onPress={() => navigation.navigate('Settings')}
               />
               <EdgeRow
@@ -582,7 +629,7 @@ export function MoreScreen({ navigation }: Props) {
           />
         </EdgeGroup>
 
-        <Text style={styles.version}>Mana Wash Partner · v{APP_VERSION}</Text>
+        <Text style={styles.version}>Sri Mana Wash Partner · v{APP_VERSION}</Text>
       </ScrollView>
 
       <EditProfileSheet visible={profileOpen} onClose={() => setProfileOpen(false)} />

@@ -42,6 +42,9 @@ export interface ReportExportPayload {
     expenses: number;
     planIncome?: number;
     planPayments?: number;
+    doorstepWashes?: number;
+    doorstepRevenue?: number;
+    communityWashes?: number;
     net: number;
   };
   previous?: {
@@ -209,7 +212,7 @@ function hourLabel(h: number): string {
 
 async function loadLogoBytes(): Promise<Uint8Array | null> {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-unsafe-argument
     const asset = Image.resolveAssetSource(require('../assets/mana-mark-dark.png'));
     if (!asset?.uri) return null;
     const res = await fetch(asset.uri);
@@ -617,7 +620,7 @@ export async function buildReportPdf(
     { label: 'Revenue', value: money(stats.revenue), accent: INDIGO },
     { label: 'Expenses', value: money(stats.expenses), accent: AMBER },
     { label: 'Net', value: money(stats.net), accent: stats.net < 0 ? DANGER : TEAL },
-    { label: 'Washes', value: String(stats.carsWashed), accent: WATER },
+    { label: 'Washes', value: String(stats.carsWashed + (stats.communityWashes ?? 0)), accent: WATER },
   ];
   const kpiGap = 10;
   const kpiW = (CONTENT_W - kpiGap * 3) / 4;
@@ -666,6 +669,13 @@ export async function buildReportPdf(
     ['Discounts', money(stats.discounts)],
   ];
   const summaryRight: [string, string][] = [
+    ...((stats.doorstepWashes ?? 0) > 0 || (stats.communityWashes ?? 0) > 0
+      ? ([
+          ['At the shop', String(stats.carsWashed - (stats.doorstepWashes ?? 0))],
+          ['At customers’ homes', `${stats.doorstepWashes ?? 0} · ${money(stats.doorstepRevenue ?? 0)}`],
+          ['At communities', String(stats.communityWashes ?? 0)],
+        ] as [string, string][])
+      : []),
     ['Avg per vehicle', stats.carsWashed > 0 ? money(avg) : '-'],
     ['In shop now', String(stats.pendingNow)],
     ['New customers', String(stats.newCustomers)],

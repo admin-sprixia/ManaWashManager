@@ -1,6 +1,7 @@
 import {
   beforeCutoff,
   firstWashDay,
+  isUpgradeWash,
   isWashing,
   istDay,
   orderPhase,
@@ -20,6 +21,7 @@ import {
   type OrderPhase,
   type OrderStatus,
   type PayMode,
+  type PlanUpgrade,
   type ScheduleInput,
   type WashPlanRules,
 } from '@mana/domain';
@@ -70,6 +72,43 @@ export async function shopContext(pdb: DbClient, shopId: string) {
 }
 
 export type ShopContext = Awaited<ReturnType<typeof shopContext>>;
+
+/** What a plan order was sold as (its snapshot): the plan's wash and its upgraded wash. */
+export interface SoldPlan {
+  serviceName: string | null;
+  upgrade: (PlanUpgrade & { catalogServiceId: string | null }) | null;
+}
+
+export function soldPlan(snapshot: string): SoldPlan {
+  try {
+    const value = JSON.parse(snapshot) as {
+      items?: { name?: unknown }[];
+      plan?: { upgrade?: { every?: unknown; name?: unknown; catalogServiceId?: unknown } | null } | null;
+    };
+    const up = value?.plan?.upgrade;
+    const first = value?.items?.[0]?.name;
+    return {
+      serviceName: typeof first === 'string' ? first : null,
+      upgrade:
+        up && typeof up.every === 'number' && typeof up.name === 'string'
+          ? { every: up.every, name: up.name, catalogServiceId: typeof up.catalogServiceId === 'string' ? up.catalogServiceId : null }
+          : null,
+    };
+  } catch {
+    return { serviceName: null, upgrade: null };
+  }
+}
+
+/**
+ * Which wash wash number `washNo` of a plan order is: null for plans where every wash is the
+ * same, else its name and whether it's the upgraded one ("Wash 4 of 4: Premium").
+ */
+export function planWashOf(snapshot: string, washNo: number): { name: string; upgraded: boolean } | null {
+  const sold = soldPlan(snapshot);
+  if (!sold.upgrade) return null;
+  const upgraded = isUpgradeWash(washNo, sold.upgrade);
+  return { name: upgraded ? sold.upgrade.name : (sold.serviceName ?? 'Regular wash'), upgraded };
+}
 
 // ─── Where an order stands ───────────────────────────────────────────────────
 

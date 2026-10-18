@@ -57,16 +57,16 @@ export const SIGNUP_CODES_PER_IP_PER_HOUR = 20;
 export const MAX_BRANCHES_PER_PERSON = 10;
 
 /**
- * Every branch has a code from its town: the town's 3-letter code and a number, KVR-01, KVR-02,
- * NLR-01. HQ picks the town code when opening a branch; the number is the next free one.
+ * Every branch has a code from its town: the town's 3-letter code and a number, KVR-001, KVR-002,
+ * HYD-001. The app gives the town its code (branchTowns.ts); the number is the next free one.
  */
 export function isValidTownCode(code: string): boolean {
   return /^[A-Z]{3}$/.test(code);
 }
 
-/** "KVR", 1 → "KVR-01". */
+/** "KVR", 1 → "KVR-001". */
 export function branchCode(townCode: string, n: number): string {
-  return `${townCode}-${String(n).padStart(2, '0')}`;
+  return `${townCode}-${String(n).padStart(3, '0')}`;
 }
 
 export type PinProblem = 'format' | 'too_short' | 'repeated' | 'sequence';

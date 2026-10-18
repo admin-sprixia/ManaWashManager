@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import Svg, { ClipPath, Defs, G, LinearGradient, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { colors } from '../theme';
-import { BRAND_MARK, BRAND_MARK_BOX } from './BrandMark';
+import { BRAND_MARK, BRAND_MARK_BOX, BRAND_SRI, BRAND_SRI_GOLD } from './BrandMark';
 
 /**
  * The opening animation of both apps, on the app icon's night-indigo tile:
@@ -19,6 +19,7 @@ import { BRAND_MARK, BRAND_MARK_BOX } from './BrandMark';
  * - the drop's outline draws itself from the tip down both sides, the arms rise from the bottom,
  *   and the centre line draws down from its tip;
  * - the glass fills in, a light sweeps across it, and a glint lands on top;
+ * - శ్రీ (Sri) rises in sandalwood gold, as on the printed card;
  * - MANA writes itself letter by letter in the logo's line lettering, then the product line rises.
  * Then it fades away over the app. A tap skips ahead, and with "Remove animations" on it simply
  * shows the finished logo for a moment.
@@ -45,6 +46,7 @@ const T = {
   gloss: [1550, 2100],
   sweep: [1800, 2500],
   glint: [2300, 2900],
+  sri: [1350, 1950],
   word: [1600, 120, 520], // start, stagger per letter, duration per letter
   product: [2300, 2800],
   // The app starts mounting underneath once the lines are drawn: line drawing runs on the JS
@@ -296,7 +298,10 @@ export function SplashIntro({ product, onReveal, onDone }: SplashIntroProps) {
   const wordStroke = 13; // glyph units — a touch finer than the printed logo, for the screen
   const productStroke = Math.max(1.4, productCap * 0.13) / pk;
   const groupWidth = Math.max(markSize, wordPx + wordStroke * k);
-  const groupHeight = markSize + cap * 0.62 + cap + productCap * 1.9 + productCap;
+  // శ్రీ stands between the drop and MANA, a little taller than MANA's capitals (as on the card).
+  const sriHeight = cap * 1.5;
+  const sriWidth = sriHeight * BRAND_SRI.aspect;
+  const groupHeight = markSize + cap * 0.5 + sriHeight + cap * 0.42 + cap + productCap * 1.9 + productCap;
   const glowSize = markSize * 3.1;
 
   // ─── Native-driven ──────────────────────────────────────────────────────
@@ -319,6 +324,8 @@ export function SplashIntro({ product, onReveal, onDone }: SplashIntroProps) {
     inputRange: [0, 1],
     outputRange: ['-30deg', '60deg'],
   });
+  const sriOpacity = seg(clock, T.sri, 0, 1);
+  const sriRise = seg(clock, T.sri, 10, 0, settle);
   const productOpacity = seg(clock, T.product, 0, 1);
   const productRise = seg(clock, T.product, 8, 0, settle);
   const starDrift = seg(clock, [0, T.exitAt], 0, -10, Easing.linear);
@@ -351,7 +358,7 @@ export function SplashIntro({ product, onReveal, onDone }: SplashIntroProps) {
     <Animated.View
       style={[StyleSheet.absoluteFill, styles.root, { opacity: screenOpacity }]}
       accessible
-      accessibilityLabel={`MANA ${product.toLowerCase()}`}
+      accessibilityLabel={`Sri MANA ${product.toLowerCase()}`}
     >
       <StatusBar barStyle="light-content" backgroundColor={SPLASH_TOP} />
       <Pressable style={StyleSheet.absoluteFill} onPress={skip} accessible={false}>
@@ -582,8 +589,22 @@ export function SplashIntro({ product, onReveal, onDone }: SplashIntroProps) {
                 </Animated.View>
               </Animated.View>
 
+              {/* శ్రీ, in the card's gold. */}
+              <Animated.View style={{ marginTop: cap * 0.5, opacity: sriOpacity, transform: [{ translateY: sriRise }] }}>
+                <Svg width={sriWidth} height={sriHeight} viewBox={BRAND_SRI.viewBox}>
+                  <Defs>
+                    <LinearGradient id="splashSri" x1="0" y1="0" x2="0" y2="1">
+                      <Stop offset="0" stopColor={BRAND_SRI_GOLD[0]} />
+                      <Stop offset="0.55" stopColor={BRAND_SRI_GOLD[1]} />
+                      <Stop offset="1" stopColor={BRAND_SRI_GOLD[2]} />
+                    </LinearGradient>
+                  </Defs>
+                  <Path d={BRAND_SRI.d} fill="url(#splashSri)" />
+                </Svg>
+              </Animated.View>
+
               {/* MANA, written in the logo's line lettering. */}
-              <View style={{ marginTop: cap * 0.62 }}>
+              <View style={{ marginTop: cap * 0.42 }}>
                 <Svg
                   width={wordPx + wordStroke * k}
                   height={cap + wordStroke * k}

@@ -1,7 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
   LayoutAnimation,
   Linking,
   Pressable,
@@ -32,9 +31,9 @@ import {
   shadow,
   spacing,
   typography,
+  VehicleArt,
 } from '@mana/ui';
 import { StatusBadge } from '../components/StatusBadge';
-import { vehicleImageFor } from '../components/VehicleTypeIcon';
 import { PlateBadge } from '../components/newWash/Highlight';
 import { api } from '../api/client';
 import { buildWhatsAppLink, formatRelativeDate, formatRupees } from '../utils/format';
@@ -482,7 +481,7 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
                   key={v.id}
                   style={[styles.vehicleRow, index < vehicles.length - 1 && styles.rowBorder]}
                 >
-                  <Image source={vehicleImageFor(v.vehicleType.name)} style={styles.vehicleThumb} />
+                  <VehicleArt name={v.vehicleType.name} style={styles.vehicleThumb} />
                   <View style={styles.vehicleCopy}>
                     {walkIn ? (
                       <Text style={styles.walkIn}>Walk-in</Text>

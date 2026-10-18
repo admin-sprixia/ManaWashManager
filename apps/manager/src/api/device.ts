@@ -7,7 +7,7 @@ import * as Keychain from 'react-native-keychain';
  * WhatsApp code. Made once and kept through sign-outs; only the server's hash of it is stored
  * there. Reinstalling the app makes a new one, which counts as a new phone.
  */
-const DEVICE_SERVICE = 'com.sprixia.manawashpartner.device';
+const DEVICE_SERVICE = 'com.sprixia.srimanawashpartner.device';
 const DEVICE_KEY_FALLBACK = 'mana.device_key';
 
 let cached: string | undefined;

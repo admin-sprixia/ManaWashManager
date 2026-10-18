@@ -1,5 +1,7 @@
 import {
   addDaysTo,
+  BRANCH_SERVICES_SELECT,
+  branchServicesOf,
   beforeCutoff,
   cancelRefund,
   dayDiff,
@@ -8,6 +10,7 @@ import {
   formatClock,
   installmentPlan,
   isDueOn,
+  isUpgradeWash,
   isWashing,
   istDay,
   joinDecision,
@@ -43,6 +46,7 @@ import {
   placeFail,
   scheduleOf,
   shopContext,
+  soldPlan,
 } from './placeShared';
 
 /**
@@ -115,13 +119,22 @@ function priceChoice(menu: PlaceMenu, rules: WashPlanRules, vehicleTypeId: strin
     if (!plan) return placeFail('invalid', 'This plan isn’t available any more. Pick again.');
     const price = plan.prices.find((p) => p.vehicleTypeId === vehicleTypeId);
     if (!price) return placeFail('not_allowed', `The team here doesn’t wash a ${type.name} on the ${plan.name} plan.`);
+    const upgrade = plan.upgrade;
     return {
       kind: 'plan',
       planId: plan.id,
-      title: `${plan.name} · ${plan.serviceName}`,
+      title: `${plan.name} · ${upgrade ? `${plan.serviceName} + ${upgrade.name}` : plan.serviceName}`,
       snapshot: JSON.stringify({
         vehicleType,
-        plan: { id: plan.id, name: plan.name, washes: plan.washes, months: plan.months, discountBp: plan.discountBp },
+        plan: {
+          id: plan.id,
+          name: plan.name,
+          washes: plan.washes,
+          months: plan.months,
+          discountBp: plan.discountBp,
+          upgrade,
+          listTotal: price.listTotal,
+        },
         items: [{ name: plan.serviceName, price: price.perWash }],
         priceMode: menu.priceMode,
         rules: ruleSnapshot,
@@ -321,6 +334,10 @@ export const placeOrderRepo = {
       select: { id: true, shopId: true, status: true, stage: true, washDays: true, capacity: true, needsApproval: true, label: true },
     });
     if (!place || place.status === 'closed' || place.stage !== 'live') return placeFail('not_found', 'This place isn’t served any more.');
+    const branchServices = await pdb.shop.findUnique({ where: { id: place.shopId }, select: BRANCH_SERVICES_SELECT });
+    if (!branchServices || !branchServicesOf(branchServices).live.community) {
+      return placeFail('not_allowed', 'This branch isn’t taking community members right now.');
+    }
     if (place.status !== 'active') return placeFail('not_allowed', `We’ve paused washes at ${place.label} for now.`);
     if (!input.vehicles.length || input.vehicles.length > MAX_VEHICLES_PER_JOIN) {
       return placeFail('invalid', `Add between 1 and ${MAX_VEHICLES_PER_JOIN} vehicles.`);
@@ -420,7 +437,9 @@ export const placeOrderRepo = {
       : [];
     if (new Set(vehicleIds).size !== vehicleIds.length) return placeFail('invalid', 'The same vehicle is in the list twice.');
 
-    const menu = await planRepo.menu(pdb, shopId, shop.businessId, rules.priceMode);
+    const full = await planRepo.menu(pdb, shopId, shop.businessId, rules.priceMode, place.id);
+    // Customers joining in the app can't buy what HQ keeps for staff to sell.
+    const menu = input.via === 'staff' ? full : { ...full, services: full.services.filter((s) => s.showInApp) };
     const counter = await loadCounter(db, place);
     const orders: { id: string; title: string; total: number; dueNow: number; firstWashOn: string | null; status: string; kind: string }[] = [];
     for (const v of input.vehicles) {
@@ -694,7 +713,7 @@ export const placeOrderRepo = {
     if (existing) return placeFail('conflict', 'This plan is already renewed.');
     const pdb = createPlatformDb(d1);
     const { shop, rules } = await shopContext(pdb, shopId);
-    const menu = await planRepo.menu(pdb, shopId, shop.businessId, rules.priceMode);
+    const menu = await planRepo.menu(pdb, shopId, shop.businessId, rules.priceMode, o.member.placeId);
     const priced = priceChoice(menu, rules, o.memberVehicle.vehicleTypeId, { kind: 'plan', planId: o.planId, payMode });
     const today = istDay(now);
     const after = o.status === 'active' ? predictedLastWash(scheduleOf(o, parseWashDays(o.member.place.washDays), today), today) : null;
@@ -846,17 +865,29 @@ export const placeOrderRepo = {
     const pdb = createPlatformDb(d1);
     const { rules } = await shopContext(pdb, shopId);
     const planIds = [...new Set(orders.map((o) => o.planId).filter((id): id is string => !!id))];
-    const plans = await pdb.washPlan.findMany({ where: { id: { in: planIds } }, select: { id: true, catalogServiceId: true } });
+    const plans = await pdb.washPlan.findMany({ where: { id: { in: planIds } }, select: { id: true, catalogServiceId: true, shopUse: true } });
+    const sold = new Map(orders.map((o) => [o.id, soldPlan(o.snapshot)]));
+    const catalogIds = [
+      ...plans.map((p) => p.catalogServiceId),
+      ...[...sold.values()].map((s) => s.upgrade?.catalogServiceId).filter((id): id is string => !!id),
+    ];
     const services = await db.service.findMany({
-      where: { catalogServiceId: { in: plans.map((p) => p.catalogServiceId) }, active: true },
+      where: { catalogServiceId: { in: [...new Set(catalogIds)] }, active: true },
       select: { id: true, name: true, catalogServiceId: true },
     });
     const today = istDay(now);
     return orders.map((o) => {
-      const catalogId = plans.find((p) => p.id === o.planId)?.catalogServiceId;
+      const upgrade = sold.get(o.id)?.upgrade;
+      const catalogId =
+        upgrade?.catalogServiceId && isUpgradeWash(o.washesUsed + 1, upgrade)
+          ? upgrade.catalogServiceId
+          : plans.find((p) => p.id === o.planId)?.catalogServiceId;
       const service = services.find((s) => s.catalogServiceId === catalogId) ?? null;
       const snapshot = parseSnapshot(o.snapshot);
-      const usable = shopWashProblem(o, rules, today, service != null);
+      const usable =
+        plans.find((p) => p.id === o.planId)?.shopUse === false
+          ? 'This plan is used at its community only, not at the shop.'
+          : shopWashProblem(o, rules, today, service != null);
       return {
         orderId: o.id,
         placeName: o.member.place.name || o.member.place.label,
@@ -894,6 +925,8 @@ export const placeOrderRepo = {
     }
     const today = istDay(input.now);
     const { rules } = await shopContext(createPlatformDb(d1), shopId);
+    const plan = o.planId ? await createPlatformDb(d1).washPlan.findUnique({ where: { id: o.planId }, select: { shopUse: true } }) : null;
+    if (plan?.shopUse === false) return { ok: false, message: 'This plan is used at its community only, not at the shop.' };
     const problem = shopWashProblem(o, rules, today, true);
     if (problem) return { ok: false, message: problem };
     try {

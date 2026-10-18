@@ -1,7 +1,6 @@
 import React from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
-import { colors, typography } from '@mana/ui';
-import { vehicleImageFor } from './VehicleTypeIcon';
+import { StyleSheet, Text, View } from 'react-native';
+import { colors, typography, VehicleArt } from '@mana/ui';
 
 interface VehicleStackProps {
   names: string[];
@@ -19,7 +18,7 @@ export function VehicleStack({ names, size = 32, max = 5 }: VehicleStackProps) {
     <View style={[styles.row, { paddingLeft: size * 0.3 }]}>
       {shown.map((name) => (
         <View key={name} style={[styles.ring, ring]}>
-          <Image source={vehicleImageFor(name)} style={styles.photo} resizeMode="cover" />
+          <VehicleArt name={name} style={styles.photo} />
         </View>
       ))}
       {rest > 0 ? (

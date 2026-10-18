@@ -8,7 +8,7 @@ import { payableFirstWash, placeFail, shopContext } from './placeShared';
 /**
  * Customer payments for plans and place washes: Razorpay only (or the local test checkout). One
  * row per attempt to pay one part; money rows are never edited, a refund adds to `refunded`.
- * Receipt numbers (MW-<branch code>/<FY>/<n>, e.g. MW-KVR-01/26-27/00001) are taken in the same batch that marks the payment
+ * Receipt numbers (MW-<branch code>/<FY>/<n>, e.g. MW-KVR-001/26-27/00001) are taken in the same batch that marks the payment
  * paid, so they never skip or repeat.
  */
 

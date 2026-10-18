@@ -32,23 +32,17 @@ import {
   spacing,
   typography,
 } from '@mana/ui';
-import {
-  PRICE_BOOK_NAME_MAX,
-  isValidTownCode,
-  isValidPhone,
-  normalizePhone,
-} from '@mana/domain';
-import { api, apiErrorMessage } from '../../api/client';
+import { PRICE_BOOK_NAME_MAX } from '@mana/domain';
+import { api } from '../../api/client';
 import { formatRupees } from '../../utils/format';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
-import { failure, formatPercent, useCatalog, type Catalog } from './shared';
+import { formatPercent, plural, useCatalog, type Catalog } from './shared';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BusinessBranches'>;
-type Branch = Catalog['branches'][number];
 type Book = Catalog['priceBooks'][number];
 type Overview = InferResponseType<(typeof api)['business']['overview']['$get'], 200>;
 
-const NO_ZONE = 'none';
+const NO_BOOK = 'none';
 
 const HERO_ALERT = ['#F59E0B', '#D97706', '#92400E'] as const;
 const HERO_OK = ['#0F766E', '#0B4F4A', '#062B28'] as const;
@@ -66,10 +60,6 @@ function statusTone(status: string): { label: string; fg: string; bg: string } {
   if (status === 'paused') return { label: 'Paused', fg: colors.amberDeep, bg: '#FEF3C7' };
   if (status === 'closed') return { label: 'Closed', fg: colors.slateDeep, bg: '#F1F5F9' };
   return { label: 'Open', fg: colors.tealDeep, bg: '#CCFBF1' };
-}
-
-function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
 /** Today's and this month's numbers for every branch; quietly left out when offline. */
@@ -99,7 +89,6 @@ export function BranchesScreen({ navigation }: Props) {
   const { catalog, error, load, run } = useCatalog();
   const { overview, reload: reloadOverview } = useOverview();
   const [book, setBook] = useState<Book | 'new' | null>(null);
-  const [opening, setOpening] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   if (!catalog) {
@@ -123,7 +112,6 @@ export function BranchesScreen({ navigation }: Props) {
   const defaultBook = catalog.priceBooks.find((b) => b.isDefault);
   const bookName = (id: string | null) =>
     (id ? catalog.priceBooks.find((b) => b.id === id)?.name : defaultBook?.name) ?? 'Default';
-  const zoneOf = (id: string | null) => (id ? catalog.zones.find((z) => z.id === id) : undefined);
   const numbersOf = (id: string) => overview?.branches.find((b) => b.id === id);
 
   const live = overview?.branches.filter((b) => b.status !== 'closed') ?? [];
@@ -189,7 +177,7 @@ export function BranchesScreen({ navigation }: Props) {
           onBack={() => navigation.goBack()}
           right={
             <Pressable
-              onPress={() => setOpening(true)}
+              onPress={() => navigation.navigate('OpenBranch')}
               style={({ pressed }) => [styles.addBtn, pressed && styles.pressed]}
               accessibilityRole="button"
               accessibilityLabel="Open a branch"
@@ -265,7 +253,6 @@ export function BranchesScreen({ navigation }: Props) {
         </Text>
         <View style={styles.band}>
           {catalog.branches.map((b, i) => {
-            const zone = zoneOf(b.priceZoneId);
             const numbers = numbersOf(b.id);
             const tone = statusTone(b.status);
             const meta = [
@@ -274,7 +261,6 @@ export function BranchesScreen({ navigation }: Props) {
               b.city,
               b.owners.length ? b.owners.map((o) => o.name).join(', ') : 'No owner',
               `${bookName(b.priceBookId)} prices`,
-              zone ? `${zone.name} ${formatPercent(zone.percentBp)}` : null,
             ]
               .filter(Boolean)
               .join(' · ');
@@ -386,19 +372,6 @@ export function BranchesScreen({ navigation }: Props) {
         <View style={styles.bottomPad} />
       </ScrollView>
 
-      <OpenBranchSheet
-        visible={opening}
-        onClose={() => setOpening(false)}
-        onOpened={(opened, ownerPhone) => {
-          setOpening(false);
-          void load();
-          showAlert(
-            `${opened.name} is open`,
-            `Branch code ${opened.code}. The owner signs in with ${ownerPhone} and a WhatsApp code, then sets their own PIN.`,
-          );
-          navigation.navigate('BusinessBranch', { branchId: opened.id });
-        }}
-      />
       <BookSheet
         catalog={catalog}
         book={book === 'new' ? null : book}
@@ -428,97 +401,6 @@ export function BranchesScreen({ navigation }: Props) {
   );
 }
 
-function OpenBranchSheet({
-  visible,
-  onClose,
-  onOpened,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  onOpened: (branch: { id: string; code: string; name: string }, ownerPhone: string) => void;
-}) {
-  const [town, setTown] = useState('');
-  const [townCode, setTownCode] = useState('');
-  const [ownerName, setOwnerName] = useState('');
-  const [ownerPhone, setOwnerPhone] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!visible) return;
-    setTown('');
-    setTownCode('');
-    setOwnerName('');
-    setOwnerPhone('');
-    setErr(null);
-    setBusy(false);
-  }, [visible]);
-
-  const phone = normalizePhone(ownerPhone);
-  const open = async () => {
-    if (town.trim().length < 2) return setErr('Enter the town.');
-    if (!isValidTownCode(townCode)) return setErr('Town code is 3 letters, like KVR.');
-    if (!ownerName.trim()) return setErr('Enter the owner’s name.');
-    if (!isValidPhone(phone)) return setErr('Enter the owner’s 10-digit mobile number.');
-    setBusy(true);
-    setErr(null);
-    try {
-      const res = await api.business.branches.$post({
-        json: { town: town.trim(), townCode, ownerName: ownerName.trim(), ownerPhone: phone },
-      });
-      if (!res.ok) {
-        setErr(await apiErrorMessage(res, 'Couldn’t open the branch.'));
-        return;
-      }
-      onOpened(await res.json(), phone);
-    } catch (e) {
-      setErr(failure(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <BottomSheet
-      visible={visible}
-      onClose={onClose}
-      dismissable={!busy}
-      title="Open a branch"
-      subtitle="It gets the Mana Wash menu and prices straight away."
-      footer={<Button label="Open branch" size="lg" loading={busy} onPress={() => void open()} />}
-    >
-      <TextField label="Town" placeholder="Kovur" value={town} onChangeText={setTown} maxLength={40} autoCapitalize="words" />
-      <TextField
-        label="Town code"
-        placeholder="KVR"
-        value={townCode}
-        onChangeText={(t) => setTownCode(t.replace(/[^a-zA-Z]/g, '').toUpperCase())}
-        maxLength={3}
-        autoCapitalize="characters"
-        hint="3 letters. The branch gets the next code in the town: KVR-01, then KVR-02."
-      />
-      <TextField
-        label="Owner’s name"
-        placeholder="Ravi Kumar"
-        value={ownerName}
-        onChangeText={setOwnerName}
-        maxLength={60}
-        autoCapitalize="words"
-      />
-      <TextField
-        label="Owner’s mobile number"
-        placeholder="98765 43210"
-        value={ownerPhone}
-        onChangeText={setOwnerPhone}
-        keyboardType="phone-pad"
-        maxLength={14}
-        hint="They sign in with this number and a WhatsApp code, then set their own PIN."
-      />
-      {err ? <Text style={styles.error}>{err}</Text> : null}
-    </BottomSheet>
-  );
-}
-
 function BookSheet({
   catalog,
   book,
@@ -535,7 +417,7 @@ function BookSheet({
   onDelete?: () => void;
 }) {
   const [name, setName] = useState('');
-  const [copyFrom, setCopyFrom] = useState(NO_ZONE);
+  const [copyFrom, setCopyFrom] = useState(NO_BOOK);
   const [makeDefault, setMakeDefault] = useState<'yes' | 'no'>('no');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -543,7 +425,7 @@ function BookSheet({
   useEffect(() => {
     if (!visible) return;
     setName(book?.name ?? '');
-    setCopyFrom(catalog.priceBooks.find((b) => b.isDefault)?.id ?? NO_ZONE);
+    setCopyFrom(catalog.priceBooks.find((b) => b.isDefault)?.id ?? NO_BOOK);
     setMakeDefault(book?.isDefault ? 'yes' : 'no');
     setErr(null);
     setBusy(false);
@@ -555,7 +437,7 @@ function BookSheet({
     setErr(null);
     const message = await onSave({
       name: name.trim(),
-      copyFrom: copyFrom === NO_ZONE ? null : copyFrom,
+      copyFrom: copyFrom === NO_BOOK ? null : copyFrom,
       makeDefault: !book?.isDefault && makeDefault === 'yes',
     });
     setBusy(false);
@@ -601,7 +483,7 @@ function BookSheet({
         <ChoiceChips
           label="Start from"
           options={[
-            { value: NO_ZONE, label: 'Empty' },
+            { value: NO_BOOK, label: 'Empty' },
             ...catalog.priceBooks.map((b) => ({ value: b.id, label: `A copy of ${b.name}` })),
           ]}
           value={copyFrom}

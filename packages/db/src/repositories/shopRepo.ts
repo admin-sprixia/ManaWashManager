@@ -23,6 +23,16 @@ export const shopRepo = {
       name: string;
       city: string | null;
       businessId?: string | null;
+      townId?: string | null;
+      pincode?: string | null;
+      latitude?: number | null;
+      longitude?: number | null;
+      allowHub?: boolean;
+      allowCommunity?: boolean;
+      allowDoorstep?: boolean;
+      offerHub?: boolean;
+      offerCommunity?: boolean;
+      offerDoorstep?: boolean;
     },
   ) {
     return db.shop.create({ data });

@@ -25,7 +25,7 @@ export const MAX_PLACE_PHOTOS = 12;
 export const PLACE_NOTES_MAX = 500;
 export const CONTACT_NAME_MAX = 60;
 export const REVIEW_NOTE_MAX = 300;
-export const MAX_PROPOSED_SLOTS = 3;
+export const MAX_PROPOSED_SLOTS = 5;
 export const MAX_PLACE_TEAM = 20;
 export const INSPECTION_COUNT_MAX = 999;
 /** Requests from one spot that make it worth visiting to start a community there. */

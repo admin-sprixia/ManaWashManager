@@ -19,3 +19,6 @@ export * from './serviceNetwork';
 export * from './places';
 export * from './communities';
 export * from './washPlans';
+export * from './branchTowns';
+export * from './branchServices';
+export * from './doorstepPricing';

@@ -2,13 +2,17 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api, send } from '../api/client';
 import { errorMessage } from '../api/errors';
+import type { VehicleModelEdit } from '@mana/domain';
 import type { Branch } from '../api/types';
 
 const CACHE_KEY = 'manawash.branches';
+const MODELS_KEY = 'manawash.vehicleModels';
 
 interface BranchesValue {
   /** Every branch in the app, last good copy (from this phone's cache until the network answers). */
   branches: Branch[];
+  /** Head office's changes to the list of companies and models (for adding a vehicle). */
+  vehicleModels: VehicleModelEdit[];
   loading: boolean;
   error: string | null;
   reload: () => Promise<void>;
@@ -23,6 +27,7 @@ const BranchesContext = createContext<BranchesValue | null>(null);
  */
 export function BranchesProvider({ children }: { children: React.ReactNode }) {
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [vehicleModels, setVehicleModels] = useState<VehicleModelEdit[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,8 +35,10 @@ export function BranchesProvider({ children }: { children: React.ReactNode }) {
     try {
       const body = await send(api.branches.$get());
       setBranches(body.branches);
+      setVehicleModels(body.vehicleModels);
       setError(null);
       await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(body.branches)).catch(() => undefined);
+      await AsyncStorage.setItem(MODELS_KEY, JSON.stringify(body.vehicleModels)).catch(() => undefined);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -51,6 +58,11 @@ export function BranchesProvider({ children }: { children: React.ReactNode }) {
             setLoading(false);
           }
         }
+        const models = await AsyncStorage.getItem(MODELS_KEY);
+        if (models && !cancelled) {
+          const parsed: unknown = JSON.parse(models);
+          if (Array.isArray(parsed)) setVehicleModels(parsed as VehicleModelEdit[]);
+        }
       } catch {
         // A broken cache just means waiting for the network.
       }
@@ -62,8 +74,8 @@ export function BranchesProvider({ children }: { children: React.ReactNode }) {
   }, [reload]);
 
   const value = useMemo<BranchesValue>(
-    () => ({ branches, loading, error, reload, byId: (id) => branches.find((b) => b.id === id) }),
-    [branches, loading, error, reload],
+    () => ({ branches, vehicleModels, loading, error, reload, byId: (id) => branches.find((b) => b.id === id) }),
+    [branches, vehicleModels, loading, error, reload],
   );
   return <BranchesContext.Provider value={value}>{children}</BranchesContext.Provider>;
 }

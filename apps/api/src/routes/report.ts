@@ -2,12 +2,13 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { expenseRepo, jobRepo, opsRepo } from '@mana/db';
 import { daysWorked, EXPENSE_CATEGORY_LABEL, type AttendanceStatus, type ExpenseCategory } from '@mana/domain';
+import { cashHeldNow } from '../lib/cashHeld';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { reportQuerySchema, resolveReportWindow, windowMeta } from '../lib/reportWindow';
 import type { Env } from '../types';
 import { windowDates } from './shop';
 
-type AuditKind = 'job_void' | 'payment_change' | 'expense_void' | 'expense_edit';
+type AuditKind = 'job_void' | 'payment_change' | 'expense_void' | 'expense_edit' | 'handover_undo' | 'drawer_reopen';
 
 interface AuditItem {
   id: string;
@@ -31,8 +32,11 @@ const EDIT_FIELD_LABEL: Record<string, string> = {
   unit: 'Unit',
   description: 'Note',
   paymentMethod: 'Paid with',
+  cashSource: 'Paid from',
   date: 'Date',
 };
+
+const CASH_SOURCE_LABEL: Record<string, string> = { drawer: 'Shop cash box', held: 'Doorstep cash' };
 
 /** "Amount: ₹1,200" — one side of an expense edit, readable in the corrections feed. */
 function describeChange(field: string, value: unknown): string {
@@ -40,6 +44,7 @@ function describeChange(field: string, value: unknown): string {
   if (value == null || value === '') return `${label}: —`;
   if (field === 'amount' && typeof value === 'number') return `${label}: ₹${(value / 100).toLocaleString('en-IN')}`;
   if (field === 'category') return `${label}: ${EXPENSE_CATEGORY_LABEL[value as ExpenseCategory] ?? String(value)}`;
+  if (field === 'cashSource') return `${label}: ${CASH_SOURCE_LABEL[String(value)] ?? String(value)}`;
   return `${label}: ${String(value)}`;
 }
 
@@ -55,9 +60,11 @@ export const reportRoutes = new Hono<{ Bindings: Env }>()
     if ('error' in window) return c.json({ error: window.error }, 400);
 
     const { fromDate, toDate } = windowDates(window.from, window.to);
-    const [rows, attendance] = await Promise.all([
+    const [rows, attendance, held, short] = await Promise.all([
       jobRepo.getStaffStats(db, window.from, window.to),
       opsRepo.listAttendance(db, fromDate, toDate),
+      cashHeldNow(db),
+      opsRepo.handoverShortByCollector(db, window.from, window.to),
     ]);
     const statusesByUser = new Map<string, AttendanceStatus[]>();
     for (const a of attendance) {
@@ -71,6 +78,10 @@ export const reportRoutes = new Hono<{ Bindings: Env }>()
         const statuses = statusesByUser.get(r.userId) ?? [];
         return {
           ...r,
+          /** Doorstep cash they hold right now, from any day. */
+          doorstepHeld: held.get(r.userId) ?? 0,
+          /** Doorstep cash they handed in short in this period. */
+          doorstepShort: short.get(r.userId) ?? 0,
           attendance: {
             present: statuses.filter((s) => s === 'present').length,
             half: statuses.filter((s) => s === 'half').length,
@@ -89,11 +100,14 @@ export const reportRoutes = new Hono<{ Bindings: Env }>()
     const window = resolveReportWindow(query);
     if ('error' in window) return c.json({ error: window.error }, 400);
 
-    const [events, voidedExpenses, expenseEdits] = await Promise.all([
+    const [events, voidedExpenses, expenseEdits, undoneHandovers, reopens] = await Promise.all([
       jobRepo.listCorrections(db, window.from, window.to),
       expenseRepo.listVoided(db, window.from, window.to),
       expenseRepo.listEdits(db, window.from, window.to),
+      opsRepo.listVoidedHandovers(db, window.from, window.to),
+      opsRepo.listReopens(db, window.from, window.to),
     ]);
+    const someone = { id: '', name: 'Someone' };
 
     const items: AuditItem[] = [
       ...events.map((e) => ({
@@ -133,6 +147,35 @@ export const reportRoutes = new Hono<{ Bindings: Env }>()
         subtitle: x.expense.itemName ?? x.expense.description ?? 'Expense',
         fromValue: x.changes.map((ch) => describeChange(ch.field, ch.from)).join(' · '),
         toValue: x.changes.map((ch) => describeChange(ch.field, ch.to)).join(' · '),
+        jobId: null,
+      })),
+      ...undoneHandovers.map((h) => ({
+        id: `handover:${h.id}`,
+        kind: 'handover_undo' as AuditKind,
+        at: (h.voidedAt ?? h.createdAt).toISOString(),
+        by: h.voidedBy ?? someone,
+        reason: h.voidReason,
+        amount: h.received,
+        title: `Doorstep cash from ${h.collector}`,
+        subtitle: `Handed in ${h.date}`,
+        fromValue: null,
+        toValue: null,
+        jobId: null,
+      })),
+      ...reopens.map((r) => ({
+        id: `reopen:${r.id}`,
+        kind: 'drawer_reopen' as AuditKind,
+        at: (r.reopenedAt ?? r.closedAt).toISOString(),
+        by: r.reopenedBy ?? someone,
+        reason: r.reopenReason,
+        amount: r.counted ?? 0,
+        title: `Cash drawer ${r.date}`,
+        subtitle:
+          r.counted != null && r.expected != null && r.counted !== r.expected
+            ? `Was closed ${r.counted < r.expected ? 'short' : 'over'} by ₹${(Math.abs(r.counted - r.expected) / 100).toLocaleString('en-IN')}`
+            : 'Was closed matching',
+        fromValue: null,
+        toValue: null,
         jobId: null,
       })),
     ].sort((a, b) => b.at.localeCompare(a.at));

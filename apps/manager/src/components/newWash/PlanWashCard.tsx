@@ -12,6 +12,8 @@ export interface ShopPlan {
   washesTotal: number;
   service: { id: string; name: string } | null;
   problem: string | null;
+  /** A community plan, or one bought at this counter (for this vehicle, one wash a day). */
+  source?: 'community' | 'shop';
 }
 
 interface PlanWashCardProps {

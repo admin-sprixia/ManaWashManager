@@ -8,8 +8,311 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- **Staff report counted money on the wrong day.** Money collected, washes done and commission
+  were counted by when a wash was started, while Reports and the cash drawer count by when it was
+  paid — a car started at night and paid in the morning landed on different days, so a shift's
+  cash didn't reconcile. They now count on the day paid (washes started and voids still by when
+  started); the staff report's cash for a day adds up to Reports' cash. A staff member's own
+  earnings follow the same rule.
+- **Plan washes at the shop counted twice.** A community plan member's wash at the shop also
+  writes a community visit, so the staff report counted it as a shop wash and a community wash.
+  It's now a shop wash only.
+- **Managers showed as "Staff"** on the staff report.
+- **Corrections feed showed "cashSource"** for an expense's Paid from change; it now reads "Paid
+  from: Shop cash box → Doorstep cash".
+- **Switching branch while changes are syncing.** The sync queue noted who was signed in when a
+  round started, but each request read the sign-in at the moment it went out. Switching branch
+  in the middle of a backlog could send the rest of one branch's washes, payments or expenses to
+  the other branch. A sync round now sends everything as the session it started with and stops
+  when the signed-in account changes; the rest waits for that branch. More › Sync also tells your
+  own changes from another branch apart from a teammate's.
+- **Plan washes don't earn loyalty stamps.** A community plan member's wash at the shop was
+  stamping their card although the plan had already paid for it, so plan members earned free
+  washes on top of their plan. The service the plan paid for is now recorded on the wash
+  (`jobs.plan_service_id`, migration `0024_job_plan_service`, past plan washes filled in) and earns
+  no stamp; anything else paid on the same bill still does.
+- **Expenses for a long period.** Opening a period with more than about 99 expenses (This year,
+  a busy month) failed with a server error: the "edited" check sent every id in one query, past
+  D1's 100-value limit. It now goes in slices; `npm run test:expenses` covers 150 entries.
+
+### Added
+
+- **Wash plans at the shop.** A plan can now be sold at the community, the shop, or both (HQ ›
+  Services and plans › Plans › "Where it’s sold"; the service must be done there).
+  - **Selling:** New Wash shows "Sell a plan for KA01AB1234" once the phone and number plate are
+    in. Pick a plan and pay cash, UPI or other; it's a paid bill on Cash and Reports
+    ("plans sold") and isn't counted as a car washed.
+  - **Using:** the vehicle's plan shows up in New Wash with washes left and the end date, and pays
+    for the wash. Rules: one vehicle only (not the owner's other vehicles), only at the branch
+    that sold it, at most one wash a day, and only for its months (bought 31 Jan for a month,
+    it ends 28 Feb). There's no weekly schedule.
+  - **Void:** voiding a plan wash gives the wash back. A plan sale can be voided only while no
+    wash has been used from it.
+  - **Community plans at the shop:** a switch per plan, "A community plan can also pay for a wash
+    at the shop", on by default. Turned off, the plan is used at its community only.
+  - `npm run test:shop-plans` (apps/api) covers selling, using, the one-a-day and branch rules,
+    and voids.
+- **Base prices, redesigned around three ways to buy.** HQ › Base prices has three tabs:
+  - **Hub**: the price per service per size. Every other price starts here.
+  - **Community**: every community price is the hub price with one rule, "X% less than the
+    hub" (all vehicles or one vehicle class), picked with one tap (Same, 5%, 10%, 15%, 20%
+    less). A size can't be given its own community price, so the rule is the only control
+    (the API refuses one). It also holds **volume discount** steps, so bigger
+    communities pay less, e.g. 10+ cars 5% off and 25+ cars 10% off (never more than 10%). A step comes off every
+    wash and plan at that community as people join or renew. Off until HQ adds a step.
+  - **Doorstep**: the **hub price + one visit charge per visit**. The visit charge is a visit
+    fee (₹49), then ₹10 per km after the first 3 km from the branch, up to 15 km, rounded up
+    to end in 9. HQ can add busy-time extras (e.g. +₹30 on Sunday mornings). The tab has a
+    "charge by distance" table and a "Try it" calculator (service, size, distance, time →
+    what the customer pays).
+
+  All of it is editable. The community rule moved here from Pricing rules.
+- **Visit charge in New Wash, measured, never typed.** A doorstep wash shows a Visit charge
+  card. It takes the phone's location as soon as it opens (the team is at the home); nobody
+  types a distance. The bill gets its own "Visit charge" line.
+  - The **server measures it**: from the branch's map pin to the home (road ≈ 1.3 × the
+    straight line). Without the phone's location it uses the customer's saved home (from
+    their last doorstep wash, or where they asked for a wash in the Mana Wash app). With
+    neither, the wash is refused (`location_needed`).
+  - The home is kept on the wash and saved on the customer for next time (migration 0030).
+  - It's charged **once per visit**: a second car for the same customer that day pays none.
+  - Homes beyond the furthest distance are refused.
+  - Coupons and offers come off the services only, not the visit charge.
+  - The distance is kept on the wash (migration 0029).
+- **Customer app:** at-home prices are the shop price, with "+ ₹49 visit charge, and ₹10 a km
+  after 3 km" and the furthest distance shown under them. Joining a community on a volume
+  discount says so ("10% off every price here: 12 vehicles … already wash with us").
+- `npm run test:pricing` (48 checks): community rule, volume discount, visit charge, same
+  visit, too far, discounts, busy times, shop-only and home-only services. Domain tests for the
+  visit charge, ending in 9, busy times and tiers.
+- **Base prices looks new.** Three cards at the top show the same wash at the hub, at a
+  community and at a home. A "how it adds up" strip shows the sum (hub → rule → community;
+  hub + visit = customer pays). The tabs are cards and tiles: visit fee, free distance, per km
+  and furthest; an "End in 9" switch; busy-time cards; visit charge by distance as bars; a
+  price ladder for bigger communities.
+- docs/BACKLOG.md: what we've agreed to do later.
+- docs/PRICE_LIST.md gains **At home and at communities**: how the three prices work and the
+  visit charge by distance, with Basic Wash examples.
+- **Doorstep cash in the cash drawer.** Cash taken at a customer's home stays with the team member
+  who collected it until they hand it in, so the drawer no longer expects it in the box straight
+  away. The drawer adds up the morning cash, plus cash at the shop, plus doorstep cash handed in,
+  minus cash spent. A Doorstep cash card shows what was collected, what was handed in and who still
+  holds cash (carried over from day to day). **Take** records a handover into today's open drawer:
+  all of it, part now with the rest still with them, or short with a reason. Closing while
+  someone still holds cash asks for it first, or "close anyway"; the amount is kept with the close
+  and in history. The owner can undo a mistaken handover while its day is open; undone ones stay on
+  record. Two people taking the same cash at once record it once. Migration `0022_cash_handovers`
+  (past doorstep cash is recorded as handed in that day, so old closes keep their totals);
+  `npm run test:cash`.
+- **Expenses paid from doorstep cash.** A cash expense has **Paid from**: the shop cash box, or
+  "My doorstep cash" for someone holding cash from doorstep washes (petrol on the way, supplies at
+  a customer's). It's still an expense in every report, but it comes off what that person holds,
+  not the drawer, and never more than they hold (checked again when an offline entry syncs; the
+  last known amount is kept on the phone for offline use). Owner edits are checked the same way;
+  switching to UPI or deleting it gives the cash back to what they hold. The Doorstep cash card
+  shows what each person spent. Migration `0023_expense_cash_source`.
+- **Services: create, edit, delete — nothing else.** The editor's time is a number with
+  Minutes / Hours / Days (− / + to adjust, "Takes 1 day 6 hr" under it), up to 30 days (migration
+  `0028_service_duration_days`). What's included is typed with commas: each item turns into a
+  chip as you type (× removes one, backspace on an empty box edits the last); no suggestion chips.
+  "Switch off everywhere" is gone; **Delete service** takes it off the catalog and every
+  branch's menu (past washes keep its name) and is refused while a live wash plan or a combo uses
+  it (`DELETE /business/services/:id`). The Services list shows only services, grouped by vehicle,
+  with kind, time, badge and combo; prices and branch information live in Base prices and the
+  branch pages.
+- **Sizes on each service.** In the service editor, each kind of vehicle picked shows its sizes
+  to tick (cars S · Small … XL · Luxury, bikes Regular / Premium), with the body types in each
+  size underneath. Base prices then asks for prices only for those sizes (the others read "Not"),
+  and branches sell the service only for them, even where another size has a price. A new
+  vehicle brings its sizes that have vehicles in them; every vehicle needs at least one size.
+  Existing services keep the sizes they were priced for (migration `0027_service_sizes`).
+- **HQ switches services on branch by branch.** Adding or changing a service at HQ no longer
+  reaches every branch: a new service starts off everywhere, and HQ switches it on per branch in
+  the branch's new **Services** tab (All branches › a branch; the Hub/Community/Doorstep tab is
+  now **Agreement**). Each service has its own switch, with All on / All off; a combo brings the
+  services it bundles; a service that won't sell yet says why (no prices, or a place the branch
+  doesn't run). Opening a branch has a **Services it sells** step. Switching a service off at
+  HQ still takes it off everywhere; switching it back on returns it to the branches that had it.
+  Services › the list shows "At 1 of 1 branches" / "Not at any branch yet". Copying a branch's
+  menu in keeps those services on at that branch. Existing branches keep everything they sold
+  (migration `0026_branch_menus`, `PUT /business/branches/:id/menu`).
+- **Services and prices apart.** The service editor no longer has prices: services are defined
+  in Services, prices are set in Base prices.
+- **Add / edit service, rebuilt (HQ › Services).** A full screen instead of a sheet:
+  - **Where it's done:** Shop, Community and Doorstep as three ticks in any mix; one tick reads
+    "Shop only" / "Community only" / "Doorstep only". Community and doorstep share the team's price.
+  - **Vehicles:** pick the kinds of vehicle (only those switched on); "Which size is my
+    vehicle?" opens the size guide.
+  - **Combo builder:** tap service cards (with their starting prices) to bundle them.
+  - **Time** (quick picks or minutes), **kind** (Wash, Protection, Add-on), a **What's included**
+    checklist (up to 12 lines, with suggestions), **Show in the customer app** and a **Most
+    popular** badge.
+  - Everything reaches branch menus: New Wash shows the time and badge and doesn't offer a
+    community-only service at the door (the server refuses it too); the customer app shows the
+    time, badge and checklist, hides staff-only services and doesn't sell community-only ones at
+    the door; community menus list only what's done at communities. A plan can't use a service
+    not done at communities, and its service can't stop being done there. Migration
+    `0025_service_details`; `npm run test:services`.
+- **Vehicle size guide (More › Vehicle size guide).** Every company and model we list (1,820)
+  with its body type and size (S, M, L, XL) as head office set them: search by company or model,
+  filter by size, company or body type, a legend of what each size holds, vehicles we don't wash
+  hidden unless asked. For everyone on the team, works offline; also opened from New Wash and
+  the service editor.
+- **The menu is the 7 services only.** The 13 car add-ons, 4 shop-only services and 5 bike extras
+  that were switched off are removed from the catalog (with their prices) and from
+  `npm run db:seed:menu`, so loading the menu again doesn't bring them back. Nothing had used
+  them: no branch menu, plan or wash.
+- **HQ › Services, redone.** Services are grouped by vehicle (Cars, Two-wheelers…), each with its
+  starting price and a "Needs prices" warning when it has none (it can't be sold until it does).
+  "Where it's done" is three clear choices with a line saying what each means: Shop & community,
+  Shop only, Community only (the community team does communities and customers' homes). "For
+  which vehicles" offers only the kinds switched on in Vehicles we wash, and says which sizes it's
+  priced by. "Retired" is now "Switched off" (kept with prices, switch on any time), and moving a
+  service up or down stays within its group. `npm run db:seed:menu` can sign in as any business
+  admin (`MENU_ADMIN_PHONE`, `MENU_ADMIN_PIN`).
+- **Reports: where washes happened.** Reports and the PDF show washes at the shop, at customers'
+  homes (with their money) and at communities (paid by plans); Vehicles washed includes the
+  community ones.
+- **Staff report: doorstep cash.** Each person's doorstep cash held now, and any amount handed in
+  short in the period, with a link to the cash drawer.
+- **Corrections feed: handovers and cash days.** Undone doorstep handovers and reopened cash days
+  are listed with who did it, why, and what the close had counted.
+- **Nobody leaves the team holding doorstep cash.** Removing or switching off a team member who
+  still holds doorstep cash is refused until it's taken (or recorded short) in the cash drawer.
+- `npm run test:reports` (apps/api): Reports, the staff report, the corrections feed, attendance
+  and the team guard, checked by the numbers.
+- `npm run test:stock` (apps/api): inventory end to end — items, use in any matching unit, owner-only
+  adds and counts, never below zero, replays and parallel counts, removed items, other branches.
+- **The printed price menu, exactly.** A base price can have its own community (doorstep) price
+  instead of the doorstep rule (HQ › Base prices has an At the hub / Community switch; empty
+  community cells follow the rule). A wash plan can have its own price per vehicle size, at the
+  hub and at a community (moved by the branch's zone), and can make every Nth wash a better one:
+  Shine is Basic with every 4th wash Premium. The wash-day list shows "Wash 4 of 4 · Premium
+  Wash" and a PREMIUM tag, and a plan used at the shop covers the Premium wash on that visit.
+  Customers see "Save ₹…" against the washes one by one. Migration `0018_menu_prices`.
+- `npm run db:seed:menu` (apps/api) loads the Mana Wash menu into HQ: Express, Basic, Premium,
+  13 add-ons, 4 hub-only services, anti-rust; monthly, 3-month (13 washes) and 12-month
+  (13 months for the price of 12) Express, Basic and Shine plans; ₹1 rounding; menu sizes
+  (compact SUV with sedans, SUV with MUVs). Luxury cars pay 35% more than a big SUV; bikes are
+  re-priced with community about 10% less. Old services and plans are switched off.
+- **Premium bikes.** Two-wheelers have an XL size and a new **Premium bike** body type
+  (Harley-Davidson 750+, Ducati, Hayabusa, big BMW, Triumph and Kawasaki models, Gold Wing,
+  Africa Twin…), about 50% above a sports bike. Autos, vans, pickups, trucks, lorries, tractors
+  and JCBs get Express / Basic (and Premium where it makes sense) prices.
+- **Vehicles we wash.** HQ › Vehicles we wash has an on/off switch for every kind of vehicle and
+  for each group (Cars, Two-wheelers, Three-wheelers, Commercial, Heavy, Farm & machines). A
+  kind switched off disappears from every branch (customers can't pick it, staff can't start a
+  wash, no plans are sold); plans already running carry on, and switching it back on brings back
+  only what HQ hid (`vehicle_types.hq_hidden`, migration `0019_vehicle_switches`). Branch owners
+  can't add a kind HQ switched off. Starts with cars and two-wheelers on.
+- **What each branch offers: Hub, Community, Doorstep.** Head office decides what a branch's
+  agreement allows — when opening it (Open a branch › Services in the agreement) and later (the
+  branch's page › Services); the owner switches those on and off in Shop details › Services,
+  never more. A branch keeps the hub or communities; Doorstep needs the community team (the
+  same team goes to homes); Community can't be switched off or taken away while community
+  plans are running. The branch's hub and community team follow: made at the branch's location
+  the first time, brought back when switched on again, paused when off. Washing at homes was
+  one switch for the whole business; it is now each branch's (HQ › "Washing at single homes" is
+  gone). Customers can't join a community at a branch whose Community is off. Migration
+  `0021_branch_services`; `npm run test:branch-services`.
+- **Branch location.** Shop details › Location shows the branch on a Google map with Open in
+  Google Maps, and the owner can move it (phone location, drag the pin, or paste the numbers);
+  a branch's only hub moves with it.
+- **Branches from a pincode and a pin.** HQ › All branches › Open a branch now asks for the
+  pincode, a pin on the map (drag, GPS or pasted coordinates) and the owner; the town, its code,
+  the branch number and name are worked out by the server from India Post's office list
+  (`post_offices`, loaded by `npm run data:post-offices`). Each town of the business keeps one
+  3-letter code for good (`branch_towns`): big cities their known code (HYD, BLR, MAA, NLR,
+  VGA…), other towns one made from the name that no other town or big city has (Kovur → KVR).
+  Branches are numbered in three digits (KVR-001, KVR-002); older two-digit codes still count.
+  Names never clash ("Kovur Cutchery", "Hyderabad Kukatpally", "Kovur 2", "Kovur (Tiruvallur)").
+  HQ must confirm a branch within 300 m of another, a pin over 25 km from its pincode, a new
+  state and a look-alike town name; a check that appears between the preview and opening sends
+  HQ back to look. Opening is locked per business, so two at once never share a number or code.
+  Branches opened before keep their codes and join their town. Migration `0020_branch_towns`;
+  `npm run test:branch-towns` checks it end to end.
+- `docs/PRICE_LIST.md`: every company and model with its size and hub / community prices, built
+  from the live catalog by `npm run docs:price-list` (apps/api).
+
 ### Changed
 
+- **Plans live with Services.** HQ › Services and plans has a Services | Plans tab bar; the
+  separate Wash plans row under Communities is gone.
+- **HQ wording brought up to date.**
+  - A service's "Where it's done" says how prices work now: one hub price, a community pays it less
+    the community rule, a home adds the visit charge (it used to say community and doorstep share
+    one price).
+  - The plan editor's second price column is "Community ₹" (it read "Doorstep ₹").
+  - A branch's "Plans sold here" knows shop plans: each plan says where it's sold at this branch
+    (at the shop, at communities, or both) and which switch in the agreement it needs.
+  - A branch's price book shows its real name (Standard, not "Default book"), and Metro or Value
+    read "Any branch can use it · 0 branches" instead of "This branch only".
+  - Pricing rules' example names the vehicle and size: "Basic Wash · Car S at ₹499".
+  - Smaller: the Base prices row no longer mentions vehicle sizes (they're in the vehicle size
+    guide), the Services and plans screen is titled so, and a branch with one person reads
+    "1 person".
+- **Mana Wash HQ without the extra screen.** More › Mana Wash HQ now lists All branches,
+  Services and plans, Base prices and Pricing rules directly; the "Business price list" screen in
+  between is gone, with its Branches and "Hub, community and doorstep" rows (both opened All
+  branches, which already shows the price books). The business name, admins, "Update every branch
+  now" and "Copy this branch's menu in" are in **HQ settings**. The owner's own row, "Services &
+  prices", is now **This branch's prices**, so it isn't mixed up with HQ's. Counts read
+  "0 branches", not "0 branchs".
+- **Opening a branch is six steps**, one screen each, with a progress bar, Back and Next (the
+  phone's back button goes back a step): 1 Where it is (pincode, map pin) · 2 The branch (code,
+  name, town and area, checks) · 3 Services in the agreement · 4 Services and plans it sells
+  (every service with a switch, and which plans that sells) · 5 Vehicles it washes (by group and
+  size) · 6 Its owner, with a summary to change any step, then Open branch. Steps 4 and 5 use the
+  same lists as the branch page's Services and Vehicles tabs; the Services tab now shows the
+  plans sold there too.
+- **Each branch washes its own vehicles.** "Vehicles we wash" is gone from the Business price
+  list. What a branch washes is now set per branch (migration 0031; every branch keeps what it
+  washed: Kovur, cars and two-wheelers):
+  - **Opening a branch** has a step "Vehicles it washes" (cars and two-wheelers ticked to start).
+  - **A branch's page** has a **Vehicles** tab: a switch per group and per kind. A kind switched
+    off leaves that branch's New Wash and customer app (plans already sold carry on) and its
+    size guide says "we don't wash these". A group no hub or team takes yet is given to them, so
+    the kind gets prices.
+  - **Which size each kind is priced as** (Compact SUV = M) stays with head office, in the
+    **vehicle size guide** (see below).
+  - The business-wide on/off switch is retired (`PATCH /business/body-types` no longer takes
+    `active`; the bulk switch is removed).
+- **Everything about vehicles is in the vehicle size guide.** Staff look things up; head office
+  gets **Edit guide**:
+  - **Kinds and sizes** for every group: move a kind to another size (its price changes at every
+    branch), rename kinds, sizes and groups.
+  - **Models**: add a new launch, move a model to another kind, rename it, take it off the list,
+    or put a changed or removed one back. Changes show as "Added" / "Changed".
+  - The 1,820 models still ship with the app; head office's changes are kept on the server
+    (migration 0032) and reach the guide on every phone and the customer app's "add your
+    vehicle" (company and model lists, and the suggested vehicle type).
+  - Base prices no longer has the sizes; it's only prices.
+- **No vehicle photos.** The 31 vehicle pictures are gone (6 MB smaller). Vehicles show as a
+  simple bike or car icon everywhere: New Wash, the vehicle picker, customer profiles, the size
+  guide, Vehicles we wash and the customer app. Brand logos and the Mana logo stay. Demo data
+  and the speed report use one plain drawn sample picture instead.
+- **Pricing rules is simpler.** It now holds only what branch owners may do: set their own
+  prices (up to a % more or less, with an example like "Basic Wash at ₹299: an owner can
+  charge ₹239 to ₹359") and stop offering a service. Its link shows where the prices are
+  (Base prices). Removed:
+  - **Price zones** (on the backlog for when branches open in very different towns). The
+    zone picker is gone from a branch's Prices tab.
+  - **The extra on shop prices.** Shop prices are the hub prices; the API refuses one.
+  - **The rounding choice.** Worked-out prices always round to the nearest ₹1.
+- **Home washes use the hub price.** Branch menus give a hub price to every service the team
+  does at homes, even where the shop itself doesn't do it, and to vehicles only the team washes.
+  The shop still doesn't sell those: New Wash leaves them off "At the shop", the customer app
+  doesn't list them at the shop, and the API refuses them (`not_at_shop`). A service done only
+  at the shop or only at communities is refused at homes (`not_at_homes`). A branch's own
+  hand-made services keep their doorstep prices.
+- A community rule can now be a discount: before, "10% less" was raised to ₹0 by the minimum
+  extra. The minimum now only applies to extras.
+- **Sri Mana Wash Partner.** The team app is now named **Sri Mana Wash Partner**, with package
+  `com.sprixia.srimanawashpartner` (was `com.sprixia.manawashpartner`). It installs as a new app,
+  so the team signs in again (WhatsApp code, then PIN). The splash shows శ్రీ above MANA, in the
+  printed card's gold, and the card itself stacks శ్రీ above MANA. The customer app is unchanged.
 - **New app names.** The team app is now **Mana Wash Partner** (package
   `com.sprixia.manawashpartner`, was `com.sprixia.manawashmanager`) and the customer app is
   **Mana Wash** (package and iOS bundle `com.sprixia.manawash`, was `com.sprixia.manacarwash`;

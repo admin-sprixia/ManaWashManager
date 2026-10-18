@@ -29,15 +29,16 @@ import {
 import {
   Button,
   ChoiceChips,
-  EdgePanel,
+  IconAlert,
+  IconEdit,
   IconPlus,
   Notice,
   PhoneField,
   ScreenContainer,
   ScreenHeader,
-  SectionLabel,
   TextField,
   colors,
+  radius,
   showAlert,
   showToast,
   spacing,
@@ -46,10 +47,15 @@ import {
 import { api, apiErrorMessage, uploadPlacePhoto } from '../../api/client';
 import { useAuth } from '../../api/auth';
 import { NetworkError } from '../../api/network';
+import { ScreenHero } from '../../components/ScreenChrome';
+import { SheetNotice } from '../../components/SheetBits';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { pickPhotos } from '../../utils/photoPicker';
 import type { Point } from '../../utils/location';
 import { LocationPicker, PhotoStrip, SlotEditor } from './communityParts';
+import { Checklist, FormSection, StickyActions, WarningList } from './kit';
+import { choiceLabel } from './review/options';
+import { TEAL, TEAL_MIST } from './panel/parts';
 import { failure, useApiData, type PlaceDetail } from './shared';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CommunitySetup'>;
@@ -59,8 +65,6 @@ const options = <T extends string>(labels: Readonly<Record<T, string>>) =>
 const TYPE_OPTIONS = PLACE_TYPES.map((value) => ({ value, label: PLACE_TYPE_LABEL[value] }));
 const KIND_OPTIONS = PLACE_PHOTO_KINDS.map((value) => ({ value, label: PLACE_PHOTO_KIND_LABEL[value] }));
 const NEW_SLOT: ProposedSlot = { days: [6], time: '07:00' };
-const SLOT_TITLES = ['1st choice', '2nd choice', '3rd choice'];
-
 const countText = (n: number | undefined) => (n == null ? '' : String(n));
 const textCount = (t: string) => (t.trim() ? Math.min(999, Number(t.replace(/\D/g, '')) || 0) : undefined);
 
@@ -233,6 +237,18 @@ export function CommunitySetupScreen({ navigation, route }: Props) {
   };
 
   const title = !placeId ? 'New community' : stage === 'live' ? 'Inspection & photos' : 'Community draft';
+  const placeDone = label.trim().length >= PLACE_LABEL_MIN && point != null;
+  const foundDone =
+    inspection.permission != null && inspection.water != null && inspection.parking != null && (inspection.cars != null || inspection.bikes != null);
+  const checklist = [
+    { label: 'Name & gate pin', done: placeDone },
+    { label: 'Photos', done: photos.length > 0 },
+    { label: 'Society’s answer', done: inspection.permission != null },
+    { label: 'Water & parking', done: inspection.water != null && inspection.parking != null },
+    { label: 'Vehicle count', done: inspection.cars != null || inspection.bikes != null },
+    { label: 'Contact number', done: contactPhone.length === 10 },
+    { label: 'Days residents want', done: slots.length > 0 },
+  ];
 
   if (placeId && !place) {
     return (
@@ -259,18 +275,37 @@ export function CommunitySetupScreen({ navigation, route }: Props) {
       </View>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-          <View style={styles.pad}>
-            {place?.setup.reviewNote && stage === 'draft' ? (
-              <Notice tone="warning" title="Sent back by the owner">
-                {place.setup.reviewNote}
-              </Notice>
-            ) : null}
-            {access === 'none' ? <Notice>It’s with the owner for approval. They can send it back if something needs changing.</Notice> : null}
-            {access === 'notes' ? <Notice>This community is live. You can add notes and photos; the owner changes the rest.</Notice> : null}
-          </View>
+          <ScreenHero
+            tone="teal"
+            eyebrow={!placeId ? 'After visiting' : stage === 'live' ? 'Live community' : stage === 'review' ? 'With the owner' : 'Draft'}
+            title={name.trim() || label.trim() || 'A new community'}
+            meta={
+              access === 'notes'
+                ? 'You can add notes and photos. The owner changes the rest.'
+                : access === 'none'
+                  ? 'It’s with the owner for approval. They can send it back if something needs changing.'
+                  : 'Fill in what you saw at the gate. Save any time, then send it to the owner.'
+            }
+            chips={[
+              { label: 'Photos', value: `${photos.length}/${MAX_PLACE_PHOTOS}` },
+              { label: 'Ready', value: `${checklist.filter((c) => c.done).length}/${checklist.length}` },
+              { label: 'Choices', value: slots.length },
+            ]}
+          />
 
-          <SectionLabel>The place</SectionLabel>
-          <EdgePanel style={styles.panel}>
+          {place?.setup.reviewNote && stage === 'draft' ? (
+            <View style={styles.pad}>
+              <WarningList items={[`Owner’s note: ${place.setup.reviewNote}`]} />
+            </View>
+          ) : null}
+
+          {canEdit && stage !== 'live' ? (
+            <View style={styles.checkCard}>
+              <Checklist items={checklist} />
+            </View>
+          ) : null}
+
+          <FormSection step={1} done={placeDone} title="The place" caption="What it’s called and where the gate is.">
             {canEdit ? (
               <>
                 <ChoiceChips label="Kind" options={TYPE_OPTIONS} value={type} onChange={setType} />
@@ -291,10 +326,15 @@ export function CommunitySetupScreen({ navigation, route }: Props) {
                 {PLACE_TYPE_LABEL[type]} · {name || label}
               </Text>
             )}
-          </EdgePanel>
+          </FormSection>
 
-          <SectionLabel right={`${photos.length}/${MAX_PLACE_PHOTOS}`}>Photos</SectionLabel>
-          <EdgePanel style={styles.panel}>
+          <FormSection
+            step={2}
+            done={photos.length > 0}
+            title="Photos"
+            caption="The gate, where cars park, the water point. The first one is shown to customers."
+            right={<Text style={styles.count}>{`${photos.length}/${MAX_PLACE_PHOTOS}`}</Text>}
+          >
             {placeId ? (
               <>
                 {access !== 'none' ? <ChoiceChips label="Next photo shows" options={KIND_OPTIONS} value={photoKind} onChange={setPhotoKind} /> : null}
@@ -305,17 +345,16 @@ export function CommunitySetupScreen({ navigation, route }: Props) {
                   onAdd={access !== 'none' && photos.length < MAX_PLACE_PHOTOS ? () => void addPhoto() : undefined}
                   onRemove={access !== 'none' ? removePhoto : undefined}
                 />
-                <Text style={styles.help}>The gate, where cars park, the water point and the building. The first photo is shown to customers.</Text>
               </>
             ) : (
-              <Text style={styles.help}>Save the draft first, then add photos of the gate, parking and water point.</Text>
+              <TipBandInline>Save the draft first, then add photos of the gate, parking and water point.</TipBandInline>
             )}
-          </EdgePanel>
+          </FormSection>
 
           {canEdit ? (
             <>
-              <SectionLabel>What you found</SectionLabel>
-              <EdgePanel style={styles.panel}>
+              <FormSection step={3} done={foundDone} title="What you found" caption="Answer what you can. The owner reads this before approving.">
+
                 <ChoiceChips label="Did the society agree?" options={options(PERMISSION_LABEL)} value={inspection.permission ?? null} onChange={(v) => set('permission', v)} />
                 <ChoiceChips label="Water" options={options(WATER_LABEL)} value={inspection.water ?? null} onChange={(v) => set('water', v)} />
                 <ChoiceChips label="Power point for the machine" options={options(POWER_LABEL)} value={inspection.power ?? null} onChange={(v) => set('power', v)} />
@@ -344,40 +383,46 @@ export function CommunitySetupScreen({ navigation, route }: Props) {
                   </View>
                 </View>
                 <ChoiceChips label="Best time to wash" options={options(BEST_TIME_LABEL)} value={inspection.bestTime ?? null} onChange={(v) => set('bestTime', v)} />
-              </EdgePanel>
+              </FormSection>
 
-              <SectionLabel>Who to call there</SectionLabel>
-              <EdgePanel style={styles.panel}>
+              <FormSection step={4} done={contactPhone.length === 10} title="Who to call there" caption="The secretary or watchman, for gate access and water.">
                 <TextField label="Secretary or watchman" optional value={contactName} onChangeText={setContactName} maxLength={CONTACT_NAME_MAX} placeholder="Ramesh (secretary)" autoCapitalize="words" />
                 <PhoneField label="Their number" digits={contactPhone} onChangeDigits={setContactPhone} normalize={normalizePhone} />
-              </EdgePanel>
+              </FormSection>
 
-              <SectionLabel>Days and time residents want</SectionLabel>
-              <EdgePanel style={styles.panel}>
-                <Text style={styles.help}>Ask a few residents. Give the owner a first and second choice; they pick the final days and team.</Text>
+              <FormSection
+                step={5}
+                done={slots.length > 0}
+                title="Days residents want"
+                caption={`Ask a few residents. Add up to ${MAX_PROPOSED_SLOTS} choices, best first; the owner picks the final days.`}
+                right={<Text style={styles.count}>{`${slots.length}/${MAX_PROPOSED_SLOTS}`}</Text>}
+              >
                 {slots.map((s, i) => (
                   <SlotEditor
                     key={i}
-                    title={SLOT_TITLES[i]!}
+                    title={choiceLabel(i)}
                     slot={s}
                     onChange={(next) => setSlots((all) => all.map((x, j) => (j === i ? next : x)))}
                     onRemove={slots.length > 1 ? () => setSlots((all) => all.filter((_, j) => j !== i)) : undefined}
                   />
                 ))}
                 {slots.length < MAX_PROPOSED_SLOTS ? (
-                  <Pressable onPress={() => setSlots((all) => [...all, NEW_SLOT])} style={styles.addSlot} accessibilityRole="button">
-                    <IconPlus size={16} color={colors.waterDeep} />
-                    <Text style={styles.addSlotText}>Add another choice</Text>
+                  <Pressable
+                    onPress={() => setSlots((all) => [...all, NEW_SLOT])}
+                    style={({ pressed }) => [styles.addSlot, pressed && styles.pressed]}
+                    accessibilityRole="button"
+                  >
+                    <IconPlus size={16} color={TEAL} />
+                    <Text style={styles.addSlotText}>{slots.length ? `Add ${choiceLabel(slots.length)}` : 'Add a choice'}</Text>
                   </Pressable>
                 ) : null}
-              </EdgePanel>
+              </FormSection>
             </>
           ) : null}
 
           {access !== 'none' ? (
             <>
-              <SectionLabel>Notes</SectionLabel>
-              <EdgePanel style={styles.panel}>
+              <FormSection icon={<IconEdit size={13} color={TEAL} />} title="Notes" caption="Anything that helps the team on wash day.">
                 <TextField
                   label="Anything the team should know"
                   optional
@@ -387,28 +432,51 @@ export function CommunitySetupScreen({ navigation, route }: Props) {
                   multiline
                   placeholder="Enter by the back gate before 7. Watchman keeps the tap key."
                 />
-              </EdgePanel>
+              </FormSection>
             </>
-          ) : null}
-
-          {access !== 'none' ? (
-            <View style={styles.pad}>
-              {error ? <Text style={styles.error}>{error}</Text> : null}
-              {stage === 'draft' && placeId ? (
-                <>
-                  {missing.length ? <Text style={styles.help}>To send for approval, add: {missing.join(', ')}.</Text> : null}
-                  <Button label="Send for approval" size="lg" loading={busy === 'send'} disabled={missing.length > 0 || busy != null} onPress={() => void onSend()} />
-                  <Button label="Save draft" variant="secondary" loading={busy === 'save'} disabled={busy != null} onPress={() => void onSave()} />
-                </>
-              ) : (
-                <Button label={placeId ? 'Save' : 'Save draft'} size="lg" loading={busy === 'save'} disabled={busy != null} onPress={() => void onSave()} />
-              )}
-            </View>
           ) : null}
           <View style={styles.bottomPad} />
         </ScrollView>
+
+        {access !== 'none' ? (
+          <StickyActions
+            note={
+              error ? (
+                <SheetNotice tone="danger" icon={<IconAlert size={15} color={colors.danger} />}>
+                  {error}
+                </SheetNotice>
+              ) : stage === 'draft' && placeId && missing.length ? (
+                <Text style={styles.missing} numberOfLines={2}>
+                  To send it, add: {missing.join(', ')}
+                </Text>
+              ) : undefined
+            }
+          >
+            {stage === 'draft' && placeId ? (
+              <View style={styles.actionRow}>
+                <View style={styles.flex}>
+                  <Button label="Save draft" variant="secondary" loading={busy === 'save'} disabled={busy != null} onPress={() => void onSave()} />
+                </View>
+                <View style={styles.flexWide}>
+                  <Button label="Send for approval" loading={busy === 'send'} disabled={missing.length > 0 || busy != null} onPress={() => void onSend()} />
+                </View>
+              </View>
+            ) : (
+              <Button label={placeId ? 'Save' : 'Save draft'} size="lg" loading={busy === 'save'} disabled={busy != null} onPress={() => void onSave()} />
+            )}
+          </StickyActions>
+        ) : null}
       </KeyboardAvoidingView>
     </ScreenContainer>
+  );
+}
+
+/** A soft hint inside a section, before there's anything to show. */
+function TipBandInline({ children }: { children: string }) {
+  return (
+    <View style={styles.inlineTip}>
+      <Text style={styles.inlineTipText}>{children}</Text>
+    </View>
   );
 }
 
@@ -417,16 +485,40 @@ const EMPTY = { ok: false, status: 204, json: () => Promise.resolve({}) };
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  flexWide: { flex: 1.4 },
   row: { flexDirection: 'row', gap: spacing.md },
+  actionRow: { flexDirection: 'row', gap: spacing.sm },
   headerPad: { paddingHorizontal: spacing.md },
   loading: { marginTop: spacing.xl },
-  scroll: { paddingTop: spacing.sm },
-  panel: { gap: spacing.md },
+  scroll: { paddingTop: spacing.xs },
   pad: { paddingHorizontal: spacing.md, paddingTop: spacing.md, gap: spacing.md },
-  help: { ...typography.caption, color: colors.slate },
+  checkCard: {
+    marginTop: spacing.md,
+    marginHorizontal: spacing.md,
+    padding: spacing.md,
+    backgroundColor: colors.white,
+    borderRadius: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  count: { ...typography.label, fontSize: 13, fontWeight: '800', color: TEAL },
   readOnly: { ...typography.bodyStrong, color: colors.waterInk },
-  error: { ...typography.label, color: colors.danger },
-  addSlot: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: spacing.sm },
-  addSlotText: { ...typography.label, color: colors.waterDeep, fontWeight: '700' },
-  bottomPad: { height: spacing.xxl },
+  missing: { ...typography.caption, fontSize: 12.5, color: colors.amberDeep, fontWeight: '700', letterSpacing: 0, textAlign: 'center' },
+  addSlot: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: spacing.sm + 4,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: '#99F6E4',
+    backgroundColor: TEAL_MIST,
+  },
+  addSlotText: { ...typography.label, color: TEAL, fontWeight: '800' },
+  pressed: { opacity: 0.75 },
+  inlineTip: { backgroundColor: TEAL_MIST, borderRadius: radius.md, padding: spacing.sm + 4 },
+  inlineTipText: { ...typography.caption, fontSize: 13, color: TEAL, fontWeight: '600', letterSpacing: 0, lineHeight: 18 },
+  bottomPad: { height: spacing.lg },
 });

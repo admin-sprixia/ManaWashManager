@@ -92,6 +92,9 @@ export function ServicePointsScreen({ navigation }: Props) {
   const hasTeam = data?.points.some((p) => p.kind === 'doorstep') ?? false;
   const hubCount = data?.points.filter((p) => p.kind === 'hub').length ?? 0;
   const teamCount = data?.points.filter((p) => p.kind === 'doorstep').length ?? 0;
+  // Only what the branch's agreement with head office allows can be added.
+  const canHub = data?.services?.allowed.hub ?? true;
+  const canTeam = data?.services?.allowed.community ?? true;
 
   return (
     <ScreenContainer noPadding>
@@ -154,7 +157,7 @@ export function ServicePointsScreen({ navigation }: Props) {
                 onPress={() => setEditing(p)}
               />
             ))}
-            {!hasTeam ? (
+            {!hasTeam && canTeam ? (
               <BandRow
                 icon={<IconPlus size={18} color={colors.waterDeep} />}
                 title={homeWash ? 'Add a doorstep team' : 'Add a community team'}
@@ -162,12 +165,14 @@ export function ServicePointsScreen({ navigation }: Props) {
                 onPress={() => setEditing('doorstep')}
               />
             ) : null}
-            <BandRow
-              icon={<IconPlus size={18} color={colors.waterDeep} />}
-              title={hasTeam ? 'Add another team or shop' : 'Add another shop'}
-              onPress={() => setEditing(hasTeam ? 'doorstep' : 'hub')}
-              last
-            />
+            {canHub || (hasTeam && canTeam) ? (
+              <BandRow
+                icon={<IconPlus size={18} color={colors.waterDeep} />}
+                title={hasTeam && canTeam ? (canHub ? 'Add another team or shop' : 'Add another team') : 'Add another shop'}
+                onPress={() => setEditing(hasTeam && canTeam ? 'doorstep' : 'hub')}
+                last
+              />
+            ) : null}
           </Band>
           <View style={styles.bottomPad} />
         </ScrollView>

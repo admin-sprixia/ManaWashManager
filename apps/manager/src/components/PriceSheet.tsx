@@ -127,7 +127,7 @@ export function PriceSheet({
           <Text style={[styles.helper, !inRange && styles.helperError]}>
             {business.range
               ? `Business price ${formatRupees(business.listPrice)}. This branch can charge ${formatRupees(business.range.min)} to ${formatRupees(business.range.max)}.`
-              : `The business sets this price (${formatRupees(business.listPrice)}). Ask a business admin to change it.`}
+              : `The business sets this price (${formatRupees(business.listPrice)}). Ask an HQ admin to change it.`}
           </Text>
         ) : null}
       </View>

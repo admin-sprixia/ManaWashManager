@@ -17,6 +17,16 @@ export const CacheKeys = {
   shop: 'shop.v1',
   stock: 'stock.v1',
   rewards: 'rewards.v1',
+  /** Which home-screen tabs this branch has: hub, communities, doorstep. */
+  lanes: 'lanes.v1',
+  /** The home-screen tab this phone last had open. */
+  boardLane: 'board.lane.v1',
+  /** Whether the signed-in person is Mana Wash HQ, as last heard: `{ userId, admin }`. */
+  hq: 'hq.v1',
+  /** Which size each body type is priced as, for the vehicle size guide. */
+  vehicleSizes: 'vehicle.sizes.v1',
+  /** Doorstep cash the signed-in person held when last online: `{ userId, held }`. */
+  held: 'cash.held.v1',
 } as const;
 
 export async function readCache<T>(key: string): Promise<T | null> {

@@ -72,8 +72,8 @@ export const api = hc<AppType>(API_BASE_URL, {
  * The session and this phone's key. A session only works from the phone it was issued to, so
  * every request (uploads and private images too) sends both.
  */
-async function authHeaders(): Promise<Record<string, string>> {
-  const [token, device] = await Promise.all([getSessionToken(), getDeviceKey()]);
+async function authHeaders(asToken?: string): Promise<Record<string, string>> {
+  const [token, device] = await Promise.all([asToken ?? getSessionToken(), getDeviceKey()]);
   const headers: Record<string, string> = { 'x-device-key': device };
   const label = deviceLabel();
   if (label) headers['x-device-name'] = label;
@@ -94,7 +94,8 @@ export interface PhotoUpload {
  * Multipart upload of a file on this phone. Hono RPC can't send a React Native file
  * reference ({ uri, type, name }), so this one goes through plain fetch.
  */
-export async function uploadPhoto(photo: PhotoUpload): Promise<Response> {
+/** `asToken`: send as this session rather than whoever is signed in now (the sync queue's). */
+export async function uploadPhoto(photo: PhotoUpload, asToken?: string): Promise<Response> {
   const form = new FormData();
   form.append('id', photo.id);
   form.append('jobId', photo.jobId);
@@ -107,7 +108,7 @@ export async function uploadPhoto(photo: PhotoUpload): Promise<Response> {
   } as unknown as Blob);
   return trackedFetch(
     `${API_BASE_URL}/photos`,
-    { method: 'POST', body: form, headers: await authHeaders() },
+    { method: 'POST', body: form, headers: await authHeaders(asToken) },
     UPLOAD_TIMEOUT_MS,
   );
 }
@@ -143,7 +144,7 @@ export async function privateImage(path: string): Promise<{ uri: string; headers
 }
 
 /** An expense with its bill and item photos, sent as one multipart request. */
-export async function uploadExpense(expense: ExpensePayload): Promise<Response> {
+export async function uploadExpense(expense: ExpensePayload, asToken?: string): Promise<Response> {
   const { billPhoto, itemPhoto, ...data } = expense;
   const form = new FormData();
   form.append('data', JSON.stringify(data));
@@ -159,7 +160,7 @@ export async function uploadExpense(expense: ExpensePayload): Promise<Response> 
   }
   return trackedFetch(
     `${API_BASE_URL}/expenses`,
-    { method: 'POST', body: form, headers: await authHeaders() },
+    { method: 'POST', body: form, headers: await authHeaders(asToken) },
     UPLOAD_TIMEOUT_MS,
   );
 }

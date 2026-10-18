@@ -54,7 +54,18 @@ CREATE TABLE shops (
   -- nothing else changes; closed = nobody signs in. The reason is shown to the branch's team.
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'closed')),
   status_reason TEXT CHECK (status_reason IS NULL OR length(status_reason) BETWEEN 3 AND 200),
-  status_changed_at TEXT
+  status_changed_at TEXT,
+  -- Its town (the code's 3 letters, for good) and pincode, from opening it (branch_towns below).
+  town_id TEXT REFERENCES branch_towns(id),
+  pincode TEXT CHECK (pincode IS NULL OR (length(pincode) = 6 AND pincode GLOB '[1-9][0-9][0-9][0-9][0-9][0-9]')),
+  -- What the branch offers: head office allows (its agreement), the owner switches on (now).
+  -- A service runs when both say yes; doorstep washes need the community team too.
+  allow_hub INTEGER NOT NULL DEFAULT 1 CHECK (allow_hub IN (0, 1)),
+  allow_community INTEGER NOT NULL DEFAULT 1 CHECK (allow_community IN (0, 1)),
+  allow_doorstep INTEGER NOT NULL DEFAULT 1 CHECK (allow_doorstep IN (0, 1)),
+  offer_hub INTEGER NOT NULL DEFAULT 1 CHECK (offer_hub IN (0, 1)),
+  offer_community INTEGER NOT NULL DEFAULT 0 CHECK (offer_community IN (0, 1)),
+  offer_doorstep INTEGER NOT NULL DEFAULT 0 CHECK (offer_doorstep IN (0, 1))
 );
 
 -- Every status HQ has set for a branch, who set it and why.
@@ -157,6 +168,7 @@ CREATE TABLE vehicle_types (
   sort_order INTEGER NOT NULL DEFAULT 0,
   active INTEGER NOT NULL DEFAULT 1,  -- 0 = owner deselected it; kept because customers' vehicles use it
   body_type_id TEXT REFERENCES body_types(id), -- what it stands for; prices come from its class and size
+  hq_hidden INTEGER NOT NULL DEFAULT 0 CHECK (hq_hidden IN (0, 1)), -- 1 = hidden because HQ switched its body type off
   UNIQUE (shop_id, id)
 );
 
@@ -173,6 +185,13 @@ CREATE TABLE services (
   modes TEXT NOT NULL DEFAULT 'both' CHECK (modes IN ('hub', 'doorstep', 'both')),
   -- The branch stopped offering this catalog service (when the pricing policy allows it).
   branch_hidden INTEGER NOT NULL DEFAULT 0 CHECK (branch_hidden IN (0, 1)),
+  -- Copied from the catalog service (see catalog_services).
+  team_at TEXT NOT NULL DEFAULT 'both' CHECK (team_at IN ('both', 'community', 'doorstep')),
+  duration_min INTEGER,
+  kind TEXT NOT NULL DEFAULT 'wash' CHECK (kind IN ('wash', 'protection', 'addon')),
+  popular INTEGER NOT NULL DEFAULT 0 CHECK (popular IN (0, 1)),
+  show_in_app INTEGER NOT NULL DEFAULT 1 CHECK (show_in_app IN (0, 1)),
+  checklist TEXT,
   UNIQUE (shop_id, id)
 );
 
@@ -227,6 +246,8 @@ CREATE TABLE customers (
   source TEXT,
   marketing_consent INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  home_latitude REAL CHECK (home_latitude IS NULL OR home_latitude BETWEEN -90 AND 90), -- from their last doorstep wash
+  home_longitude REAL CHECK (home_longitude IS NULL OR home_longitude BETWEEN -180 AND 180),
   UNIQUE (shop_id, phone),
   UNIQUE (shop_id, id)
 );
@@ -272,6 +293,11 @@ CREATE TABLE jobs (
   completed_at TEXT,
   delivery_mode TEXT NOT NULL DEFAULT 'hub' CHECK (delivery_mode IN ('hub', 'doorstep')),
   service_point_id TEXT REFERENCES service_points(id), -- the hub or doorstep team that did it
+  plan_service_id TEXT, -- the service a community plan paid for (earns no loyalty stamp)
+  visit_km REAL CHECK (visit_km IS NULL OR visit_km BETWEEN 0 AND 500), -- doorstep: km from the branch
+  visit_latitude REAL CHECK (visit_latitude IS NULL OR visit_latitude BETWEEN -90 AND 90), -- doorstep: where the home was
+  visit_longitude REAL CHECK (visit_longitude IS NULL OR visit_longitude BETWEEN -180 AND 180),
+  plan_sale_id TEXT, -- a bill a wash plan was sold on (money, not a wash)
   UNIQUE (shop_id, id),
   FOREIGN KEY (shop_id, customer_id) REFERENCES customers(shop_id, id),
   FOREIGN KEY (shop_id, vehicle_id) REFERENCES vehicles(shop_id, id),
@@ -329,6 +355,8 @@ CREATE TABLE expenses (
   void_reason TEXT,
   voided_at TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  -- cash only: from the shop's box, or doorstep cash the person who entered it was holding
+  cash_source TEXT NOT NULL DEFAULT 'drawer' CHECK (cash_source IN ('drawer', 'held')),
   UNIQUE (shop_id, id),
   FOREIGN KEY (shop_id, created_by_user_id) REFERENCES users(shop_id, id),
   FOREIGN KEY (shop_id, voided_by_user_id) REFERENCES users(shop_id, id)
@@ -470,6 +498,7 @@ CREATE TABLE cash_days (
   reopened_by_user_id TEXT,
   reopened_at TEXT,
   reopen_reason TEXT,
+  held_at_close INTEGER CHECK (held_at_close >= 0), -- doorstep cash team members still held at close
   PRIMARY KEY (shop_id, date),
   FOREIGN KEY (shop_id, float_set_by_user_id) REFERENCES users(shop_id, id),
   FOREIGN KEY (shop_id, closed_by_user_id) REFERENCES users(shop_id, id),
@@ -492,8 +521,34 @@ CREATE TABLE cash_day_closes (
   reopened_by_user_id TEXT,
   reopened_at TEXT,
   reopen_reason TEXT,
+  held_at_close INTEGER,
   FOREIGN KEY (shop_id, closed_by_user_id) REFERENCES users(shop_id, id),
   FOREIGN KEY (shop_id, reopened_by_user_id) REFERENCES users(shop_id, id)
+);
+
+-- Doorstep cash handed in. A doorstep wash paid in cash leaves the money with the team member who
+-- collected it (jobs.paid_by_user_id), so the drawer only counts it once they hand it over. Each
+-- handover settles part or all of what they hold (due, worked out by the server) with what was
+-- actually received; a short handover needs a note. Received cash goes into the drawer of the day
+-- it was handed in. Append-only: a mistaken handover is voided by the owner, never edited.
+-- id = shop:collector:n (n = their handovers so far), so two people taking the same cash at once
+-- can't both record it.
+CREATE TABLE cash_handovers (
+  id TEXT PRIMARY KEY,
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  date TEXT NOT NULL,
+  collector_user_id TEXT NOT NULL,
+  due INTEGER NOT NULL CHECK (due >= 0),
+  received INTEGER NOT NULL CHECK (received >= 0),
+  note TEXT,
+  received_by_user_id TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  voided_by_user_id TEXT,
+  voided_at TEXT,
+  void_reason TEXT,
+  FOREIGN KEY (shop_id, collector_user_id) REFERENCES users(shop_id, id),
+  FOREIGN KEY (shop_id, received_by_user_id) REFERENCES users(shop_id, id),
+  FOREIGN KEY (shop_id, voided_by_user_id) REFERENCES users(shop_id, id)
 );
 
 -- Before/after photos. The image lives in R2 under r2_key (shops/<shop>/photos/...); rows older
@@ -905,7 +960,56 @@ CREATE TABLE catalog_services (
   active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  -- Where the community team does it: communities, customers' homes, or both. With modes, the
+  -- shop, community and doorstep can be ticked in any combination (they share the team's price).
+  team_at TEXT NOT NULL DEFAULT 'both' CHECK (team_at IN ('both', 'community', 'doorstep')),
+  duration_min INTEGER CHECK (duration_min IS NULL OR duration_min BETWEEN 1 AND 480), -- unused: see duration_minutes
+  kind TEXT NOT NULL DEFAULT 'wash' CHECK (kind IN ('wash', 'protection', 'addon')),
+  popular INTEGER NOT NULL DEFAULT 0 CHECK (popular IN (0, 1)), -- "Most popular" badge
+  show_in_app INTEGER NOT NULL DEFAULT 1 CHECK (show_in_app IN (0, 1)), -- off = sold at the shop only
+  checklist TEXT, -- what's included: JSON list of short lines
+  duration_minutes INTEGER CHECK (duration_minutes IS NULL OR duration_minutes BETWEEN 1 AND 43200), -- how long it takes, up to 30 days
   UNIQUE (business_id, id)
+);
+
+-- Which sizes of each kind of vehicle a service is for: Base prices asks only for these, and
+-- branches sell only these.
+CREATE TABLE catalog_service_sizes (
+  business_id TEXT NOT NULL REFERENCES businesses(id),
+  service_id TEXT NOT NULL,
+  size_id TEXT NOT NULL,
+  PRIMARY KEY (service_id, size_id),
+  FOREIGN KEY (business_id, service_id) REFERENCES catalog_services(business_id, id),
+  FOREIGN KEY (business_id, size_id) REFERENCES vehicle_sizes(business_id, id)
+);
+
+-- Which head-office services each branch sells: HQ switches each one on per branch; a branch's
+-- menu is built only from these (and only while the service is live at HQ).
+CREATE TABLE vehicle_models (
+  business_id TEXT NOT NULL REFERENCES businesses(id),
+  model_key TEXT NOT NULL,
+  make TEXT NOT NULL CHECK (length(make) BETWEEN 1 AND 40),
+  model TEXT NOT NULL CHECK (length(model) BETWEEN 1 AND 40),
+  category TEXT NOT NULL CHECK (category IN ('car', 'bike')),
+  body_key TEXT,
+  updated_by_phone TEXT,
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  PRIMARY KEY (business_id, model_key)
+);
+
+CREATE TABLE branch_body_types (
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  body_type_id TEXT NOT NULL REFERENCES body_types(id),
+  added_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  PRIMARY KEY (shop_id, body_type_id)
+);
+CREATE INDEX idx_branch_body_types_body ON branch_body_types(body_type_id);
+
+CREATE TABLE branch_menu_services (
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  catalog_service_id TEXT NOT NULL REFERENCES catalog_services(id),
+  added_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  PRIMARY KEY (shop_id, catalog_service_id)
 );
 
 -- Which vehicle classes a service is for.
@@ -947,6 +1051,8 @@ CREATE TABLE price_book_entries (
   size_id TEXT NOT NULL,
   price INTEGER NOT NULL CHECK (price BETWEEN 0 AND 10000000),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  -- Its own community (doorstep) price; NULL = base price + the doorstep rule.
+  doorstep_price INTEGER CHECK (doorstep_price IS NULL OR doorstep_price BETWEEN 0 AND 10000000),
   PRIMARY KEY (price_book_id, service_id, size_id),
   FOREIGN KEY (business_id, price_book_id) REFERENCES price_books(business_id, id),
   FOREIGN KEY (business_id, service_id) REFERENCES catalog_services(business_id, id),
@@ -1004,6 +1110,36 @@ CREATE TABLE service_point_classes (
   class_id TEXT NOT NULL REFERENCES vehicle_classes(id),
   PRIMARY KEY (point_id, class_id),
   FOREIGN KEY (shop_id, point_id) REFERENCES service_points(shop_id, id)
+);
+
+-- ─── Towns and pincodes (opening branches) ─────────────────────────────────
+
+-- India Post offices (data.gov.in, Open Government Data License – India). Reference data only:
+-- replaced whole by the import script, never edited by the app.
+CREATE TABLE post_offices (
+  pincode TEXT NOT NULL CHECK (length(pincode) = 6 AND pincode GLOB '[1-9][0-9][0-9][0-9][0-9][0-9]'),
+  name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 120),
+  kind TEXT NOT NULL CHECK (kind IN ('HO', 'PO', 'BO')),
+  district TEXT NOT NULL,
+  state TEXT NOT NULL,
+  latitude REAL CHECK (latitude IS NULL OR latitude BETWEEN 6 AND 37.6),
+  longitude REAL CHECK (longitude IS NULL OR longitude BETWEEN 68 AND 97.5)
+);
+CREATE INDEX idx_post_offices_pincode ON post_offices(pincode);
+
+-- The towns a business has branches in, each with its code for good. One town per spelling-proof
+-- name in a district (name_key, packages/domain branchTowns.ts townKey); no two share a code.
+CREATE TABLE branch_towns (
+  id TEXT PRIMARY KEY,
+  business_id TEXT NOT NULL REFERENCES businesses(id),
+  code TEXT NOT NULL CHECK (length(code) = 3 AND code GLOB '[A-Z][A-Z][A-Z]'),
+  name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 40),
+  name_key TEXT NOT NULL,
+  district TEXT NOT NULL,
+  state TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  UNIQUE (business_id, code),
+  UNIQUE (business_id, state, district, name_key)
 );
 
 -- ─── Places and plans ───────────────────────────────────────────────────────
@@ -1149,8 +1285,27 @@ CREATE TABLE wash_plans (
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  -- Every Nth wash is this service instead (Shine: every 4th is Premium).
+  upgrade_service_id TEXT REFERENCES catalog_services(id),
+  upgrade_every INTEGER CHECK (upgrade_every IS NULL OR upgrade_every BETWEEN 2 AND 12),
+  sold_at TEXT NOT NULL DEFAULT 'community' CHECK (sold_at IN ('community', 'shop', 'both')), -- where it's sold
+  shop_use INTEGER NOT NULL DEFAULT 1 CHECK (shop_use IN (0, 1)), -- a community plan can pay for a wash at the shop
   UNIQUE (business_id, id),
   FOREIGN KEY (business_id, catalog_service_id) REFERENCES catalog_services(business_id, id)
+);
+
+-- What one vehicle of a size pays for a plan, at the hub or at a community. No row: the plan is
+-- priced from its wash's price.
+CREATE TABLE wash_plan_prices (
+  business_id TEXT NOT NULL REFERENCES businesses(id),
+  plan_id TEXT NOT NULL,
+  size_id TEXT NOT NULL,
+  mode TEXT NOT NULL CHECK (mode IN ('hub', 'doorstep')),
+  price INTEGER NOT NULL CHECK (price BETWEEN 0 AND 100000000),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  PRIMARY KEY (plan_id, size_id, mode),
+  FOREIGN KEY (business_id, plan_id) REFERENCES wash_plans(business_id, id),
+  FOREIGN KEY (business_id, size_id) REFERENCES vehicle_sizes(business_id, id)
 );
 
 -- ─── Orders: what each vehicle bought ───────────────────────────────────────
@@ -1387,6 +1542,12 @@ CREATE INDEX idx_job_washers_user_id ON job_washers(user_id);
 CREATE INDEX idx_job_sellers_user_id ON job_sellers(user_id);
 CREATE INDEX idx_attendance_shop_date ON attendance(shop_id, date);
 CREATE INDEX idx_cash_day_closes_day ON cash_day_closes(shop_id, date);
+CREATE INDEX idx_cash_handovers_day ON cash_handovers(shop_id, date);
+CREATE INDEX idx_expenses_held ON expenses(shop_id, created_by_user_id)
+  WHERE cash_source = 'held' AND voided_at IS NULL;
+CREATE INDEX idx_cash_handovers_collector ON cash_handovers(shop_id, collector_user_id);
+CREATE INDEX idx_jobs_doorstep_cash ON jobs(shop_id, paid_by_user_id)
+  WHERE delivery_mode = 'doorstep' AND status = 'paid' AND payment_method = 'cash';
 CREATE INDEX idx_job_photos_job_id ON job_photos(job_id);
 CREATE INDEX idx_job_photos_created_at ON job_photos(created_at);
 CREATE INDEX idx_job_photos_deleted_at ON job_photos(deleted_at) WHERE deleted_at IS NOT NULL;
@@ -1420,6 +1581,7 @@ CREATE INDEX idx_shops_business ON shops(business_id);
 CREATE INDEX idx_service_points_shop ON service_points(shop_id, sort_order);
 -- One branch service per catalog service.
 CREATE UNIQUE INDEX idx_services_catalog ON services(shop_id, catalog_service_id) WHERE catalog_service_id IS NOT NULL;
+CREATE INDEX idx_branch_menu_services_service ON branch_menu_services(catalog_service_id);
 CREATE INDEX idx_service_prices_shop_type ON service_prices(shop_id, vehicle_type_id);
 CREATE INDEX idx_branch_price_overrides_shop ON branch_price_overrides(shop_id);
 
@@ -1451,3 +1613,44 @@ CREATE UNIQUE INDEX idx_customer_payments_one_paid ON customer_payments(installm
 CREATE INDEX idx_customer_refunds_payment ON customer_refunds(payment_id);
 CREATE INDEX idx_customer_refunds_pending ON customer_refunds(status) WHERE status = 'pending';
 CREATE INDEX idx_service_requests_invited ON service_requests(invited_place_id) WHERE invited_place_id IS NOT NULL;
+
+CREATE TABLE shop_plan_orders (
+  id TEXT PRIMARY KEY,
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  plan_id TEXT NOT NULL REFERENCES wash_plans(id),
+  customer_id TEXT NOT NULL,
+  vehicle_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  catalog_service_id TEXT NOT NULL,
+  upgrade_service_id TEXT,
+  upgrade_every INTEGER,
+  washes_total INTEGER NOT NULL CHECK (washes_total BETWEEN 1 AND 400),
+  washes_used INTEGER NOT NULL DEFAULT 0 CHECK (washes_used >= 0 AND washes_used <= washes_total),
+  price INTEGER NOT NULL CHECK (price >= 0),
+  payment_method TEXT NOT NULL CHECK (payment_method IN ('cash', 'upi', 'other')),
+  sale_job_id TEXT NOT NULL,
+  starts_on TEXT NOT NULL,
+  ends_on TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'ended', 'void')),
+  sold_by_user_id TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  ended_at TEXT,
+  UNIQUE (shop_id, id),
+  UNIQUE (shop_id, sale_job_id),
+  FOREIGN KEY (shop_id, customer_id) REFERENCES customers(shop_id, id),
+  FOREIGN KEY (shop_id, vehicle_id) REFERENCES vehicles(shop_id, id)
+);
+CREATE INDEX idx_shop_plan_orders_vehicle ON shop_plan_orders(shop_id, vehicle_id, status);
+
+-- Each wash a shop plan paid for: one a day per plan, one plan per wash.
+CREATE TABLE shop_plan_uses (
+  id TEXT PRIMARY KEY,
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  order_id TEXT NOT NULL,
+  job_id TEXT NOT NULL,
+  day TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  UNIQUE (shop_id, order_id, day),
+  UNIQUE (shop_id, job_id),
+  FOREIGN KEY (shop_id, order_id) REFERENCES shop_plan_orders(shop_id, id)
+);

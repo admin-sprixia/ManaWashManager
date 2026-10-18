@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BODY_TYPES,
   DEFAULT_PRICING_POLICY,
+  DEFAULT_SERVICE_DETAILS,
   VEHICLE_CLASSES,
   appliesToForClasses,
   basePriceKey,
@@ -65,7 +66,14 @@ describe('list price', () => {
     const p = listPrice({ ...base, base: 50000, mode: 'doorstep', zonePercentBp: 1000 });
     // 50000 + 7500 = 57500, +10% = 63250, rounded to ₹10 = 63000
     expect(p.price).toBe(63000);
-    expect(p.steps.map((s) => s.label)).toEqual(['Base price', 'Doorstep extra', 'Zone', 'Rounded']);
+    expect(p.steps.map((s) => s.label)).toEqual(['Base price', 'Community extra', 'Zone', 'Rounded']);
+  });
+
+  it('uses a doorstep price set for the size instead of the doorstep rule', () => {
+    const own = { ...base, base: 29900, doorstepBase: 26900, roundToPaise: 100 };
+    expect(listPrice({ ...own, mode: 'doorstep' }).price).toBe(26900);
+    expect(listPrice({ ...own, mode: 'hub' }).price).toBe(29900);
+    expect(listPrice({ ...own, mode: 'doorstep', zonePercentBp: -1000 }).price).toBe(24200);
   });
 });
 
@@ -87,11 +95,13 @@ describe('branch overrides', () => {
 
   it('parses stored policy values field by field', () => {
     expect(parsePricingPolicy({})).toEqual(DEFAULT_PRICING_POLICY);
-    expect(parsePricingPolicy({ branchOverrides: 'false', maxIncreasePct: '35', roundToPaise: '777' })).toEqual({
+    expect(parsePricingPolicy({ branchOverrides: 'false', maxIncreasePct: '35' })).toEqual({
       ...DEFAULT_PRICING_POLICY,
       branchOverrides: false,
       maxIncreasePct: 35,
     });
+    // Rounding is always to the rupee, whatever an old setting says.
+    expect(parsePricingPolicy({ roundToPaise: '1000' }).roundToPaise).toBe(100);
   });
 });
 
@@ -178,6 +188,13 @@ describe('planBranchMenu', () => {
     expect(plan.services.map((s) => s.catalogServiceId)).toEqual(['wash', 'under', 'combo']);
   });
 
+  it('sells a service only for the sizes it is for, even where another size has a price', () => {
+    const smallOnly = { ...services[0]!, sizeKeys: ['car|S'] };
+    const plan = planBranchMenu({ ...input, services: [smallOnly] });
+    expect(priceOf(plan, 'wash', 'vt_hatch', 'hub')).toBe(40000);
+    expect(priceOf(plan, 'wash', 'vt_suv', 'hub')).toBeUndefined(); // L is priced, but not one of its sizes
+  });
+
   it('leaves out classes the branch does not wash and unlinked vehicle types', () => {
     const plan = planBranchMenu(input);
     expect(plan.prices.some((p) => p.vehicleTypeId === 'vt_tractor')).toBe(false);
@@ -190,7 +207,23 @@ describe('planBranchMenu', () => {
       ]),
     });
     expect(priceOf(withFarm, 'wash', 'vt_tractor', 'doorstep')).toBe(180000);
-    expect(priceOf(withFarm, 'wash', 'vt_tractor', 'hub')).toBeUndefined();
+    // A home wash is charged the hub price (plus a visit charge), even for a class only the team takes.
+    expect(priceOf(withFarm, 'wash', 'vt_tractor', 'hub')).toBe(150000);
+  });
+
+  it('gives no hub price for homes to a service the team does only at communities', () => {
+    const communityOnly = { ...services[0]!, modes: 'doorstep' as const, details: { ...DEFAULT_SERVICE_DETAILS, teamAt: 'community' as const } };
+    const plan = planBranchMenu({
+      ...input,
+      services: [communityOnly],
+      classesByMode: new Map([
+        ['hub', new Set(['car'])],
+        ['doorstep', new Set(['car', 'farm'])],
+      ]),
+    });
+    expect(priceOf(plan, 'wash', 'vt_tractor', 'hub')).toBeUndefined();
+    expect(priceOf(plan, 'wash', 'vt_hatch', 'hub')).toBeUndefined();
+    expect(priceOf(plan, 'wash', 'vt_hatch', 'doorstep')).toBeDefined();
   });
 
   it('drops a hub-only service at a doorstep-only branch, and combo items it cannot offer', () => {

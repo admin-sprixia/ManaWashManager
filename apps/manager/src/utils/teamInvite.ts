@@ -9,6 +9,8 @@ export interface Invitee {
   role: UserRole;
   /** Already signs in at another branch, with a PIN of their own. */
   hasPin: boolean;
+  /** Mana Wash HQ who work at no branch: the invite is to HQ, not to a branch team. */
+  hq?: boolean;
 }
 
 const spaced = (phone: string) => (phone.length === 10 ? `${phone.slice(0, 5)} ${phone.slice(5)}` : phone);
@@ -20,7 +22,12 @@ const spaced = (phone: string) => (phone.length === 10 ? `${phone.slice(0, 5)} $
 export function inviteMessage(a: Invitee, branch: string | null): string {
   const first = a.name.split(/\s+/)[0] ?? a.name;
   const at = branch ? `the ${branch} team` : 'the team';
-  const hello = `Hi ${first}, I’ve added you to ${at} at Sri Mana Wash as ${USER_ROLE_LABEL[a.role]}.`;
+  const hello = a.hq
+    ? `Hi ${first}, I’ve added you to Mana Wash HQ. You’ll look after services, prices and every branch.`
+    : `Hi ${first}, I’ve added you to ${at} at Sri Mana Wash as ${USER_ROLE_LABEL[a.role]}.`;
+  if (a.hasPin && a.hq) {
+    return [hello, 'Open Sri Mana Wash Partner and sign in with your number and your usual PIN.'].join('\n\n');
+  }
   if (a.hasPin) {
     return [
       hello,

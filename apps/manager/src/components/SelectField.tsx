@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import {
   BottomSheet,
   Button,
@@ -185,6 +185,72 @@ function OptionList<T extends string>({
   );
 }
 
+/** Past this many options the list draws only the rows on screen (companies, models). */
+const LONG_LIST = 30;
+
+type FlatItem<T extends string> = { kind: 'title'; key: string; title: string } | { kind: 'option'; key: string; option: SelectOption<T> };
+
+/** One tight list, drawn a screenful at a time: long lists open at once. */
+function LongOptionList<T extends string>({
+  groups,
+  value,
+  accent,
+  onPress,
+}: {
+  groups: { title: string | null; items: SelectOption<T>[] }[];
+  value: T | null;
+  accent: string;
+  onPress: (v: T) => void;
+}) {
+  const items = useMemo(() => {
+    const out: FlatItem<T>[] = [];
+    groups.forEach((g, gi) => {
+      if (g.title) out.push({ kind: 'title', key: `t${gi}`, title: g.title });
+      for (const o of g.items) out.push({ kind: 'option', key: o.value, option: o });
+    });
+    return out;
+  }, [groups]);
+  if (!items.length) return <Text style={styles.empty}>Nothing matches.</Text>;
+  return (
+    <FlatList
+      data={items}
+      keyExtractor={(item) => item.key}
+      style={styles.longList}
+      keyboardShouldPersistTaps="handled"
+      initialNumToRender={14}
+      maxToRenderPerBatch={16}
+      windowSize={7}
+      removeClippedSubviews
+      renderItem={({ item }) => {
+        if (item.kind === 'title') return <Text style={styles.groupTitle}>{item.title}</Text>;
+        const o = item.option;
+        const on = o.value === value;
+        return (
+          <Pressable
+            onPress={() => onPress(o.value)}
+            style={({ pressed }) => [styles.compactRow, on && { backgroundColor: `${accent}12` }, pressed && styles.pressed]}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: on }}
+          >
+            {o.leading ?? null}
+            <View style={styles.rowCopy}>
+              <Text style={[styles.compactLabel, on && { color: accent }]} numberOfLines={1}>
+                {o.label}
+              </Text>
+              {o.hint ? (
+                <Text style={styles.rowHint} numberOfLines={1}>
+                  {o.hint}
+                </Text>
+              ) : null}
+            </View>
+            {on ? <IconCheck size={16} color={accent} /> : null}
+          </Pressable>
+        );
+      }}
+    />
+  );
+}
+
 /** A dropdown: looks like a field, opens a list in a bottom sheet, closes on pick. */
 export function SelectField<T extends string>({
   label,
@@ -206,6 +272,11 @@ export function SelectField<T extends string>({
   const [query, setQuery] = useState('');
   const groups = useGrouped(options, query);
   const selected = options.find((o) => o.value === value) ?? null;
+  const long = options.length > LONG_LIST;
+  const pick = (v: T) => {
+    onChange(v);
+    setOpen(false);
+  };
 
   useEffect(() => {
     if (open) setQuery('');
@@ -225,18 +296,19 @@ export function SelectField<T extends string>({
         disabled={disabled}
         onPress={() => setOpen(true)}
       />
-      <BottomSheet visible={open} onClose={() => setOpen(false)} title={sheetTitle ?? label ?? 'Choose'} subtitle={sheetSubtitle}>
+      <BottomSheet
+        visible={open}
+        onClose={() => setOpen(false)}
+        title={sheetTitle ?? label ?? 'Choose'}
+        subtitle={sheetSubtitle}
+        scroll={!long}
+      >
         {searchable ? <SearchBox value={query} onChange={setQuery} /> : null}
-        <OptionList
-          groups={groups}
-          multiple={false}
-          accent={accent}
-          isOn={(v) => v === value}
-          onPress={(v) => {
-            onChange(v);
-            setOpen(false);
-          }}
-        />
+        {long ? (
+          <LongOptionList groups={groups} value={value} accent={accent} onPress={pick} />
+        ) : (
+          <OptionList groups={groups} multiple={false} accent={accent} isOn={(v) => v === value} onPress={pick} />
+        )}
       </BottomSheet>
     </>
   );
@@ -438,6 +510,25 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
   },
   rowDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  longList: {
+    flexGrow: 0,
+    flexShrink: 1,
+    marginHorizontal: -spacing.lg,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  compactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm + 4,
+    minHeight: 50,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 8,
+    backgroundColor: colors.white,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  compactLabel: { ...typography.bodyStrong, fontSize: 15, color: colors.waterInk },
   rowCopy: { flex: 1, gap: 1 },
   rowLabel: { ...typography.bodyStrong, fontSize: 15.5, color: colors.waterInk },
   rowHint: { ...typography.caption, fontSize: 12.5, color: colors.slate, letterSpacing: 0 },

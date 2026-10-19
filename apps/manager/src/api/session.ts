@@ -18,6 +18,8 @@ export interface SessionUser {
   /** An owner or manager still on a PIN shorter than 6 digits: must choose a new one first. */
   pinUpgradeRequired: boolean;
   shopId: string;
+  /** Mana Wash HQ who work at no branch: signed in at the HQ home, which has only HQ's tools. */
+  hqOnly: boolean;
 }
 
 /** Sign-in is PIN only; kept as a type so stored hints from older builds still parse. */
@@ -89,6 +91,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     hasPin: Boolean(parsed.hasPin),
     pinUpgradeRequired: Boolean(parsed.pinUpgradeRequired),
     shopId: parsed.shopId,
+    hqOnly: Boolean(parsed.hqOnly),
   };
 }
 

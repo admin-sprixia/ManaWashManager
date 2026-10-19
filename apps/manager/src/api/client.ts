@@ -139,6 +139,11 @@ export function uploadVisitPhoto(placeId: string, visitId: string, photo: { uri:
 }
 
 /** Image source for a team-only file under the API (a community photo, a wash's after photo). */
+/** Headers for an <Image> of a private file: the session and this phone's key, like every call. */
+export function imageHeaders(): Promise<Record<string, string>> {
+  return authHeaders();
+}
+
 export async function privateImage(path: string): Promise<{ uri: string; headers: Record<string, string> }> {
   return { uri: `${API_BASE_URL}${path}`, headers: await authHeaders() };
 }

@@ -22,6 +22,7 @@ import {
   type DbClient,
 } from '@mana/db';
 import {
+  VEHICLE_MAKE_MAX,
   applyDiscount,
   calculatePrice,
   canCorrectPayment,
@@ -155,6 +156,17 @@ const startJobSchema = z
       .refine((r) => r.length >= 4 && r.length <= 15, 'Enter a valid registration number'),
     /** Only sent when a known plate came in with a different phone and the operator chose. */
     ownership: z.enum(['new_owner', 'same_person']).optional(),
+    /**
+     * The price per service this phone showed when the wash was entered. A wash that waited
+     * offline keeps it if the branch's prices changed meanwhile (within half to double).
+     */
+    quoted: z
+      .array(z.object({ serviceId: z.string().min(1).max(64), price: z.number().int().min(0).max(10_000_000) }))
+      .max(MAX_SERVICES_PER_JOB)
+      .optional(),
+    /** The company and model picked from the size guide's list; kept on the vehicle. */
+    make: z.string().trim().min(1).max(VEHICLE_MAKE_MAX).optional(),
+    model: z.string().trim().min(1).max(VEHICLE_MAKE_MAX).optional(),
     couponCode: z
       .string()
       .transform(normalizeCouponCode)
@@ -240,10 +252,18 @@ interface VisitContext {
   jobId?: string;
 }
 
+/** A wash this long after it happened was queued offline. */
+const LATE_SYNC_MS = 2 * 60_000;
+/** A quoted price is kept only within this band of today's price, so it can't hide a discount. */
+const QUOTE_MIN_RATIO = 0.5;
+const QUOTE_MAX_RATIO = 2;
+
 async function priceJob(
   db: DbClient,
   body: Pick<PricingInput, keyof typeof pricingFields>,
   visit?: VisitContext,
+  /** Service id → the price the phone showed; given only for a wash that waited offline. */
+  quoted?: Map<string, number>,
 ) {
   const vehicleType = await serviceRepo.getVehicleType(db, body.vehicleTypeId);
   if (!vehicleType)
@@ -291,9 +311,23 @@ async function priceJob(
     (p) => p.mode === (body.mode === 'doorstep' && !fromCatalog.get(p.serviceId) ? 'doorstep' : 'hub'),
   );
   const commissionFor = new Map(commissionRates.map((r) => [r.serviceId, r.amount]));
+  // The customer was told a price while this wash waited offline: if the branch's price changed
+  // since, keep what they were told (the cash taken matches), within a sane band.
+  const picks = new Set(body.services.map((x) => x.serviceId));
+  const kept = quoted?.size
+    ? prices.map((p) => {
+        const q = quoted.get(p.serviceId);
+        if (q == null || !picks.has(p.serviceId) || p.vehicleTypeId !== body.vehicleTypeId || q === p.price) return p;
+        if (q < p.price * QUOTE_MIN_RATIO || q > p.price * QUOTE_MAX_RATIO) return p;
+        return { ...p, price: q };
+      })
+    : prices;
+  const priceChanged = kept.some((p, i) => p !== prices[i]);
   let breakdown: ReturnType<typeof calculatePrice>;
+  let todaySubtotal: number;
   try {
-    breakdown = calculatePrice(body.services, body.vehicleTypeId, prices);
+    breakdown = calculatePrice(body.services, body.vehicleTypeId, kept);
+    todaySubtotal = priceChanged ? calculatePrice(body.services, body.vehicleTypeId, prices).subtotal : breakdown.subtotal;
   } catch (e) {
     if (e instanceof PriceNotFoundError)
       return { error: 'price_not_set' as const, message: e.message };
@@ -368,6 +402,8 @@ async function priceJob(
     /** Where the home was: kept on the wash, and as the customer's home. */
     visitPoint,
     lineItems,
+    /** Set when a wash that waited offline kept the price it was quoted (services only, paise). */
+    priceKept: priceChanged ? { today: todaySubtotal, quoted: breakdown.subtotal } : null,
   };
 }
 
@@ -505,8 +541,11 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     const existing = await jobRepo.findBoardRow(db, body.id);
     if (existing) return c.json(await finishReplayedJob(db, existing, body, session.sub, visit), 200);
 
-    // Price first so a bad selection never leaves a half-created customer behind.
-    const priced = await priceJob(db, body, visit);
+    // Price first so a bad selection never leaves a half-created customer behind. A wash that
+    // reaches us well after it happened (it waited offline) keeps the prices it was quoted.
+    const late = Date.now() - createdAt.getTime() > LATE_SYNC_MS;
+    const quoted = late && body.quoted?.length ? new Map(body.quoted.map((q) => [q.serviceId, q.price])) : undefined;
+    const priced = await priceJob(db, body, visit, quoted);
     if ('error' in priced) return c.json({ error: priced.error, message: priced.message }, 400);
 
     // Coupons are checked against the vehicle and owner as they stand *before* this request
@@ -631,6 +670,8 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       registrationNumber: body.registrationNumber,
       vehicleTypeId: body.vehicleTypeId,
       ownership: body.ownership,
+      make: body.make,
+      model: body.model,
     });
     if ('error' in ensured) {
       return c.json(
@@ -757,6 +798,18 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
         visitPoint: priced.visitPoint,
       });
       if (priced.visitPoint) await awayPricingRepo.rememberHome(db, customer.id, priced.visitPoint);
+      if (priced.priceKept) {
+        await db.jobEvent.create({
+          data: {
+            jobId: body.id,
+            userId: session.sub,
+            action: 'price_kept',
+            fromValue: String(priced.priceKept.today),
+            toValue: String(priced.priceKept.quoted),
+            reason: 'Prices changed while this wash waited offline; kept the price the customer was told.',
+          },
+        });
+      }
       return c.json(job, 201);
     } catch (e) {
       // A replay of this same request may have created the job first; its coupon, referral and

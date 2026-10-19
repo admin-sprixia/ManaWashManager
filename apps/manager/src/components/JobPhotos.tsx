@@ -24,8 +24,7 @@ import {
   showToast,
   showAlert,
 } from '@mana/ui';
-import { api, apiErrorMessage } from '../api/client';
-import { getSessionToken } from '../api/session';
+import { api, apiErrorMessage, imageHeaders } from '../api/client';
 import { NetworkError } from '../api/network';
 import { useSync } from '../offline/SyncProvider';
 import { keepLocalCopy } from '../offline/photoFiles';
@@ -55,6 +54,10 @@ interface JobPhotosProps {
   jobId: string;
   photos: JobPhoto[];
   canAdd: boolean;
+  /** Narrows `canAdd` per kind (before photos only until the wash starts). */
+  canAddKind?: (kind: PhotoKind) => boolean;
+  /** Shown under a kind that can't be added to any more. */
+  closedNote?: (kind: PhotoKind) => string | null;
   canDelete: boolean;
   baseUrl: string;
   onChanged: () => void;
@@ -66,14 +69,15 @@ const KINDS: { kind: PhotoKind; label: string }[] = [
 ];
 
 /** Optional before/after photos. Taken photos queue on the phone and upload when there's signal. */
-export function JobPhotos({ jobId, photos, canAdd, canDelete, baseUrl, onChanged }: JobPhotosProps) {
-  const { items, submit } = useSync();
-  const [token, setToken] = useState<string | null>(null);
+export function JobPhotos({ jobId, photos, canAdd, canAddKind, closedNote, canDelete, baseUrl, onChanged }: JobPhotosProps) {
+  const { shopItems: items, submit } = useSync();
+  /** The session and this phone's key: a photo without both is refused (and stays blank). */
+  const [headers, setHeaders] = useState<Record<string, string> | null>(null);
   const [adding, setAdding] = useState<PhotoKind | null>(null);
   const [viewing, setViewing] = useState<Tile | null>(null);
 
   useEffect(() => {
-    void getSessionToken().then(setToken);
+    void imageHeaders().then(setHeaders);
   }, []);
 
   const queued: Tile[] = items.flatMap((i) =>
@@ -105,7 +109,6 @@ export function JobPhotos({ jobId, photos, canAdd, canDelete, baseUrl, onChanged
     ...queued,
   ];
 
-  const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
 
   const handlePicked = async (kind: PhotoKind, res: ImagePickerResponse, room: number) => {
     if (res.didCancel) return;
@@ -194,7 +197,9 @@ export function JobPhotos({ jobId, photos, canAdd, canDelete, baseUrl, onChanged
       {KINDS.map(({ kind, label }) => {
         const mine = tiles.filter((t) => t.kind === kind);
         const left = MAX_PHOTOS_PER_KIND - mine.length;
-        const room = canAdd && left > 0;
+        const open = canAdd && (canAddKind?.(kind) ?? true);
+        const room = open && left > 0;
+        const note = !open ? (closedNote?.(kind) ?? null) : null;
         return (
           <View key={kind} style={styles.kindRow}>
             <Text style={styles.kindLabel}>
@@ -210,7 +215,9 @@ export function JobPhotos({ jobId, photos, canAdd, canDelete, baseUrl, onChanged
                   accessibilityRole="imagebutton"
                   accessibilityLabel={`${label} photo`}
                 >
-                  <Image source={t.local ? { uri: t.uri } : { uri: t.uri, headers }} style={styles.tileImage} />
+                  {t.local || headers ? (
+                    <Image source={t.local ? { uri: t.uri } : { uri: t.uri, headers: headers! }} style={styles.tileImage} />
+                  ) : null}
                   {t.local ? (
                     <View style={[styles.tileBadge, t.failed && styles.tileBadgeFailed]}>
                       <IconCloudOff size={11} color={t.failed ? colors.danger : colors.amberDeep} />
@@ -233,15 +240,16 @@ export function JobPhotos({ jobId, photos, canAdd, canDelete, baseUrl, onChanged
                   )}
                 </Pressable>
               ) : null}
-              {mine.length === 0 && !room ? <Text style={styles.none}>None</Text> : null}
+              {mine.length === 0 && !room && !note ? <Text style={styles.none}>None</Text> : null}
             </View>
+            {note ? <Text style={styles.none}>{note}</Text> : null}
           </View>
         );
       })}
 
       <PhotoViewer
         tile={viewing}
-        headers={headers}
+        headers={headers ?? undefined}
         canDelete={canDelete && viewing != null && !viewing.local}
         onDelete={remove}
         onClose={() => setViewing(null)}

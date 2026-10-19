@@ -31,6 +31,9 @@ import { washLocation, type Point } from '../../utils/location';
 import { pickPhotos } from '../../utils/photoPicker';
 import { openWhatsApp } from '../../utils/whatsapp';
 import { VisitPhoto } from './communityParts';
+import { useSync } from '../../offline/SyncProvider';
+import { CacheKeys, readCache, writeCache } from '../../offline/cache';
+import type { PlaceVisitPayload } from '../../offline/types';
 import { failure, istToday, placeTitle, useApiData, type WashDay, type WashDayRow } from './shared';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PlaceDay'>;
@@ -93,7 +96,67 @@ export function PlaceDayScreen({ navigation, route }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [day]);
 
-  const data = list.data?.day === day ? list.data : null;
+  // The day's list is kept on the phone, so a community with weak signal still works.
+  const { submit, shopItems, version } = useSync();
+  // Something queued here reached the server: show the real record.
+  const seenVersion = useRef(version);
+  useEffect(() => {
+    if (seenVersion.current === version) return;
+    seenVersion.current = version;
+    void list.load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [version]);
+  const cacheKey = `${CacheKeys.placeDay}.${placeId}.${day}`;
+  const [saved, setSaved] = useState<WashDay | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setSaved(null);
+    void readCache<WashDay>(cacheKey).then((copy) => {
+      if (alive) setSaved(copy);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [cacheKey]);
+  useEffect(() => {
+    if (list.data) void writeCache(`${CacheKeys.placeDay}.${placeId}.${list.data.day}`, list.data);
+  }, [list.data, placeId]);
+  const fresh = list.data?.day === day ? list.data : null;
+  const base = fresh ?? (saved?.day === day ? saved : null);
+  // Visits recorded here that haven't synced yet show straight away.
+  const queued = useMemo(() => {
+    const byOrder = new Map<string, { item: (typeof shopItems)[number]; payload: PlaceVisitPayload; at: string }>();
+    for (const item of shopItems) {
+      if (item.op.kind !== 'place.visit' || item.op.payload.placeId !== placeId || item.op.payload.date !== day) continue;
+      byOrder.set(item.op.payload.orderId, { item, payload: item.op.payload, at: item.op.meta.occurredAt });
+    }
+    return byOrder;
+  }, [shopItems, placeId, day]);
+  const data = useMemo(() => {
+    if (!base) return null;
+    return {
+      ...base,
+      rows: base.rows.map((r) => {
+        const q = queued.get(r.orderId);
+        if (!q || r.visit) return r;
+        return {
+          ...r,
+          visit: {
+            id: `local:${q.item.id}`,
+            outcome: q.payload.outcome,
+            byCustomer: false,
+            note: null,
+            by: q.item.userName,
+            at: q.at,
+            hasPhoto: false,
+            distanceM: null,
+            far: false,
+          },
+        };
+      }),
+    };
+  }, [base, queued]);
+  const offlineCopy = !fresh && data != null;
   const rows = data?.rows ?? [];
   const today = istToday();
   const dayOptions = useMemo(() => {
@@ -114,6 +177,11 @@ export function PlaceDayScreen({ navigation, route }: Props) {
         <View style={styles.pad}>
           <ChoiceChips options={dayOptions} value={day} onChange={setDay} />
         </View>
+        {offlineCopy ? (
+          <View style={styles.pad}>
+            <Notice tone="warning">Offline · the list saved on this phone. Washes you record sync when there’s signal.</Notice>
+          </View>
+        ) : null}
         {!data ? (
           list.error ? (
             <View style={styles.pad}>
@@ -163,6 +231,7 @@ export function PlaceDayScreen({ navigation, route }: Props) {
         onClose={() => setOpen(null)}
         run={list.run}
         reload={list.load}
+        submit={submit}
       />
     </ScreenContainer>
   );
@@ -178,6 +247,7 @@ function VisitSheet({
   onClose,
   run,
   reload,
+  submit,
 }: {
   row: WashDayRow | null;
   placeId: string;
@@ -188,6 +258,7 @@ function VisitSheet({
   onClose: () => void;
   run: (call: () => Promise<ApiResponse>, done?: string) => Promise<string | null>;
   reload: () => Promise<void>;
+  submit: ReturnType<typeof useSync>['submit'];
 }) {
   const [plate, setPlate] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
@@ -247,15 +318,25 @@ function VisitSheet({
     setBusy(outcome);
     setError(null);
     const at = (await where.current?.catch(() => null)) ?? null;
-    const message = await run(
-      () => api.places[':id'].visits.$post({ param: { id: placeId }, json: { orderId: row.orderId, date: day, outcome, plate: plateBody, at } }),
-      outcome === 'done' ? 'Washed' : outcome === 'not_found' ? 'Noted · the office will check' : 'Noted as missed',
-    );
+    // Queued like a hub wash: sent now with signal, otherwise kept on the phone until there is.
+    const result = await submit({
+      kind: 'place.visit',
+      payload: { placeId, orderId: row.orderId, date: day, outcome, plate: plateBody, at },
+      meta: { label: `${row.unit} · ${row.vehicle.registrationNumber ?? row.vehicle.typeName}`, occurredAt: new Date().toISOString() },
+    });
     setBusy(null);
-    if (message) setError(message);
+    if (result.status === 'rejected') return setError(result.message);
+    if (result.status === 'queued') {
+      showToast('Saved on this phone · it syncs when there’s signal', 'offline');
+      onClose();
+      return;
+    }
+    showToast(outcome === 'done' ? 'Washed' : outcome === 'not_found' ? 'Noted · the office will check' : 'Noted as missed', 'success');
+    await reload();
     // A washed vehicle stays open for the after photo.
-    else if (outcome !== 'done') onClose();
+    if (outcome !== 'done') onClose();
   };
+  const localVisit = row.visit?.id.startsWith('local:') ?? false;
 
   const undo = async () => {
     if (!row.visit) return;
@@ -307,7 +388,10 @@ function VisitSheet({
               <Notice tone="warning">{`Recorded ${distanceText(row.visit.distanceM)} from the community (more than ${atPlaceMeters} m away).`}</Notice>
             ) : null}
             {row.visit.hasPhoto ? <VisitPhoto placeId={placeId} visitId={row.visit.id} /> : null}
-            {row.visit.outcome === 'done' && !row.visit.byCustomer ? (
+            {localVisit ? (
+              <Notice tone="warning">Saved on this phone. The after photo and Undo open once it has synced.</Notice>
+            ) : null}
+            {row.visit.outcome === 'done' && !row.visit.byCustomer && !localVisit ? (
               <View style={styles.row}>
                 <View style={styles.flex}>
                   <Button
@@ -323,7 +407,7 @@ function VisitSheet({
                 </View>
               </View>
             ) : null}
-            {!row.visit.byCustomer ? <Button label="Undo" variant="ghost" loading={busy === 'undo'} onPress={() => void undo()} /> : null}
+            {!row.visit.byCustomer && !localVisit ? <Button label="Undo" variant="ghost" loading={busy === 'undo'} onPress={() => void undo()} /> : null}
           </>
         ) : !row.paid ? (
           <>

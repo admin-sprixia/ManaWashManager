@@ -438,7 +438,7 @@ export const authRoutes = new Hono<{ Bindings: Env }>()
     const db = c.get('db');
     const user = await userRepo.findById(db, c.get('session').sub);
     if (!user) return c.json({ error: 'unauthorized' as const }, 401);
-    return c.json(publicUser(user));
+    return c.json(await publicUser(user, c.env));
   })
   // First PIN after a WhatsApp code, a change from More, or the move to 6 digits. Owners,
   // managers and HQ (in any of their branches) need 6 digits. Every other phone signed in as this
@@ -483,7 +483,7 @@ export const authRoutes = new Hono<{ Bindings: Env }>()
     await userRepo.updateForPhone(createPlatformDb(c.env.DB), session.phone, { name });
     const user = await userRepo.findById(c.get('db'), session.sub);
     if (!user) return c.json({ error: 'unauthorized' as const }, 401);
-    return c.json(publicUser(user));
+    return c.json(await publicUser(user, c.env));
   })
   // Step 1 of moving to a new number: a WhatsApp code to the *new* number, so nobody can move an
   // account to a number they don't have (a typo would lock the person out).

@@ -21,12 +21,15 @@ import {
   typography,
 } from '@mana/ui';
 import { api, type ApiResponse } from '../../api/client';
+import { useAuth } from '../../api/auth';
 import { SheetHead, SheetNotice, SheetPill } from '../../components/SheetBits';
 import { openWhatsApp } from '../../utils/whatsapp';
 import { TEAL, TEAL_MIST, TEAL_PALE } from './panel/parts';
 import { PHASE_STAFF_LABEL, PHASE_STAFF_TONE, failure, type PlaceMember } from './shared';
 
 const NEEDS_LINK = new Set(['awaiting_payment', 'payment_due', 'paused_unpaid']);
+/** Order phases with no money paid in (or none left to refund). */
+const NOT_PAID = new Set(['waitlist', 'awaiting_payment', 'ended', 'cancelled']);
 
 /**
  * One member, for the team: their flat and vehicles with each plan's state, and what the team can
@@ -46,6 +49,7 @@ export function MemberSheet({
   run: (call: () => Promise<ApiResponse>, done?: string) => Promise<string | null>;
   reload: () => Promise<void>;
 }) {
+  const { isOwner } = useAuth();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const m = member;
@@ -114,6 +118,9 @@ export function MemberSheet({
 
   const pending = m?.status === 'pending';
   const unpaid = m ? m.vehicles.some((v) => v.orders[0] && NEEDS_LINK.has(v.orders[0].phase)) : false;
+  // Removing someone with a paid plan refunds it, so that's the owner's call.
+  const paidPlan = m ? m.vehicles.some((v) => v.orders.some((o) => !NOT_PAID.has(o.phase))) : false;
+  const mayRemove = isOwner || !paidPlan;
   const tone = pending ? 'amber' : unpaid ? 'danger' : 'teal';
   const headColor = pending ? colors.amberDeep : unpaid ? colors.danger : TEAL;
 
@@ -250,16 +257,20 @@ export function MemberSheet({
 
           {error ? <SheetNotice tone="danger">{error}</SheetNotice> : null}
 
-          <Pressable
-            onPress={remove}
-            disabled={busy === 'remove'}
-            style={({ pressed }) => [styles.remove, pressed && styles.pressed]}
-            accessibilityRole="button"
-            accessibilityLabel="Remove from community"
-          >
-            <IconTrash size={16} color={colors.danger} />
-            <Text style={styles.removeText}>{busy === 'remove' ? 'Removing…' : 'Remove from community'}</Text>
-          </Pressable>
+          {mayRemove ? (
+            <Pressable
+              onPress={remove}
+              disabled={busy === 'remove'}
+              style={({ pressed }) => [styles.remove, pressed && styles.pressed]}
+              accessibilityRole="button"
+              accessibilityLabel="Remove from community"
+            >
+              <IconTrash size={16} color={colors.danger} />
+              <Text style={styles.removeText}>{busy === 'remove' ? 'Removing…' : 'Remove from community'}</Text>
+            </Pressable>
+          ) : (
+            <Text style={styles.ownerOnly}>They have a paid plan. Only the owner can remove them, because it refunds the plan.</Text>
+          )}
         </View>
       ) : null}
     </BottomSheet>
@@ -325,4 +336,5 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
   },
   removeText: { ...typography.label, fontSize: 14, fontWeight: '700', color: colors.danger },
+  ownerOnly: { ...typography.caption, fontSize: 12.5, color: colors.slate, letterSpacing: 0, textAlign: 'center', paddingVertical: spacing.sm },
 });

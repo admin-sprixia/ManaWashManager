@@ -321,13 +321,18 @@ export const customerCareRepo = {
    * Gives the customer the vehicle: creates it, or moves an existing plate to them (as New Wash
    * does when a known plate comes in under a new number). 'not_found' | 'already_handled' | 'ok'.
    */
-  async approveVehicleRequest(db: DbClient, id: string, data: { userId: string; now: Date }) {
+  /** `mayMove`: the plate is someone else's today and this person may move it (owner or manager). */
+  async approveVehicleRequest(db: DbClient, id: string, data: { userId: string; now: Date; mayMove: boolean }) {
     const request = await db.vehicleRequest.findUnique({
       where: { id },
       select: { id: true, status: true, customerId: true, registrationNumber: true, vehicleTypeId: true, make: true, model: true },
     });
     if (!request) return 'not_found' as const;
     if (request.status !== 'pending') return 'already_handled' as const;
+    if (!data.mayMove) {
+      const owner = await db.vehicle.findFirst({ where: { registrationNumber: request.registrationNumber }, select: { customerId: true } });
+      if (owner && owner.customerId !== request.customerId) return 'owner_only' as const;
+    }
 
     const vehicle = await retryOnClash(async () => {
       const existing = await db.vehicle.findFirst({

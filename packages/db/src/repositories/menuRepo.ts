@@ -216,10 +216,11 @@ async function publishOnce(d1: D1Database, shopId: string): Promise<PublishResul
       latitude: true,
       longitude: true,
       serviceRadiusKm: true,
+      kind: true,
       ...BRANCH_SERVICES_SELECT,
     },
   });
-  if (!shop?.businessId) return { shopId, published: false, changes: 0 };
+  if (!shop?.businessId || shop.kind === 'hq') return { shopId, published: false, changes: 0 };
   const businessId = shop.businessId;
   const data = await catalogRepo.load(d1, businessId);
   if (!data) return { shopId, published: false, changes: 0 };
@@ -703,7 +704,7 @@ export const menuRepo = {
     const [row] = await queryRows<{ stale: number }>(
       d1,
       `SELECT s.menu_version < b.catalog_version AS stale
-       FROM shops s JOIN businesses b ON b.id = s.business_id WHERE s.id = ?`,
+       FROM shops s JOIN businesses b ON b.id = s.business_id WHERE s.id = ? AND s.kind = 'branch'`,
       [shopId],
     );
     if (!row?.stale) return false;

@@ -12,6 +12,9 @@ export interface DirectoryEntry {
   vehicleId: string;
   registrationNumber: string;
   vehicleTypeId: string;
+  /** Company and model, when known (picked at New Wash, or sent from the customer app). */
+  make: string | null;
+  model: string | null;
   customerId: string;
   customerName: string;
   customerPhone: string;
@@ -54,7 +57,7 @@ export const directoryRepo = {
         : undefined,
       orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }],
       take: Math.min(limit, MAX_IN_LIST),
-      select: { id: true, registrationNumber: true, vehicleTypeId: true, customerId: true, updatedAt: true },
+      select: { id: true, registrationNumber: true, vehicleTypeId: true, make: true, model: true, customerId: true, updatedAt: true },
     });
     if (rows.length === 0) return [];
 
@@ -102,6 +105,8 @@ export const directoryRepo = {
         vehicleId: v.id,
         registrationNumber: v.registrationNumber,
         vehicleTypeId: v.vehicleTypeId,
+        make: v.make,
+        model: v.model,
         customerId: v.customerId,
         customerName: customer?.name ?? '',
         customerPhone: customer?.phone ?? '',

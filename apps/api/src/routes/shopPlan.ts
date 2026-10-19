@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { customerRepo, jobRepo, shopPlanRepo } from '@mana/db';
-import { normalizePhone, type JobStatus } from '@mana/domain';
+import { VEHICLE_MAKE_MAX, normalizePhone, type JobStatus } from '@mana/domain';
 import { occurredAt } from '../lib/clientTime';
 import { requireAuth } from '../middleware/auth';
 import type { Env } from '../types';
@@ -26,6 +26,9 @@ const sellSchema = z.object({
   registrationNumber: registrationSchema,
   vehicleTypeId: z.string().min(1).max(64),
   ownership: z.enum(['new_owner', 'same_person']).optional(),
+  /** A vehicle added while selling: its company and model, kept on it. */
+  make: z.string().trim().min(1).max(VEHICLE_MAKE_MAX).optional(),
+  model: z.string().trim().min(1).max(VEHICLE_MAKE_MAX).optional(),
   planId: z.string().min(1).max(64),
   paymentMethod: z.enum(['cash', 'upi', 'other']),
 });
@@ -62,6 +65,8 @@ export const shopPlanRoutes = new Hono<{ Bindings: Env }>()
       registrationNumber: body.registrationNumber,
       vehicleTypeId: body.vehicleTypeId,
       ownership: body.ownership,
+      make: body.make,
+      model: body.model,
     });
     if ('error' in ensured) {
       return c.json(

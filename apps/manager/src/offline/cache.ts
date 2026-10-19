@@ -23,6 +23,10 @@ export const CacheKeys = {
   boardLane: 'board.lane.v1',
   /** Whether the signed-in person is Mana Wash HQ, as last heard: `{ userId, admin }`. */
   hq: 'hq.v1',
+  /** A community's wash-day list, per place and day (`${placeDay}.<placeId>.<day>`). */
+  placeDay: 'place.day.v1',
+  /** Today across every branch, for the HQ home when offline. */
+  hqOverview: 'hq.overview.v1',
   /** Which size each body type is priced as, for the vehicle size guide. */
   vehicleSizes: 'vehicle.sizes.v1',
   /** Doorstep cash the signed-in person held when last online: `{ userId, held }`. */

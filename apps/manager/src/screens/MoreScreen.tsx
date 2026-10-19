@@ -13,7 +13,6 @@ import {
   ScreenContainer,
   ScreenHeader,
   Avatar,
-  showToast,
   showAlert,
   IconAlert,
   IconBox,
@@ -27,13 +26,8 @@ import {
   IconEdit,
   IconGift,
   IconStar,
-  IconLock,
-  IconPerson,
-  IconPhone,
-  IconLogout,
   IconReceipt,
   IconRupee,
-  IconSettings,
   IconShield,
   IconSparkle,
   IconStore,
@@ -47,14 +41,13 @@ import {
 } from '@mana/ui';
 import { EdgeGroup, EdgeRow, Pill } from '../components/EdgeList';
 import { ScreenHero, SectionTitle } from '../components/ScreenChrome';
-import { SetPinSheet } from '../components/SetPinSheet';
-import { PhonesSheet } from '../components/PhonesSheet';
 import { EditProfileSheet } from '../components/EditProfileSheet';
 import { ShopSwitcherSheet } from '../components/ShopSwitcherSheet';
 import { EarningsCard } from '../components/EarningsCard';
+import { HqToolsGroup } from '../components/HqToolsGroup';
+import { AccountGroup } from '../components/AccountGroup';
 import { USER_ROLE_LABEL } from '@mana/domain';
-import { api, apiErrorMessage } from '../api/client';
-import { NetworkError } from '../api/network';
+import { api } from '../api/client';
 import { useAuth } from '../api/auth';
 import { useSync } from '../offline/SyncProvider';
 import { CacheKeys, readCache, writeCache } from '../offline/cache';
@@ -82,21 +75,20 @@ function feedbackSubtitle(problems: number, vehicles: number): string {
 }
 
 export function MoreScreen({ navigation }: Props) {
-  const { user, isOwner, isManager, signOut, signIn } = useAuth();
+  const { user, isOwner, isManager, canManageTeam } = useAuth();
   const {
     online,
     syncing,
     lastSyncedAt,
     myItems,
     items,
+    shopItems,
     pendingCount,
     failedCount,
     syncNow,
     retry,
     discard,
   } = useSync();
-  const [pinOpen, setPinOpen] = useState(false);
-  const [phonesOpen, setPhonesOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [branchesOpen, setBranchesOpen] = useState(false);
   const {
@@ -142,19 +134,16 @@ export function MoreScreen({ navigation }: Props) {
   const notMine = items.filter((i) => i.userId !== user.id);
   const mineElsewhere = notMine.filter((i) => i.userName === user.name).length;
   const othersWaiting = notMine.length - mineElsewhere;
-
-  const confirmSignOut = () => {
-    const waiting = myItems.length;
+  // Teammates' changes made at this branch, which only they can send (under their own sign-in).
+  const teammates = shopItems.filter((i) => i.userId !== user.id && i.userName !== user.name);
+  const confirmDiscardTheirs = (id: string, who: string, label: string) => {
     showAlert(
-      'Sign out?',
-      waiting > 0
-        ? `${waiting} change${waiting === 1 ? '' : 's'} haven’t synced yet. They stay safely on this phone and will sync the next time you sign in here.`
-        : 'You’ll sign back in with your number and PIN.',
+      `Discard ${who}’s change?`,
+      `“${label}” was saved by ${who} and never reached the server. Discard it only if ${who} won’t sign in on this phone again. It can’t be brought back.`,
       [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Sign out', style: 'destructive', onPress: () => void signOut() },
+        { text: 'Keep', style: 'cancel' },
+        { text: 'Discard', style: 'destructive', onPress: () => void discard(id) },
       ],
-      { icon: <IconLogout size={26} color={colors.danger} /> },
     );
   };
 
@@ -300,6 +289,29 @@ export function MoreScreen({ navigation }: Props) {
             {othersWaiting === 1 ? 'it syncs' : 'they sync'} when they sign in here.
           </Text>
         ) : null}
+        {canManageTeam && teammates.length > 0 ? (
+          <EdgeGroup>
+            {teammates.map((item) => {
+              const who = item.userName.split(/\s+/)[0] ?? 'A teammate';
+              return (
+                <View key={item.id} style={styles.failedRow}>
+                  <View style={styles.failedCopy}>
+                    <Text style={styles.failedTitle}>{describeOp(item.op)}</Text>
+                    <Text style={styles.failedMeta}>
+                      {`${who}'s · saved ${formatDateTime(item.createdAt)}${item.state === 'failed' ? ' · couldn’t sync' : ''}`}
+                    </Text>
+                    {item.error ? <Text style={styles.failedError}>{item.error}</Text> : null}
+                  </View>
+                  <View style={styles.failedActions}>
+                    <Pressable onPress={() => confirmDiscardTheirs(item.id, who, describeOp(item.op))} hitSlop={6}>
+                      <Text style={styles.discardText}>Discard</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              );
+            })}
+          </EdgeGroup>
+        ) : null}
 
         {!isOwner ? (
           <>
@@ -385,6 +397,16 @@ export function MoreScreen({ navigation }: Props) {
               title="Branch details"
               subtitle="Name, contact, hours, location, UPI, review link"
               onPress={() => navigation.navigate('BranchProfile')}
+            />
+            <EdgeRow
+              icon={<IconBug size={19} color={colors.slateDeep} />}
+              iconBg="#F1F5F9"
+              title="Error log"
+              subtitle={unseenErrors > 0 ? `${unseenErrors} new since you last looked` : 'App crashes and server errors'}
+              right={
+                unseenErrors > 0 ? <Pill label={unseenErrors > 99 ? '99+' : String(unseenErrors)} tone="danger" /> : undefined
+              }
+              onPress={() => navigation.navigate('ErrorLog')}
             />
           </EdgeGroup>
         ) : null}
@@ -498,127 +520,20 @@ export function MoreScreen({ navigation }: Props) {
         {businessAdmin ? (
           <>
             <SectionTitle>Mana Wash HQ</SectionTitle>
-            <EdgeGroup>
-              <EdgeRow
-                icon={<IconStore size={19} color={colors.waterDeep} />}
-                title="All branches"
-                subtitle="Today’s numbers, open, pause or close, owners"
-                onPress={() => navigation.navigate('BusinessBranches')}
-              />
-              <EdgeRow
-                icon={<IconSparkle size={19} color={colors.indigo} />}
-                iconBg={colors.indigoPale}
-                title="Services and plans"
-                subtitle="What every branch can sell, and wash plans"
-                onPress={() => navigation.navigate('BusinessServices')}
-              />
-              <EdgeRow
-                icon={<IconRupee size={19} color={colors.tealDeep} />}
-                iconBg="#CCFBF1"
-                title="Base prices"
-                subtitle="Hub, community and doorstep prices, price books"
-                onPress={() => navigation.navigate('BusinessPrices')}
-              />
-              <EdgeRow
-                icon={<IconChart size={19} color={colors.amberDeep} />}
-                iconBg="#FEF3C7"
-                title="Pricing rules"
-                subtitle="How much branch owners may change prices"
-                onPress={() => navigation.navigate('BusinessRules')}
-              />
-              <EdgeRow
-                icon={<IconSettings size={19} color={colors.slateDeep} />}
-                title="HQ settings"
-                subtitle="Business name, admins, update every branch"
-                onPress={() => navigation.navigate('Business')}
-              />
-              {isOwner ? (
-                <EdgeRow
-                  icon={<IconBug size={19} color={colors.slateDeep} />}
-                  iconBg="#F1F5F9"
-                  title="Error log"
-                  subtitle={
-                    unseenErrors > 0
-                      ? `${unseenErrors} new since you last looked`
-                      : 'App crashes and server errors'
-                  }
-                  right={
-                    unseenErrors > 0 ? (
-                      <Pill label={unseenErrors > 99 ? '99+' : String(unseenErrors)} tone="danger" />
-                    ) : undefined
-                  }
-                  onPress={() => navigation.navigate('ErrorLog')}
-                />
-              ) : null}
-            </EdgeGroup>
+            <HqToolsGroup />
           </>
         ) : null}
 
         <SectionTitle>Account</SectionTitle>
-        <EdgeGroup>
-          <EdgeRow
-            icon={<IconPerson size={19} color={colors.waterDeep} />}
-            title="Edit profile"
-            subtitle="Your name and mobile number"
-            onPress={() => setProfileOpen(true)}
-          />
-          <EdgeRow
-            icon={<IconLock size={19} color={colors.waterDeep} />}
-            title="Change PIN"
-            subtitle={user.role === 'staff' ? 'Your sign-in code on this or any shop phone' : 'Your 6-digit sign-in code'}
-            onPress={() => setPinOpen(true)}
-          />
-          <EdgeRow
-            icon={<IconPhone size={19} color={colors.waterDeep} />}
-            title="Your phones"
-            subtitle="See where you’re signed in, sign out other phones"
-            onPress={() => setPhonesOpen(true)}
-          />
-          <EdgeRow
-            icon={<IconLogout size={19} color={colors.danger} />}
-            iconBg="#FEE2E2"
-            title="Sign out"
-            tone="danger"
-            chevron={false}
-            onPress={confirmSignOut}
-          />
-        </EdgeGroup>
+        <AccountGroup onEditProfile={() => setProfileOpen(true)} senior={user.role !== 'staff' || businessAdmin} />
 
         <Text style={styles.version}>Sri Mana Wash Partner · v{APP_VERSION}</Text>
       </ScrollView>
 
       <EditProfileSheet visible={profileOpen} onClose={() => setProfileOpen(false)} />
-      <PhonesSheet visible={phonesOpen} onClose={() => setPhonesOpen(false)} />
       <ShopSwitcherSheet
         visible={branchesOpen}
         onClose={() => setBranchesOpen(false)}
-      />
-
-      <SetPinSheet
-        visible={pinOpen}
-        title="Change your PIN"
-        subtitle={`For +91 ${user.phone}`}
-        askCurrent={user.hasPin}
-        senior={user.role !== 'staff' || businessAdmin}
-        onClose={() => setPinOpen(false)}
-        onSubmit={async (pin, currentPin) => {
-          try {
-            const res = await api.auth.pin.$put({ json: { pin, currentPin } });
-            if (!res.ok) {
-              const message = await apiErrorMessage(res, 'Couldn’t save your PIN.');
-              return res.status === 401 || res.status === 423 ? { currentPinError: message } : message;
-            }
-            const session = await res.json();
-            if ('token' in session) await signIn(session.token, session.user);
-            setPinOpen(false);
-            showToast('PIN saved. Other phones signed in as you will need the new PIN.');
-            return null;
-          } catch (e) {
-            return e instanceof NetworkError
-              ? 'Setting a PIN needs a connection.'
-              : 'Couldn’t save your PIN.';
-          }
-        }}
       />
     </ScreenContainer>
   );

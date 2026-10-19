@@ -64,6 +64,10 @@ async function call(op: OutboxOp, asToken?: string): Promise<ApiResponse> {
       return uploadExpense(op.payload, asToken);
     case 'stock.move':
       return api.stock.moves.$post({ json: op.payload }, as);
+    case 'place.visit': {
+      const { placeId, ...json } = op.payload;
+      return api.places[':id'].visits.$post({ param: { id: placeId }, json }, as);
+    }
   }
 }
 
@@ -109,5 +113,7 @@ export async function sendOp(op: OutboxOp, asToken?: string): Promise<SendResult
   }
   // A status change that lost the race (job already further along or voided) isn't an error.
   if (res.status === 409 && op.kind === 'job.status') return { ok: false, kind: 'superseded' };
+  // That wash day is already recorded (this same send landed earlier, or a teammate did it).
+  if (res.status === 409 && op.kind === 'place.visit') return { ok: false, kind: 'superseded' };
   return { ok: false, kind: 'rejected', message: await apiErrorMessage(replay) };
 }

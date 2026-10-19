@@ -61,7 +61,14 @@ export interface BoardJob {
   deliveryMode?: string;
   paymentMethod: PaymentMethod | null;
   customer: { id: string; name: string | null; phone: string };
-  vehicle: { registrationNumber: string; vehicleType: { name: string; category?: string } };
+  vehicle: {
+    registrationNumber: string;
+    /** Company and model, when known. */
+    make?: string | null;
+    model?: string | null;
+    /** `bodyTypeId` from the server; `bodyKey` on washes still on this phone. */
+    vehicleType: { name: string; category?: string; bodyTypeId?: string | null; bodyKey?: string | null };
+  };
   jobServices: {
     serviceId?: string;
     quantity: number;
@@ -92,7 +99,12 @@ export interface StartJobPayload {
   /** Known plate, different phone: whether the owner changed numbers or the vehicle changed hands. */
   ownership?: 'new_owner' | 'same_person';
   vehicleTypeId: string;
+  /** Company and model picked from the size guide's list; kept on the vehicle. */
+  make?: string;
+  model?: string;
   services: { serviceId: string; quantity: number }[];
+  /** The price per service shown here, kept if prices change before this syncs. */
+  quoted?: { serviceId: string; price: number }[];
   /** Washed at the customer's place instead of the hub; priced from the doorstep menu. */
   mode?: DeliveryMode;
   /** A home wash: where the home is (the phone at the home); the server measures the visit. */
@@ -117,6 +129,8 @@ export interface StartJobPayload {
 export interface StartJobMeta {
   vehicleTypeName: string;
   vehicleCategory: VehicleCategory;
+  /** The type's body type, so the board can say what kind of vehicle it is. */
+  vehicleBodyKey?: string | null;
   services: { name: string; price: number; commission?: number }[];
   subtotal: number;
   total: number;
@@ -195,13 +209,26 @@ export type OutboxOp =
   | { kind: 'job.void'; payload: { jobId: string; reason: string; occurredAt: string } }
   | { kind: 'photo.upload'; payload: PhotoPayload }
   | { kind: 'expense.create'; payload: ExpensePayload }
-  | { kind: 'stock.move'; payload: StockMovePayload; meta: { itemName: string } };
+  | { kind: 'stock.move'; payload: StockMovePayload; meta: { itemName: string } }
+  | { kind: 'place.visit'; payload: PlaceVisitPayload; meta: { label: string; occurredAt: string } };
+
+/** A community wash-day record (washed / not found / missed), queued like any other change. */
+export interface PlaceVisitPayload {
+  placeId: string;
+  orderId: string;
+  date: string;
+  outcome: 'done' | 'not_found' | 'missed';
+  plate: { registrationNumber: string } | null;
+  at: { latitude: number; longitude: number; accuracyM?: number } | null;
+}
 
 export interface OutboxItem {
   id: string;
   /** Only the person who made a change can sync it — it goes out under their session. */
   userId: string;
   userName: string;
+  /** The branch it was made in (missing on changes saved by older builds). */
+  shopId?: string;
   createdAt: string;
   /** Server-side failures so far (5xx, rate limits); network drops don't count. */
   attempts: number;
@@ -214,7 +241,7 @@ export interface OutboxItem {
 
 export function opJobId(op: OutboxOp): string | null {
   if (op.kind === 'job.start') return op.payload.id;
-  if (op.kind === 'expense.create' || op.kind === 'stock.move') return null;
+  if (op.kind === 'expense.create' || op.kind === 'stock.move' || op.kind === 'place.visit') return null;
   return op.payload.jobId;
 }
 
@@ -238,5 +265,7 @@ export function describeOp(op: OutboxOp): string {
       return 'Expense entry';
     case 'stock.move':
       return `${op.payload.kind === 'use' ? 'Stock used' : op.payload.kind === 'count' ? 'Stock count' : 'Stock added'} · ${op.meta.itemName}`;
+    case 'place.visit':
+      return `Community wash · ${op.meta.label}`;
   }
 }

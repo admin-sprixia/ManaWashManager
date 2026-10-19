@@ -22,7 +22,7 @@ import {
   type ServiceModes,
   type VehicleCategory,
 } from '@mana/domain';
-import { createPlatformDb, type D1Database, type DbClient } from '../client';
+import { createPlatformDb, createShopDb, type D1Database, type DbClient } from '../client';
 import { awayPricingRepo, type AwayPricing } from './awayPricingRepo';
 import { newId } from '../ids';
 import { insertRows, runStatements, SQL_NOW, type SqlStatement } from '../sql';
@@ -35,6 +35,7 @@ import { insertRows, runStatements, SQL_NOW, type SqlStatement } from '../sql';
  */
 
 export type CatalogErrorCode =
+  | 'needs_name'
   | 'not_found'
   | 'invalid'
   | 'nested_combo'
@@ -175,6 +176,8 @@ export interface CatalogView extends CatalogData {
     owners: { id: string; name: string; phone: string; active: boolean; pinSet: boolean }[];
   }[];
   admins: string[];
+  /** Admins who work at no branch: they sign in through the HQ home. */
+  hqOnly: { phone: string; name: string; pinSet: boolean }[];
   /** Visit charges for home washes and the community volume discount. */
   away: AwayPricing;
 }
@@ -331,7 +334,7 @@ export const catalogRepo = {
   async branchOf(pdb: DbClient, shopId: string) {
     return pdb.shop.findUnique({
       where: { id: shopId },
-      select: { id: true, name: true, businessId: true, priceBookId: true, priceZoneId: true, menuVersion: true },
+      select: { id: true, name: true, businessId: true, priceBookId: true, priceZoneId: true, menuVersion: true, kind: true },
     });
   },
 
@@ -406,7 +409,7 @@ export const catalogRepo = {
         select: { priceBookId: true, serviceId: true, sizeId: true, price: true, doorstepPrice: true },
       }),
       pdb.shop.findMany({
-        where: { businessId },
+        where: { businessId, kind: 'branch' },
         orderBy: { name: 'asc' },
         select: {
           id: true,
@@ -425,6 +428,7 @@ export const catalogRepo = {
       awayPricingRepo.get(d1, businessId),
     ]);
     if (!data) return null;
+    const hqOnly = await catalogRepo.hqOnlyPeople(pdb, businessId);
     const vehicleRows = await pdb.$queryRaw<{ shop_id: string; body_type_id: string }[]>`
       SELECT v.shop_id, v.body_type_id FROM branch_body_types v JOIN shops s ON s.id = v.shop_id
        WHERE s.business_id = ${businessId}`;
@@ -471,6 +475,7 @@ export const catalogRepo = {
           .map((o) => ({ id: o.id, name: o.name, phone: o.phone, active: Number(o.active) === 1, pinSet: Number(o.pin_set) === 1 })),
       })),
       admins: admins.map((a) => a.phone),
+      hqOnly,
       away,
     };
   },
@@ -577,26 +582,103 @@ export const catalogRepo = {
   },
 
   /**
-   * Only someone already on a team at one of the business's branches can be made HQ: a mistyped
-   * number, or one the telco later gives to a stranger, must never become HQ when it joins later.
+   * The business's HQ home: where HQ people who work at no branch sign in. Made the first time
+   * it's needed; it holds only their team rows and is never a branch (no menu, washes or cash).
    */
-  async addAdmin(d1: D1Database, businessId: string, phone: string) {
+  async hqHome(d1: D1Database, businessId: string): Promise<{ id: string }> {
+    const pdb = createPlatformDb(d1);
+    const found = await pdb.shop.findFirst({ where: { businessId, kind: 'hq' }, select: { id: true } });
+    if (found) return found;
+    const business = await pdb.business.findUnique({ where: { id: businessId }, select: { name: true } });
+    const id = newId();
+    await runStatements(d1, [
+      {
+        sql: `INSERT INTO shops (id, code, name, business_id, kind, offer_hub, offer_community, offer_doorstep)
+              VALUES (?, ?, ?, ?, 'hq', 0, 0, 0)`,
+        params: [id, `HQ-${id.replace(/-/g, '').slice(0, 8).toUpperCase()}`, `${business?.name ?? 'Mana Wash'} HQ`, businessId],
+      },
+    ]);
+    return { id };
+  },
+
+  /** HQ people who work at no branch: they sign in through the HQ home. */
+  async hqOnlyPeople(pdb: DbClient, businessId: string): Promise<CatalogView['hqOnly']> {
+    const home = await pdb.shop.findFirst({ where: { businessId, kind: 'hq' }, select: { id: true } });
+    if (!home) return [];
+    const [rows, admins] = await Promise.all([
+      pdb.user.findMany({
+        where: { shopId: home.id, removedAt: null, active: true },
+        orderBy: { createdAt: 'asc' },
+        select: { phone: true, name: true, pinHash: true },
+      }),
+      pdb.businessAdmin.findMany({ where: { businessId }, select: { phone: true } }),
+    ]);
+    const isAdmin = new Set(admins.map((a) => a.phone));
+    return rows.filter((r) => isAdmin.has(r.phone)).map((r) => ({ phone: r.phone, name: r.name, pinSet: r.pinHash != null }));
+  },
+
+  /**
+   * Someone on a team at one of the business's branches is made HQ as they are. Someone who
+   * works at no branch needs a name: they get an HQ-only sign-in (a row in the HQ home), and
+   * confirm the number with a WhatsApp code on first sign-in, like any new teammate.
+   */
+  async addAdmin(
+    d1: D1Database,
+    businessId: string,
+    phone: string,
+    name?: string,
+  ): Promise<{ hqOnly: boolean; hasPin: boolean }> {
     const pdb = createPlatformDb(d1);
     const rows = await pdb.user.findMany({ where: { phone, removedAt: null, active: true }, select: { shopId: true } });
-    const onTeam = rows.length > 0 && (await pdb.shop.count({ where: { id: { in: rows.map((r) => r.shopId) }, businessId } })) > 0;
-    if (!onTeam) fail('not_on_team', 'Add this person to a branch team first (as an owner or manager), then make them HQ.');
+    const onTeam = rows.length > 0 && (await pdb.shop.count({ where: { id: { in: rows.map((r) => r.shopId) }, businessId, kind: 'branch' } })) > 0;
+    // Someone who already signs in somewhere keeps their one PIN.
+    const person = await pdb.user.findFirst({
+      where: { phone, removedAt: null, pinHash: { not: null } },
+      select: { pinHash: true, pinDigits: true, pinSetAt: true },
+    });
+    if (!onTeam) {
+      if (!name?.trim()) fail('needs_name', 'This number isn’t on a branch team. Add their name: they get an HQ-only sign-in.');
+      const home = await catalogRepo.hqHome(d1, businessId);
+      const db = createShopDb(d1, home.id);
+      const here = await db.user.findFirst({ where: { phone, removedAt: null }, select: { id: true } });
+      if (here) {
+        await db.user.update({ where: { id: here.id }, data: { active: true } });
+      } else {
+        await db.user.create({
+          data: {
+            name: name!.trim(),
+            phone,
+            role: 'owner',
+            pinHash: person?.pinHash ?? null,
+            pinDigits: person?.pinDigits ?? null,
+            pinSetAt: person?.pinSetAt ?? null,
+          },
+        });
+      }
+    }
     await runStatements(d1, [
       { sql: 'INSERT OR IGNORE INTO business_admins (business_id, phone) VALUES (?, ?)', params: [businessId, phone] },
     ]);
+    return { hqOnly: !onTeam, hasPin: person != null };
   },
 
-  /** The last admin can't be removed: someone must always be able to change prices. */
+  /**
+   * The last admin can't be removed: someone must always be able to change prices. An HQ-only
+   * person is taken off the HQ home too, so their sign-in stops and every phone signs out.
+   */
   async removeAdmin(d1: D1Database, businessId: string, phone: string) {
     const pdb = createPlatformDb(d1);
     const admins = await pdb.businessAdmin.findMany({ where: { businessId }, select: { phone: true } });
     if (!admins.some((a) => a.phone === phone)) fail('not_found', 'Not an admin.');
     if (admins.length <= 1) fail('last_admin', 'Add another admin before removing the last one.');
     await pdb.businessAdmin.deleteMany({ where: { businessId, phone } });
+    const home = await pdb.shop.findFirst({ where: { businessId, kind: 'hq' }, select: { id: true } });
+    if (home) {
+      await createShopDb(d1, home.id).user.updateMany({
+        where: { phone, removedAt: null },
+        data: { active: false, pinHash: null, pinDigits: null, removedAt: new Date(), sessionVersion: { increment: 1 } },
+      });
+    }
   },
 
   async renameBusiness(d1: D1Database, businessId: string, name: string) {
@@ -1023,7 +1105,7 @@ export const catalogRepo = {
   /** Ids of a business's branches whose menu is behind the catalog. */
   async staleBranches(pdb: DbClient, businessId?: string): Promise<string[]> {
     const shops = await pdb.shop.findMany({
-      where: businessId ? { businessId } : { businessId: { not: null } },
+      where: { ...(businessId ? { businessId } : { businessId: { not: null } }), kind: 'branch' },
       select: { id: true, businessId: true, menuVersion: true },
     });
     if (!shops.length) return [];

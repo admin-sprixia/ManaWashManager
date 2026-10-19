@@ -23,6 +23,8 @@ interface AuthContextValue {
   isManager: boolean;
   /** Owner or manager: can open Team. */
   canManageTeam: boolean;
+  /** Mana Wash HQ who work at no branch: the app opens on the HQ home, with no branch screens. */
+  hqOnly: boolean;
   /** Why the last session ended, when it wasn't the user's choice — shown on the login screen. */
   sessionNotice: string | null;
   /** Shown once after signing in, e.g. who reset this person's PIN. */
@@ -157,6 +159,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isOwner: user?.role === 'owner',
       isManager: user?.role === 'manager',
       canManageTeam: user?.role === 'owner' || user?.role === 'manager',
+      hqOnly: user?.hqOnly === true,
       sessionNotice,
       signInNotice,
       setSignInNotice,

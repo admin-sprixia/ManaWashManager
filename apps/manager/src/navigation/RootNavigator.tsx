@@ -8,6 +8,7 @@ import { CustomerProfileScreen } from '../screens/CustomerProfileScreen';
 import { ReportsScreen } from '../screens/ReportsScreen';
 import { JobDetailScreen } from '../screens/JobDetailScreen';
 import { MoreScreen } from '../screens/MoreScreen';
+import { HqHomeScreen } from '../screens/HqHomeScreen';
 import { TeamScreen } from '../screens/TeamScreen';
 import { StaffReportScreen } from '../screens/StaffReportScreen';
 import { ExpensesScreen, type ExpenseItem } from '../screens/ExpensesScreen';
@@ -47,6 +48,8 @@ import type { DeliveryMode } from '@mana/domain';
 
 export type RootStackParamList = {
   JobBoard: undefined;
+  /** Home for Mana Wash HQ who work at no branch. */
+  HqHome: undefined;
   /** `mode`: open on that menu (the home tab it was started from), when the branch offers it. */
   NewWash: { registration?: string; mode?: DeliveryMode } | undefined;
   JobDetail: { jobId: string };
@@ -113,9 +116,31 @@ const navTheme = {
 
 const slide = { animation: 'slide_from_right' as const };
 
-export function RootNavigator() {
-  const { isOwner, canManageTeam } = useAuth();
+/** Mana Wash HQ who work at no branch: HQ's home and tools only, no branch screens at all. */
+function HqOnlyNavigator() {
+  return (
+    <NavigationContainer theme={navTheme}>
+      <Stack.Navigator initialRouteName="HqHome" screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="HqHome" component={HqHomeScreen} />
+        <Stack.Screen name="Business" component={BusinessScreen} options={slide} />
+        <Stack.Screen name="BusinessServices" component={CatalogServicesScreen} options={slide} />
+        <Stack.Screen name="BusinessServiceEdit" component={ServiceEditorScreen} options={slide} />
+        <Stack.Screen name="BusinessPlanEdit" component={PlanEditorScreen} options={slide} />
+        <Stack.Screen name="VehicleGuide" component={VehicleGuideScreen} options={slide} />
+        <Stack.Screen name="BusinessPrices" component={PriceListScreen} options={slide} />
+        <Stack.Screen name="BusinessRules" component={PricingRulesScreen} options={slide} />
+        <Stack.Screen name="BusinessBranches" component={BranchesScreen} options={slide} />
+        <Stack.Screen name="OpenBranch" component={OpenBranchScreen} options={slide} />
+        <Stack.Screen name="BusinessBranch" component={BranchDetailScreen} options={slide} />
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+}
 
+export function RootNavigator() {
+  const { isOwner, canManageTeam, hqOnly } = useAuth();
+
+  if (hqOnly) return <HqOnlyNavigator />;
   return (
     <NavigationContainer theme={navTheme}>
       {/* headerShown: false — every screen owns its full header treatment (a GradientHero

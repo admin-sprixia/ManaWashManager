@@ -10,6 +10,60 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- **Wash photos showed as blank tiles once uploaded.** The wash page loaded them with the session
+  only; since sign-in is tied to the phone, the server needs this phone's key too and refused
+  them. Photos now load with both (like community photos already did).
+- **Opening a wash from the home list was slow and sometimes stuck.** The page waited to read
+  the whole day's list from storage before it could draw, and redrew itself several times as the
+  server answered. It now opens filled in from the board's copy in memory, applies each answer
+  in one go, and starts the download and photos once it has slid in. The board itself redraws
+  once per refresh (not once per value), and a row redraws only when its own wash changes.
+- **Unsynced changes are kept safe (audit H1–H3).**
+  - If the phone can't read its saved queue, it never overwrites it: new changes are kept apart
+    and merged back as soon as it reads again (on this run or the next start).
+  - Switching branch stops the previous branch's sync before it sends or saves anything else;
+    "Sync now" waits for a sync already running instead of returning at once.
+  - Every queued change records its branch: the board and wash pages show only this branch's
+    unsynced washes. A wash still waiting on a teammate's unsynced change can't be changed by
+    someone else (it says who it's waiting on). Owners and managers see teammates' waiting
+    changes in More and can discard one after a warning.
+- **Offline washes keep the quoted price (H4).** A wash that reaches the server well after it
+  happened keeps the price the phone showed if prices changed meanwhile (within half to double
+  today's), so the bill matches the cash taken; the wash's activity says "Kept the price … quoted
+  offline".
+- **The HQ home is never a branch (H5).** The server lets HQ-only people reach only sign-in and
+  account, HQ's tools, the size guide and the shop name; washes, cash, customers and team are
+  shut there. HQ's admin list shows only real admins. The app no longer loads branch data in
+  the background for HQ-only people.
+- **Owner-only money actions (H6, H7).** Removing a community member who has a paid plan (it
+  refunds the plan) is owner-only; staff see why. Approving a customer's vehicle that belongs to
+  another customer today is owner- or manager-only; staff see "Ask the owner or a manager".
+- **HQ home: switch to your branch (H8).** HQ-only people who also work at a branch get a
+  "Switch branch" row on the HQ home.
+- **Error log for every owner (H10).** The row moved into More › Branch, so the "new errors"
+  alert on the board always leads somewhere.
+- **Community wash days work offline (H9).** The day's list is kept on the phone; washed, not
+  found and missed are queued like hub washes and sync when there's signal, showing straight
+  away as saved on this phone (the after photo and Undo open once synced).
+- **Report PDF: text drawn over text.** Small headings were covered by the row below them,
+  sections split across pages (GST's first line on one page, the rest on the next) and long
+  lines were cut. The PDF is laid out again: every block takes its own space, small sections
+  move to the next page whole, the shop's address wraps, and tables have header bands that
+  repeat on each page. The cover shows the period on the right; the staff table lines up
+  (washes, services sold, commission, collected); every wash shows the date and time, customer
+  and services, the plate (spaced) and vehicle, and the amount with Cash/UPI and who took it,
+  Void in red or Not paid yet in amber. Averages are in whole rupees and counts say what they
+  count ("1 visit", "4 washes"). The footer is a night band like the header, with CONFIDENTIAL,
+  "for <branch> only", the page number and the app version; the header carries a large faint
+  Mana Wash mark behind it (and a small one on the continued pages).
+- **New Wash opened slowly.** It redrew the whole screen once per catalog list (about a dozen
+  times) while sliding in, and started five downloads, the customer sync and the keyboard at the
+  same moment. Now the catalog is kept in memory (read ahead while the home board is open) and
+  applied in one go, every step is drawn at once from the phone's copy, and the downloads start
+  once it's open. Nothing redraws when the server's catalog hasn't changed.
+- **Company list opened slowly.** Long dropdowns (the 80+ companies, a company's models) drew
+  every row and logo before opening; they now draw only what's on screen, as one tight list
+  with thin dividers.
 - **Managers couldn't open Attendance.** The row was in More, but the page only opened for
   owners.
 - **Branch price limits in whole rupees.** "20% less to 20% more" of ₹499 showed ₹399.2 to
@@ -62,6 +116,59 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- **Sell a plan any time the customer asks.** Besides New Wash (before the wash starts):
+  - **From the customer's profile:** "Sell plan" in the quick actions asks which vehicle: one of
+    theirs, or **another vehicle** (number plate, then company and model, which picks its type;
+    or pick the type). Then the plans for that vehicle show. A new vehicle is added to the
+    customer with its company and model; a plate saved under someone else is flagged first and
+    moves to this customer.
+  - **From the wash page** (waiting, washing, ready or paid).
+  - The plan is registered for that vehicle; today's wash is paid as usual and the plan starts
+    from the next visit. Needs internet; not for walk-ins or doorstep washes.
+- **Before photos in New Wash.** Between the vehicle and the services, staff take or pick up to 10
+  before photos (scratches, dents) as the vehicle arrives; tap ✕ to drop one. They're attached to
+  the wash when it's started and upload in the background, offline too (queued behind the wash).
+  Photos of a wash that's never started are deleted from the phone. On the wash page, before
+  photos can be added only while it's waiting, and after photos only once it has started.
+- **Wash page, redesigned.** A full-width header in the colour of where the wash stands (indigo on
+  the board, teal paid, red voided): back, a status pill, the company and model with its logo,
+  the plate and shop or doorstep, the amount in large type with how it was paid or that it's to
+  collect, and a Waiting → Washing → Ready → Paid bar. A white sheet with rounded corners slides
+  over it: the customer (avatar, number, call and WhatsApp), the bill like a receipt (stamp-card
+  freebies, discount, a bold total), Details as label and value (started, washed by, got the
+  service, payment, welcome gift; tap to change), photos, an activity timeline, and Void as a
+  quiet link at the end. The big button at the bottom keeps the next step.
+- **Home board rows, clean and minimal.** Plain full-width rows with thin dividers, no icons:
+  - the **company and model** ("Maruti Suzuki Swift") and the total; a wash with no saved model
+    is headed by its number plate instead (never "Car" or "Three-wheeler");
+  - the company logo, the **number plate** in plain spaced letters ("AP 39 CK 7710"), and Doorstep;
+  - the services, then the customer, time, washer, Cash/UPI and Gift owed/given as one line;
+  - the next step as a small pill with its icon: ▶ Start, ✓ Ready, ₹ Collect ₹… (solid), and Thank you
+    with the WhatsApp logo (soft green).
+- **New Wash: company, then model.** Step 2 now asks for the company (with its logo) and the
+  model, both searchable. The model picks the branch's vehicle type (Swift → Hatchback), and
+  the services and prices open on their own. Each model in the list shows the type it will
+  be, or "Not washed here".
+  - **Model not in the list?** "Pick the vehicle type yourself" opens the Cars/Bikes cards as
+    before. "Change" next to a picked type does the same.
+  - The company and model are **saved on the customer's vehicle** and sent to every phone, so a
+    returning customer shows as "Maruti Suzuki Swift · Hatchback". A later wash with another
+    model updates it; one without a model leaves it as saved.
+  - Uses head office's edits to the size guide's list, and works offline.
+  - The model-to-type matching is now shared by the customer app's Add a vehicle and New Wash.
+- **HQ-only sign-in.** Mana Wash HQ people who work at no branch now sign in like anyone else
+  (number, WhatsApp code, their own 6-digit PIN) and the app opens on its own **HQ home**:
+  - today across every branch (open branches, paid today, washes in progress, one row per branch
+    that opens it), HQ's tools (All branches, Services and plans, Base prices, Pricing rules, HQ
+    settings, Vehicle size guide) and their account. No job board, cash, team or branch screens.
+  - **HQ settings → Admins:** type a number that's on no branch team and a name field appears;
+    one button **Add and send invite on WhatsApp**. Admins now show by name, with an **HQ only**
+    tag, and "hasn't signed in yet" with **Send invite again** until they do.
+  - **Removing an HQ-only admin** signs them out on every phone and stops their sign-in.
+  - Behind it: each business has one hidden HQ home (`shops.kind = 'hq'`, migration 0035) that
+    holds only these people. It never shows as a branch: not in All branches, today's numbers,
+    branch towns, menu rebuilds, the customer app or HQ's branch tools.
+  - The HQ tools and Account rows on More are now shared with the HQ home.
 - **This branch's prices, set by the branch owner.** The page is laid out like HQ's Base prices,
   but for the branch's own price book (e.g. "Standard prices"), so a branch owner never needs HQ's
   pages.

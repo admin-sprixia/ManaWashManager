@@ -12,6 +12,7 @@ import {
   TextInput,
   UIManager,
   View,
+  unstable_batchedUpdates,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -50,7 +51,9 @@ import {
   radius,
   spacing,
   typography,
+  MakeLogo,
   VehicleArt,
+  suggestedTypeId,
 } from '@mana/ui';
 import {
   VEHICLE_CARD_COMPACT_WIDTH,
@@ -68,6 +71,9 @@ import { SellerField } from '../components/newWash/SellerField';
 import { RewardsPanel } from '../components/newWash/RewardsPanel';
 import { VisitCard } from '../components/newWash/VisitCard';
 import { SellPlanSheet } from '../components/newWash/SellPlanSheet';
+import { VehicleModelPicker, useModelEdits } from '../components/newWash/VehicleModelPicker';
+import { BeforePhotos, type PendingPhoto } from '../components/newWash/BeforePhotos';
+import { deleteLocalCopy } from '../offline/photoFiles';
 import type { Point } from '../utils/location';
 import { useVehicleRewards } from '../components/newWash/useVehicleRewards';
 import type { RewardCard } from '../offline/types';
@@ -87,6 +93,7 @@ import { useDirectory } from '../offline/DirectoryProvider';
 import type { DirectoryEntry } from '../offline/directory';
 import { CacheKeys, readCache, writeCache } from '../offline/cache';
 import { newId } from '../utils/id';
+import { useOpened } from '../utils/useOpened';
 import { formatRupees } from '../utils/format';
 import { groupForService, normalizeReg, SERVICE_GROUP_ORDER } from '../utils/services';
 import {
@@ -123,7 +130,8 @@ interface CachedCatalog {
     sortOrder: number;
     appliesTo: string;
   }>;
-  vehicleTypes: Array<{ id: string; name: string; sortOrder: number; category: string }>;
+  /** `bodyKey`: missing from catalogs saved by older versions (types are then matched by name). */
+  vehicleTypes: Array<{ id: string; name: string; sortOrder: number; category: string; bodyKey?: string | null }>;
   prices: ServicePrice[];
   /** Staff commission per service per size; missing from catalogs saved by older versions. */
   commissions?: CommissionRate[];
@@ -152,9 +160,59 @@ function normalizeServices(rows: CachedCatalog['services']): Service[] {
   return rows.map((s) => ({ ...s, appliesTo: parseServiceAppliesTo(s.appliesTo) }));
 }
 
-function normalizeVehicleTypes(rows: CachedCatalog['vehicleTypes']): VehicleType[] {
-  return rows.map((vt) => ({ ...vt, category: parseVehicleCategory(vt.category) }));
+/** A branch vehicle type, with the body type a company and model find it by. */
+type WashVehicleType = VehicleType & { bodyKey: string | null };
+
+function normalizeVehicleTypes(rows: CachedCatalog['vehicleTypes']): WashVehicleType[] {
+  return rows.map((vt) => ({ ...vt, category: parseVehicleCategory(vt.category), bodyKey: vt.bodyKey ?? null }));
 }
+
+interface LoadedCatalog {
+  services: Service[];
+  vehicleTypes: WashVehicleType[];
+  allPrices: ServicePrice[];
+  modes: DeliveryMode[];
+  visitRules: DoorstepVisitRules | null;
+  branchPoint: Point | null;
+  homeOnlyTypes: string[];
+  commissions: CommissionRate[];
+}
+
+function loadedFrom(c: CachedCatalog | null): LoadedCatalog {
+  return {
+    services: c ? normalizeServices(c.services) : [],
+    vehicleTypes: c ? normalizeVehicleTypes(c.vehicleTypes) : [],
+    allPrices: c?.prices ?? [],
+    modes: c?.modes ?? ['hub'],
+    visitRules: c?.visit ?? null,
+    branchPoint: c?.branchPoint ?? null,
+    homeOnlyTypes: c?.homeOnlyTypes ?? [],
+    commissions: c?.commissions ?? [],
+  };
+}
+
+/** The last catalog this app loaded, for its branch, so New Wash opens with it already in hand. */
+let memory: { shopId: string; catalog: CachedCatalog } | null = null;
+
+function memoryFor(shopId: string | undefined): CachedCatalog | null {
+  return shopId && memory?.shopId === shopId ? memory.catalog : null;
+}
+
+function remember(shopId: string | undefined, catalog: CachedCatalog) {
+  if (shopId) memory = { shopId, catalog };
+}
+
+function readCatalogCache(): Promise<CachedCatalog | null> {
+  return readCache<CachedCatalog>(CacheKeys.catalog);
+}
+
+/** Reads the saved catalog into memory ahead of time (the home board calls this). */
+export async function warmNewWash(shopId: string): Promise<void> {
+  if (memoryFor(shopId)) return;
+  const saved = await readCatalogCache();
+  if (saved) remember(shopId, saved);
+}
+
 
 /**
  * Layout-only transitions. Android can leave views created under an opacity "create"
@@ -197,13 +255,12 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   const nameRef = useRef<TextInput>(null);
   const servicesY = useRef(0);
 
-  const [services, setServices] = useState<Service[]>([]);
-  const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
-  const [allPrices, setAllPrices] = useState<ServicePrice[]>([]);
-  const [modes, setModes] = useState<DeliveryMode[]>(['hub']);
-  const [visitRules, setVisitRules] = useState<DoorstepVisitRules | null>(null);
-  const [branchPoint, setBranchPoint] = useState<Point | null>(null);
-  const [homeOnlyTypes, setHomeOnlyTypes] = useState<string[]>([]);
+  // The catalog as one value (one redraw per load), starting from the copy kept in memory.
+  const shopId = user?.shopId;
+  const [catalog, setCatalog] = useState<LoadedCatalog>(() => loadedFrom(memoryFor(shopId)));
+  const { services, vehicleTypes, allPrices, modes, visitRules, branchPoint, homeOnlyTypes, commissions } = catalog;
+  /** False until the screen has slid in: the downloads and the keyboard wait for it. */
+  const opened = useOpened(navigation);
   /** A home wash: where the phone was measured at the home; null = not yet. */
   const [visitPoint, setVisitPoint] = useState<Point | null>(null);
   /** Bumped to clear the visit card for the next customer. */
@@ -212,8 +269,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   const [washMode, setWashMode] = useState<DeliveryMode>(preferredMode ?? 'hub');
   /** Once someone flips the menu by hand, the home tab's choice stops applying. */
   const pickedMode = useRef(false);
-  const [commissions, setCommissions] = useState<CommissionRate[]>([]);
-  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogLoading, setCatalogLoading] = useState(() => memoryFor(shopId) == null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
 
   const [mode, setMode] = useState<CustomerMode>('search');
@@ -227,6 +283,23 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   const [customerName, setCustomerName] = useState('');
   const [vehicleFamily, setVehicleFamily] = useState<VehicleCategory>('car');
   const [vehicleTypeId, setVehicleTypeId] = useState<string | null>(null);
+  /** Company and model from the size guide's list; the model picks the vehicle type. */
+  const [make, setMake] = useState<string | null>(null);
+  const [model, setModel] = useState<string | null>(null);
+  /** The type is being picked by hand (model not listed, or the suggestion overridden). */
+  const [manualType, setManualType] = useState(false);
+  const modelEdits = useModelEdits(opened);
+  /** Before photos taken here; they go up with the wash when it's started. */
+  const [beforePhotos, setBeforePhotos] = useState<PendingPhoto[]>([]);
+  // Leaving New Wash without starting the wash: its photos are of nothing, so drop their files.
+  const unsentPhotos = useRef<PendingPhoto[]>([]);
+  unsentPhotos.current = beforePhotos;
+  useEffect(
+    () => () => {
+      for (const p of unsentPhotos.current) void deleteLocalCopy(p.uri);
+    },
+    [],
+  );
   const [selectedServiceIds, setSelectedServiceIds] = useState<Set<string>>(new Set());
   const [serviceQuery, setServiceQuery] = useState('');
   const [discountOpen, setDiscountOpen] = useState(false);
@@ -249,20 +322,16 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   const [sellers, setSellers] = useState<Person[] | null>(null);
 
   const loadCatalog = useCallback(async () => {
-    setCatalogLoading(true);
     setCatalogError(null);
-    // Cached catalog first — New Wash must open instantly and work with no signal.
-    const cached = await readCache<CachedCatalog>(CacheKeys.catalog);
-    if (cached) {
-      setServices(normalizeServices(cached.services));
-      setVehicleTypes(normalizeVehicleTypes(cached.vehicleTypes));
-      setAllPrices(cached.prices);
-      setModes(cached.modes);
-      setVisitRules(cached.visit ?? null);
-      setBranchPoint(cached.branchPoint ?? null);
-      setHomeOnlyTypes(cached.homeOnlyTypes ?? []);
-      setCommissions(cached.commissions ?? []);
-      setCatalogLoading(false);
+    // The saved catalog first — New Wash must open instantly and work with no signal.
+    const inMemory = memoryFor(shopId);
+    const cached = inMemory ?? (await readCatalogCache());
+    if (cached && !inMemory) {
+      remember(shopId, cached);
+      unstable_batchedUpdates(() => {
+        setCatalog(loadedFrom(cached));
+        setCatalogLoading(false);
+      });
     }
     try {
       const [servicesRes, vehicleTypesRes, pricesRes, commissionsRes, networkRes] = await Promise.all([
@@ -295,15 +364,12 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
         branchPoint: network ? network.location : (cached?.branchPoint ?? null),
         homeOnlyTypes: network ? network.homeOnlyTypes : (cached?.homeOnlyTypes ?? []),
       };
-      setServices(normalizeServices(fresh.services));
-      setVehicleTypes(normalizeVehicleTypes(fresh.vehicleTypes));
-      setAllPrices(fresh.prices);
-      setModes(fresh.modes);
-      setVisitRules(fresh.visit ?? null);
-      setBranchPoint(fresh.branchPoint ?? null);
-      setHomeOnlyTypes(fresh.homeOnlyTypes ?? []);
-      setCommissions(fresh.commissions ?? []);
-      await writeCache(CacheKeys.catalog, fresh);
+      // Nothing changed since the saved copy: no redraw at all.
+      if (!cached || JSON.stringify(fresh) !== JSON.stringify(cached)) {
+        remember(shopId, fresh);
+        setCatalog(loadedFrom(fresh));
+        await writeCache(CacheKeys.catalog, fresh);
+      }
     } catch (e) {
       if (!cached) {
         setCatalogError(
@@ -317,11 +383,29 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     } finally {
       setCatalogLoading(false);
     }
-  }, []);
+  }, [shopId]);
+
+  // The copy saved on this phone straight away (when it isn't in memory yet); the server's once
+  // the screen has slid in.
+  useEffect(() => {
+    if (memoryFor(shopId)) return;
+    let alive = true;
+    void readCatalogCache().then((saved) => {
+      if (!alive || !saved || memoryFor(shopId)) return;
+      remember(shopId, saved);
+      unstable_batchedUpdates(() => {
+        setCatalog(loadedFrom(saved));
+        setCatalogLoading(false);
+      });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [shopId]);
 
   useEffect(() => {
-    void loadCatalog();
-  }, [loadCatalog]);
+    if (opened) void loadCatalog();
+  }, [opened, loadCatalog]);
 
   // A doorstep-only branch starts on the doorstep menu; a branch that closed its doorstep team
   // falls back to the hub.
@@ -371,11 +455,10 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   // Pull the latest customers the moment New Wash opens, and put the cursor in the search box.
   const refreshDirectory = directory.refresh;
   useEffect(() => {
+    if (!opened) return;
     void refreshDirectory({ force: true });
-    if (prefillReg) return;
-    const t = setTimeout(() => searchRef.current?.focus(), 350);
-    return () => clearTimeout(t);
-  }, [refreshDirectory, prefillReg]);
+    if (!prefillReg) searchRef.current?.focus();
+  }, [opened, refreshDirectory, prefillReg]);
 
   // ---------- Vehicle + services ----------
 
@@ -427,6 +510,45 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     }
     selectVehicle(vt, { scroll: true });
   };
+
+  const clearModel = () => {
+    setMake(null);
+    setModel(null);
+    setManualType(false);
+  };
+
+  // A new company starts over: its models (and so the type) are different.
+  const pickMake = (next: string) => {
+    if (next === make) return;
+    animate();
+    setMake(next);
+    setModel(null);
+    setManualType(false);
+    setVehicleTypeId(null);
+    setSelectedServiceIds(new Set());
+    setFreeIds(new Set());
+  };
+
+  // The model picks the type, and the menu opens; with no type for it here, it's picked by hand.
+  const pickModel = (next: string, typeId: string | null) => {
+    setModel(next);
+    const vt = typeId ? vehicleTypes.find((v) => v.id === typeId) : undefined;
+    if (vt) {
+      setManualType(false);
+      setVehiclePickerOpen(false);
+      selectVehicle(vt, { scroll: true });
+      return;
+    }
+    animate();
+    setManualType(true);
+    setVehicleTypeId(null);
+    setSelectedServiceIds(new Set());
+    setFreeIds(new Set());
+  };
+  const modelTypeId = useMemo(
+    () => (make && model ? suggestedTypeId(vehicleTypes, make, model, modelEdits) : null),
+    [make, model, vehicleTypes, modelEdits],
+  );
 
   const switchWashMode = (next: DeliveryMode) => {
     if (next === washMode) return;
@@ -679,6 +801,9 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     setPhone(entry.customerPhone);
     setCustomerName(entry.customerName);
     clearOrder();
+    setMake(entry.make ?? null);
+    setModel(entry.make ? (entry.model ?? null) : null);
+    setManualType(false);
     const vt = vehicleTypes.find((v) => v.id === entry.vehicleTypeId);
     if (vt) {
       setVehicleFamily(vt.category);
@@ -712,6 +837,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     setPhone(queryKind === 'phone' ? normalizePhone(q.replace(/\D/g, '')) : '');
     setCustomerName(queryKind === 'name' ? titleCase(q) : '');
     setVehicleTypeId(null);
+    clearModel();
     clearOrder();
     focusSoon(queryKind === 'plate' ? phoneRef : regRef);
   };
@@ -728,12 +854,15 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     setMode('form');
     setRegistration('');
     setVehicleTypeId(null);
+    clearModel();
     clearOrder();
     focusSoon(regRef);
   };
 
   const backToSearch = () => {
     animate();
+    for (const p of beforePhotos) void deleteLocalCopy(p.uri);
+    setBeforePhotos([]);
     setMode('search');
     setKnown(null);
     setOwnership(null);
@@ -742,6 +871,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     setCustomerName('');
     setVehicleTypeId(null);
     setVehiclePickerOpen(false);
+    clearModel();
     clearOrder();
     focusSoon(searchRef);
   };
@@ -1127,6 +1257,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     setPhone('');
     setCustomerName('');
     setVehicleTypeId(null);
+    clearModel();
     setReferrerPhone('');
     setVisitPoint(null);
     setVisitKey((k) => k + 1);
@@ -1150,17 +1281,24 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
       }
       // One offline-safe call: the client id means a retried or queued submission can never
       // create the same wash twice.
+      const jobId = newId();
       const result = await submit(
         {
           kind: 'job.start',
           payload: {
-            id: newId(),
+            id: jobId,
             occurredAt,
             customer: { phone: phoneDigits, name },
             registrationNumber: reg,
             ownership: conflict && ownership ? ownership : undefined,
             vehicleTypeId,
+            make: make && model ? make : undefined,
+            model: make && model ? model : undefined,
             services: lineItems,
+            quoted: lineItems.flatMap((l) => {
+              const price = priceFor(l.serviceId);
+              return price == null ? [] : [{ serviceId: l.serviceId, price }];
+            }),
             mode: washMode,
             visitPoint: washMode === 'doorstep' && visitPoint ? visitPoint : undefined,
             discount: manualDiscount,
@@ -1175,6 +1313,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
           meta: {
             vehicleTypeName: selectedVehicle?.name ?? 'Vehicle',
             vehicleCategory: selectedVehicle?.category ?? 'car',
+            vehicleBodyKey: selectedVehicle?.bodyKey ?? null,
             services: [
               ...selectedServices.map((s) => ({
                 name: s.name,
@@ -1196,9 +1335,21 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
         if (planActive) setPlanOrderId(null);
         throw new Error(result.message);
       }
+      // Queued behind the wash, so each lands once the wash exists (now, or when there's signal).
+      const photos = beforePhotos;
+      unsentPhotos.current = [];
+      for (const photo of photos) {
+        await submit({
+          kind: 'photo.upload',
+          payload: { id: photo.id, jobId, kind: 'before', uri: photo.uri, contentType: photo.contentType, occurredAt },
+        });
+      }
+      setBeforePhotos([]);
       directory.recordVisit({
         registrationNumber: reg,
         vehicleTypeId,
+        make: make && model ? make : undefined,
+        model: make && model ? model : undefined,
         customerName: name,
         customerPhone: phoneDigits,
         services: lineItems,
@@ -1443,27 +1594,22 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
             index={2}
             title="Vehicle type"
             state={stepState(1)}
-            summary={selectedVehicle?.name ?? null}
-            hint={selectedVehicle ? undefined : 'Pick Cars or Bikes, then a size'}
+            summary={selectedVehicle ? (make && model ? `${model} · ${selectedVehicle.name}` : selectedVehicle.name) : null}
+            hint={selectedVehicle ? undefined : 'Pick the company and model'}
           />
-          {!selectedVehicle || vehiclePickerOpen ? (
-            <Pressable
-              onPress={() => navigation.navigate('VehicleGuide', { category: vehicleFamily === 'bike' ? 'bike' : 'car' })}
-              hitSlop={6}
-              style={({ pressed }) => [styles.guideLink, pressed && { opacity: 0.7 }]}
-              accessibilityRole="button"
-            >
-              <Text style={styles.guideLinkText}>Not sure which size? Look it up in the size guide ›</Text>
-            </Pressable>
-          ) : null}
           {mode === 'known' && selectedVehicle && !vehiclePickerOpen ? (
             <View style={styles.group}>
               <View style={styles.savedVehicle}>
-                <VehicleArt name={selectedVehicle.name} style={styles.savedVehicleImg} />
+                {make && model ? (
+                  <MakeLogo make={make} height={40} />
+                ) : (
+                  <VehicleArt name={selectedVehicle.name} bodyKey={selectedVehicle.bodyKey} style={styles.savedVehicleImg} />
+                )}
                 <View style={styles.flex}>
-                  <Text style={styles.savedVehicleName}>{selectedVehicle.name}</Text>
+                  <Text style={styles.savedVehicleName}>{make && model ? `${make} ${model}` : selectedVehicle.name}</Text>
                   <Text style={styles.savedVehicleHint}>
-                    {known?.lastVisit ? 'Saved from their last visit' : 'Saved on their profile'}
+                    {make && model ? `${selectedVehicle.name} · ` : ''}
+                    {known?.lastVisit ? 'saved from their last visit' : 'saved on their profile'}
                   </Text>
                 </View>
                 <Pressable
@@ -1481,6 +1627,71 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
             </View>
           ) : (
             <>
+              <VehicleModelPicker
+                types={vehicleTypes}
+                edits={modelEdits}
+                make={make}
+                model={model}
+                onMake={pickMake}
+                onPick={pickModel}
+              />
+              {model && selectedVehicle && !manualType ? (
+                <View style={styles.group}>
+                  <View style={styles.savedVehicle}>
+                    <VehicleArt name={selectedVehicle.name} bodyKey={selectedVehicle.bodyKey} style={styles.savedVehicleImg} />
+                    <View style={styles.flex}>
+                      <Text style={styles.savedVehicleName}>{selectedVehicle.name}</Text>
+                      <Text style={styles.savedVehicleHint}>
+                        Picked from the model · {servicesForVehicle.length}{' '}
+                        {servicesForVehicle.length === 1 ? 'service' : 'services'} on its menu
+                      </Text>
+                    </View>
+                    <Pressable
+                      onPress={() => {
+                        animate();
+                        setManualType(true);
+                      }}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel="Pick a different vehicle type"
+                    >
+                      <Text style={styles.linkText}>Change</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : null}
+              {model && manualType && !modelTypeId ? (
+                <View style={styles.notice}>
+                  <Text style={styles.noticeText}>
+                    This branch has no vehicle type for {make} {model}. Pick the closest one below.
+                  </Text>
+                </View>
+              ) : null}
+              {!manualType && !(model && selectedVehicle) ? (
+                <Pressable
+                  onPress={() => {
+                    animate();
+                    setManualType(true);
+                  }}
+                  hitSlop={6}
+                  style={({ pressed }) => [styles.guideLink, pressed && { opacity: 0.7 }]}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.guideLinkText}>Model not in the list? Pick the vehicle type yourself ›</Text>
+                </Pressable>
+              ) : null}
+            </>
+          )}
+          {manualType && !(mode === 'known' && selectedVehicle && !vehiclePickerOpen) ? (
+            <>
+              <Pressable
+                onPress={() => navigation.navigate('VehicleGuide', { category: vehicleFamily === 'bike' ? 'bike' : 'car' })}
+                hitSlop={6}
+                style={({ pressed }) => [styles.guideLink, pressed && { opacity: 0.7 }]}
+                accessibilityRole="button"
+              >
+                <Text style={styles.guideLinkText}>Not sure which size? Look it up in the size guide ›</Text>
+              </Pressable>
               <View style={styles.segmentWrap}>
                 <View style={styles.segment} accessibilityRole="tablist">
                   {VEHICLE_FAMILIES.map((f) => {
@@ -1521,7 +1732,8 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
               ) : typesInFamily.length === 0 ? (
                 <View style={styles.notice}>
                   <Text style={styles.noticeText}>
-                    No {vehicleFamily} sizes yet. The owner can add them in This branch’s prices.
+                    No {vehicleFamily === 'bike' ? 'two-wheeler' : 'car'} types here yet. The owner can switch them on in
+                    More → Vehicles.
                   </Text>
                 </View>
               ) : (
@@ -1545,7 +1757,9 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
                 </ScrollView>
               )}
             </>
-          )}
+          ) : null}
+
+          <BeforePhotos photos={beforePhotos} onChange={setBeforePhotos} />
 
           {/* 3 · Services */}
           <View onLayout={(e) => (servicesY.current = e.nativeEvent.layout.y)}>

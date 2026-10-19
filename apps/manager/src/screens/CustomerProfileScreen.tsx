@@ -24,6 +24,7 @@ import {
   IconPhone,
   IconPlus,
   IconSparkle,
+  IconTag,
   IconWhatsApp,
   colors,
   gradients,
@@ -40,6 +41,9 @@ import { buildWhatsAppLink, formatRelativeDate, formatRupees } from '../utils/fo
 import { buildThankYouMessage } from '../utils/messages';
 import { SHOP } from '../config/shop';
 import { useShop } from '../offline/ShopProvider';
+import { useSync } from '../offline/SyncProvider';
+import { SellPlanSheet } from '../components/newWash/SellPlanSheet';
+import { PlanVehicleSheet, type PlanVehicle } from '../components/plans/PlanVehicleSheet';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { CustomerRewards } from '../components/rewards/CustomerRewards';
 import { CustomerCommunities, type CustomerCommunity } from '../components/CustomerCommunities';
@@ -50,6 +54,7 @@ type CustomerProfileScreenProps = NativeStackScreenProps<RootStackParamList, 'Cu
 interface VehicleItem {
   id: string;
   registrationNumber: string;
+  vehicleTypeId?: string;
   vehicleType: { name: string };
   make?: string | null;
   model?: string | null;
@@ -174,6 +179,10 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [showAllHistory, setShowAllHistory] = useState(false);
+  const { online } = useSync();
+  /** Selling a plan: first which vehicle, then the plans for it. */
+  const [pickingVehicle, setPickingVehicle] = useState(false);
+  const [planFor, setPlanFor] = useState<PlanVehicle | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -408,6 +417,11 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
             >
               <IconWhatsApp size={20} variant="mono" color={colors.white} />
             </QuickAction>
+            {online ? (
+              <QuickAction label="Sell plan" onPress={() => setPickingVehicle(true)}>
+                <IconTag size={20} color={colors.white} />
+              </QuickAction>
+            ) : null}
             <QuickAction label="New wash" primary onPress={() => startWash(primaryReg)}>
               <IconDroplet size={20} color={colors.waterDeep} />
             </QuickAction>
@@ -644,6 +658,31 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
           </View>
         )}
       </ScrollView>
+      <PlanVehicleSheet
+        visible={pickingVehicle}
+        customerPhone={data.customer.phone}
+        vehicles={vehicles}
+        onClose={() => setPickingVehicle(false)}
+        onPicked={(v) => {
+          setPickingVehicle(false);
+          setPlanFor(v);
+        }}
+      />
+      {planFor ? (
+        <SellPlanSheet
+          visible
+          vehicleTypeId={planFor.vehicleTypeId}
+          vehicleName={planFor.vehicleName}
+          customer={{ phone: data.customer.phone, name: data.customer.name?.trim() || 'Customer' }}
+          registrationNumber={planFor.registrationNumber}
+          ownership={planFor.ownership}
+          make={planFor.make}
+          model={planFor.model}
+          onClose={() => setPlanFor(null)}
+          onSold={() => void load()}
+          formatMoney={formatRupees}
+        />
+      ) : null}
     </ScreenContainer>
   );
 }

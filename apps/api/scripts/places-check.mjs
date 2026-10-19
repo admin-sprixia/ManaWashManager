@@ -597,6 +597,16 @@ check('The team removes a member; their unpaid orders close', r.status === 200 &
 r = await call(C2, 'GET', `/c/orders/${single.id}`);
 check('…the customer sees it cancelled', r.body?.order?.status === 'cancelled', show(r));
 
+// Removing someone with a paid plan refunds it: the owner's call, not the team's.
+const cPaid = await newCustomer();
+const jPaid = await joinP2(cPaid);
+d1Run(`UPDATE place_orders SET status = 'active' WHERE id = '${jPaid.body?.orders?.[0]?.id}';`);
+const mPaid = (await call(OWN, 'GET', `/places/${P2}/members`)).body?.members?.find((m) => m.customer.phone === cPaid.phone);
+r = await call(STF, 'POST', `/places/members/${mPaid?.id}/remove`, { reason: 'Test' });
+check('Staff can’t remove a member with a paid plan', r.status === 403, show(r));
+r = await call(OWN, 'POST', `/places/members/${mPaid?.id}/remove`, { reason: 'Test' });
+check('…the owner can', r.status === 200, show(r));
+
 const C4 = j4.body?.session?.token;
 const m4 = (await call(C4, 'GET', '/c/home/places')).body?.memberships?.[0];
 check('My place shows the membership and its vehicle', m4?.place?.id === P2 && m4?.vehicles?.[0]?.orders?.[0]?.status === 'awaiting_payment', JSON.stringify(m4).slice(0, 300));

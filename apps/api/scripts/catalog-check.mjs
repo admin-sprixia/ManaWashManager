@@ -102,13 +102,82 @@ check('A branch owner who isn’t an admin can’t open it', r.status === 403, s
 r = await call(SA, 'GET', '/business/catalog');
 check('Staff can’t either', r.status === 403, show(r));
 
-// Only someone already on a team in the business can be made HQ: never a mistyped or unknown number.
-r = await call(OA, 'POST', '/business/admins', { phone: `95${rand(8)}` });
-check('A number that isn’t on any team can’t be made HQ', r.status === 409 && r.body?.error === 'not_on_team', show(r));
+// A branch team member is made HQ as they are; anyone else only on purpose, with a name, and they
+// get an HQ-only sign-in at the business's HQ home.
 r = await call(OA, 'POST', '/business/admins', { phone: phoneB });
-check('…but another branch’s owner can', r.status === 201, show(r));
+check('Another branch’s owner can be made HQ', r.status === 201 && r.body?.hqOnly === false, show(r));
 r = await call(OA, 'DELETE', `/business/admins/${phoneB}`);
 check('…and stop being HQ again', r.status === 200, show(r));
+r = await call(OB, 'POST', '/auth/start', { phone: phoneB });
+check('…still signing in to their branch', r.status === 200, show(r));
+
+const hqPhone = `95${rand(8)}`;
+const hqPhone2 = `95${rand(8)}`;
+r = await call(OA, 'POST', '/business/admins', { phone: hqPhone });
+check('A number on no branch team can’t be made HQ without a name', r.status === 400 && r.body?.error === 'needs_name', show(r));
+check('…and nothing is made for it', d1Rows(`SELECT id FROM users WHERE phone = '${hqPhone}'`).length === 0);
+r = await call(OA, 'POST', '/business/admins', { phone: hqPhone, name: 'Head Office Hari' });
+check('With a name they’re added as HQ only', r.status === 201 && r.body?.hqOnly === true && r.body?.hasPin === false, show(r));
+const hqLogin = await signInWith(hqPhone, PIN);
+const HQ = hqLogin.body?.token;
+check('The HQ-only person signs in with a WhatsApp code and their own PIN', !!HQ && hqLogin.body?.user?.hqOnly === true, show(hqLogin));
+r = await call(HQ, 'GET', '/auth/me');
+check('…and the app is told they’re HQ only', r.status === 200 && r.body?.hqOnly === true && r.body?.name === 'Head Office Hari', show(r));
+r = await call(OA, 'GET', '/auth/me');
+check('A branch owner who is HQ isn’t HQ only', r.status === 200 && r.body?.hqOnly === false, show(r));
+// The HQ home is no branch: no washes, cash, customers or team there.
+const shut = await Promise.all([
+  call(HQ, 'GET', '/jobs'),
+  call(HQ, 'GET', '/cash/day'),
+  call(HQ, 'GET', '/customers/directory'),
+  call(HQ, 'POST', '/team', { name: 'Sneaky', phone: `95${rand(8)}`, role: 'staff' }),
+  call(HQ, 'POST', '/jobs/start', { id: `job_hq_${run}` }),
+]);
+check('At the HQ home every branch route is shut', shut.every((x) => x.status === 403 && x.body?.error === 'hq_home'), shut.map(show).join(' | '));
+const open = await Promise.all([call(HQ, 'GET', '/services/vehicle-sizes'), call(HQ, 'GET', '/shop/info'), call(HQ, 'GET', '/auth/shops')]);
+check('…while the size guide, its name and the person’s places still open', open.every((x) => x.status === 200), open.map(show).join(' | '));
+r = await call(HQ, 'GET', '/business/catalog');
+check(
+  'HQ only opens the catalog, listed by name',
+  r.status === 200 && r.body.hqOnly?.some((p) => p.phone === hqPhone && p.name === 'Head Office Hari' && p.pinSet),
+  show(r),
+);
+check(
+  '…and the HQ home is never one of the branches',
+  r.body.branches?.length === cat.branches.length && !r.body.branches.some((b) => b.code.startsWith('HQ-')),
+  show(r),
+);
+r = await call(HQ, 'GET', '/business/overview');
+check(
+  '…nor in today’s numbers for every branch',
+  r.status === 200 && r.body.branches.length === cat.branches.length && !r.body.branches.some((b) => b.code.startsWith('HQ-')),
+  show(r),
+);
+check(
+  'The HQ home is out of the customer app and has no menu',
+  d1Rows(`SELECT s.in_customer_app AS listed, (SELECT COUNT(*) FROM services v WHERE v.shop_id = s.id) AS services
+          FROM shops s WHERE s.business_id = '${BIZ}' AND s.kind = 'hq'`).every((s) => Number(s.listed) === 0 && Number(s.services) === 0),
+);
+const hqHome = d1Rows(`SELECT id FROM shops WHERE business_id = '${BIZ}' AND kind = 'hq'`)[0]?.id;
+r = await call(OA, 'PATCH', `/business/branches/${hqHome}/status`, { status: 'paused', reason: 'Test' });
+check('HQ’s branch tools refuse the HQ home', r.status === 404, show(r));
+r = await call(OA, 'POST', '/business/admins', { phone: hqPhone2, name: 'Second HQ' });
+check(
+  'A second HQ-only person shares the one HQ home',
+  r.status === 201 && d1Rows(`SELECT id FROM shops WHERE business_id = '${BIZ}' AND kind = 'hq'`).length === 1,
+  show(r),
+);
+r = await call(HQ, 'DELETE', `/business/admins/${hqPhone2}`);
+check('HQ only can remove another admin', r.status === 200, show(r));
+r = await call(OA, 'DELETE', `/business/admins/${hqPhone}`);
+check('Removing an HQ-only admin works', r.status === 200, show(r));
+r = await call(HQ, 'GET', '/auth/me');
+check('…signs them out at once', r.status === 401, show(r));
+r = await call(null, 'POST', '/auth/start', { phone: hqPhone });
+check('…and they can’t sign in again', r.status === 404 && r.body?.error === 'no_account', show(r));
+r = await call(OA, 'POST', '/business/admins', { phone: hqPhone, name: 'Head Office Hari' });
+check('They can be added back later', r.status === 201 && r.body?.hqOnly === true, show(r));
+await call(OA, 'DELETE', `/business/admins/${hqPhone}`);
 
 const cls = Object.fromEntries(cat.classes.map((c) => [c.key, c]));
 const size = (classKey, key) => cls[classKey].sizes.find((s) => s.key === key).id;
@@ -482,6 +551,46 @@ check('A doorstep wash is the hub price plus the visit charge (₹420 + ₹49)',
 check('…with the visit charge on its own line', r.body?.jobServices?.some((l) => l.service?.name === 'Visit charge' && l.priceAtTime === 4900), JSON.stringify(r.body?.jobServices));
 r = await start({});
 check('A wash with no mode is a hub wash at the hub price', r.status === 201 && r.body?.total === 42000 && r.body?.deliveryMode === 'hub', show(r));
+// New Wash picks the type from the company and model; both are kept on the vehicle.
+r = await call(OA, 'GET', '/services/vehicle-types');
+check(
+  'Vehicle types carry their body type, so a model can find its type',
+  r.status === 200 && r.body?.find((t) => t.id === vtA.Hatchback.id)?.bodyKey === 'hatch',
+  show(r),
+);
+const modelReg = `AP${rand(2)}MM${rand(4)}`;
+const modelOwner = { phone: `98${rand(8)}`, name: 'Model Customer' };
+r = await start({ registrationNumber: modelReg, customer: modelOwner, make: 'Maruti Suzuki', model: 'Swift' });
+const savedModel = d1Rows(`SELECT make, model FROM vehicles WHERE registration_number = '${modelReg}'`)[0];
+check('A wash keeps the company and model on the vehicle', r.status === 201 && savedModel?.make === 'Maruti Suzuki' && savedModel?.model === 'Swift', `${show(r)} ${JSON.stringify(savedModel)}`);
+r = await call(OA, 'GET', '/customers/directory?limit=200');
+const dirRow = r.body?.entries?.find((e) => e.registrationNumber === modelReg);
+check('…and the customer list sends them to every phone', dirRow?.make === 'Maruti Suzuki' && dirRow?.model === 'Swift', JSON.stringify(dirRow));
+r = await start({ registrationNumber: modelReg, customer: modelOwner, make: 'Hyundai', model: 'i20' });
+check(
+  'A later wash with another model updates it',
+  r.status === 201 && d1Rows(`SELECT model FROM vehicles WHERE registration_number = '${modelReg}'`)[0]?.model === 'i20',
+  show(r),
+);
+r = await start({ registrationNumber: modelReg, customer: modelOwner });
+check(
+  '…and one without a model leaves it as saved',
+  r.status === 201 && d1Rows(`SELECT model FROM vehicles WHERE registration_number = '${modelReg}'`)[0]?.model === 'i20',
+  show(r),
+);
+// A wash that waited offline keeps the price the customer was quoted (prices changed since).
+const tenMinAgo = new Date(Date.now() - 10 * 60_000).toISOString();
+r = await start({ occurredAt: tenMinAgo, quoted: [{ serviceId: fullA, price: 40000 }] });
+const keptEvent = d1Rows(`SELECT from_value AS f, to_value AS t FROM job_events WHERE job_id = '${r.body?.id}' AND action = 'price_kept'`)[0];
+check(
+  'A wash that waited offline keeps its quoted price, noted on the wash',
+  r.status === 201 && r.body?.total === 40000 && keptEvent?.f === '42000' && keptEvent?.t === '40000',
+  `${show(r)} ${JSON.stringify(keptEvent)}`,
+);
+r = await start({ quoted: [{ serviceId: fullA, price: 40000 }] });
+check('…a wash sent live is priced as today', r.status === 201 && r.body?.total === 42000, show(r));
+r = await start({ occurredAt: tenMinAgo, quoted: [{ serviceId: fullA, price: 100 }] });
+check('…and a quote far from today’s price is ignored', r.status === 201 && r.body?.total === 42000, show(r));
 r = await start({ mode: 'doorstep', services: [{ serviceId: underA, quantity: 1 }] });
 check('A hub-only service can’t be done at the door', r.status === 400 && r.body?.error === 'not_at_homes', show(r));
 r = await start({ vehicleTypeId: tractor?.id });
@@ -552,7 +661,7 @@ const commission = d1Rows(`SELECT amount FROM commission_rates WHERE service_id 
 check('…and its commission kept', commission[0]?.amount === 2000);
 
 const stale = d1Rows(
-  `SELECT count(*) AS n FROM shops s JOIN businesses b ON b.id = s.business_id WHERE s.business_id = '${BIZ}' AND s.menu_version < b.catalog_version`,
+  `SELECT count(*) AS n FROM shops s JOIN businesses b ON b.id = s.business_id WHERE s.business_id = '${BIZ}' AND s.kind = 'branch' AND s.menu_version < b.catalog_version`,
 );
 check('Every branch’s menu is up to date', stale[0]?.n === 0, JSON.stringify(stale));
 check('Classes the admin can pick for points come from the catalog', classesA.length === 6);

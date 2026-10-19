@@ -43,6 +43,9 @@ export function SellPlanSheet({
   onClose,
   onSold,
   formatMoney,
+  startsNextVisit = false,
+  make,
+  model,
 }: {
   visible: boolean;
   vehicleTypeId: string;
@@ -53,6 +56,11 @@ export function SellPlanSheet({
   onClose: () => void;
   onSold: () => void;
   formatMoney: (paise: number) => string;
+  /** Sold beside a wash already on the board: that wash is paid as usual. */
+  startsNextVisit?: boolean;
+  /** A vehicle added while selling: kept on it. */
+  make?: string;
+  model?: string;
 }) {
   const [plans, setPlans] = useState<PlanOffer[] | null>(null);
   const [planId, setPlanId] = useState<string | null>(null);
@@ -99,6 +107,7 @@ export function SellPlanSheet({
           registrationNumber,
           vehicleTypeId,
           ...(ownership ? { ownership } : {}),
+          ...(make && model ? { make, model } : {}),
           planId: picked.planId,
           paymentMethod: pay,
         },
@@ -138,7 +147,11 @@ export function SellPlanSheet({
       <View style={styles.form}>
         {plans == null && !error ? <ActivityIndicator color={colors.indigo} /> : null}
         {plans && !plans.length ? (
-          <Text style={styles.hint}>No plan is sold at the shop for a {vehicleName.toLowerCase()} yet. Head office adds them in Services › Plans.</Text>
+          <Text style={styles.hint}>
+            No plan is sold at the shop for {/^[aeiou]/i.test(vehicleName) ? 'an' : 'a'} {vehicleName.toLowerCase()} yet.
+            Plans sold only to communities don’t show here: HQ opens a plan in Services and plans › Plans and sets
+            “Where it’s sold” to Shop or Both.
+          </Text>
         ) : null}
         {plans?.map((p) => {
           const on = p.planId === planId;
@@ -174,6 +187,9 @@ export function SellPlanSheet({
               For {registrationNumber} only, at this branch, one wash a day. Ends {endsOn ? shortDate(endsOn) : ''}: washes not used by then are
               lost.
             </Text>
+            {startsNextVisit ? (
+              <Text style={styles.hint}>Today’s wash is paid as usual. The plan starts from their next visit.</Text>
+            ) : null}
           </>
         ) : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}

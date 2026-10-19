@@ -20,6 +20,37 @@ import { deleteLocalCopy } from './photoFiles';
 import { opJobId, type OutboxItem, type OutboxOp } from './types';
 
 const STORAGE_KEY = 'mana.outbox.v1';
+/**
+ * Where changes go while the saved queue can't be read: the main copy is never overwritten then,
+ * and both are merged back as soon as it reads again (here or on the next start).
+ */
+const SIDE_KEY = `${STORAGE_KEY}.while-unreadable`;
+const READ_TRIES = 3;
+
+async function readList(key: string): Promise<OutboxItem[]> {
+  const raw = await AsyncStorage.getItem(key);
+  if (!raw) return [];
+  const value: unknown = JSON.parse(raw);
+  if (!Array.isArray(value)) throw new Error('Outbox is not a list');
+  return value as OutboxItem[];
+}
+
+/** Both lists, each item once (the first copy wins), oldest first. */
+function mergeById(a: OutboxItem[], b: OutboxItem[]): OutboxItem[] {
+  const seen = new Set<string>();
+  const out: OutboxItem[] = [];
+  for (const i of [...a, ...b]) {
+    if (seen.has(i.id)) continue;
+    seen.add(i.id);
+    out.push(i);
+  }
+  return out.sort((x, y) => x.createdAt.localeCompare(y.createdAt));
+}
+
+/** Whether an item belongs to the branch now signed in (older saved items: by their maker). */
+function inShop(i: OutboxItem, user: { id: string; shopId: string }): boolean {
+  return i.shopId ? i.shopId === user.shopId : i.userId === user.id;
+}
 /** While changes are waiting, keep probing for signal at this interval. */
 const RETRY_INTERVAL_MS = 15_000;
 /** Server-side failures (5xx, rate limit) before a change is parked for the user to retry. */
@@ -43,8 +74,10 @@ interface SyncContextValue {
   online: boolean;
   syncing: boolean;
   lastSyncedAt: number | null;
-  /** Every outbox item on this phone, oldest first (all users). */
+  /** Every outbox item on this phone, oldest first (all users, all branches). */
   items: OutboxItem[];
+  /** This branch's items, anyone's: what the board and wash pages overlay. */
+  shopItems: OutboxItem[];
   /** Items the signed-in user can sync right now. */
   myItems: OutboxItem[];
   pendingCount: number;
@@ -73,7 +106,17 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
   const [loaded, setLoaded] = useState(false);
 
   const itemsRef = useRef<OutboxItem[]>([]);
-  const flushing = useRef(false);
+  const flushing = useRef<Promise<void> | null>(null);
+  /** False once this provider is replaced (sign-out, switching branch): it must not touch storage. */
+  const alive = useRef(true);
+  useEffect(
+    () => () => {
+      alive.current = false;
+    },
+    [],
+  );
+  /** The saved queue couldn't be read: write to SIDE_KEY, never over it. */
+  const unreadable = useRef(false);
   const userRef = useRef(user);
   userRef.current = user;
   const storageWarned = useRef(false);
@@ -86,10 +129,26 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
   }
 
   const commit = useCallback(async (next: OutboxItem[]) => {
+    if (!alive.current) return;
     itemsRef.current = next;
     setItems(next);
     try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      if (unreadable.current) {
+        // Try the saved copy again; once it reads, merge it in and go back to normal.
+        try {
+          const saved = await readList(STORAGE_KEY);
+          unreadable.current = false;
+          const merged = mergeById(itemsRef.current, saved);
+          itemsRef.current = merged;
+          setItems(merged);
+          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+          await AsyncStorage.removeItem(SIDE_KEY);
+        } catch {
+          await AsyncStorage.setItem(SIDE_KEY, JSON.stringify(itemsRef.current));
+        }
+      } else {
+        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(itemsRef.current));
+      }
       storageWarned.current = false;
     } catch (e) {
       // Still held in memory and will sync while the app stays open; say so once.
@@ -104,17 +163,45 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     void (async () => {
       let parsed: OutboxItem[] = [];
-      let raw: string | null = null;
-      try {
-        raw = await AsyncStorage.getItem(STORAGE_KEY);
-        const value: unknown = raw ? JSON.parse(raw) : [];
-        if (!Array.isArray(value)) throw new Error('Outbox is not a list');
-        parsed = value as OutboxItem[];
-      } catch (e) {
-        // Keep the unreadable copy for support instead of silently dropping it.
-        void queueError(e, 'outbox load');
-        if (raw) void AsyncStorage.setItem(`${STORAGE_KEY}.unreadable`, raw).catch(() => undefined);
+      let readOk = false;
+      for (let attempt = 0; attempt < READ_TRIES && !readOk; attempt++) {
+        let raw: string | null = null;
+        try {
+          raw = await AsyncStorage.getItem(STORAGE_KEY);
+        } catch (e) {
+          if (attempt === READ_TRIES - 1) void queueError(e, 'outbox load');
+          await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
+          continue;
+        }
+        readOk = true;
+        try {
+          const value: unknown = raw ? JSON.parse(raw) : [];
+          if (!Array.isArray(value)) throw new Error('Outbox is not a list');
+          parsed = value as OutboxItem[];
+        } catch (e) {
+          // Damaged beyond reading: keep the copy for support, start a fresh queue.
+          void queueError(e, 'outbox load');
+          if (raw) void AsyncStorage.setItem(`${STORAGE_KEY}.unreadable`, raw).catch(() => undefined);
+        }
       }
+      if (!readOk) {
+        unreadable.current = true;
+        showToast('Couldn’t read the changes waiting on this phone. New changes are kept safely apart until it reads again.', 'error');
+      }
+      // Changes kept apart while the queue couldn't be read last time.
+      try {
+        const side = await readList(SIDE_KEY);
+        if (side.length) {
+          parsed = mergeById(parsed, side);
+          if (readOk) {
+            await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+            await AsyncStorage.removeItem(SIDE_KEY);
+          }
+        }
+      } catch {
+        // Nothing kept apart (or unreadable too): carry on with what we have.
+      }
+      if (!alive.current) return;
       itemsRef.current = parsed;
       setItems(parsed);
       setLoaded(true);
@@ -124,10 +211,18 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => subscribeOnline(setOnlineState), []);
 
-  const flush = useCallback(async () => {
+  const flush = useCallback((): Promise<void> => {
     const me = userRef.current;
-    if (!me || flushing.current) return;
-    flushing.current = true;
+    if (!me || !alive.current) return Promise.resolve();
+    // One sync at a time; a second caller waits for the one already running.
+    if (flushing.current) return flushing.current;
+    const run = flushRound(me);
+    flushing.current = run;
+    return run;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [commit]);
+
+  const flushRound = async (me: NonNullable<typeof user>) => {
     setSyncing(true);
     let delivered = false;
     try {
@@ -136,7 +231,8 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       const token = await getSessionToken();
       if (!token) return;
       for (;;) {
-        if (userRef.current?.id !== me.id) break;
+        // Replaced (switched branch, signed out): stop before sending anything else.
+        if (!alive.current || userRef.current?.id !== me.id) break;
         const next = itemsRef.current.find((i) => i.userId === me.id && i.state === 'pending');
         if (!next) break;
         // Backing off after a server-side failure; everything behind it waits its turn.
@@ -191,14 +287,16 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         );
       }
     } finally {
-      flushing.current = false;
-      setSyncing(false);
-      if (delivered) {
-        setLastSyncedAt(Date.now());
-        setVersion((v) => v + 1);
+      flushing.current = null;
+      if (alive.current) {
+        setSyncing(false);
+        if (delivered) {
+          setLastSyncedAt(Date.now());
+          setVersion((v) => v + 1);
+        }
       }
     }
-  }, [commit]);
+  };
 
   const submit = useCallback(
     async (op: OutboxOp, options?: SubmitOptions): Promise<SubmitResult> => {
@@ -221,10 +319,24 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         return { status: 'rejected', message: result.message };
       }
 
+      // A wash still waiting on someone else's change (their unsynced "start"): this change would
+      // reach the server before theirs and fail, so it waits for them.
+      const jobId = opJobId(op);
+      const blocker = jobId
+        ? itemsRef.current.find((i) => i.userId !== me.id && opJobId(i.op) === jobId)
+        : undefined;
+      if (blocker) {
+        return {
+          status: 'rejected',
+          message: `${blocker.userName.split(/\s+/)[0] ?? 'A teammate'} has changes to this wash that haven’t synced yet. They sync when ${blocker.userName.split(/\s+/)[0] ?? 'they'} sign in on this phone.`,
+        };
+      }
+
       const item: OutboxItem = {
         id: newId(),
         userId: me.id,
         userName: me.name,
+        shopId: me.shopId,
         createdAt: new Date().toISOString(),
         attempts: 0,
         state: 'pending',
@@ -310,6 +422,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     () => (user ? items.filter((i) => i.userId === user.id) : []),
     [items, user],
   );
+  const shopItems = useMemo(() => (user ? items.filter((i) => inShop(i, user)) : []), [items, user]);
   const pendingCount = myItems.filter((i) => i.state === 'pending').length;
   const failedCount = myItems.filter((i) => i.state === 'failed').length;
 
@@ -325,6 +438,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       syncing,
       lastSyncedAt,
       items,
+      shopItems,
       myItems,
       pendingCount,
       failedCount,
@@ -339,6 +453,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       syncing,
       lastSyncedAt,
       items,
+      shopItems,
       myItems,
       pendingCount,
       failedCount,

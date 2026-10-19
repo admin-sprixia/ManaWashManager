@@ -1,4 +1,4 @@
-import type { JobStatus } from '@mana/domain';
+import { BODY_TYPES, type JobStatus } from '@mana/domain';
 import type { BoardJob } from '../offline/types';
 
 export const STATUS_LABEL: Record<JobStatus, string> = {
@@ -21,12 +21,45 @@ export const VOID_REASONS = [
   'Wrong vehicle or services',
 ];
 
+type JobVehicle = BoardJob['vehicle'];
+
+export function vehicleBodyKey(vt: JobVehicle['vehicleType']): string | null {
+  if (vt.bodyKey) return vt.bodyKey;
+  return vt.bodyTypeId ? (BODY_TYPES.find((b) => vt.bodyTypeId!.endsWith(`_${b.key}`))?.key ?? null) : null;
+}
+
+/** "Maruti Suzuki Swift", or null when the model isn't known. */
+export function vehicleModelLine(vehicle: JobVehicle): string | null {
+  const make = vehicle.make?.trim();
+  const model = vehicle.model?.trim();
+  if (!make || !model) return null;
+  return model.toLowerCase().startsWith(make.toLowerCase()) ? model : `${make} ${model}`;
+}
+
+export function isWalkIn(vehicle: JobVehicle): boolean {
+  return vehicle.registrationNumber.startsWith('WALK-IN');
+}
+
+/** "AP39AB1234" → "AP 39 AB 1234", the way it's painted on the plate. */
+export function spacedPlate(reg: string): string {
+  const m = /^([A-Z]{2})(\d{1,2})([A-Z]{0,3})(\d{1,4})$/.exec(reg);
+  return m ? [m[1], m[2], m[3], m[4]].filter(Boolean).join(' ') : reg;
+}
+
+/** "Foam Wash + Wax", "Foam Wash + 2 more" — what's being done, short enough for a row. */
+export function servicesLine(job: Pick<BoardJob, 'jobServices'>, max = 2): string {
+  const names = job.jobServices.map((l) => l.service.name).filter((n) => n !== 'Visit charge');
+  if (names.length === 0) return 'No services';
+  if (names.length <= max) return names.join(' + ');
+  return `${names.slice(0, max - 1).join(' + ')} + ${names.length - max + 1} more`;
+}
+
 /** Walk-ins are stored as `WALK-IN-<timestamp>` for uniqueness — never show that raw string. */
 export function vehicleHeadline(job: Pick<BoardJob, 'vehicle'>): { title: string; meta: string } {
-  const typeName = job.vehicle.vehicleType.name;
+  const model = vehicleModelLine(job.vehicle);
   const reg = job.vehicle.registrationNumber;
-  if (reg.startsWith('WALK-IN')) return { title: typeName, meta: 'Walk-in' };
-  return { title: reg, meta: typeName };
+  if (isWalkIn(job.vehicle)) return { title: model ?? 'Walk-in', meta: model ? 'Walk-in' : '' };
+  return { title: reg, meta: model ?? '' };
 }
 
 export function customerLine(job: Pick<BoardJob, 'customer'>): string {

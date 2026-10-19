@@ -28,7 +28,13 @@ export function applyOutbox(jobs: BoardJob[], items: OutboxItem[]): BoardJob[] {
         customer: { id: '', name: op.payload.customer.name, phone: op.payload.customer.phone },
         vehicle: {
           registrationNumber: op.payload.registrationNumber,
-          vehicleType: { name: op.meta.vehicleTypeName, category: op.meta.vehicleCategory },
+          make: op.payload.make ?? null,
+          model: op.payload.model ?? null,
+          vehicleType: {
+            name: op.meta.vehicleTypeName,
+            category: op.meta.vehicleCategory,
+            bodyKey: op.meta.vehicleBodyKey ?? null,
+          },
         },
         jobServices: op.meta.services.map((s) => ({
           quantity: 1,
@@ -46,7 +52,7 @@ export function applyOutbox(jobs: BoardJob[], items: OutboxItem[]): BoardJob[] {
     }
 
     // Photos don't change the row; Job Detail shows their own upload state.
-    if (op.kind === 'expense.create' || op.kind === 'photo.upload' || op.kind === 'stock.move') continue;
+    if (op.kind === 'expense.create' || op.kind === 'photo.upload' || op.kind === 'stock.move' || op.kind === 'place.visit') continue;
     const job = byId.get(op.payload.jobId);
     if (!job) continue;
     if (item.state === 'failed') {

@@ -67,7 +67,9 @@ CREATE TABLE shops (
   offer_community INTEGER NOT NULL DEFAULT 0 CHECK (offer_community IN (0, 1)),
   offer_doorstep INTEGER NOT NULL DEFAULT 0 CHECK (offer_doorstep IN (0, 1)),
   -- Every day it closes ("0,6" = Sunday and Saturday); weekly_off is the first, for older apps.
-  weekly_off_days TEXT CHECK (weekly_off_days IS NULL OR weekly_off_days GLOB '[0-6]*')
+  weekly_off_days TEXT CHECK (weekly_off_days IS NULL OR weekly_off_days GLOB '[0-6]*'),
+  -- 'hq': the business's HQ home, where HQ people who work at no branch sign in. Never a branch.
+  kind TEXT NOT NULL DEFAULT 'branch' CHECK (kind IN ('branch', 'hq'))
 );
 
 -- Every status HQ has set for a branch, who set it and why.

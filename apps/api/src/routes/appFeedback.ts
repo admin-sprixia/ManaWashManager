@@ -109,11 +109,20 @@ export const appFeedbackRoutes = new Hono<{ Bindings: Env }>()
     });
   })
   .post('/vehicles/:id/approve', zValidator('param', idParam), async (c) => {
+    const session = c.get('session');
+    // Moving a car off another customer's account is the owner's or a manager's call.
     const result = await customerCareRepo.approveVehicleRequest(c.get('db'), c.req.valid('param').id, {
-      userId: c.get('session').sub,
+      userId: session.sub,
       now: new Date(),
+      mayMove: session.role === 'owner' || session.role === 'manager',
     });
     if (result === 'not_found') return c.json(notFound, 404);
+    if (result === 'owner_only') {
+      return c.json(
+        { error: 'forbidden' as const, message: 'This vehicle is with another customer today. Ask the owner or a manager to move it.' },
+        403,
+      );
+    }
     if (result === 'already_handled') return c.json(alreadyHandled, 409);
     return c.json({ ok: true as const });
   })

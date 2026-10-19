@@ -24,7 +24,15 @@ declare module 'hono' {
 }
 
 type Lookup =
-  | { ok: true; session: SessionClaims; status: BranchStatus; statusReason: string | null; pinUpgrade: boolean }
+  | {
+      ok: true;
+      session: SessionClaims;
+      status: BranchStatus;
+      statusReason: string | null;
+      pinUpgrade: boolean;
+      /** Signed in at the business's HQ home, which is never a branch. */
+      hqHome: boolean;
+    }
   | { ok: false; status: 401 | 403; body: Record<string, string> };
 
 export const pinUpgradeBody = {
@@ -55,7 +63,7 @@ async function lookUp(env: Env, claims: SessionClaims): Promise<Lookup> {
         pinDigits: true,
       },
     }),
-    platform.shop.findUnique({ where: { id: claims.shopId }, select: { status: true, statusReason: true } }),
+    platform.shop.findUnique({ where: { id: claims.shopId }, select: { status: true, statusReason: true, kind: true } }),
     securityRepo.stillTrusted(platform, claims.phone, claims.dv),
   ]);
   if (!user || !shop || user.shopId !== claims.shopId || user.removedAt) {
@@ -77,6 +85,7 @@ async function lookUp(env: Env, claims: SessionClaims): Promise<Lookup> {
     status,
     statusReason: shop.statusReason,
     pinUpgrade,
+    hqHome: shop.kind === 'hq',
     session: { sub: user.id, shopId: user.shopId, role, phone: user.phone, sv: user.sessionVersion, dv: claims.dv },
   };
 }
@@ -98,6 +107,27 @@ function allowedWhilePaused(method: string, path: string): boolean {
   if (method === 'GET' || method === 'HEAD') return true;
   return PAUSED_WRITES.some((re) => re.test(path));
 }
+
+/**
+ * What the HQ home can reach: its people's sign-in and account, HQ's own work, the size guide
+ * and the shop's name. It holds no washes, cash, customers or team, so every branch route is shut.
+ */
+const HQ_HOME_ROUTES: [method: string | null, path: RegExp][] = [
+  [null, /^\/auth\//],
+  [null, /^\/business(\/|$)/],
+  ['GET', /^\/services\/vehicle-sizes$/],
+  ['GET', /^\/shop\/info$/],
+  ['POST', /^\/shop\/errors$/],
+];
+
+function allowedAtHqHome(method: string, path: string): boolean {
+  return HQ_HOME_ROUTES.some(([m, re]) => (m == null || m === method || (m === 'GET' && method === 'HEAD')) && re.test(path));
+}
+
+const hqHomeBody = {
+  error: 'hq_home' as const,
+  message: 'This is Mana Wash HQ, not a branch. Open a branch to do this.',
+};
 
 /**
  * Screens that only read reuse a recent look-up of the same token for a few seconds: opening the
@@ -173,6 +203,7 @@ export async function requireAuth(
   if (!found.ok) return c.json(found.body, found.status);
   const path = c.req.path;
   if (found.pinUpgrade && !path.startsWith('/auth/')) return c.json(pinUpgradeBody, 403);
+  if (found.hqHome && !allowedAtHqHome(c.req.method, path)) return c.json(hqHomeBody, 403);
   if (found.status === 'paused' && !allowedWhilePaused(c.req.method, path)) {
     return c.json({ error: 'branch_paused' as const, message: branchPausedMessage(found.statusReason) }, 403);
   }

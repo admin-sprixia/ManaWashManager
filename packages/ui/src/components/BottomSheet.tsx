@@ -25,6 +25,8 @@ interface BottomSheetProps extends PropsWithChildren {
   footer?: React.ReactNode;
   /** Block backdrop / back-button dismissal while a request is in flight. */
   dismissable?: boolean;
+  /** False when the body brings its own scrolling list (a long FlatList draws only what shows). */
+  scroll?: boolean;
 }
 
 const DISMISS_DISTANCE = 110;
@@ -37,6 +39,7 @@ export function BottomSheet({
   subtitle,
   footer,
   dismissable = true,
+  scroll = true,
   children,
 }: BottomSheetProps) {
   const insets = useSafeAreaInsets();
@@ -134,14 +137,18 @@ export function BottomSheet({
               </Pressable>
             </View>
           </View>
-          <ScrollView
-            style={styles.body}
-            contentContainerStyle={styles.bodyContent}
-            keyboardShouldPersistTaps="handled"
-            bounces={false}
-          >
-            {children}
-          </ScrollView>
+          {scroll ? (
+            <ScrollView
+              style={styles.body}
+              contentContainerStyle={styles.bodyContent}
+              keyboardShouldPersistTaps="handled"
+              bounces={false}
+            >
+              {children}
+            </ScrollView>
+          ) : (
+            <View style={[styles.bodyContent, styles.bodyFixed]}>{children}</View>
+          )}
           {footer ? <View style={styles.footer}>{footer}</View> : null}
         </Animated.View>
       </KeyboardAvoidingView>
@@ -209,6 +216,7 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
     gap: spacing.md,
   },
+  bodyFixed: { flexShrink: 1, paddingBottom: 0 },
   footer: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,

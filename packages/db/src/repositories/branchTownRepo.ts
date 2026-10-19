@@ -60,7 +60,7 @@ export const branchTownRepo = {
 
   async branches(pdb: DbClient, businessId: string): Promise<BusinessBranchRow[]> {
     return pdb.shop.findMany({
-      where: { businessId },
+      where: { businessId, kind: 'branch' },
       orderBy: { createdAt: 'asc' },
       select: { id: true, code: true, name: true, city: true, latitude: true, longitude: true, status: true, townId: true },
     });

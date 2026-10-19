@@ -1,4 +1,12 @@
-import { BODY_TYPES, bodyTypeDef, bodyTypeForName, categoryForClass, type BodyTypeDef } from '@mana/domain';
+import {
+  BODY_TYPES,
+  bodyTypeDef,
+  bodyTypeForName,
+  categoryForClass,
+  vehicleTypeKeysFor,
+  type BodyTypeDef,
+  type VehicleModelEdit,
+} from '@mana/domain';
 
 /**
  * Every vehicle a shop can wash: the service network's body types (@mana/domain) with their
@@ -34,6 +42,26 @@ export function catalogVehicleFor(name: string): CatalogVehicle | null {
 /** The catalog vehicle for a vehicle type: its linked body type, else whatever its name suggests. */
 export function catalogVehicleForType(type: { bodyKey?: string | null; name: string }): CatalogVehicle | null {
   return catalogVehicleByKey(type.bodyKey) ?? catalogVehicleFor(type.name);
+}
+
+/**
+ * The branch's vehicle type that best suits a listed company and model (Swift → Hatchback), or
+ * null when the model isn't listed or the branch washes no type that fits.
+ */
+export function suggestedTypeId(
+  types: readonly { id: string; name: string; bodyKey?: string | null }[],
+  make: string,
+  model: string,
+  /** Head office's changes to the list of models. */
+  edits: readonly VehicleModelEdit[] = [],
+): string | null {
+  const keys = vehicleTypeKeysFor(make, model, edits);
+  if (!keys) return null;
+  for (const key of keys) {
+    const match = types.find((t) => catalogVehicleForType(t)?.key === key);
+    if (match) return match.id;
+  }
+  return null;
 }
 
 /** Groups in display order, each with its vehicles, for one tab. */

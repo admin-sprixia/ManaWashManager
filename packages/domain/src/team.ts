@@ -152,7 +152,9 @@ export type JobEventAction =
   | 'voided'
   | 'payment_method_changed'
   | 'washers_changed'
-  | 'sellers_changed';
+  | 'sellers_changed'
+  /** A wash that waited offline kept the price the customer was quoted (from: today's, to: kept). */
+  | 'price_kept';
 
 export type ExpenseCategory =
   'chemicals' | 'labour' | 'electricity' | 'water' | 'maintenance' | 'other';

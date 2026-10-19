@@ -414,6 +414,10 @@ const claimId = r.body?.id;
 r = await call(staffA, 'GET', '/app-feedback/vehicles');
 const claim = r.body?.requests?.find((q) => q.id === claimId);
 check('Asking for someone else’s plate warns the team who has it now', !!claim?.currentOwner && claim.currentOwner.phone !== newcomer, show(r));
+r = await call(staffA, 'POST', `/app-feedback/vehicles/${claimId}/approve`);
+check('Staff can’t move a plate off another customer (owner or manager only)', r.status === 403, show(r));
+const stillWithStranger = d1Rows(`SELECT customer_id AS c FROM vehicles WHERE id = '${strangerVehicle?.id}'`)[0]?.c;
+check('…and it stays where it was', !!stillWithStranger && d1Rows(`SELECT status FROM vehicle_requests WHERE id = '${claimId}'`)[0]?.status === 'pending');
 await call(staffA, 'POST', `/app-feedback/vehicles/${claimId}/reject`, { reason: 'Belongs to someone else' });
 
 r = await call(T, 'DELETE', `/c/vehicles/${added?.id}`);

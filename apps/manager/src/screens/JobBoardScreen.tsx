@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -36,6 +36,7 @@ import { LANE_META, inLane, useBoardLanes, visibleLanes, type Lane } from '../co
 import { LANE_EMPTY, LANE_FAB, jobStats, laneBadges, laneHero, sectionDefs } from '../components/board/laneView';
 import { useCommunityToday } from '../components/board/useCommunityToday';
 import { JobRow } from '../components/board/JobRow';
+import { warmNewWash } from './NewWashScreen';
 import { BoardSectionHeader } from '../components/board/BoardSectionHeader';
 import { CommunitiesPanel, type CommunitiesPanelHandle } from './places/CommunitiesPanel';
 import { useAuth } from '../api/auth';
@@ -63,6 +64,11 @@ const COMPACT_BAR_HEIGHT = 58;
 
 export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
   const { user, isOwner } = useAuth();
+  // New Wash is opened all day: have its saved catalog in memory before the first tap.
+  const boardShopId = user?.shopId;
+  useEffect(() => {
+    if (boardShopId) void warmNewWash(boardShopId);
+  }, [boardShopId]);
   const insets = useSafeAreaInsets();
   const { jobs, loading, error, refresh } = useBoardJobs();
   const actions = useJobActions();
@@ -151,6 +157,8 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
     [actions, busyId],
   );
 
+  // One handler for every row, so a row only redraws when its own wash changes.
+  const onRowAction = useCallback((job: BoardJob) => void onAction(job), [onAction]);
   const onOpen = useCallback(
     (job: BoardJob) => navigation.navigate('JobDetail', { jobId: job.id }),
     [navigation],
@@ -267,7 +275,7 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
               busy={busyId === item.id}
               first={index === 0}
               onOpen={onOpen}
-              onAction={(job) => void onAction(job)}
+              onAction={onRowAction}
               onThankYou={onThankYou}
             />
           )}

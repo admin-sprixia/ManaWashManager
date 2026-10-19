@@ -378,7 +378,7 @@ async function ownerCandidate(
 /** The branch, only if it belongs to the signed-in HQ's business. */
 async function hqBranch(c: Ctx, shopId: string) {
   const branch = await catalogRepo.branchOf(createPlatformDb(c.env.DB), shopId);
-  return branch && branch.businessId === c.get('businessId') ? branch : null;
+  return branch && branch.businessId === c.get('businessId') && branch.kind === 'branch' ? branch : null;
 }
 
 const branchNotFound = { error: 'not_found' as const, message: 'No such branch in this business.' };
@@ -403,7 +403,7 @@ export const businessRoutes = new Hono<{ Bindings: Env }>()
     const businessId = c.get('businessId');
     const [view, shops] = await Promise.all([
       catalogRepo.view(c.env.DB, businessId),
-      createPlatformDb(c.env.DB).shop.findMany({ where: { businessId, status: { not: 'closed' } }, select: BRANCH_SERVICES_SELECT }),
+      createPlatformDb(c.env.DB).shop.findMany({ where: { businessId, kind: 'branch', status: { not: 'closed' } }, select: BRANCH_SERVICES_SELECT }),
     ]);
     if (!view) return c.json({ error: 'not_found' as const }, 404);
     // Whether any branch washes at customers' homes: the community price column is then also doorstep.
@@ -415,13 +415,15 @@ export const businessRoutes = new Hono<{ Bindings: Env }>()
   })
 
   // ---------- Admins ----------
-  .post('/admins', zValidator('json', z.object({ phone: phoneSchema })), async (c) => {
+  // `name` is for someone on no branch team: they get an HQ-only sign-in.
+  .post('/admins', zValidator('json', z.object({ phone: phoneSchema, name: nameSchema(60).optional() })), async (c) => {
+    const { phone, name } = c.req.valid('json');
     try {
-      await catalogRepo.addAdmin(c.env.DB, c.get('businessId'), c.req.valid('json').phone);
+      const added = await catalogRepo.addAdmin(c.env.DB, c.get('businessId'), phone, name);
+      return c.json({ ok: true as const, ...added }, 201);
     } catch (e) {
       return catalogError(c, e);
     }
-    return c.json({ ok: true as const }, 201);
   })
   .delete('/admins/:phone', zValidator('param', z.object({ phone: phoneSchema })), async (c) => {
     try {

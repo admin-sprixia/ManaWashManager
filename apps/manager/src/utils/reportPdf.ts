@@ -128,7 +128,6 @@ const INK = rgb(0.07, 0.09, 0.2);
 const MUTED = rgb(0.42, 0.46, 0.55);
 const FAINT = rgb(0.62, 0.66, 0.74);
 const LINE = rgb(0.9, 0.92, 0.95);
-const RULE = rgb(0.82, 0.85, 0.91);
 const SURFACE = rgb(0.97, 0.975, 0.985);
 const WHITE = rgb(1, 1, 1);
 const NIGHT = rgb(0.06, 0.09, 0.28);
@@ -323,8 +322,29 @@ function buildInsights(jobs: ReportExportJob[], from: string, to: string) {
   };
 }
 
+/** "AP39AB1234" → "AP 39 AB 1234", as painted on the plate. */
+function plate(reg: string): string {
+  if (reg.startsWith('WALK-IN')) return 'Walk-in';
+  const m = /^([A-Z]{2})(\d{1,2})([A-Z]{0,3})(\d{1,4})$/.exec(reg);
+  return m ? [m[1], m[2], m[3], m[4]].filter(Boolean).join(' ') : reg;
+}
+
+function shortDay(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' });
+}
+
+function shortTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' });
+}
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+type Color = ReturnType<typeof rgb>;
+
 /**
- * Branded A4 business report — calm spacing, clear hierarchy, English only.
+ * Branded A4 business report. Every block takes its own height from the top down (its stripe
+ * and text inside it), so nothing can be drawn over anything else; small sections move to the
+ * next page whole instead of splitting.
  */
 export async function buildReportPdf(
   data: ReportExportPayload,
@@ -348,7 +368,8 @@ export async function buildReportPdf(
   const stock = data.stock ?? [];
   const { stats } = data;
   const planSales = stats.shopPlanRevenue ?? 0;
-  const avg = stats.carsWashed > 0 ? Math.round((stats.revenue - planSales) / stats.carsWashed) : 0;
+  // Whole rupees: an average in paise reads like noise.
+  const avg = stats.carsWashed > 0 ? Math.round((stats.revenue - planSales) / stats.carsWashed / 100) * 100 : 0;
 
   let logo: PDFImage | null = null;
   const logoBytes = await loadLogoBytes();
@@ -360,281 +381,206 @@ export async function buildReportPdf(
     }
   }
 
+  const BOTTOM = FOOTER_H + 24;
   const pages: PDFPage[] = [];
   let page = doc.addPage([PAGE_W, PAGE_H]);
   pages.push(page);
+  /** The top of the next block. */
   let y = PAGE_H - MARGIN;
 
-  const drawText = (
-    value: string,
-    opts: {
-      x?: number;
-      y?: number;
-      size?: number;
-      font?: PDFFont;
-      color?: ReturnType<typeof rgb>;
-      maxWidth?: number;
-    } = {},
-  ) => {
-    let s = pdfSafe(value);
-    const font = opts.font ?? regular;
-    const size = opts.size ?? 9.5;
-    if (opts.maxWidth) {
-      while (s.length > 3 && font.widthOfTextAtSize(s, size) > opts.maxWidth) {
-        s = `${s.slice(0, -4)}...`;
+  const width = (t: string, size: number, font: PDFFont = regular) => font.widthOfTextAtSize(pdfSafe(t), size);
+
+  /** Shortens to fit `maxWidth`, ending in "...". */
+  const fit = (t: string, size: number, font: PDFFont, maxWidth: number) => {
+    let s = pdfSafe(t);
+    if (font.widthOfTextAtSize(s, size) <= maxWidth) return s;
+    while (s.length > 1 && font.widthOfTextAtSize(`${s}...`, size) > maxWidth) s = s.slice(0, -1);
+    return `${s.trimEnd()}...`;
+  };
+
+  /** Breaks text into lines that fit `maxWidth`. */
+  const wrap = (t: string, size: number, font: PDFFont, maxWidth: number): string[] => {
+    const words = pdfSafe(t).split(/\s+/).filter(Boolean);
+    const lines: string[] = [];
+    let line = '';
+    for (const w of words) {
+      const next = line ? `${line} ${w}` : w;
+      if (font.widthOfTextAtSize(next, size) <= maxWidth) line = next;
+      else {
+        if (line) lines.push(line);
+        line = font.widthOfTextAtSize(w, size) <= maxWidth ? w : fit(w, size, font, maxWidth);
       }
     }
-    page.drawText(s, {
-      x: opts.x ?? MARGIN,
-      y: opts.y ?? y,
-      size,
-      font,
-      color: opts.color ?? INK,
-    });
+    if (line) lines.push(line);
+    return lines;
   };
 
-  const drawRight = (
-    value: string,
-    opts: {
-      y?: number;
-      size?: number;
-      font?: PDFFont;
-      color?: ReturnType<typeof rgb>;
-      right?: number;
-    } = {},
+  /** Text with its baseline at `baseline`. */
+  const text = (
+    t: string,
+    x: number,
+    baseline: number,
+    o: { size?: number; font?: PDFFont; color?: Color; maxWidth?: number; align?: 'left' | 'right' } = {},
   ) => {
-    const font = opts.font ?? regular;
-    const size = opts.size ?? 9.5;
-    const s = pdfSafe(value);
-    page.drawText(s, {
-      x: (opts.right ?? PAGE_W - MARGIN) - font.widthOfTextAtSize(s, size),
-      y: opts.y ?? y,
-      size,
-      font,
-      color: opts.color ?? INK,
-    });
+    const size = o.size ?? 9.5;
+    const font = o.font ?? regular;
+    const s = o.maxWidth ? fit(t, size, font, o.maxWidth) : pdfSafe(t);
+    const w = font.widthOfTextAtSize(s, size);
+    page.drawText(s, { x: o.align === 'right' ? x - w : x, y: baseline, size, font, color: o.color ?? INK });
   };
 
-  const newPage = (continued = true) => {
+  const newPage = () => {
     page = doc.addPage([PAGE_W, PAGE_H]);
     pages.push(page);
-    if (continued) {
-      page.drawRectangle({ x: 0, y: PAGE_H - TOP_CONTINUED, width: PAGE_W, height: TOP_CONTINUED, color: NIGHT });
-      drawText(shopName, { x: MARGIN, y: PAGE_H - 27, size: 9, font: bold, color: WHITE });
-      drawRight('Business report · continued', {
-        y: PAGE_H - 26,
-        size: 8,
-        color: rgb(0.72, 0.78, 0.92),
-      });
-      y = PAGE_H - TOP_CONTINUED - 28;
-    } else {
-      y = PAGE_H - MARGIN;
-    }
+    page.drawRectangle({ x: 0, y: PAGE_H - TOP_CONTINUED, width: PAGE_W, height: TOP_CONTINUED, color: NIGHT });
+    // Starts inside the band and runs off the top edge, so none of it reaches the page below.
+    if (logo) page.drawImage(logo, { x: PAGE_W - 230, y: PAGE_H - TOP_CONTINUED + 2, width: 90, height: 90, opacity: 0.09 });
+    text(shopName, MARGIN, PAGE_H - 27, { size: 9.5, font: bold, color: WHITE, maxWidth: CONTENT_W * 0.6 });
+    text(`${data.label}  ·  continued`, PAGE_W - MARGIN, PAGE_H - 27, { size: 8, color: rgb(0.72, 0.78, 0.92), align: 'right' });
+    y = PAGE_H - TOP_CONTINUED - 26;
   };
 
+  /** Starts a new page unless `need` points fit above the footer. */
   const ensure = (need: number) => {
-    if (y - need >= MARGIN + FOOTER_H + 10) return;
-    newPage(true);
+    if (y - need < BOTTOM) newPage();
   };
 
-  const gap = (n: number) => {
+  const space = (n: number) => {
     y -= n;
   };
 
-  const hairline = () => {
-    ensure(10);
-    page.drawLine({
-      start: { x: MARGIN, y },
-      end: { x: PAGE_W - MARGIN, y },
-      thickness: 0.6,
-      color: LINE,
-    });
-    gap(14);
+  const ROW_H = 20;
+  const SECTION_H = 30;
+
+  /** A section title; `keep` is the height that must follow on the same page (its first rows). */
+  const section = (title: string, keep = ROW_H * 2) => {
+    ensure(SECTION_H + keep);
+    space(8);
+    text(title.toUpperCase(), MARGIN, y - 9, { size: 8.5, font: bold, color: INDIGO_DEEP });
+    page.drawRectangle({ x: MARGIN, y: y - 15, width: 26, height: 2, color: INDIGO });
+    space(SECTION_H - 8);
   };
 
-  const section = (title: string) => {
-    ensure(36);
-    gap(6);
-    drawText(title.toUpperCase(), {
-      size: 8,
-      font: bold,
-      color: INDIGO_DEEP,
-    });
-    gap(4);
-    page.drawRectangle({ x: MARGIN, y: y - 1, width: 28, height: 2, color: INDIGO });
-    gap(16);
+  /** A small grey heading inside a section, kept with the row after it. */
+  const subhead = (t: string, color: Color = MUTED) => {
+    ensure(22 + ROW_H);
+    space(8);
+    text(t, MARGIN, y - 10, { size: 8, font: bold, color });
+    space(16);
   };
 
-  /** Label / value row with calm alternating wash. */
-  const row = (label: string, value: string, i: number, opts?: { valueColor?: ReturnType<typeof rgb> }) => {
-    ensure(18);
-    const h = 17;
-    if (i % 2 === 0) {
-      page.drawRectangle({ x: MARGIN, y: y - 4, width: CONTENT_W, height: h, color: SURFACE });
+  /** A note line (wraps). */
+  const note = (t: string, o: { size?: number; color?: Color; font?: PDFFont } = {}) => {
+    const size = o.size ?? 8;
+    const lines = wrap(t, size, o.font ?? regular, CONTENT_W);
+    const lh = size + 4;
+    ensure(lines.length * lh + 4);
+    for (const l of lines) {
+      text(l, MARGIN, y - size - 1, { size, color: o.color ?? FAINT, font: o.font });
+      space(lh);
     }
-    drawText(label, { size: 9, color: MUTED, maxWidth: CONTENT_W * 0.62 });
-    drawRight(value, { size: 9.5, font: bold, color: opts?.valueColor ?? INK });
-    gap(17);
+    space(4);
   };
 
+  const stripe = (i: number, h: number, x = MARGIN, w = CONTENT_W) => {
+    if (i % 2 === 0) page.drawRectangle({ x, y: y - h, width: w, height: h, color: SURFACE });
+  };
+
+  /** Label on the left, value on the right, in its own 20pt band. */
+  const row = (label: string, value: string, i: number, o: { valueColor?: Color; labelColor?: Color } = {}) => {
+    ensure(ROW_H);
+    stripe(i, ROW_H);
+    const valueW = Math.min(width(value, 9.5, bold), CONTENT_W * 0.55);
+    text(label, MARGIN + 8, y - 13.5, { size: 9, color: o.labelColor ?? MUTED, maxWidth: CONTENT_W - valueW - 32 });
+    text(value, PAGE_W - MARGIN - 8, y - 13.5, { size: 9.5, font: bold, color: o.valueColor ?? INK, align: 'right', maxWidth: CONTENT_W * 0.55 });
+    space(ROW_H);
+  };
+
+  /** Two label/value columns side by side. */
   const twoCol = (left: [string, string][], right: [string, string][]) => {
     const n = Math.max(left.length, right.length);
-    const colW = (CONTENT_W - 16) / 2;
+    const gutter = 20;
+    const colW = (CONTENT_W - gutter) / 2;
+    ensure(Math.min(n, 3) * ROW_H);
     for (let i = 0; i < n; i++) {
-      ensure(18);
-      const h = 17;
-      if (i % 2 === 0) {
-        page.drawRectangle({ x: MARGIN, y: y - 4, width: CONTENT_W, height: h, color: SURFACE });
-      }
-      const L = left[i];
-      const R = right[i];
-      if (L) {
-        drawText(L[0], { size: 9, color: MUTED, maxWidth: colW * 0.58 });
-        const vw = bold.widthOfTextAtSize(pdfSafe(L[1]), 9.5);
-        page.drawText(pdfSafe(L[1]), {
-          x: MARGIN + colW - vw,
-          y,
-          size: 9.5,
-          font: bold,
-          color: INK,
-        });
-      }
-      if (R) {
-        drawText(R[0], { x: MARGIN + colW + 16, size: 9, color: MUTED, maxWidth: colW * 0.58 });
-        drawRight(R[1], { size: 9.5, font: bold });
-      }
-      gap(17);
+      ensure(ROW_H);
+      ([left[i], right[i]] as const).forEach((cell, c) => {
+        if (!cell) return;
+        const x = MARGIN + c * (colW + gutter);
+        stripe(i, ROW_H, x, colW);
+        const vw = Math.min(width(cell[1], 9.5, bold), colW * 0.6);
+        text(cell[0], x + 8, y - 13.5, { size: 9, color: MUTED, maxWidth: colW - vw - 24 });
+        text(cell[1], x + colW - 8, y - 13.5, { size: 9.5, font: bold, align: 'right', maxWidth: colW * 0.6 });
+      });
+      space(ROW_H);
     }
   };
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // COVER
-  // ═══════════════════════════════════════════════════════════════════════
-  const headerH = 118;
+  interface Column {
+    title: string;
+    /** Left edge, from the margin. */
+    x: number;
+    w: number;
+    align?: 'left' | 'right';
+  }
+  /** A table's header band. */
+  const tableHead = (cols: Column[]) => {
+    ensure(22 + ROW_H);
+    page.drawRectangle({ x: MARGIN, y: y - 20, width: CONTENT_W, height: 20, color: rgb(0.93, 0.94, 0.98) });
+    for (const c of cols) {
+      const x = c.align === 'right' ? MARGIN + c.x + c.w : MARGIN + c.x;
+      text(c.title.toUpperCase(), x, y - 13, { size: 7, font: bold, color: INDIGO_DEEP, align: c.align, maxWidth: c.w });
+    }
+    space(20);
+  };
+
+  // ── Cover ──────────────────────────────────────────────────────────────────
+  const headerH = 124;
   page.drawRectangle({ x: 0, y: PAGE_H - headerH, width: PAGE_W, height: headerH, color: NIGHT });
   page.drawRectangle({ x: 0, y: PAGE_H - headerH, width: PAGE_W, height: 3, color: SKY });
-
-  const mark = 48;
   if (logo) {
-    page.drawImage(logo, {
-      x: MARGIN,
-      y: PAGE_H - 28 - mark,
-      width: mark,
-      height: mark,
-    });
+    // A large, faint mark behind the header; the page edge trims what runs past the top.
+    const wm = 190;
+    page.drawImage(logo, { x: PAGE_W - wm + 30, y: PAGE_H - headerH + 8, width: wm, height: wm, opacity: 0.08 });
   }
-
-  const tx = MARGIN + mark + 14;
-  drawText('MANA WASH', {
-    x: tx,
-    y: PAGE_H - 28,
-    size: 8,
-    font: bold,
-    color: rgb(0.68, 0.74, 0.92),
+  const mark = 52;
+  if (logo) page.drawImage(logo, { x: MARGIN, y: PAGE_H - 34 - mark, width: mark, height: mark });
+  const tx = logo ? MARGIN + mark + 16 : MARGIN;
+  const headW = PAGE_W - MARGIN - tx - 150;
+  text('MANA WASH', tx, PAGE_H - 36, { size: 8, font: bold, color: rgb(0.68, 0.74, 0.92) });
+  text(shopName, tx, PAGE_H - 58, { size: 19, font: bold, color: WHITE, maxWidth: headW });
+  const metaBits = [apiShop?.businessName?.trim(), shopCity, shopCode ? `Branch ${shopCode}` : null].filter(Boolean).join('  ·  ');
+  if (metaBits) text(metaBits, tx, PAGE_H - 76, { size: 9.5, color: rgb(0.78, 0.82, 0.94), maxWidth: headW });
+  text('BUSINESS REPORT', PAGE_W - MARGIN, PAGE_H - 36, { size: 8, font: bold, color: rgb(0.55, 0.88, 0.82), align: 'right' });
+  text(data.label, PAGE_W - MARGIN, PAGE_H - 56, { size: 13, font: bold, color: WHITE, align: 'right', maxWidth: 150 });
+  text(data.from === data.to ? prettyDay(data.from) : `${prettyDay(data.from)} - ${prettyDay(data.to)}`, PAGE_W - MARGIN, PAGE_H - 72, {
+    size: 8.5,
+    color: rgb(0.78, 0.82, 0.94),
+    align: 'right',
   });
-  drawText(shopName, { x: tx, y: PAGE_H - 48, size: 18, font: bold, color: WHITE, maxWidth: CONTENT_W - mark - 20 });
-
-  const metaBits = [apiShop?.businessName?.trim(), shopCity, shopCode ? `Branch ${shopCode}` : null]
-    .filter(Boolean)
-    .join('  ·  ');
-  if (metaBits) {
-    drawText(metaBits, {
-      x: tx,
-      y: PAGE_H - 66,
-      size: 9.5,
-      color: rgb(0.78, 0.82, 0.94),
-      maxWidth: CONTENT_W - mark - 20,
-    });
+  text(`Generated ${formatWhen(data.generatedAt)}`, tx, PAGE_H - headerH + 18, { size: 8, color: rgb(0.62, 0.68, 0.86) });
+  if (generatedBy?.name) {
+    const by = [generatedBy.name.trim(), roleLabel(generatedBy.role)].filter(Boolean).join(', ');
+    text(`by ${by}`, PAGE_W - MARGIN, PAGE_H - headerH + 18, { size: 8, color: rgb(0.62, 0.68, 0.86), align: 'right', maxWidth: 220 });
   }
-  drawText('Business report', {
-    x: tx,
-    y: PAGE_H - 86,
-    size: 11,
-    font: bold,
-    color: rgb(0.55, 0.88, 0.82),
-  });
-  drawText(`v${APP_VERSION}`, {
-    x: tx,
-    y: PAGE_H - 102,
-    size: 8,
-    color: rgb(0.55, 0.6, 0.78),
-  });
+  y = PAGE_H - headerH - 18;
 
-  y = PAGE_H - headerH - 22;
-
-  // Contact strip (one calm block)
+  // Shop details: wrapped, never cut.
   const contactParts: string[] = [];
   if (apiShop?.address?.trim()) contactParts.push(apiShop.address.trim());
-  if (apiShop?.phone?.trim()) contactParts.push(`+91 ${formatPhone(apiShop.phone)}`);
+  if (apiShop?.phone?.trim()) contactParts.push(`Phone +91 ${formatPhone(apiShop.phone)}`);
   if (gst?.legalName?.trim()) contactParts.push(gst.legalName.trim());
   if (gst?.gstin?.trim()) contactParts.push(`GSTIN ${gst.gstin.trim()}`);
   if (apiShop?.owners?.length) {
-    contactParts.push(
-      `Owner${apiShop.owners.length > 1 ? 's' : ''}: ${apiShop.owners.map((o) => o.name).join(', ')}`,
-    );
+    contactParts.push(`Owner${apiShop.owners.length > 1 ? 's' : ''}: ${apiShop.owners.map((o) => o.name).join(', ')}`);
   }
   if (contactParts.length) {
-    ensure(28);
-    drawText(contactParts.join('   ·   '), {
-      size: 8,
-      color: MUTED,
-      maxWidth: CONTENT_W,
-    });
-    gap(18);
+    note(contactParts.join('   ·   '), { size: 8, color: MUTED });
+    space(6);
   }
 
-  // Period card
-  ensure(54);
-  const periodH = generatedBy?.name ? 50 : 38;
-  page.drawRectangle({
-    x: MARGIN,
-    y: y - periodH + 12,
-    width: CONTENT_W,
-    height: periodH,
-    color: WHITE,
-    borderColor: LINE,
-    borderWidth: 0.8,
-  });
-  page.drawRectangle({
-    x: MARGIN,
-    y: y - periodH + 12,
-    width: 3,
-    height: periodH,
-    color: INDIGO,
-  });
-  drawText(data.label, { x: MARGIN + 14, size: 11, font: bold });
-  drawRight(`${prettyDay(data.from)}  ->  ${prettyDay(data.to)}  IST`, {
-    size: 8.5,
-    color: MUTED,
-    right: PAGE_W - MARGIN - 12,
-  });
-  gap(15);
-  drawText(`Generated ${formatWhen(data.generatedAt)}`, {
-    x: MARGIN + 14,
-    size: 8,
-    color: FAINT,
-  });
-  if (generatedBy?.name) {
-    gap(12);
-    const by = [
-      generatedBy.name.trim(),
-      roleLabel(generatedBy.role),
-      generatedBy.phone ? `+91 ${formatPhone(generatedBy.phone)}` : null,
-    ]
-      .filter(Boolean)
-      .join('  ·  ');
-    drawText(`Generated by  ${by}`, {
-      x: MARGIN + 14,
-      size: 8.5,
-      font: bold,
-      color: INDIGO_DEEP,
-      maxWidth: CONTENT_W - 28,
-    });
-  }
-  gap(periodH - (generatedBy?.name ? 27 : 15) + 20);
-
-  // KPI strip — four equal tiles
-  const kpis: { label: string; value: string; accent: ReturnType<typeof rgb> }[] = [
+  // Headline figures: four tiles.
+  const kpis: { label: string; value: string; accent: Color }[] = [
     { label: 'Revenue', value: money(stats.revenue), accent: INDIGO },
     { label: 'Expenses', value: money(stats.expenses), accent: AMBER },
     { label: 'Net', value: money(stats.net), accent: stats.net < 0 ? DANGER : TEAL },
@@ -642,49 +588,27 @@ export async function buildReportPdf(
   ];
   const kpiGap = 10;
   const kpiW = (CONTENT_W - kpiGap * 3) / 4;
-  ensure(62);
+  const kpiH = 58;
+  ensure(kpiH + 10);
   kpis.forEach((k, i) => {
     const x = MARGIN + i * (kpiW + kpiGap);
-    page.drawRectangle({
-      x,
-      y: y - 46,
-      width: kpiW,
-      height: 54,
-      color: WHITE,
-      borderColor: LINE,
-      borderWidth: 0.8,
-    });
-    page.drawRectangle({ x, y: y - 46 + 51, width: kpiW, height: 2.5, color: k.accent });
-    page.drawText(pdfSafe(k.label.toUpperCase()), {
-      x: x + 10,
-      y: y - 10,
-      size: 7,
-      font: bold,
-      color: FAINT,
-    });
-    const size = bold.widthOfTextAtSize(pdfSafe(k.value), 13) > kpiW - 18 ? 10 : 13;
-    page.drawText(pdfSafe(k.value), {
-      x: x + 10,
-      y: y - 30,
-      size,
-      font: bold,
-      color: INK,
-    });
+    page.drawRectangle({ x, y: y - kpiH, width: kpiW, height: kpiH, color: WHITE, borderColor: LINE, borderWidth: 0.8 });
+    page.drawRectangle({ x, y: y - 3, width: kpiW, height: 3, color: k.accent });
+    text(k.label.toUpperCase(), x + 11, y - 19, { size: 7, font: bold, color: FAINT });
+    let size = 15;
+    while (size > 9 && width(k.value, size, bold) > kpiW - 22) size -= 0.5;
+    text(k.value, x + 11, y - 42, { size, font: bold });
   });
-  gap(68);
+  space(kpiH + 8);
 
-  // ── Summary ──────────────────────────────────────────────────────────
+  // ── Summary ────────────────────────────────────────────────────────────────
   section('Summary');
   const totalCustomers = stats.newCustomers + stats.repeatCustomers;
   const repeatPct = totalCustomers > 0 ? Math.round((stats.repeatCustomers / totalCustomers) * 100) : 0;
   const summaryLeft: [string, string][] = [
     ['Wash revenue', money(stats.revenue - planSales)],
-    ...(planSales
-      ? ([[`Plans sold at the shop (${stats.shopPlansSold ?? 0})`, money(planSales)]] as [string, string][])
-      : []),
-    ...(stats.planIncome
-      ? ([[`Community plans (${stats.planPayments ?? 0})`, money(stats.planIncome)]] as [string, string][])
-      : []),
+    ...(planSales ? ([[`Plans sold at the shop (${stats.shopPlansSold ?? 0})`, money(planSales)]] as [string, string][]) : []),
+    ...(stats.planIncome ? ([[`Community plans (${stats.planPayments ?? 0})`, money(stats.planIncome)]] as [string, string][]) : []),
     ['Expenses', money(stats.expenses)],
     ['Net', money(stats.net)],
     ['Discounts', money(stats.discounts)],
@@ -698,387 +622,294 @@ export async function buildReportPdf(
         ] as [string, string][])
       : []),
     ['Avg per vehicle', stats.carsWashed > 0 ? money(avg) : '-'],
-    ['In shop now', String(stats.pendingNow)],
+    ['In the shop now', String(stats.pendingNow)],
     ['New customers', String(stats.newCustomers)],
-    [
-      'Repeat customers',
-      totalCustomers > 0 ? `${stats.repeatCustomers} (${repeatPct}%)` : String(stats.repeatCustomers),
-    ],
-    ['Cancelled', String(stats.voided)],
+    ['Repeat customers', totalCustomers > 0 ? `${stats.repeatCustomers} (${repeatPct}%)` : String(stats.repeatCustomers)],
+    ['Voided', String(stats.voided)],
   ];
   twoCol(summaryLeft, summaryRight);
-  gap(8);
+  space(6);
 
-  // ── vs previous ──────────────────────────────────────────────────────
+  // ── Compared with the period before ────────────────────────────────────────
   if (previous) {
-    section('Compared with previous period');
-    drawText('Equal-length window ending when this period began', { size: 8, color: FAINT });
-    gap(12);
-    const cmp: [string, number, number, boolean][] = [
-      ['Revenue', stats.revenue, previous.revenue, true],
-      ['Expenses', stats.expenses, previous.expenses, true],
-      ['Net', stats.net, previous.net, true],
-      ['Washes', stats.carsWashed, previous.carsWashed, false],
+    section('Compared with the period before', 16 + ROW_H * 4);
+    note(`${prettyDay(previous.from)} - ${prettyDay(previous.to)}, the same number of days just before this report.`);
+    const cmp: [string, number, number, boolean, boolean][] = [
+      ['Revenue', stats.revenue, previous.revenue, true, true],
+      ['Expenses', stats.expenses, previous.expenses, true, false],
+      ['Net', stats.net, previous.net, true, true],
+      ['Washes', stats.carsWashed, previous.carsWashed, false, true],
     ];
-    cmp.forEach(([label, cur, prev, isMoney], i) => {
+    cmp.forEach(([label, cur, prev, isMoney, upIsGood], i) => {
       const delta = deltaPct(cur, prev);
       const up = delta.startsWith('+');
       const down = delta.startsWith('-');
+      const good = (up && upIsGood) || (down && !upIsGood);
+      const bad = (down && upIsGood) || (up && !upIsGood);
       row(
-        `${label}  (${delta})`,
-        isMoney ? `${money(cur)}   vs   ${money(prev)}` : `${cur}   vs   ${prev}`,
+        `${label}   ${delta}`,
+        isMoney ? `${money(cur)}  (was ${money(prev)})` : `${cur}  (was ${prev})`,
         i,
-        { valueColor: up ? TEAL_DEEP : down ? DANGER : INK },
+        { valueColor: good ? TEAL_DEEP : bad ? DANGER : INK },
       );
     });
-    gap(8);
+    space(6);
   }
 
-  // ── Payments ─────────────────────────────────────────────────────────
-  section('Payment split');
-  const pays: [string, number, ReturnType<typeof rgb>][] = [
+  // ── How it was paid ────────────────────────────────────────────────────────
+  const pays: [string, number, Color][] = [
     ['Cash', stats.cash, TEAL],
     ['UPI', stats.upi, WATER],
     ['Other', stats.other, MUTED],
   ];
-  for (const [label, amount, color] of pays) {
-    if (label === 'Other' && amount === 0) continue;
-    ensure(28);
-    drawText(label, { size: 9.5, font: bold, color });
+  const shownPays = pays.filter(([label, amount]) => !(label === 'Other' && amount === 0));
+  section('How it was paid', shownPays.length * 30);
+  for (const [label, amount, color] of shownPays) {
+    ensure(30);
     const pct = stats.revenue > 0 ? Math.round((amount / stats.revenue) * 100) : 0;
-    drawRight(`${money(amount)}   ${pct}%`, { size: 9.5, font: bold });
-    gap(10);
-    page.drawRectangle({ x: MARGIN, y: y - 1, width: CONTENT_W, height: 5, color: SURFACE });
+    text(label, MARGIN, y - 11, { size: 9.5, font: bold, color });
+    text(`${money(amount)}   ${pct}%`, PAGE_W - MARGIN, y - 11, { size: 9.5, font: bold, align: 'right' });
+    page.drawRectangle({ x: MARGIN, y: y - 22, width: CONTENT_W, height: 5, color: SURFACE });
     const fill = stats.revenue > 0 ? (amount / stats.revenue) * CONTENT_W : 0;
-    if (fill > 0) {
-      page.drawRectangle({
-        x: MARGIN,
-        y: y - 1,
-        width: Math.max(2.5, fill),
-        height: 5,
-        color,
-      });
-    }
-    gap(16);
+    if (fill > 0) page.drawRectangle({ x: MARGIN, y: y - 22, width: Math.max(3, fill), height: 5, color });
+    space(30);
   }
-  gap(4);
+  space(4);
 
-  // ── GST ──────────────────────────────────────────────────────────────
+  // ── GST ────────────────────────────────────────────────────────────────────
   if (gst && gst.rateBp > 0) {
-    section('GST');
     const rate = (gst.rateBp / 100).toFixed(gst.rateBp % 100 === 0 ? 0 : 1);
     const gstRows: [string, string][] = [
       ['Rate', `${rate}%`],
-      ...(gst.legalName ? ([[`Legal name`, gst.legalName]] as [string, string][]) : []),
-      ...(gst.gstin ? ([[`GSTIN`, gst.gstin]] as [string, string][]) : []),
+      ...(gst.legalName ? ([['Legal name', gst.legalName]] as [string, string][]) : []),
+      ...(gst.gstin ? ([['GSTIN', gst.gstin]] as [string, string][]) : []),
       ['Taxable value', money(gst.taxable)],
       ['CGST', money(gst.cgst)],
       ['SGST', money(gst.sgst)],
       ['Total (incl. GST)', money(stats.revenue + (stats.planIncome ?? 0))],
     ];
+    section('GST', gstRows.length * ROW_H);
     gstRows.forEach(([l, v], i) => row(l, v, i));
-    gap(8);
+    space(6);
   }
 
-  // ── Expenses by category ─────────────────────────────────────────────
+  // ── Expenses by category ───────────────────────────────────────────────────
   if (expensesByCategory.length) {
-    section('Expenses by category');
-    expensesByCategory.forEach((e, i) => {
-      row(`${e.label}  ·  ${e.count}`, money(e.amount), i);
-    });
-    gap(8);
+    section('Expenses by category', Math.min(expensesByCategory.length, 6) * ROW_H);
+    expensesByCategory.forEach((e, i) => row(`${e.label}  (${plural(e.count, 'bill')})`, money(e.amount), i));
+    space(6);
   }
 
-  // ── Insights ─────────────────────────────────────────────────────────
+  // ── Insights ───────────────────────────────────────────────────────────────
   if (insights.liveCount > 0) {
-    section('Insights');
+    section('Insights', ROW_H * 3);
     if (insights.busiestDay) {
-      row(
-        'Busiest day',
-        `${insights.busiestDay.label}  ·  ${insights.busiestDay.n} wash${
-          insights.busiestDay.n === 1 ? '' : 'es'
-        }  ·  ${money(insights.busiestDay.revenue)}`,
-        0,
-      );
+      row('Busiest day', `${insights.busiestDay.label}  ·  ${plural(insights.busiestDay.n, 'wash', 'washes')}  ·  ${money(insights.busiestDay.revenue)}`, 0);
     }
     if (insights.topServices.length) {
-      gap(6);
-      drawText('Top services', { size: 8, font: bold, color: FAINT });
-      gap(10);
-      insights.topServices.forEach((s, i) => {
-        row(s.name, `${s.n}`, i);
-      });
+      subhead('Most sold services');
+      insights.topServices.forEach((x, i) => row(x.name, plural(x.n, 'time'), i));
     }
     if (insights.topVehicles.length) {
-      gap(6);
-      drawText('Vehicle mix', { size: 8, font: bold, color: FAINT });
-      gap(10);
-      insights.topVehicles.forEach((s, i) => {
-        const pct = Math.round((s.n / insights.liveCount) * 100);
-        row(s.name, `${s.n}  (${pct}%)`, i);
-      });
+      subhead('Vehicle mix');
+      insights.topVehicles.forEach((x, i) => row(x.name, `${x.n}  (${Math.round((x.n / insights.liveCount) * 100)}%)`, i));
     }
     if (insights.topCollectors.length) {
-      gap(6);
-      drawText('Collections by team', { size: 8, font: bold, color: FAINT });
-      gap(10);
-      insights.topCollectors.forEach((s, i) => {
-        row(s.name, `${money(s.revenue)}  ·  ${s.n}`, i);
-      });
+      subhead('Collected by');
+      insights.topCollectors.forEach((x, i) => row(x.name, `${plural(x.n, 'wash', 'washes')}  ·  ${money(x.revenue)}`, i));
     }
-    gap(8);
+    space(6);
   }
 
-  // ── Day by day ───────────────────────────────────────────────────────
+  // ── Day by day ─────────────────────────────────────────────────────────────
   if (insights.days.length > 1) {
-    section('Day by day');
-    insights.days.forEach((d, i) => {
-      row(d.label, `${d.n} wash${d.n === 1 ? '' : 'es'}  ·  ${money(d.revenue)}`, i);
-    });
-    gap(8);
+    section('Day by day', ROW_H * 3);
+    insights.days.forEach((d, i) => row(d.label, `${plural(d.n, 'wash', 'washes')}  ·  ${money(d.revenue)}`, i));
+    space(6);
   }
 
-  // ── Peak hours ───────────────────────────────────────────────────────
+  // ── Busiest hours ──────────────────────────────────────────────────────────
   if (insights.peakHours.length) {
-    section('Peak hours');
-    insights.peakHours.forEach((h, i) => {
-      row(hourLabel(h.hour), `${h.n} visits  ·  ${money(h.revenue)}`, i);
-    });
-    gap(8);
+    section('Busiest hours', insights.peakHours.length * ROW_H);
+    insights.peakHours.forEach((h, i) => row(hourLabel(h.hour), `${plural(h.n, 'visit')}  ·  ${money(h.revenue)}`, i));
+    space(6);
   }
 
-  // ── Top customers ────────────────────────────────────────────────────
+  // ── Top customers ──────────────────────────────────────────────────────────
   if (insights.topCustomers.length) {
-    section('Top customers');
-    insights.topCustomers.forEach((c, i) => {
-      row(
-        `${c.name}${c.phone ? `  ·  ${c.phone}` : ''}`,
-        `${money(c.revenue)}  ·  ${c.n}`,
-        i,
-      );
-    });
-    gap(8);
+    section('Top customers', ROW_H * 3);
+    insights.topCustomers.forEach((c, i) =>
+      row(`${c.name}${c.phone && c.phone !== c.name ? `  ·  +91 ${formatPhone(c.phone)}` : ''}`, `${plural(c.n, 'visit')}  ·  ${money(c.revenue)}`, i),
+    );
+    space(6);
   }
 
-  // ── Staff ────────────────────────────────────────────────────────────
+  // ── Staff ──────────────────────────────────────────────────────────────────
   if (staff.length) {
-    section('Staff & commission');
-    // Compact header
-    ensure(16);
-    drawText('Name', { size: 7.5, font: bold, color: FAINT });
-    drawText('Washes', { x: MARGIN + 168, size: 7.5, font: bold, color: FAINT });
-    drawText('Commission', { x: MARGIN + 230, size: 7.5, font: bold, color: FAINT });
-    drawText('Collected', { x: MARGIN + 320, size: 7.5, font: bold, color: FAINT });
-    gap(8);
-    hairline();
-    for (let i = 0; i < staff.length; i++) {
-      const s = staff[i]!;
-      ensure(18);
-      if (i % 2 === 0) {
-        page.drawRectangle({ x: MARGIN, y: y - 4, width: CONTENT_W, height: 17, color: SURFACE });
+    const cols: Column[] = [
+      { title: 'Name', x: 8, w: 170 },
+      { title: 'Washes', x: 190, w: 60, align: 'right' },
+      { title: 'Services sold', x: 258, w: 70, align: 'right' },
+      { title: 'Commission', x: 336, w: 70, align: 'right' },
+      { title: 'Collected', x: 414, w: CONTENT_W - 422, align: 'right' },
+    ];
+    section('Staff and commission', 22 + ROW_H * 2);
+    tableHead(cols);
+    staff.forEach((m, i) => {
+      if (y - ROW_H < BOTTOM) {
+        newPage();
+        tableHead(cols);
       }
-      drawText(`${s.name}`, {
-        size: 9,
-        font: bold,
-        maxWidth: 150,
+      stripe(i + 1, ROW_H);
+      const base = y - 13.5;
+      text(m.name, MARGIN + cols[0]!.x, base, { size: 9, font: bold, maxWidth: cols[0]!.w });
+      const cells = [
+        String(m.washesDone + m.communityWashes),
+        String(m.servicesSold),
+        m.commission > 0 ? money(m.commission) : '-',
+        money(m.collected),
+      ];
+      cells.forEach((v, c) => {
+        const col = cols[c + 1]!;
+        text(v, MARGIN + col.x + col.w, base, {
+          size: 9,
+          font: c === 3 ? bold : regular,
+          color: c === 3 ? TEAL_DEEP : MUTED,
+          align: 'right',
+          maxWidth: col.w,
+        });
       });
-      drawText(String(s.washesDone + s.communityWashes), { x: MARGIN + 168, size: 9, color: MUTED });
-      drawText(s.commission > 0 ? money(s.commission) : '-', { x: MARGIN + 230, size: 9, color: MUTED });
-      drawRight(money(s.collected), { size: 9, font: bold, color: TEAL_DEEP });
-      gap(17);
-    }
-    gap(8);
+      space(ROW_H);
+    });
+    space(6);
   }
 
-  // ── Inventory ────────────────────────────────────────────────────────
+  // ── Stock ──────────────────────────────────────────────────────────────────
   if (stock.length || data.stock) {
-    section('Inventory');
+    section('Stock', ROW_H * 2);
     if (!stock.length) {
-      drawText('No stock items yet.', { size: 9, color: MUTED });
-      gap(14);
+      note('No stock items yet.', { size: 9, color: MUTED });
     } else {
-      const low = stock.filter((s) => s.low);
-      const ok = stock.filter((s) => !s.low);
+      const low = stock.filter((x) => x.low);
+      const ok = stock.filter((x) => !x.low);
       if (low.length) {
-        drawText('Needs attention', { size: 8, font: bold, color: DANGER });
-        gap(10);
-        low.forEach((s, i) => {
-          row(
-            s.name,
-            `${s.balance} ${s.unit}${s.lowAt != null ? `  (low at ${s.lowAt})` : ''}`,
-            i,
-            { valueColor: DANGER },
-          );
-        });
-        gap(6);
+        subhead('Running low, buy soon', DANGER);
+        low.forEach((x, i) =>
+          row(x.name, `${x.balance} ${x.unit}${x.lowAt != null ? `  (low at ${x.lowAt})` : ''}`, i, { valueColor: DANGER }),
+        );
       } else {
-        drawText('All items above low mark.', { size: 9, color: MUTED });
-        gap(12);
+        note('Everything is above its low mark.', { size: 9, color: MUTED });
       }
-      const showOk = ok.slice(0, 10);
+      const showOk = ok.slice(0, 12);
       if (showOk.length) {
-        drawText(ok.length > 10 ? `On hand (showing ${showOk.length} of ${ok.length})` : 'On hand', {
-          size: 8,
-          font: bold,
-          color: FAINT,
-        });
-        gap(10);
-        showOk.forEach((s, i) => row(s.name, `${s.balance} ${s.unit}`, i));
+        subhead(ok.length > showOk.length ? `In stock (${showOk.length} of ${ok.length})` : 'In stock');
+        showOk.forEach((x, i) => row(x.name, `${x.balance} ${x.unit}`, i));
       }
-      gap(8);
     }
+    space(6);
   }
 
-  // ── Rewards ──────────────────────────────────────────────────────────
-  if (
-    rewards &&
-    (rewards.freeWashes > 0 || rewards.giftsGiven > 0 || rewards.giftsOwedNow > 0 || rewards.freeValue > 0)
-  ) {
-    section('Rewards');
+  // ── Rewards ────────────────────────────────────────────────────────────────
+  if (rewards && (rewards.freeWashes > 0 || rewards.giftsGiven > 0 || rewards.giftsOwedNow > 0 || rewards.freeValue > 0)) {
+    section('Rewards', ROW_H * 4 + 30);
     row('Free washes used', String(rewards.freeWashes), 0);
     row('Value given free', money(rewards.freeValue), 1);
     row('Gifts handed over', String(rewards.giftsGiven), 2);
-    row('Gifts owed now', String(rewards.giftsOwedNow), 3);
+    row('Gifts owed now', String(rewards.giftsOwedNow), 3, { valueColor: rewards.giftsOwedNow > 0 ? AMBER : INK });
+    space(6);
     if (rewards.gifts.length) {
-      gap(4);
-      drawText(
-        rewards.gifts
-          .map((g) => (g.unit === 'pcs' ? `${g.name} x ${g.quantity}` : `${g.name} ${g.label}`))
-          .join('   ·   '),
-        { size: 8, color: MUTED, maxWidth: CONTENT_W },
+      note(
+        `Handed over: ${rewards.gifts.map((g) => (g.unit === 'pcs' ? `${g.name} x ${g.quantity}` : `${g.name} ${g.label}`)).join(', ')}`,
+        { size: 8, color: MUTED },
       );
-      gap(12);
     }
-    drawText('Free washes are already counted inside Discounts.', { size: 8, color: FAINT });
-    gap(14);
+    note('Free washes are already counted inside Discounts.');
+    space(4);
   }
 
-  // ── Job ledger (compact table) ───────────────────────────────────────
-  section('Job ledger');
-  drawText(`${data.jobs.length} job${data.jobs.length === 1 ? '' : 's'} in this period`, {
-    size: 8.5,
-    color: MUTED,
-  });
-  gap(14);
-
+  // ── Every wash ─────────────────────────────────────────────────────────────
+  const LEDGER_H = 32;
+  const ledgerCols: Column[] = [
+    { title: 'When', x: 8, w: 66 },
+    { title: 'Customer and services', x: 82, w: 196 },
+    { title: 'Vehicle', x: 288, w: 104 },
+    { title: 'Amount', x: 398, w: CONTENT_W - 406, align: 'right' },
+  ];
+  section(`Every wash  (${data.jobs.length})`, 22 + LEDGER_H * 2);
   if (data.jobs.length === 0) {
-    ensure(24);
-    drawText('No jobs in this period.', { size: 9.5, color: MUTED });
-    gap(20);
+    note('No washes in this period.', { size: 9.5, color: MUTED });
   } else {
-    // Column headers
-    ensure(16);
-    drawText('When', { size: 7.5, font: bold, color: FAINT });
-    drawText('Customer', { x: MARGIN + 108, size: 7.5, font: bold, color: FAINT });
-    drawText('Vehicle', { x: MARGIN + 268, size: 7.5, font: bold, color: FAINT });
-    drawRight('Amount', { size: 7.5, font: bold, color: FAINT });
-    gap(8);
-    hairline();
-
-    for (const job of data.jobs) {
+    tableHead(ledgerCols);
+    data.jobs.forEach((job, i) => {
+      if (y - LEDGER_H < BOTTOM) {
+        newPage();
+        tableHead(ledgerCols);
+      }
       const voided = /void|cancel/i.test(job.status);
-      const when = formatWhen(job.createdAt);
-      const name = job.customerName?.trim() || job.customerPhone;
-      const reg = job.registrationNumber.startsWith('WALK-IN') ? 'Walk-in' : job.registrationNumber;
-      const pay = job.paymentMethod ? job.paymentMethod.toUpperCase() : 'UNPAID';
-      const line2 =
-        [
-          job.services.join(', ') || null,
-          job.createdBy ? `Opened ${job.createdBy}` : null,
-          job.paidBy ? `Paid ${job.paidBy}` : null,
-          job.discount > 0 ? `Disc ${money(job.discount)}` : null,
-        ]
-          .filter(Boolean)
-          .join('  ·  ') || null;
+      stripe(i + 1, LEDGER_H);
+      const top = y - 13;
+      const sub = y - 25;
+      const [c0, c1, c2, c3] = ledgerCols as [Column, Column, Column, Column];
+      text(shortDay(job.createdAt), MARGIN + c0.x, top, { size: 8.5, font: bold, color: INK });
+      text(shortTime(job.createdAt), MARGIN + c0.x, sub, { size: 7.5, color: FAINT });
 
-      const block = line2 ? 28 : 16;
-      ensure(block + 6);
-
-      drawText(when, {
-        size: 7.5,
-        color: FAINT,
-        maxWidth: 100,
-      });
-      drawText(name, {
-        x: MARGIN + 108,
+      text(job.customerName?.trim() || job.customerPhone, MARGIN + c1.x, top, {
         size: 9,
         font: bold,
         color: voided ? DANGER : INK,
-        maxWidth: 150,
+        maxWidth: c1.w,
       });
-      drawText(reg, {
-        x: MARGIN + 268,
-        size: 8,
+      const servicesLine = job.planSale ? 'Wash plan sold at the shop' : job.services.join(', ') || '-';
+      text(job.discount > 0 ? `${servicesLine}  ·  ${money(job.discount)} off` : servicesLine, MARGIN + c1.x, sub, {
+        size: 7.5,
         color: MUTED,
-        maxWidth: 110,
+        maxWidth: c1.w,
       });
-      drawRight(`${money(job.total)}  ${pay}`, {
-        size: 8.5,
-        font: bold,
-        color: voided ? DANGER : INK,
+
+      text(plate(job.registrationNumber), MARGIN + c2.x, top, { size: 8.5, font: bold, color: INK, maxWidth: c2.w });
+      text(job.vehicleType || '-', MARGIN + c2.x, sub, { size: 7.5, color: MUTED, maxWidth: c2.w });
+
+      const right = MARGIN + c3.x + c3.w;
+      text(money(job.total), right, top, { size: 9.5, font: bold, color: voided ? DANGER : INK, align: 'right' });
+      const status = voided
+        ? 'Void'
+        : job.status === 'paid'
+          ? [job.paymentMethod ? (job.paymentMethod === 'upi' ? 'UPI' : job.paymentMethod[0]!.toUpperCase() + job.paymentMethod.slice(1)) : 'Paid', job.paidBy ? job.paidBy.split(/\s+/)[0] : null]
+              .filter(Boolean)
+              .join(' · ')
+          : 'Not paid yet';
+      text(status, right, sub, {
+        size: 7.5,
+        color: voided ? DANGER : job.status === 'paid' ? TEAL_DEEP : AMBER,
+        align: 'right',
+        maxWidth: c3.w,
       });
-      gap(11);
-      if (line2) {
-        drawText(line2, {
-          x: MARGIN + 108,
-          size: 7.5,
-          color: FAINT,
-          maxWidth: CONTENT_W - 120,
-        });
-        gap(12);
-      } else {
-        gap(5);
-      }
-      page.drawLine({
-        start: { x: MARGIN, y },
-        end: { x: PAGE_W - MARGIN, y },
-        thickness: 0.4,
-        color: LINE,
-      });
-      gap(8);
-    }
+      space(LEDGER_H);
+    });
   }
 
   // Closing
-  ensure(40);
-  gap(6);
-  hairline();
-  drawText('Figures are in Indian Rupees (IST). Confidential to this shop.', {
-    size: 8,
-    color: FAINT,
-  });
-  gap(12);
-  drawText('Mana Wash Manager', { size: 8.5, font: bold, color: INDIGO_DEEP });
+  ensure(44);
+  space(18);
+  page.drawLine({ start: { x: MARGIN, y }, end: { x: PAGE_W - MARGIN, y }, thickness: 0.6, color: LINE });
+  space(8);
+  note('Amounts are in Indian Rupees (Rs), times in India time. This report is confidential: it is for the branch owner and Mana Wash HQ only.');
 
-  // Footers
+  // Footers: night band like the header, confidential on every page.
   const totalPages = pages.length;
-  const byLine = generatedBy?.name
-    ? `Generated by ${generatedBy.name}${roleLabel(generatedBy.role) ? ` (${roleLabel(generatedBy.role)})` : ''}`
-    : null;
+  const footText = rgb(0.72, 0.77, 0.92);
   pages.forEach((p, i) => {
-    p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: FOOTER_H, color: SURFACE });
-    p.drawLine({
-      start: { x: MARGIN, y: FOOTER_H },
-      end: { x: PAGE_W - MARGIN, y: FOOTER_H },
-      thickness: 0.5,
-      color: RULE,
-    });
-    const left = byLine ? `${shopName}  ·  ${byLine}` : `${shopName}  ·  confidential`;
-    p.drawText(pdfSafe(left), {
-      x: MARGIN,
-      y: 14,
-      size: 7,
-      font: regular,
-      color: FAINT,
-    });
+    p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: FOOTER_H, color: NIGHT });
+    p.drawRectangle({ x: 0, y: FOOTER_H, width: PAGE_W, height: 2, color: SKY });
+    if (logo) p.drawImage(logo, { x: MARGIN, y: 9, width: 18, height: 18, opacity: 0.85 });
+    const lx = logo ? MARGIN + 26 : MARGIN;
+    p.drawText('CONFIDENTIAL', { x: lx, y: 20, size: 7, font: bold, color: rgb(0.99, 0.8, 0.45) });
+    const scope = fit(`For ${shopName} only. Not to be shared outside the business.`, 7, regular, CONTENT_W - 160);
+    p.drawText(scope, { x: lx, y: 10, size: 7, font: regular, color: footText });
     const right = `Page ${i + 1} of ${totalPages}`;
-    p.drawText(pdfSafe(right), {
-      x: PAGE_W - MARGIN - regular.widthOfTextAtSize(right, 7),
-      y: 14,
-      size: 7,
-      font: regular,
-      color: FAINT,
-    });
+    p.drawText(right, { x: PAGE_W - MARGIN - bold.widthOfTextAtSize(right, 7.5), y: 20, size: 7.5, font: bold, color: WHITE });
+    const ver = `Mana Wash Manager v${APP_VERSION}`;
+    p.drawText(ver, { x: PAGE_W - MARGIN - regular.widthOfTextAtSize(ver, 6.5), y: 10, size: 6.5, font: regular, color: footText });
   });
 
   return doc.save();

@@ -7,6 +7,9 @@ export interface DirectoryEntry {
   vehicleId: string;
   registrationNumber: string;
   vehicleTypeId: string;
+  /** Company and model, when known. Missing in older saved copies. */
+  make?: string | null;
+  model?: string | null;
   customerId: string;
   customerName: string;
   customerPhone: string;
@@ -139,6 +142,8 @@ export async function syncDirectory(
 export interface LocalVisit {
   registrationNumber: string;
   vehicleTypeId: string;
+  make?: string;
+  model?: string;
   customerName: string;
   customerPhone: string;
   services: { serviceId: string; quantity: number }[];
@@ -183,6 +188,8 @@ export function applyLocalVisit(snapshot: DirectorySnapshot, visit: LocalVisit):
     vehicleId: existing?.vehicleId ?? `local:${visit.registrationNumber}`,
     registrationNumber: visit.registrationNumber,
     vehicleTypeId: visit.vehicleTypeId,
+    make: visit.make ?? existing?.make ?? null,
+    model: visit.make ? (visit.model ?? null) : (existing?.model ?? null),
     customerId,
     customerName: visit.customerName,
     customerPhone: visit.customerPhone,

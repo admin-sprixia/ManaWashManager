@@ -759,6 +759,11 @@ export const placeRepo = {
    * Ends a membership (the team removed them, or they moved out). Returns the live orders, which
    * the caller cancels (with refunds) — money is never touched here.
    */
+  /** Whether a member has a paid plan running (removing them would refund it). */
+  async hasLivePlan(db: DbClient, memberId: string): Promise<boolean> {
+    return (await db.placeOrder.count({ where: { memberId, status: 'active' } })) > 0;
+  },
+
   async end(
     d1: D1Database,
     shopId: string,

@@ -46,6 +46,9 @@ export const customerRepo = {
       vehicleTypeId: string;
       source?: string;
       ownership?: VehicleOwnership;
+      /** Picked from the size guide's list; left as saved when not sent. */
+      make?: string;
+      model?: string;
     },
   ) {
     const existing = await db.vehicle.findFirst({
@@ -75,6 +78,7 @@ export const customerRepo = {
       await directoryRepo.touchCustomer(db, customer.id);
     }
 
+    const makeModel = data.make && data.model ? { make: data.make, model: data.model } : {};
     let vehicle;
     if (!existing) {
       vehicle = await db.vehicle.create({
@@ -82,15 +86,17 @@ export const customerRepo = {
           customerId: customer.id,
           registrationNumber: data.registrationNumber,
           vehicleTypeId: data.vehicleTypeId,
+          ...makeModel,
         },
       });
     } else if (
       existing.customerId !== customer.id ||
-      existing.vehicleTypeId !== data.vehicleTypeId
+      existing.vehicleTypeId !== data.vehicleTypeId ||
+      (makeModel.make != null && (existing.make !== makeModel.make || existing.model !== makeModel.model))
     ) {
       vehicle = await db.vehicle.update({
         where: { id: existing.id },
-        data: { customerId: customer.id, vehicleTypeId: data.vehicleTypeId },
+        data: { customerId: customer.id, vehicleTypeId: data.vehicleTypeId, ...makeModel },
       });
       if (existing.customerId !== customer.id) {
         await couponRepo.cancelActiveForVehicle(db, existing.id, 'owner_changed', new Date());

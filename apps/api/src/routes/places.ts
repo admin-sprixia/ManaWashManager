@@ -447,9 +447,16 @@ export const placeRoutes = new Hono<{ Bindings: Env }>()
     },
   )
   /** Takes someone off the place; their live orders are cancelled and refunded by the refund rule. */
+  // Ending a member's paid plan refunds money, so with a live plan only the owner can remove them.
   .post('/members/:id/remove', zValidator('param', placeParam), zValidator('json', reasonSchema), async (c) => {
     const session = c.get('session');
     const reason = c.req.valid('json').reason || 'Removed by the team';
+    if (session.role !== 'owner' && (await placeRepo.hasLivePlan(c.get('db'), c.req.valid('param').id))) {
+      return c.json(
+        { error: 'forbidden' as const, message: 'They have a paid plan. Only the owner can remove them (it refunds the plan).' },
+        403,
+      );
+    }
     const ended = await placeRepo.end(c.env.DB, session.shopId, c.req.valid('param').id, { status: 'removed', reason, byUserId: session.sub });
     if (!ended) return c.json({ error: 'not_open' as const, message: 'Already removed.' }, 409);
     let refunded = 0;

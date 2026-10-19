@@ -205,5 +205,24 @@ check('A plan past its last day says it has ended', /ended/.test(r.body?.plans?.
 r = await wash();
 check('…and can’t pay for a wash', r.status === 409, show(r));
 
+// From a customer's profile: a plan for another vehicle they're adding now.
+const extraPlate = `AP${rand(2)}PL${rand(4)}`;
+r = await call(OA, 'POST', '/shop-plans/sell', {
+  id: `sale_${run}_${rand(6)}`,
+  customer: { phone, name: 'Plan Customer' },
+  registrationNumber: extraPlate,
+  vehicleTypeId: hatch,
+  make: 'Maruti Suzuki',
+  model: 'Swift',
+  planId: SHOP_PLAN,
+  paymentMethod: 'cash',
+});
+const added = d1Rows(`SELECT v.make, v.model, c.phone FROM vehicles v JOIN customers c ON c.id = v.customer_id WHERE v.registration_number = '${extraPlate}'`)[0];
+check(
+  'A plan sold for a new vehicle adds it to the customer, with its company and model',
+  r.status === 201 && added?.phone === phone && added?.make === 'Maruti Suzuki' && added?.model === 'Swift',
+  `${show(r)} ${JSON.stringify(added)}`,
+);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

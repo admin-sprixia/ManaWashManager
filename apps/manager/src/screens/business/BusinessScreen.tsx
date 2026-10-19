@@ -19,13 +19,16 @@ import {
   IconPlus,
   IconSync,
   IconTrash,
+  IconWhatsApp,
   PhoneField,
   ScreenContainer,
+  TextField,
   ScreenHeader,
   brandGradients,
   colors,
   shadow,
   showAlert,
+  showToast,
   spacing,
   typography,
 } from '@mana/ui';
@@ -33,6 +36,7 @@ import { isValidPhone, normalizePhone } from '@mana/domain';
 import { api } from '../../api/client';
 import { useAuth } from '../../api/auth';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
+import { sendInvite } from '../../utils/teamInvite';
 import { NameSheet, plural, useCatalog } from './shared';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Business'>;
@@ -90,10 +94,13 @@ function NavRow({
  * tools to rebuild every branch's menu.
  */
 export function BusinessScreen({ navigation }: Props) {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const { catalog, error, load, run } = useCatalog();
   const [renaming, setRenaming] = useState(false);
   const [adminPhone, setAdminPhone] = useState('');
+  const [adminName, setAdminName] = useState('');
+  /** The number is on no branch team: they need a name for an HQ-only sign-in. */
+  const [needName, setNeedName] = useState(false);
   const [adminError, setAdminError] = useState<string | null>(null);
   const [addingAdmin, setAddingAdmin] = useState(false);
   const [busy, setBusy] = useState<'publish' | 'import' | null>(null);
@@ -125,25 +132,70 @@ export function BusinessScreen({ navigation }: Props) {
     updating > 0 ? (['#F59E0B', '#D97706', '#92400E'] as const) : (g.colors as readonly string[])
   ) as unknown as string[];
 
+  const hqOnlyOf = (phone: string) => catalog.hqOnly.find((p) => p.phone === phone);
+  const branchNameOf = (phone: string) => {
+    for (const b of catalog.branches) {
+      const owner = b.owners.find((o) => o.phone === phone);
+      if (owner) return { name: owner.name, branch: b.name };
+    }
+    return null;
+  };
+
+  const resetAddAdmin = () => {
+    setAdminPhone('');
+    setAdminName('');
+    setNeedName(false);
+    setAdminError(null);
+  };
+
   const addAdmin = async () => {
     const phone = normalizePhone(adminPhone);
     if (!isValidPhone(phone)) return setAdminError('Enter a valid 10-digit mobile number.');
     if (catalog.admins.includes(phone)) return setAdminError('Already an admin.');
+    const name = adminName.trim();
+    if (needName && name.length < 2) return setAdminError('Enter their full name.');
     setAddingAdmin(true);
-    const message = await run(() => api.business.admins.$post({ json: { phone } }), 'Admin added');
-    setAddingAdmin(false);
-    if (message) return setAdminError(message);
-    setAdminPhone('');
-    setAdminError(null);
+    try {
+      const res = await api.business.admins.$post({ json: needName ? { phone, name } : { phone } });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string; message?: string } | null;
+        if (body?.error === 'needs_name') {
+          setNeedName(true);
+          setAdminError(null);
+        } else {
+          setAdminError(body?.message ?? 'Couldn’t add this admin.');
+        }
+        return;
+      }
+      const added = await res.json();
+      resetAddAdmin();
+      await load();
+      if (!added.hqOnly) {
+        showToast('Admin added', 'success');
+        return;
+      }
+      const invitee = { name, phone, role: 'owner' as const, hasPin: added.hasPin, hq: true };
+      if (await sendInvite(invitee, null)) showToast(`${name} added to HQ — press send in WhatsApp`);
+      else showToast(`${name} added, but WhatsApp didn’t open. Tap ${name.split(/\s+/)[0]} below to send the invite.`, 'error');
+    } catch {
+      setAdminError('Adding an admin needs a connection.');
+    } finally {
+      setAddingAdmin(false);
+    }
   };
 
   const removeAdmin = (phone: string) => {
     const self = phone === user?.phone;
+    const hqOnly = hqOnlyOf(phone);
     showAlert(
-      self ? 'Stop being an admin?' : `Remove +91 ${formatPhone(phone)}?`,
+      self ? 'Stop being an admin?' : `Remove ${hqOnly?.name ?? branchNameOf(phone)?.name ?? `+91 ${formatPhone(phone)}`}?`,
       self
-        ? 'You won’t see Mana Wash HQ or change services and prices any more. Another admin can add you back.'
-        : 'They keep running their branch, but can’t change services and prices for every branch any more.',
+        ? hqOnly
+          ? 'You work at no branch, so you’ll be signed out on every phone and can’t sign in any more. Another admin can add you back.'
+          : 'You won’t see Mana Wash HQ or change services and prices any more. Another admin can add you back.'
+        : hqOnly
+          ? 'They work at no branch, so they’re signed out on every phone and can’t sign in any more.'
+          : 'They keep running their branch, but can’t change services and prices for every branch any more.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -156,12 +208,30 @@ export function BusinessScreen({ navigation }: Props) {
                 'Admin removed',
               );
               if (message) setActionError(message);
+              else if (self && hqOnly) void signOut();
               else if (self) navigation.goBack();
             })();
           },
         },
       ],
       { icon: <IconTrash size={26} color={colors.danger} /> },
+    );
+  };
+
+  const openAdmin = (phone: string) => {
+    const hqOnly = hqOnlyOf(phone);
+    if (!hqOnly || hqOnly.pinSet) return removeAdmin(phone);
+    showAlert(
+      hqOnly.name,
+      'Hasn’t signed in yet. Send the invite again so they have the app link and their steps.',
+      [
+        { text: 'Close', style: 'cancel' },
+        { text: 'Remove', style: 'destructive', onPress: () => removeAdmin(phone) },
+        {
+          text: 'Send invite again',
+          onPress: () => void sendInvite({ name: hqOnly.name, phone, role: 'owner', hasPin: false, hq: true }, null),
+        },
+      ],
     );
   };
 
@@ -298,31 +368,58 @@ export function BusinessScreen({ navigation }: Props) {
 
         <Text style={styles.sectionLabel}>Admins</Text>
         <Text style={styles.help}>
-          Admins see Mana Wash HQ in More and change services, prices and rules for every branch.
+          Admins change services, prices and rules for every branch. Branch owners see Mana Wash HQ in More;
+          someone who works at no branch gets an HQ-only sign-in that opens straight on HQ.
         </Text>
         <View style={styles.band}>
           {catalog.admins.map((phone, i) => {
             const self = phone === user?.phone;
             const canRemove = catalog.admins.length > 1;
+            const hqOnly = hqOnlyOf(phone);
+            const atBranch = hqOnly ? null : branchNameOf(phone);
+            const name = hqOnly?.name ?? atBranch?.name ?? null;
+            const tappable = canRemove || (hqOnly != null && !hqOnly.pinSet);
+            const meta = [
+              self ? 'You' : null,
+              `+91 ${formatPhone(phone)}`,
+              hqOnly ? (hqOnly.pinSet ? null : 'hasn’t signed in yet') : atBranch ? `owner at ${atBranch.branch}` : null,
+            ]
+              .filter(Boolean)
+              .join(' · ');
             return (
               <Pressable
                 key={phone}
-                onPress={canRemove ? () => removeAdmin(phone) : undefined}
-                disabled={!canRemove}
+                onPress={tappable ? () => openAdmin(phone) : undefined}
+                disabled={!tappable}
                 style={({ pressed }) => [
                   styles.adminRow,
                   i < catalog.admins.length - 1 && styles.rowDivider,
-                  pressed && canRemove && styles.pressedRow,
+                  pressed && tappable && styles.pressedRow,
                 ]}
-                accessibilityRole={canRemove ? 'button' : undefined}
-                accessibilityLabel={canRemove ? `Remove admin +91 ${formatPhone(phone)}` : undefined}
+                accessibilityRole={tappable ? 'button' : undefined}
+                accessibilityLabel={tappable ? `${name ?? `+91 ${formatPhone(phone)}`}. ${meta}` : undefined}
               >
-                <Avatar name={self ? 'You' : phone} id={phone} size={42} />
+                <Avatar name={name ?? phone} id={phone} size={42} />
                 <View style={styles.rowCopy}>
-                  <Text style={styles.rowTitle}>+91 {formatPhone(phone)}</Text>
-                  <Text style={styles.rowMeta}>{self ? 'You' : 'Business admin'}</Text>
+                  <View style={styles.adminTitleRow}>
+                    <Text style={styles.rowTitle} numberOfLines={1}>
+                      {name ?? `+91 ${formatPhone(phone)}`}
+                    </Text>
+                    {hqOnly ? (
+                      <View style={styles.hqTag}>
+                        <Text style={styles.hqTagText}>HQ only</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text style={styles.rowMeta} numberOfLines={1}>
+                    {name ? meta : self ? 'You' : 'Business admin'}
+                  </Text>
                 </View>
-                {canRemove ? <IconTrash size={16} color={colors.danger} /> : null}
+                {hqOnly && !hqOnly.pinSet ? (
+                  <IconWhatsApp size={20} />
+                ) : canRemove ? (
+                  <IconTrash size={16} color={colors.danger} />
+                ) : null}
               </Pressable>
             );
           })}
@@ -334,19 +431,45 @@ export function BusinessScreen({ navigation }: Props) {
             digits={adminPhone}
             onChangeDigits={(d) => {
               setAdminPhone(d);
+              if (needName) setNeedName(false);
               if (adminError) setAdminError(null);
             }}
             normalize={normalizePhone}
-            error={adminError}
+            error={needName ? null : adminError}
             onSubmit={() => void addAdmin()}
           />
+          {needName ? (
+            <View style={styles.hqOnlyBox}>
+              <Text style={styles.hqOnlyTitle}>Not on any branch team</Text>
+              <Text style={styles.hqOnlyText}>
+                They’ll get an HQ-only sign-in: the app opens straight on Mana Wash HQ, with no branch screens. They
+                confirm their number with a WhatsApp code and choose their own PIN.
+              </Text>
+              <TextField
+                label="Their full name"
+                value={adminName}
+                onChangeText={(t) => {
+                  setAdminName(t);
+                  if (adminError) setAdminError(null);
+                }}
+                autoCapitalize="words"
+                autoFocus
+                maxLength={60}
+                error={adminError}
+                onSubmitEditing={() => void addAdmin()}
+              />
+            </View>
+          ) : null}
           <Button
-            label="Add admin"
-            variant="secondary"
-            icon={<IconPlus size={18} color={colors.indigo} />}
+            label={needName ? 'Add and send invite on WhatsApp' : 'Add admin'}
+            variant={needName ? 'primary' : 'secondary'}
+            icon={
+              needName ? <IconWhatsApp size={20} variant="mono" color={colors.white} /> : <IconPlus size={18} color={colors.indigo} />
+            }
             loading={addingAdmin}
             onPress={() => void addAdmin()}
           />
+          {needName ? <Button label="Cancel" variant="ghost" onPress={resetAddAdmin} /> : null}
         </View>
 
         <Text style={styles.sectionLabel}>Tools</Text>
@@ -537,4 +660,22 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
   },
   addAdmin: { gap: spacing.sm, paddingHorizontal: spacing.md },
+  adminTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs + 2 },
+  hqTag: {
+    borderRadius: 999,
+    backgroundColor: colors.indigoPale,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  hqTagText: { ...typography.label, color: colors.indigo, fontSize: 11 },
+  hqOnlyBox: {
+    gap: spacing.sm,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    backgroundColor: '#EEF2FF',
+    padding: spacing.md,
+  },
+  hqOnlyTitle: { ...typography.bodyStrong, color: colors.indigo, fontSize: 15 },
+  hqOnlyText: { ...typography.caption, color: colors.slateDeep, letterSpacing: 0, lineHeight: 18 },
 });

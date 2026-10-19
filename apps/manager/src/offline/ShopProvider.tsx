@@ -170,8 +170,8 @@ const ShopContext = createContext<ShopContextValue | null>(null);
  * foreground.
  */
 export function ShopProvider({ children }: { children: React.ReactNode }) {
-  const { user, isOwner } = useAuth();
-  const { online, items: outbox, version } = useSync();
+  const { user, isOwner, hqOnly } = useAuth();
+  const { online, shopItems: outbox, version } = useSync();
   const [snapshot, setSnapshot] = useState<ShopSnapshot>(EMPTY);
   const [unseenErrors, setUnseenErrors] = useState(0);
   const [customerApp, setCustomerApp] = useState<CustomerAppSummary>(NO_CUSTOMER_APP);
@@ -195,7 +195,7 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshRewards = useCallback(async () => {
-    if (!userId) return;
+    if (!userId || hqOnly) return;
     try {
       const res = await api.rewards.settings.$get();
       if (!res.ok) return;
@@ -214,10 +214,10 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // Offline: keep the cached copy.
     }
-  }, [userId, setRewards]);
+  }, [userId, hqOnly, setRewards]);
 
   const refreshStock = useCallback(async () => {
-    if (!userId) return;
+    if (!userId || hqOnly) return;
     try {
       const res = await api.stock.$get();
       if (!res.ok) return;
@@ -238,7 +238,7 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // Offline: keep the cached list.
     }
-  }, [userId]);
+  }, [userId, hqOnly]);
 
   // A synced stock entry or expense changes balances; a synced payment can hand over a gift.
   useEffect(() => {
@@ -255,6 +255,26 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
   const refresh = useCallback(async () => {
     if (!userId) return;
     void flushErrors();
+    // The HQ home is no branch: only its name and the person's other places.
+    if (hqOnly) {
+      try {
+        const [infoRes, shopsRes] = await Promise.all([api.shop.info.$get(), api.auth.shops.$get()]);
+        if (!infoRes.ok) return;
+        const info = await infoRes.json();
+        const shops = shopsRes.ok ? await shopsRes.json() : null;
+        commit({
+          ...EMPTY,
+          info:
+            'code' in info
+              ? { name: info.name, city: info.city, code: info.code, status: info.status, statusReason: info.statusReason }
+              : null,
+          myShops: shops?.shops ?? [],
+        });
+      } catch {
+        // Offline: keep the cached copy.
+      }
+      return;
+    }
     if (isOwner) {
       api.shop.errors.unseen
         .$get()
@@ -307,7 +327,7 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // Offline: keep the cached copy.
     }
-  }, [userId, isOwner, commit]);
+  }, [userId, isOwner, hqOnly, commit]);
 
   const markErrorsSeen = useCallback(() => {
     setUnseenErrors(0);

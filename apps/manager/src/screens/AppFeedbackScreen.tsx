@@ -43,6 +43,7 @@ import {
 import { api, apiErrorMessage } from '../api/client';
 import { NetworkError } from '../api/network';
 import { useSync } from '../offline/SyncProvider';
+import { useAuth } from '../api/auth';
 import { ReasonSheet } from '../components/ReasonSheet';
 import { useShop } from '../offline/ShopProvider';
 import type { RootStackParamList } from '../navigation/RootNavigator';
@@ -212,9 +213,12 @@ function VehicleCard({
   onApprove,
   onDecline,
   first,
+  mayMove,
 }: {
   request: VehicleRequest;
   busy: boolean;
+  /** Owner or manager: may move a plate off another customer's account. */
+  mayMove: boolean;
   onApprove: () => void;
   onDecline: () => void;
   first?: boolean;
@@ -293,6 +297,9 @@ function VehicleCard({
             >
               <Text style={styles.declineText}>Decline</Text>
             </Pressable>
+            {request.currentOwner && !mayMove ? (
+              <Text style={styles.askOwner}>Ask the owner or a manager to move it</Text>
+            ) : (
             <Pressable
               onPress={onApprove}
               disabled={busy}
@@ -315,6 +322,7 @@ function VehicleCard({
                 )}
               </LinearGradient>
             </Pressable>
+            )}
           </View>
         ) : null}
       </View>
@@ -391,6 +399,7 @@ function RatingSummary({ last30 }: { last30: RatingsBody['last30'] }) {
  */
 export function AppFeedbackScreen({ navigation, route }: Props) {
   const { online } = useSync();
+  const { canManageTeam } = useAuth();
   const { customerApp, refresh: refreshShop } = useShop();
   const [tab, setTab] = useState<Tab>(route.params?.tab ?? 'problems');
   const [showDone, setShowDone] = useState(false);
@@ -743,6 +752,7 @@ export function AppFeedbackScreen({ navigation, route }: Props) {
               first={index === 0}
               busy={busyId === item.id}
               onApprove={() => approveVehicle(item)}
+              mayMove={canManageTeam}
               onDecline={() => setDeclining(item)}
             />
           )}
@@ -821,6 +831,7 @@ export function AppFeedbackScreen({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
+  askOwner: { ...typography.caption, color: colors.amberDeep, fontSize: 12.5, fontWeight: '700', letterSpacing: 0, maxWidth: 200, textAlign: 'right' },
   headerPad: { paddingHorizontal: spacing.md },
   topBlock: { paddingHorizontal: spacing.md, gap: spacing.md, paddingBottom: spacing.md },
   list: { paddingBottom: spacing.xxl, flexGrow: 1 },

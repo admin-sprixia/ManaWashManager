@@ -307,7 +307,13 @@ pair = await Promise.all([
   call(A, 'PUT', '/services/prices', { serviceId: SVC, vehicleTypeId: VT, price: 32000 }),
   call(B, 'PUT', '/services/prices', { serviceId: SVC, vehicleTypeId: VT, price: 33000 }),
 ]);
-check('Two owners change the same price at once: both answered cleanly', pair.every((x) => x.status === 200), pair.map(show).join(' | '));
+// Branches sell HQ's services only, so a hand-made service's price is refused; at the same moment
+// both owners still get that clean answer, never a server error.
+check(
+  'Two owners change the same price at once: both answered cleanly',
+  pair.every((x) => x.status === 403 && x.body?.error === 'hq_services_only'),
+  pair.map(show).join(' | '),
+);
 r = await call(A, 'PUT', '/services/prices', { serviceId: SVC, vehicleTypeId: VT, price: 1_00_000 * 100 + 1 });
 check('A price over ₹1,00,000 is refused (a slip of extra zeros)', r.status === 400, show(r));
 

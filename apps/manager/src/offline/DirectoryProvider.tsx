@@ -47,7 +47,7 @@ const DirectoryContext = createContext<DirectoryContextValue | null>(null);
  * this phone's changes reach the server, on New Wash open, and every few minutes.
  */
 export function DirectoryProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
+  const { user, hqOnly } = useAuth();
   const { online, version } = useSync();
   const [snapshot, setSnapshot] = useState<DirectorySnapshot>(EMPTY_DIRECTORY);
   const [ready, setReady] = useState(false);
@@ -83,7 +83,8 @@ export function DirectoryProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = useCallback(
     async ({ force = false }: { force?: boolean } = {}) => {
-      if (!userId || !ready) return;
+      // The HQ home has no customers.
+      if (!userId || !ready || hqOnly) return;
       if (inflight.current) return inflight.current;
       if (!force && Date.now() - lastAttempt.current < MIN_GAP_MS) return;
       lastAttempt.current = Date.now();
@@ -108,7 +109,7 @@ export function DirectoryProvider({ children }: { children: React.ReactNode }) {
       inflight.current = run;
       return run;
     },
-    [userId, ready, commit],
+    [userId, ready, hqOnly, commit],
   );
 
   useEffect(() => {

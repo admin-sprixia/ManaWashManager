@@ -48,7 +48,7 @@ export const shopRepo = {
    */
   async businessOverview(pdb: DbClient, businessId: string, range: { dayFrom: Date; dayTo: Date; monthFrom: Date }) {
     const shops = await pdb.shop.findMany({
-      where: { businessId },
+      where: { businessId, kind: 'branch' },
       orderBy: { name: 'asc' },
       select: { id: true, code: true, name: true, city: true, status: true, statusReason: true, statusChangedAt: true },
     });

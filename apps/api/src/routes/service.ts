@@ -220,8 +220,20 @@ export const serviceRoutes = new Hono<{ Bindings: Env }>()
     const db = c.get('db');
     const { category } = c.req.valid('query');
     const types = await serviceRepo.listVehicleTypes(db, category);
-    // Its group (Car, Three-wheeler, Farm & machines…), for the owner's one-tab-per-group prices.
-    return c.json(types.map((vt) => ({ ...vt, classKey: vehicleClassOf(vt) })));
+    const bodyIds = [...new Set(types.flatMap((vt) => (vt.bodyTypeId ? [vt.bodyTypeId] : [])))];
+    const bodies = bodyIds.length
+      ? await createPlatformDb(c.env.DB).bodyType.findMany({ where: { id: { in: bodyIds } }, select: { id: true, key: true } })
+      : [];
+    const bodyKey = new Map(bodies.map((b) => [b.id, b.key]));
+    // Its group (Car, Three-wheeler, Farm & machines…), for the owner's one-tab-per-group prices;
+    // its body type key, so New Wash can pick it from a company and model.
+    return c.json(
+      types.map((vt) => ({
+        ...vt,
+        classKey: vehicleClassOf(vt),
+        bodyKey: (vt.bodyTypeId && bodyKey.get(vt.bodyTypeId)) || null,
+      })),
+    );
   })
   // Owner-only: add a new vehicle size within Cars or Bikes from the settings screen.
   .post(

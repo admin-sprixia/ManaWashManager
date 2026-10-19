@@ -184,6 +184,11 @@ r = await call(T.manager, 'PUT', '/attendance', { userId: U.sita, date: istDay(3
 check('…nor a day older than yesterday', r.status === 400 && r.body?.error === 'date_not_allowed', show(r));
 r = await call(T.owner, 'PUT', '/attendance', { userId: U.sita, date: istDay(-1), status: 'present' });
 check('Nobody marks a future day', r.status === 400 && r.body?.error === 'future_date', show(r));
+r = await call(T.owner, 'PUT', '/attendance', { userId: U.owner, date: TODAY, status: 'present' });
+check('An owner marks their own day (nobody above them does)', r.status === 200, show(r));
+r = await call(T.owner, 'GET', `/attendance?date=${TODAY}`);
+check('…and is on their own sheet', (r.body?.rows ?? []).some((row) => row.userId === U.owner && row.canMark && row.status === 'present'), show(r));
+r = await call(T.owner, 'PUT', '/attendance', { userId: U.owner, date: TODAY, status: null });
 r = await call(T.owner, 'PUT', '/attendance', { userId: U.sita, date: YESTERDAY, status: 'half' });
 check('The owner marks Sita half a day yesterday', r.status === 200, show(r));
 r = await call(T.owner, 'PUT', '/attendance', { userId: U.ravi, date: TODAY, status: 'present' });

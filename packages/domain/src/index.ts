@@ -22,3 +22,4 @@ export * from './washPlans';
 export * from './branchTowns';
 export * from './branchServices';
 export * from './doorstepPricing';
+export * from './shopSettings';

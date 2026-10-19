@@ -63,6 +63,8 @@ interface StaffRow {
   voids: number;
   corrections: number;
   washesDone: number;
+  /** Wash plans they sold at the counter: in Paid and money collected, not in Started. */
+  plansSold?: number;
   communityWashes: number;
   servicesSold: number;
   commission: number;
@@ -419,6 +421,11 @@ export function StaffReportScreen({ navigation }: Props) {
                             communities
                           </Text>
                         ) : null}
+                        {(r.plansSold ?? 0) > 0 ? (
+                          <Text style={styles.communityLine}>
+                            {r.plansSold} wash {r.plansSold === 1 ? 'plan' : 'plans'} sold at the shop
+                          </Text>
+                        ) : null}
 
                         {(r.doorstepHeld ?? 0) > 0 || (r.doorstepShort ?? 0) > 0 ? (
                           <Pressable
@@ -471,6 +478,7 @@ export function StaffReportScreen({ navigation }: Props) {
                 one (like rust coating), for whoever got the customer to take it, once paid. Split
                 equally when several people helped.{'\n'}• Days worked — a half day counts as 0.5.
                 {'\n'}• Communities — plan cars each person marked washed on a community wash day.
+                {'\n'}• Plans sold — wash plans sold at the counter: in Paid and Collected, not in Started.
                 {'\n'}• Doorstep cash — what they hold now, and any amount handed in short.
               </Text>
             </View>

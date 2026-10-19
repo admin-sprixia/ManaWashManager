@@ -662,6 +662,7 @@ export const jobRepo = {
           createdByUserId: true,
           paidByUserId: true,
           voidedByUserId: true,
+          planSaleId: true,
         },
       }),
       db.jobService.findMany({
@@ -701,6 +702,8 @@ export const jobRepo = {
           active: u.active,
           washesStarted: 0,
           washesDone: 0,
+          /** Wash plans this person sold at the counter (paid in the period): money, not washes. */
+          plansSold: 0,
           /** Cars washed at communities (plan visits marked done). */
           communityWashes: 0,
           /** Paid jobs whose commission services this person got the customer to take. */
@@ -720,11 +723,14 @@ export const jobRepo = {
     for (const job of jobs) {
       const started = startedIn(job.createdAt);
       const paidHere = job.status === 'paid' && job.completedAt != null && job.completedAt >= from && job.completedAt < to;
-      if (started && job.status !== 'void') {
+      if (job.planSaleId) {
+        const seller = paidHere ? rows.get(job.createdByUserId) : undefined;
+        if (seller) seller.plansSold += 1;
+      } else if (started && job.status !== 'void') {
         const creator = rows.get(job.createdByUserId);
         if (creator) creator.washesStarted += 1;
       }
-      if (paidHere) {
+      if (paidHere && !job.planSaleId) {
         const washerIds = job.washers.map((w) => w.userId);
         for (const id of washerIds) {
           const washer = rows.get(id);
@@ -773,6 +779,7 @@ export const jobRepo = {
           r.active ||
           r.washesStarted +
             r.washesDone +
+            r.plansSold +
             r.communityWashes +
             r.servicesSold +
             r.jobsCollected +
@@ -827,6 +834,7 @@ export const jobRepo = {
         discount: true,
         discountReason: true,
         paymentMethod: true,
+        planSaleId: true,
         customer: { select: { name: true, phone: true } },
         vehicle: { select: { registrationNumber: true, vehicleType: { select: { name: true } } } },
         jobServices: { select: { service: { select: { name: true } } } },

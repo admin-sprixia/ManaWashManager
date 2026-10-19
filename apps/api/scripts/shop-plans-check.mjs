@@ -128,6 +128,12 @@ r = await sell();
 check('…sent again (a retry) it’s sold once', r.status === 200 && r.body?.job?.id === saleJob && d1Rows(`SELECT count(*) AS n FROM shop_plan_orders WHERE sale_job_id = '${saleId}'`)[0]?.n === 1, show(r));
 r = await call(OA, 'GET', '/jobs/stats?range=today');
 check('Reports count the sale as money, not as a car washed', r.body?.carsWashed === 0 && r.body?.shopPlansSold === 1 && r.body?.revenue === 179600, show(r));
+r = await call(OA, 'GET', '/reports/staff?range=today');
+const seller = (r.body?.rows ?? []).find((row) => row.plansSold > 0);
+check('Staff report: a plan sold, not a wash started, and its money collected', seller?.plansSold === 1 && seller?.washesStarted === 0 && seller?.washesDone === 0 && seller?.collected === 179600, JSON.stringify(r.body?.rows));
+r = await call(OA, 'GET', '/jobs/stats/export?range=today');
+const saleRow = (r.body?.jobs ?? []).find((j) => j.id === saleJob);
+check('The PDF data marks the bill as a plan sale and has the plan money apart', saleRow?.planSale === true && r.body?.stats?.shopPlanRevenue === 179600, show(r));
 r = await call(OA, 'POST', '/shop-plans/sell', { id: `sale_${run}_${rand(6)}`, customer: { phone, name: 'X' }, registrationNumber: plate, vehicleTypeId: hatch, planId: COMMUNITY_PLAN, paymentMethod: 'cash' });
 check('A community-only plan can’t be sold at the counter', r.status === 400, show(r));
 

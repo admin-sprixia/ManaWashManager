@@ -18,11 +18,11 @@ export const ATTENDANCE_LABEL: Record<AttendanceStatus, string> = {
 };
 
 /**
- * Who marks whose attendance: the owner marks everyone, a manager marks staff (the hub team they
- * run). Nobody marks their own day.
+ * Who marks whose attendance: the owner marks everyone, themselves too (nobody above them does), a
+ * manager marks staff (the hub team they run). Managers and staff never mark their own day.
  */
 export function canMarkAttendance(actor: UserRole, target: UserRole, self: boolean): boolean {
-  if (self) return false;
+  if (self) return actor === 'owner';
   if (actor === 'owner') return true;
   return actor === 'manager' && target === 'staff';
 }

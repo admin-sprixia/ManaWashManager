@@ -454,6 +454,22 @@ const kept = await call(STF, 'GET', '/shop/settings');
 check('The owner sets the UPI ID for the payment QR; the review link is untouched', r.status === 200 && r.body?.upiId === 'manawash@okaxis' && kept.body?.upiId === 'manawash@okaxis' && 'googleReviewUrl' in (kept.body ?? {}), show(kept));
 r = await call(OWN, 'PUT', '/shop/settings', { upiId: '' });
 check('…and can remove it', r.status === 200 && r.body?.upiId === null, show(r));
+await call(OWN, 'PUT', '/shop/settings', { upiId: 'manawash@okaxis' });
+r = await call(OWN, 'PUT', '/shop/settings', { upiId: null });
+check('…also the way the app removes it (no UPI ID at all)', r.status === 200 && r.body?.upiId === null, show(r));
+
+r = await call(OWN, 'PUT', '/shop/settings', { googleReviewUrl: 'https://google.evil.com/review' });
+check('A review link that isn’t Google’s is refused (it goes to customers)', r.status === 400, show(r));
+r = await call(OWN, 'PUT', '/shop/settings', { googleReviewUrl: 'https://maps.app.goo.gl/AbC1' });
+check('A Google review link is saved', r.status === 200 && r.body?.googleReviewUrl === 'https://maps.app.goo.gl/AbC1', show(r));
+r = await call(OWN, 'PUT', '/shop/settings', { googleReviewUrl: null });
+check('…and removed', r.status === 200 && r.body?.googleReviewUrl === null, show(r));
+
+const errorStatuses = [];
+for (let i = 0; i < 31; i++) {
+  errorStatuses.push((await call(STF, 'POST', '/shop/errors', { message: `check crash ${i}`, appVersion: 'check' })).status);
+}
+check('One person can send 30 error reports an hour; the 31st waits', errorStatuses.slice(0, 30).every((s) => s === 201) && errorStatuses[30] === 429, errorStatuses.join(','));
 
 const c1Id = d1Rows(`SELECT id FROM customers WHERE shop_id = '${A}' AND phone = '${c1.phone}'`)[0]?.id;
 r = await call(STF, 'GET', `/customers/${c1Id}`);

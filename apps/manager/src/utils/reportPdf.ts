@@ -13,6 +13,8 @@ export interface ReportExportJob {
   discount: number;
   discountReason: string | null;
   paymentMethod: string | null;
+  /** A wash plan sold at the counter: money in, not a car washed. */
+  planSale?: boolean;
   customerName: string | null;
   customerPhone: string;
   registrationNumber: string;
@@ -45,6 +47,8 @@ export interface ReportExportPayload {
     doorstepWashes?: number;
     doorstepRevenue?: number;
     communityWashes?: number;
+    shopPlansSold?: number;
+    shopPlanRevenue?: number;
     net: number;
   };
   previous?: {
@@ -223,8 +227,21 @@ async function loadLogoBytes(): Promise<Uint8Array | null> {
   }
 }
 
-function buildInsights(jobs: ReportExportJob[]) {
-  const live = jobs.filter((j) => !/void|cancel/i.test(j.status));
+/** "2026-10-18" for an instant, in India time. */
+function istDay(iso: string): string {
+  return new Date(new Date(iso).getTime() + 330 * 60_000).toISOString().slice(0, 10);
+}
+
+/**
+ * Washes in the report, on the day they were paid (India time), as Reports and the cash drawer
+ * count them: unpaid washes, voids and plan sales are left out, so the totals match the summary.
+ */
+function buildInsights(jobs: ReportExportJob[], from: string, to: string) {
+  const live = jobs.filter((j) => {
+    if (j.status !== 'paid' || j.planSale || !j.completedAt) return false;
+    const day = istDay(j.completedAt);
+    return day >= from && day <= to;
+  });
   const serviceCount = new Map<string, number>();
   const vehicleCount = new Map<string, number>();
   const dayCount = new Map<string, { key: string; label: string; n: number; revenue: number }>();
@@ -236,7 +253,7 @@ function buildInsights(jobs: ReportExportJob[]) {
     for (const s of j.services) serviceCount.set(s, (serviceCount.get(s) ?? 0) + 1);
     if (j.vehicleType) vehicleCount.set(j.vehicleType, (vehicleCount.get(j.vehicleType) ?? 0) + 1);
 
-    const dayKey = j.createdAt.slice(0, 10);
+    const dayKey = istDay(j.completedAt!);
     const day = dayCount.get(dayKey) ?? { key: dayKey, label: prettyDay(dayKey), n: 0, revenue: 0 };
     day.n += 1;
     day.revenue += j.total;
@@ -323,14 +340,15 @@ export async function buildReportPdf(
   const shopCode = (shopMeta?.code ?? apiShop?.code)?.trim() || null;
   const generatedBy = shopMeta?.generatedBy ?? null;
   const rewards = data.rewards ?? shopMeta?.rewards ?? null;
-  const insights = buildInsights(data.jobs);
+  const insights = buildInsights(data.jobs, data.from, data.to);
   const gst = data.gst ?? null;
   const previous = data.previous ?? null;
   const expensesByCategory = data.expensesByCategory ?? [];
   const staff = data.staff ?? [];
   const stock = data.stock ?? [];
   const { stats } = data;
-  const avg = stats.carsWashed > 0 ? Math.round(stats.revenue / stats.carsWashed) : 0;
+  const planSales = stats.shopPlanRevenue ?? 0;
+  const avg = stats.carsWashed > 0 ? Math.round((stats.revenue - planSales) / stats.carsWashed) : 0;
 
   let logo: PDFImage | null = null;
   const logoBytes = await loadLogoBytes();
@@ -660,7 +678,10 @@ export async function buildReportPdf(
   const totalCustomers = stats.newCustomers + stats.repeatCustomers;
   const repeatPct = totalCustomers > 0 ? Math.round((stats.repeatCustomers / totalCustomers) * 100) : 0;
   const summaryLeft: [string, string][] = [
-    ['Wash revenue', money(stats.revenue)],
+    ['Wash revenue', money(stats.revenue - planSales)],
+    ...(planSales
+      ? ([[`Plans sold at the shop (${stats.shopPlansSold ?? 0})`, money(planSales)]] as [string, string][])
+      : []),
     ...(stats.planIncome
       ? ([[`Community plans (${stats.planPayments ?? 0})`, money(stats.planIncome)]] as [string, string][])
       : []),
@@ -671,7 +692,7 @@ export async function buildReportPdf(
   const summaryRight: [string, string][] = [
     ...((stats.doorstepWashes ?? 0) > 0 || (stats.communityWashes ?? 0) > 0
       ? ([
-          ['At the shop', String(stats.carsWashed - (stats.doorstepWashes ?? 0))],
+          ['Washed at the shop', String(stats.carsWashed - (stats.doorstepWashes ?? 0))],
           ['At customers’ homes', `${stats.doorstepWashes ?? 0} · ${money(stats.doorstepRevenue ?? 0)}`],
           ['At communities', String(stats.communityWashes ?? 0)],
         ] as [string, string][])

@@ -10,6 +10,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- **Removing the UPI ID did nothing.** Clearing it and tapping Save kept the old ID (and the QR);
+  the server now clears it.
+- **Plan sales counted as washes.** Plans sold at the counter are shown on their own in Reports
+  ("Includes ₹… from N plans sold at the shop", a "Plans sold at the shop" row), the PDF ("Plans
+  sold at the shop") and the Staff report ("N wash plans sold at the shop"). They're no longer in
+  washes started, washes done or the average per vehicle; their money is still in revenue and in
+  what each person collected, so the cash drawer still adds up.
+- **PDF days in India time.** The PDF's day-by-day, busiest day and top lists put a wash on the
+  day it was paid in India time (a wash paid at 1 am was on the day before), and count paid washes
+  only, so they match the summary.
+- **Google review link: Google links only.** It goes to customers on WhatsApp, so only g.page,
+  maps.app.goo.gl, goo.gl, g.co, google.com and google.co.in links are accepted, in the app and
+  on the server.
+- **Error log flooding.** One person can send 30 error reports an hour; past that the phone keeps
+  them and sends them later.
+- **Owners in Attendance.** A branch's owner is on their own attendance sheet and marks their own
+  day (nobody above them can); managers and staff still can't mark themselves.
+
 - **Staff report counted money on the wrong day.** Money collected, washes done and commission
   were counted by when a wash was started, while Reports and the cash drawer count by when it was
   paid — a car started at night and paid in the morning landed on different days, so a shift's

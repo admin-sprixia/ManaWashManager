@@ -54,8 +54,8 @@ export const attendanceRoutes = new Hono<{ Bindings: Env }>()
     const byUser = new Map(marks.map((m) => [m.userId, m]));
     const dayLocked = dateProblem(date, session.role);
     const rows = users
-      // Your own day is someone else's to mark, so it isn't on your sheet.
-      .filter((u) => u.id !== session.sub && ((u.active && !u.removedAt) || byUser.has(u.id)))
+      // Your own day is someone else's to mark (an owner's is their own), so it isn't on your sheet.
+      .filter((u) => (u.id !== session.sub || session.role === 'owner') && ((u.active && !u.removedAt) || byUser.has(u.id)))
       .map((u) => {
         const mark = byUser.get(u.id);
         const role = toUserRole(u.role);
@@ -67,7 +67,7 @@ export const attendanceRoutes = new Hono<{ Bindings: Env }>()
           markedBy: mark?.markedBy.name ?? null,
           markedAt: mark?.markedAt.toISOString() ?? null,
           // Removed teammates still show on days they were marked, but can't be marked any more.
-          canMark: !dayLocked && !u.removedAt && canMarkAttendance(session.role, role, false),
+          canMark: !dayLocked && !u.removedAt && canMarkAttendance(session.role, role, u.id === session.sub),
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -100,8 +100,8 @@ export const attendanceRoutes = new Hono<{ Bindings: Env }>()
     const byUser = new Map<string, AttendanceStatus[]>();
     for (const m of marks) byUser.set(m.userId, [...(byUser.get(m.userId) ?? []), m.status as AttendanceStatus]);
     const people = users
-      // Your own day is someone else's to mark, so it isn't on your sheet.
-      .filter((u) => u.id !== session.sub && ((u.active && !u.removedAt) || byUser.has(u.id)))
+      // Your own day is someone else's to mark (an owner's is their own), so it isn't on your sheet.
+      .filter((u) => (u.id !== session.sub || session.role === 'owner') && ((u.active && !u.removedAt) || byUser.has(u.id)))
       .map((u) => {
         const statuses = byUser.get(u.id) ?? [];
         return {
@@ -137,7 +137,7 @@ export const attendanceRoutes = new Hono<{ Bindings: Env }>()
           error: 'forbidden' as const,
           message:
             user.id === session.sub
-              ? 'You can’t mark your own attendance.'
+              ? 'You can’t mark your own attendance: the owner marks it.'
               : 'A manager marks staff only. The owner marks managers and owners.',
         },
         403,

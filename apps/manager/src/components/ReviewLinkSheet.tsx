@@ -16,23 +16,17 @@ import {
   IconStore,
   IconWhatsApp,
 } from '@mana/ui';
+import { httpsHost, isGoogleReviewUrl } from '@mana/domain';
 import { api, apiErrorMessage } from '../api/client';
 import { NetworkError } from '../api/network';
 import { useShop } from '../offline/ShopProvider';
 import { SheetHead, SheetNotice, SheetPill } from './SheetBits';
-
-const GOOGLE_HOSTS = /(^|\.)(g\.page|goo\.gl|google\.[a-z.]+|maps\.app\.goo\.gl|search\.google\.com)$/i;
 
 const STEPS = [
   'Open Google Business Profile (or search your shop name on Google).',
   'Tap “Ask for reviews” or “Get more reviews”.',
   'Copy the link and long-press the box above to paste it.',
 ];
-
-function hostOf(url: string): string | null {
-  const match = /^https:\/\/([^/?#\s]+)/i.exec(url);
-  return match ? match[1]!.toLowerCase() : null;
-}
 
 /** Owner sets the Google review link that goes at the end of every thank-you message. */
 export function ReviewLinkSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
@@ -52,10 +46,9 @@ export function ReviewLinkSheet({ visible, onClose }: { visible: boolean; onClos
   }, [visible]);
 
   const trimmed = url.trim();
-  const valid = trimmed === '' || /^https:\/\/\S+$/i.test(trimmed);
+  const valid = trimmed === '' || isGoogleReviewUrl(trimmed);
+  const looksGoogle = trimmed !== '' && valid;
   const changed = trimmed !== (googleReviewUrl ?? '');
-  const host = trimmed && valid ? hostOf(trimmed) : null;
-  const looksGoogle = host != null && GOOGLE_HOSTS.test(host);
   const removing = changed && trimmed === '' && googleReviewUrl != null;
   const saved = googleReviewUrl != null && googleReviewUrl !== '';
 
@@ -80,12 +73,15 @@ export function ReviewLinkSheet({ visible, onClose }: { visible: boolean; onClos
   };
 
   const hint = !valid
-    ? { tone: 'bad' as const, text: 'Paste the full link, starting with https://' }
+    ? {
+        tone: 'bad' as const,
+        text: httpsHost(trimmed)
+          ? 'Only a Google review link works here (g.page, maps.app.goo.gl or google.com).'
+          : 'Paste the full link, starting with https://',
+      }
     : !trimmed
       ? { tone: 'muted' as const, text: 'Leave empty to send thank-you messages without a review ask.' }
-      : looksGoogle
-        ? { tone: 'ok' as const, text: 'Looks like a Google link — tap Test to make sure it opens your page.' }
-        : { tone: 'warn' as const, text: 'This doesn’t look like a Google link. Test it before saving.' };
+      : { tone: 'ok' as const, text: 'A Google link — tap Test to make sure it opens your page.' };
 
   return (
     <BottomSheet
@@ -159,8 +155,8 @@ export function ReviewLinkSheet({ visible, onClose }: { visible: boolean; onClos
           ) : null}
         </View>
         <View style={styles.hintRow}>
-          {hint.tone === 'bad' || hint.tone === 'warn' ? (
-            <IconAlert size={13} color={hint.tone === 'bad' ? colors.danger : colors.amberDeep} />
+          {hint.tone === 'bad' ? (
+            <IconAlert size={13} color={colors.danger} />
           ) : hint.tone === 'ok' ? (
             <IconCheck size={13} color={colors.tealDeep} />
           ) : null}
@@ -168,7 +164,6 @@ export function ReviewLinkSheet({ visible, onClose }: { visible: boolean; onClos
             style={[
               styles.hint,
               hint.tone === 'bad' && { color: colors.danger },
-              hint.tone === 'warn' && { color: colors.amberDeep },
               hint.tone === 'ok' && { color: colors.tealDeep },
             ]}
           >

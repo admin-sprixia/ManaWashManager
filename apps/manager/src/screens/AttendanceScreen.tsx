@@ -32,6 +32,7 @@ import {
 import { Band, BandRow, ScreenHero, SectionTitle, TipBand } from '../components/ScreenChrome';
 import { CalendarSheet, markTone, type DayMarks } from '../components/CalendarSheet';
 import { api, apiErrorMessage } from '../api/client';
+import { useAuth } from '../api/auth';
 import { NetworkError } from '../api/network';
 import { formatDay, istDate } from '../utils/format';
 import type { RootStackParamList } from '../navigation/RootNavigator';
@@ -44,7 +45,7 @@ interface Row {
   role: string;
   status: AttendanceStatus | null;
   markedBy: string | null;
-  /** The owner marks everyone; a manager marks staff (today and yesterday); nobody marks themselves. */
+  /** The owner marks everyone, themselves too; a manager marks staff (today and yesterday), not themselves. */
   canMark: boolean;
 }
 
@@ -94,6 +95,7 @@ function weekOf(date: string): string[] {
 
 /** Owner marks who worked each day — present, half day or absent. Tap the same choice to clear it. */
 export function AttendanceScreen({ navigation }: Props) {
+  const { user } = useAuth();
   const today = istDate(0);
   const [date, setDate] = useState(today);
   const [rows, setRows] = useState<Row[]>([]);
@@ -433,7 +435,7 @@ export function AttendanceScreen({ navigation }: Props) {
                       </View>
                     }
                     iconBg="transparent"
-                    title={r.name}
+                    title={r.userId === user?.id ? `${r.name} · You` : r.name}
                     subtitle={
                       (r.status ? SHORT[r.status] : 'Not marked yet') +
                       (r.status && r.markedBy ? ` · by ${r.markedBy}` : '') +
@@ -482,7 +484,7 @@ export function AttendanceScreen({ navigation }: Props) {
             </Band>
             <Text style={styles.footnote}>
               Tap a choice again to clear it. A half day counts as 0.5 days worked. The owner marks
-              everyone; a manager marks staff for today and yesterday; nobody marks their own day.
+              everyone, their own day too; a manager marks staff for today and yesterday, not their own.
               Staff see their own days in More.
             </Text>
 

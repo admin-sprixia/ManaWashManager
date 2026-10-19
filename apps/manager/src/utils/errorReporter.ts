@@ -47,8 +47,9 @@ export async function flushErrors(): Promise<void> {
     let queue = await readQueue();
     while (queue.length > 0) {
       const res = await api.shop.errors.$post({ json: queue[0]! });
-      // A rejected report (e.g. too long) would block the rest forever, so only a 5xx stops us.
-      if (!res.ok && res.status >= 500) break;
+      // A rejected report (e.g. too long) would block the rest forever, so only a 5xx or "too
+      // many for now" (429: kept for later) stops us.
+      if (!res.ok && (res.status >= 500 || res.status === 429)) break;
       queue = queue.slice(1);
       await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
     }

@@ -75,6 +75,9 @@ interface Stats {
   doorstepRevenue?: number;
   /** Plan cars washed at communities; their money is plan income. */
   communityWashes?: number;
+  /** Wash plans sold at the counter (not washes) and what they brought in (part of revenue). */
+  shopPlansSold?: number;
+  shopPlanRevenue?: number;
   net: number;
   label?: string;
   from?: string;
@@ -280,8 +283,9 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
     }
   };
 
-  const avgTicket =
-    stats && stats.carsWashed > 0 ? Math.round(stats.revenue / stats.carsWashed / 100) * 100 : 0;
+  const planSales = stats?.shopPlanRevenue ?? 0;
+  const washRevenue = stats ? stats.revenue - planSales : 0;
+  const avgTicket = stats && stats.carsWashed > 0 ? Math.round(washRevenue / stats.carsWashed / 100) * 100 : 0;
 
   const periodSubtitle =
     range === 'custom' && appliedCustom
@@ -463,6 +467,12 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
                 Revenue · {stats.carsWashed} wash{stats.carsWashed === 1 ? '' : 'es'}
                 {stats.carsWashed > 0 ? ` · ${formatRupees(avgTicket)} avg` : ''}
               </Text>
+              {planSales ? (
+                <Text style={styles.heroMeta}>
+                  Includes {formatRupees(planSales)} from {stats.shopPlansSold ?? 0}{' '}
+                  {stats.shopPlansSold === 1 ? 'plan' : 'plans'} sold at the shop
+                </Text>
+              ) : null}
               {stats.planIncome ? (
                 <Text style={styles.heroMeta}>+ {formatRupees(stats.planIncome)} from community plans</Text>
               ) : null}
@@ -534,16 +544,24 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
               />
             </View>
 
-            {(stats.doorstepWashes ?? 0) > 0 || (stats.communityWashes ?? 0) > 0 ? (
+            {(stats.doorstepWashes ?? 0) > 0 || (stats.communityWashes ?? 0) > 0 || planSales > 0 ? (
               <>
-                <Text style={styles.sectionTitle}>Where we washed</Text>
+                <Text style={styles.sectionTitle}>{planSales > 0 ? 'Where we washed and sold' : 'Where we washed'}</Text>
                 <View style={styles.band}>
                   <DetailRow
                     icon={<IconStore size={16} color={colors.indigo} />}
                     tint={colors.indigoPale}
                     label={`At the shop · ${stats.carsWashed - (stats.doorstepWashes ?? 0)}`}
-                    value={formatRupees(stats.revenue - (stats.doorstepRevenue ?? 0))}
+                    value={formatRupees(washRevenue - (stats.doorstepRevenue ?? 0))}
                   />
+                  {planSales > 0 ? (
+                    <DetailRow
+                      icon={<IconStore size={16} color={colors.tealDeep} />}
+                      tint="#CCFBF1"
+                      label={`Plans sold at the shop · ${stats.shopPlansSold ?? 0}`}
+                      value={formatRupees(planSales)}
+                    />
+                  ) : null}
                   <DetailRow
                     icon={<IconHome size={16} color={colors.amberDeep} />}
                     tint="#FEF3C7"
@@ -592,7 +610,11 @@ export function ReportsScreen({ navigation }: ReportsScreenProps) {
             <Text style={styles.sectionTitle}>Profit</Text>
             <View style={styles.band}>
               <View style={styles.bandInner}>
-                <LineRow label="Revenue" hint="Washes paid in this period" value={formatRupees(stats.revenue)} />
+                <LineRow
+                  label="Revenue"
+                  hint={planSales ? 'Washes and shop plans paid in this period' : 'Washes paid in this period'}
+                  value={formatRupees(stats.revenue)}
+                />
                 {stats.planIncome ? (
                   <LineRow
                     label="Community plans"

@@ -980,6 +980,8 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
         discount: job.discount,
         discountReason: job.discountReason,
         paymentMethod: job.paymentMethod,
+        /** A wash plan sold at the counter: money in, not a car washed. */
+        planSale: job.planSaleId != null,
         customerName: job.customer.name,
         customerPhone: job.customer.phone,
         registrationNumber: job.vehicle.registrationNumber,

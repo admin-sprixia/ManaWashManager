@@ -65,10 +65,10 @@ describe('commission', () => {
 });
 
 describe('attendance', () => {
-  it('lets the owner mark everyone and a manager mark staff, never themselves', () => {
+  it('lets the owner mark everyone (themselves too) and a manager mark staff, never themselves', () => {
     expect(canMarkAttendance('owner', 'manager', false)).toBe(true);
     expect(canMarkAttendance('owner', 'owner', false)).toBe(true);
-    expect(canMarkAttendance('owner', 'owner', true)).toBe(false);
+    expect(canMarkAttendance('owner', 'owner', true)).toBe(true);
     expect(canMarkAttendance('manager', 'staff', false)).toBe(true);
     expect(canMarkAttendance('manager', 'manager', false)).toBe(false);
     expect(canMarkAttendance('manager', 'owner', false)).toBe(false);

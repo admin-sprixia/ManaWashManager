@@ -238,7 +238,7 @@ for (let d = 0; d <= 60; d++) {
     const r = rand();
     attendance[d][s.id] = r < 0.84 ? 'present' : r < 0.93 ? 'half' : 'absent';
   }
-  // The owner can't mark their own attendance, so they aren't in this map.
+  // The demo leaves the owner's own days unmarked.
 }
 function workingStaff(d) {
   const joined = STAFF.filter((s) => s.joinedDaysAgo >= d);

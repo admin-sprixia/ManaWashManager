@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { createPlatformDb, jobRepo, opsRepo, settingsRepo, shopRepo } from '@mana/db';
-import { daysWorked, inIndia, type AttendanceStatus } from '@mana/domain';
+import { daysWorked, inIndia, isGoogleReviewUrl, type AttendanceStatus } from '@mana/domain';
 import {
   ERRORS_SEEN_SETTING,
   formatSettingDate,
@@ -10,9 +10,13 @@ import {
   reportError,
 } from '../lib/alerts';
 import { formatIstDateOnly } from '../lib/istDate';
+import { countHit } from '../lib/rateLimit';
 import { reportQuerySchema, resolveReportWindow, windowMeta } from '../lib/reportWindow';
 import { requireAuth, requireRole } from '../middleware/auth';
 import type { Env } from '../types';
+
+/** Error reports one person can send an hour: a crash loop can't flood the log or the alerts. */
+const ERROR_REPORTS_PER_HOUR = 30;
 
 const settingsSchema = z.object({
   googleReviewUrl: z
@@ -20,8 +24,8 @@ const settingsSchema = z.object({
     .trim()
     .max(300)
     .refine(
-      (u) => u === '' || /^https:\/\/\S+$/i.test(u),
-      'Paste the full link, starting with https://',
+      (u) => u === '' || isGoogleReviewUrl(u),
+      'Use your Google review link: it starts with https://g.page, https://maps.app.goo.gl or https://search.google.com',
     )
     .nullable()
     .optional(),
@@ -153,7 +157,7 @@ export const shopRoutes = new Hono<{ Bindings: Env }>()
     const db = c.get('db');
     const userId = c.get('session').sub;
     await applySetting(db, 'google_review_url', googleReviewUrl, userId);
-    await applySetting(db, 'upi_id', upiId?.toLowerCase(), userId);
+    await applySetting(db, 'upi_id', upiId == null ? upiId : upiId.toLowerCase(), userId);
     const settings = await settingsRepo.listPublic(db);
     return c.json({ googleReviewUrl: settings.google_review_url, upiId: settings.upi_id });
   })
@@ -202,6 +206,12 @@ export const shopRoutes = new Hono<{ Bindings: Env }>()
     const body = c.req.valid('json');
     const ctx = c.executionCtx;
     const session = c.get('session');
+    const { count, resetAt } = await countHit(c.env, `errors:user:${session.sub}`, 60 * 60);
+    if (count > ERROR_REPORTS_PER_HOUR) {
+      const retryAfter = Math.max(1, resetAt - Math.floor(Date.now() / 1000));
+      c.header('Retry-After', String(retryAfter));
+      return c.json({ error: 'rate_limited' as const, retryAfter, message: 'Too many error reports. They’ll be sent later.' }, 429);
+    }
     await reportError(
       c.env,
       { source: 'app', userId: session.sub, shopId: session.shopId, ...body },

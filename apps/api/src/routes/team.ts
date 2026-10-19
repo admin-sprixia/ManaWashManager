@@ -101,7 +101,7 @@ async function addPerson(
   c: Ctx,
   db: DbClient,
   data: { name: string; phone: string; role: UserRole },
-): Promise<{ id: string; name: string } | 'here' | 'too_many'> {
+): Promise<{ id: string; name: string; hasPin: boolean } | 'here' | 'too_many'> {
   const platform = createPlatformDb(c.env.DB);
   const rows = await userRepo.listByPhone(platform, data.phone);
   if (rows.some((r) => r.shopId === c.get('session').shopId)) return 'here';
@@ -113,7 +113,7 @@ async function addPerson(
     role: data.role,
     pin: person?.pin ?? { hash: null, digits: null, setAt: null },
   });
-  return { id: user.id, name: user.name };
+  return { id: user.id, name: user.name, hasPin: person?.pin.hash != null };
 }
 
 // Chained in one expression, with every input declared via `zValidator` — see the comment
@@ -137,7 +137,9 @@ export const teamRoutes = new Hono<{ Bindings: Env }>()
     if (result === null) return c.json(phoneBusy, 409);
     if (result === 'here') return c.json(alreadyHere, 409);
     if (result === 'too_many') return c.json(tooManyBranches, 409);
-    return c.json({ id: result.id }, 201);
+    // The name they go by (kept from another branch) and whether they already have a PIN, so the
+    // app can tell the owner what the new teammate does next.
+    return c.json({ id: result.id, name: result.name, hasPin: result.hasPin }, 201);
   })
   // Name, role and access. Both the teammate's current role and any new one must be within what
   // the asker manages. Nobody changes their own role or access, and the last active owner can't

@@ -42,6 +42,18 @@ CHANGELOG when it ships.
 - **Measure from the team, not the branch.** Work out a home visit's distance from where the
   doorstep team is (or its van's base) rather than the branch's map pin.
 
+## GST
+
+- **Today: no GST.** Mana Wash isn't GST-registered, so Plan rules › GST stays at 0 and no bill
+  or receipt shows GST.
+- **When registered: GST included in the price (decided).** Set GST to 18% with the GSTIN and
+  legal name. Customers pay the same price; receipts and the Reports PDF show how much of it is
+  GST.
+- **Later, maybe: customer pays GST on top.** A switch in HQ settings, "Customer pays GST", so a
+  ₹499 wash bills ₹499 + ₹90 GST = ₹589. New Wash, payment, WhatsApp bills, the customer app,
+  wash plans, the cash drawer and Reports would all follow it, with GST collected counted
+  separately for filing.
+
 ## Before going live
 
 - Apply migrations 0018–0033 to the remote database.

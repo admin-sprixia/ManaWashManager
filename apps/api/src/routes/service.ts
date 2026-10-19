@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { awayPricingRepo, branchServiceRepo, catalogRepo, vehicleModelRepo, createPlatformDb, menuRepo, serviceRepo, type DbClient } from '@mana/db';
+import { awayPricingRepo, branchPriceRepo, branchServiceRepo, catalogRepo, vehicleModelRepo, createPlatformDb, menuRepo, serviceRepo, type DbClient } from '@mana/db';
 import {
   BODY_TYPES,
   DELIVERY_MODES,
@@ -13,6 +13,7 @@ import {
   parseServiceAppliesTo,
   parseVehicleCategory,
   serviceAppliesToCategory,
+  vehicleClassOf,
 } from '@mana/domain';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { catalogError } from '../lib/catalog';
@@ -23,26 +24,13 @@ const catalogManaged = {
   error: 'catalog_managed' as const,
   message: 'This service comes from Mana Wash HQ. Ask an HQ admin to change it.',
 };
+const hqServicesOnly = {
+  error: 'hq_services_only' as const,
+  message: 'Branches sell Mana Wash HQ’s services only. Ask HQ to add it in Services and plans.',
+};
 
 const vehicleCategorySchema = z.enum(['car', 'bike']);
 const priceSchema = z.number().int().nonnegative().max(MAX_SERVICE_PRICE_PAISE, 'That price looks too large');
-const descriptionSchema = z.string().trim().max(160, 'Keep the description under 160 characters.');
-/** Services a combo bundles. At least two, or it isn't a combo. */
-const includesSchema = z.array(z.string()).refine((ids) => ids.length !== 1, 'A combo needs at least two services.');
-const createServiceSchema = z.object({
-  name: z.string().trim().min(1).max(60),
-  description: descriptionSchema.optional(),
-  includes: includesSchema.optional(),
-  /** The vehicles this service is for, each with its price. New Wash shows it only for these. */
-  vehicles: z
-    .array(z.object({ vehicleTypeId: z.string(), price: priceSchema, mode: modeSchema.default('hub') }))
-    .min(1, 'Pick at least one vehicle for this service.'),
-});
-const updateServiceSchema = z.object({
-  name: z.string().trim().min(1).max(60).optional(),
-  description: descriptionSchema.nullable().optional(),
-  includes: includesSchema.optional(),
-});
 const priceKeySchema = z.object({ serviceId: z.string(), vehicleTypeId: z.string(), mode: modeSchema.default('hub') });
 const createVehicleTypeSchema = z.object({
   name: z.string().trim().min(1).max(40),
@@ -65,6 +53,19 @@ const upsertPriceSchema = z.object({
   price: priceSchema,
   mode: modeSchema.default('hub'),
 });
+const branchSizePriceSchema = z.object({
+  serviceId: z.string(),
+  classKey: z.string().max(40),
+  sizeKey: z.string().max(4),
+  /** The shop price for every vehicle of the size; null = HQ's price again; left out = unchanged. */
+  price: priceSchema.nullable().optional(),
+  commission: z.number().int().nonnegative().max(MAX_COMMISSION_PAISE, 'Commission looks too large').nullable().optional(),
+});
+const branchShiftSchema = z.object({
+  classKey: z.string().max(40),
+  /** % from HQ's price for every shop price of the group; null = all back to HQ's prices. */
+  percent: z.number().int().min(-50).max(50).nullable(),
+});
 const setCommissionSchema = z.object({
   serviceId: z.string(),
   vehicleTypeId: z.string(),
@@ -85,18 +86,6 @@ async function checkServiceForType(db: DbClient, serviceId: string, vehicleTypeI
       status: 400 as const,
       message: `${service.name} is not offered for ${category} vehicles.`,
     };
-  }
-  return null;
-}
-
-/** A combo may only bundle active, plain services of this shop — never itself or another combo. */
-async function checkComboItems(db: DbClient, ids: string[], comboId?: string): Promise<string | null> {
-  if (ids.length === 0) return null;
-  const active = new Map((await serviceRepo.listActive(db)).map((s) => [s.id, s]));
-  for (const id of new Set(ids)) {
-    const item = active.get(id);
-    if (!item || id === comboId) return 'One of the picked services no longer exists.';
-    if (item.includes.length > 0) return `${item.name} is a combo itself, so it can’t go inside another combo.`;
   }
   return null;
 }
@@ -167,52 +156,13 @@ export const serviceRoutes = new Hono<{ Bindings: Env }>()
         shop?.latitude != null && shop.longitude != null ? { latitude: shop.latitude, longitude: shop.longitude } : null,
     });
   })
-  // Owner-only: add a new service from the settings screen — no code change, no deploy.
-  .post('/', requireRole('owner'), zValidator('json', createServiceSchema), async (c) => {
-    const body = c.req.valid('json');
-    const db = c.get('db');
-    const types = await Promise.all(body.vehicles.map((v) => serviceRepo.getVehicleType(db, v.vehicleTypeId)));
-    if (types.some((t) => !t)) return c.json({ error: 'not_found' as const, message: 'A picked vehicle no longer exists.' }, 404);
-    const includes = [...new Set(body.includes ?? [])];
-    const comboProblem = await checkComboItems(db, includes);
-    if (comboProblem) return c.json({ error: 'invalid_combo' as const, message: comboProblem }, 400);
-    const categories = new Set(types.map((t) => parseVehicleCategory(t!.category)));
-    const appliesTo = categories.size > 1 ? 'both' : [...categories][0];
-    const service = await serviceRepo.createService(db, {
-      name: body.name,
-      description: body.description || undefined,
-      appliesTo,
-    });
-    for (const v of body.vehicles) {
-      await serviceRepo.upsertPrice(db, { serviceId: service.id, vehicleTypeId: v.vehicleTypeId, mode: v.mode, price: v.price });
-    }
-    if (includes.length > 0) await serviceRepo.setComboItems(db, service.id, includes);
-    return c.json(service, 201);
+  // Branches sell only Mana Wash HQ's services: none of their own, so these always refuse.
+  .post('/', requireRole('owner'), (c) => c.json(hqServicesOnly, 403))
+  .patch('/:id', requireRole('owner'), zValidator('param', idParamSchema), async (c) => {
+    const service = await serviceRepo.findById(c.get('db'), c.req.valid('param').id);
+    if (!service || !service.active) return c.json({ error: 'not_found' as const }, 404);
+    return c.json(service.catalogServiceId ? catalogManaged : hqServicesOnly, service.catalogServiceId ? 409 : 403);
   })
-  .patch(
-    '/:id',
-    requireRole('owner'),
-    zValidator('param', idParamSchema),
-    zValidator('json', updateServiceSchema),
-    async (c) => {
-      const db = c.get('db');
-      const { id } = c.req.valid('param');
-      const body = c.req.valid('json');
-      const service = await serviceRepo.findById(db, id);
-      if (!service || !service.active) return c.json({ error: 'not_found' as const }, 404);
-      if (service.catalogServiceId) return c.json(catalogManaged, 409);
-      if (body.includes) {
-        const comboProblem = await checkComboItems(db, body.includes, id);
-        if (comboProblem) return c.json({ error: 'invalid_combo' as const, message: comboProblem }, 400);
-      }
-      await serviceRepo.updateService(db, id, {
-        name: body.name,
-        description: body.description === undefined ? undefined : body.description || null,
-      });
-      if (body.includes) await serviceRepo.setComboItems(db, id, [...new Set(body.includes)]);
-      return c.json({ ok: true as const });
-    },
-  )
   .put(
     '/:id/hidden',
     requireRole('owner'),
@@ -269,7 +219,9 @@ export const serviceRoutes = new Hono<{ Bindings: Env }>()
   .get('/vehicle-types', zValidator('query', listVehicleTypesQuerySchema), async (c) => {
     const db = c.get('db');
     const { category } = c.req.valid('query');
-    return c.json(await serviceRepo.listVehicleTypes(db, category));
+    const types = await serviceRepo.listVehicleTypes(db, category);
+    // Its group (Car, Three-wheeler, Farm & machines…), for the owner's one-tab-per-group prices.
+    return c.json(types.map((vt) => ({ ...vt, classKey: vehicleClassOf(vt) })));
   })
   // Owner-only: add a new vehicle size within Cars or Bikes from the settings screen.
   .post(
@@ -320,8 +272,7 @@ export const serviceRoutes = new Hono<{ Bindings: Env }>()
     const { vehicleTypeId, mode } = c.req.valid('query');
     return c.json(await serviceRepo.listPrices(db, vehicleTypeId, mode));
   })
-  // Owner-only: the settings screen that lets the owner add a service or change a price
-  // without a code change (V0.1's "Owner settings: services & prices" feature).
+  // Owner-only: the branch's own price for one of HQ's services, within what HQ allows.
   .put('/prices', requireRole('owner'), zValidator('json', upsertPriceSchema), async (c) => {
     const body = c.req.valid('json');
     const db = c.get('db');
@@ -335,15 +286,8 @@ export const serviceRoutes = new Hono<{ Bindings: Env }>()
         return catalogError(c, e);
       }
     }
-    const problem = await checkServiceForType(db, body.serviceId, body.vehicleTypeId);
-    if (problem?.error === 'category_mismatch') {
-      // Ticking a two-wheeler on a car service (or the reverse) makes it a service for both.
-      await serviceRepo.setServiceAppliesTo(db, body.serviceId, 'both');
-    } else if (problem) {
-      const { status, ...error } = problem;
-      return c.json(error, status);
-    }
-    return c.json(await serviceRepo.upsertPrice(db, body));
+    if (!service) return c.json({ error: 'not_found' as const }, 404);
+    return c.json(hqServicesOnly, 403);
   })
   // For a business catalog price this goes back to the business's price.
   .delete('/prices', requireRole('owner'), zValidator('json', priceKeySchema), async (c) => {
@@ -361,6 +305,38 @@ export const serviceRoutes = new Hono<{ Bindings: Env }>()
     }
     await serviceRepo.removePrice(db, body);
     return c.json({ ok: true as const });
+  })
+  // The owner's price sheet: HQ's services by group and size, from the branch's price book.
+  .get('/branch-prices', requireRole('owner'), async (c) => {
+    try {
+      return c.json(await branchPriceRepo.sheet(c.env.DB, c.get('session').shopId));
+    } catch (e) {
+      return catalogError(c, e);
+    }
+  })
+  .put('/branch-prices/size', requireRole('owner'), zValidator('json', branchSizePriceSchema), async (c) => {
+    const session = c.get('session');
+    try {
+      return c.json(await branchPriceRepo.setSize(c.env.DB, session.shopId, session.sub, c.req.valid('json')));
+    } catch (e) {
+      return catalogError(c, e);
+    }
+  })
+  // The owner moves the branch to another of HQ's price books (when HQ allows it); own prices clear.
+  .put('/branch-prices/book', requireRole('owner'), zValidator('json', z.object({ priceBookId: z.string().max(100) })), async (c) => {
+    try {
+      return c.json(await branchPriceRepo.setBook(c.env.DB, c.get('session').shopId, c.req.valid('json').priceBookId));
+    } catch (e) {
+      return catalogError(c, e);
+    }
+  })
+  .put('/branch-prices/shift', requireRole('owner'), zValidator('json', branchShiftSchema), async (c) => {
+    const session = c.get('session');
+    try {
+      return c.json(await branchPriceRepo.shift(c.env.DB, session.shopId, session.sub, c.req.valid('json')));
+    } catch (e) {
+      return catalogError(c, e);
+    }
   })
   // After the fixed paths ("/prices"), which it would otherwise catch as an id.
   // A business catalog service is hidden at this branch (when the policy allows), not deleted.

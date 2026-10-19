@@ -41,6 +41,7 @@ import {
   IconSync,
   IconTrash,
   IconUserPlus,
+  IconWhatsApp,
   colors,
   radius,
   spacing,
@@ -52,6 +53,7 @@ import { api, apiErrorMessage } from '../api/client';
 import { NetworkError } from '../api/network';
 import { useAuth } from '../api/auth';
 import { useShop } from '../offline/ShopProvider';
+import { sendInvite, type Invitee } from '../utils/teamInvite';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Team'>;
@@ -314,8 +316,8 @@ export function TeamScreen({ navigation }: Props) {
             {noPin.length ? (
               <TipBand tone="amber">
                 {noPin.length === 1
-                  ? `${noPin[0]!.name} hasn’t chosen a PIN yet. They sign in with their number, confirm with a WhatsApp code, then pick their own PIN.`
-                  : `${noPin.length} people haven’t chosen a PIN yet. They sign in with their number, confirm with a WhatsApp code, then pick their own PIN.`}
+                  ? `${noPin[0]!.name} hasn’t signed in yet. Tap them to send the invite again.`
+                  : `${noPin.length} people haven’t signed in yet. Tap one to send the invite again.`}
               </TipBand>
             ) : null}
 
@@ -342,9 +344,14 @@ export function TeamScreen({ navigation }: Props) {
         visible={adding}
         roles={roleChoices}
         onClose={() => setAdding(false)}
-        onAdded={async (name) => {
+        onAdded={async (added) => {
           setAdding(false);
-          showToast(`${name} added — they sign in with their number and a WhatsApp code`);
+          const first = added.name.split(/\s+/)[0] ?? added.name;
+          if (await sendInvite(added, shop?.name ?? null)) {
+            showToast(`${added.name} added — press send in WhatsApp`);
+          } else {
+            showToast(`${added.name} added, but WhatsApp didn’t open. Tap ${first} below to send the invite.`, 'error');
+          }
           await load();
         }}
       />
@@ -354,6 +361,7 @@ export function TeamScreen({ navigation }: Props) {
         isSelf={selected?.id === user?.id}
         myRole={myRole}
         isHq={isHq}
+        branchName={shop?.name ?? null}
         onClose={() => setSelected(null)}
         onChanged={async (message) => {
           setSelected(null);
@@ -375,7 +383,8 @@ function AddMemberSheet({
   /** What this person may add: managers add staff, owners add managers too, HQ adds owners. */
   roles: UserRole[];
   onClose: () => void;
-  onAdded: (name: string) => Promise<void>;
+  /** Saved: the screen closes the sheet and opens WhatsApp with the invite. */
+  onAdded: (added: Invitee) => Promise<void>;
 }) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -406,7 +415,8 @@ function AddMemberSheet({
         setError(await apiErrorMessage(res, 'Couldn’t add this person.'));
         return;
       }
-      await onAdded(name.trim());
+      const body = await res.json();
+      await onAdded({ name: body.name, phone: digits, role, hasPin: body.hasPin });
     } catch (e) {
       setError(
         e instanceof NetworkError
@@ -433,44 +443,25 @@ function AddMemberSheet({
       onClose={onClose}
       dismissable={!busy}
       title="Add a teammate"
-      subtitle="They choose their own PIN on their phone."
+      subtitle="We’ll open WhatsApp with an invite and the steps for them."
       footer={
         <>
           <Button
-            label={canSave ? `Add ${firstName} as ${USER_ROLE_LABEL[role]}` : 'Add to team'}
+            label={canSave ? `Add ${firstName} and send invite` : 'Add and send invite'}
             size="lg"
+            icon={<IconWhatsApp size={20} variant="mono" color={colors.white} />}
             loading={busy}
             disabled={!canSave}
             onPress={() => void save()}
           />
           <Text style={styles.footHint}>
             {canSave
-              ? 'Next: they sign in with this number and a WhatsApp code'
+              ? `Adds ${firstName} as ${USER_ROLE_LABEL[role]}, then WhatsApp opens — just press send`
               : 'Fill in a name and a 10-digit number'}
           </Text>
         </>
       }
     >
-      <View style={styles.steps}>
-        {['Details', 'WhatsApp code', 'Their PIN'].map((label, i) => (
-          <React.Fragment key={label}>
-            {i > 0 ? (
-              <View style={[styles.stepLine, i === 1 && canSave && styles.stepLineOn]} />
-            ) : null}
-            <View style={styles.step}>
-              <View style={[styles.stepDot, i === 0 && styles.stepDotOn]}>
-                {i === 0 && canSave ? (
-                  <IconCheck size={11} color={colors.white} />
-                ) : (
-                  <Text style={[styles.stepNum, i === 0 && styles.stepNumOn]}>{i + 1}</Text>
-                )}
-              </View>
-              <Text style={[styles.stepLabel, i === 0 && styles.stepLabelOn]}>{label}</Text>
-            </View>
-          </React.Fragment>
-        ))}
-      </View>
-
       <SheetHead
         icon={trimmed ? <Avatar name={trimmed} size={46} /> : <IconUserPlus size={22} color={colors.indigo} />}
         title={trimmed || 'New teammate'}
@@ -579,6 +570,7 @@ function MemberSheet({
   isSelf,
   myRole,
   isHq,
+  branchName,
   onClose,
   onChanged,
 }: {
@@ -586,6 +578,7 @@ function MemberSheet({
   isSelf: boolean;
   myRole: UserRole;
   isHq: boolean;
+  branchName: string | null;
   onClose: () => void;
   onChanged: (message: string) => Promise<void>;
 }) {
@@ -777,18 +770,31 @@ function MemberSheet({
         </View>
       ) : null}
 
-      {canManage && member.hasPin ? (
+      {canManage && member.active ? (
         <View style={styles.field}>
           <SheetLabel>Sign-in</SheetLabel>
           <View style={styles.actionList}>
-            <ActionRow
-              icon={<IconLock size={17} color={colors.waterDeep} />}
-              tint={colors.waterPale}
-              title="Reset PIN"
-              subtitle="Forgot it, locked out or lost their phone"
-              onPress={confirmReset}
-              last
-            />
+            {member.hasPin ? (
+              <ActionRow
+                icon={<IconLock size={17} color={colors.waterDeep} />}
+                tint={colors.waterPale}
+                title="Reset PIN"
+                subtitle="Forgot it, locked out or lost their phone"
+                onPress={confirmReset}
+                last
+              />
+            ) : (
+              <ActionRow
+                icon={<IconWhatsApp size={17} />}
+                tint="#DCFCE7"
+                title="Send invite again"
+                subtitle="Opens WhatsApp with the app link and their steps"
+                onPress={() =>
+                  void sendInvite({ name: member.name, phone: member.phone, role: memberRole, hasPin: false }, branchName)
+                }
+                last
+              />
+            )}
           </View>
         </View>
       ) : null}
@@ -936,39 +942,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 21,
   },
-
-  steps: { flexDirection: 'row', alignItems: 'flex-start', paddingTop: spacing.xs },
-  step: { alignItems: 'center', gap: 4, width: 74 },
-  stepDot: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepDotOn: { backgroundColor: colors.water, borderColor: colors.water },
-  stepNum: {
-    ...typography.caption,
-    fontSize: 11,
-    fontWeight: '800',
-    color: colors.slate,
-    letterSpacing: 0,
-  },
-  stepNumOn: { color: colors.white },
-  stepLabel: {
-    ...typography.caption,
-    fontSize: 11.5,
-    color: colors.slate,
-    fontWeight: '600',
-    letterSpacing: 0,
-  },
-  stepLabelOn: { color: colors.waterDeep, fontWeight: '800' },
-  stepLine: { flex: 1, height: 2, borderRadius: 1, backgroundColor: colors.border, marginTop: 10 },
-  stepLineOn: { backgroundColor: colors.water },
-
 
   iconField: {
     flexDirection: 'row',

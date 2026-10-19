@@ -6,6 +6,8 @@ export { serviceRepo } from './repositories/serviceRepo';
 export { catalogRepo, CatalogError } from './repositories/catalogRepo';
 export type { CatalogData, CatalogView, CatalogErrorCode, CatalogServiceView } from './repositories/catalogRepo';
 export { menuRepo } from './repositories/menuRepo';
+export { branchPriceRepo } from './repositories/branchPriceRepo';
+export type { BranchPriceCell, BranchPriceSheet, BranchSizePrice } from './repositories/branchPriceRepo';
 export { vehicleModelRepo, VehicleModelError } from './repositories/vehicleModelRepo';
 export { shopPlanRepo } from './repositories/shopPlanRepo';
 export type { ShopPlanForSale, VehicleShopPlan } from './repositories/shopPlanRepo';

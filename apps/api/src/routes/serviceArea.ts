@@ -5,6 +5,7 @@ import { serviceAreaRepo } from '@mana/db';
 import {
   clockMinutes,
   isValidClock,
+  MAX_WEEKLY_OFF_DAYS,
   normalizePhone,
   SERVICE_AREA_NAME_MAX,
   SERVICE_RADIUS_MAX_KM,
@@ -67,7 +68,10 @@ const contactSchema = z
       .refine((v) => v == null || /^[6-9]\d{9}$/.test(v), 'Enter a valid 10-digit mobile number'),
     opensAt: clockSchema,
     closesAt: clockSchema,
-    weeklyOff: z.number().int().min(0).max(6).nullable(),
+    /** The first closed day (older apps send just this). */
+    weeklyOff: z.number().int().min(0).max(6).nullable().optional(),
+    /** Every closed day; the branch opens at least one day a week. */
+    weeklyOffDays: z.array(z.number().int().min(0).max(6)).max(MAX_WEEKLY_OFF_DAYS, 'Leave at least one day open').optional(),
   })
   .refine((h) => (h.opensAt == null) === (h.closesAt == null), 'Set both opening and closing times, or neither')
   .refine(
@@ -89,7 +93,10 @@ export const serviceAreaRoutes = new Hono<{ Bindings: Env }>()
   })
   .put('/contact', zValidator('json', contactSchema), async (c) => {
     const db = c.get('db');
-    await serviceAreaRepo.setContact(db, c.req.valid('json'));
+    const { weeklyOff, weeklyOffDays, ...rest } = c.req.valid('json');
+    const days = weeklyOffDays ?? (weeklyOff != null ? [weeklyOff] : []);
+    if (new Set(days).size > MAX_WEEKLY_OFF_DAYS) return c.json({ error: 'invalid' as const, message: 'Leave at least one day open.' }, 400);
+    await serviceAreaRepo.setContact(db, { ...rest, weeklyOffDays: days });
     return c.json(await serviceAreaRepo.get(db));
   })
   .post('/areas', zValidator('json', areaSchema), async (c) => {

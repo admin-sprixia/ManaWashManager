@@ -10,6 +10,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- **Managers couldn't open Attendance.** The row was in More, but the page only opened for
+  owners.
+- **Branch price limits in whole rupees.** "20% less to 20% more" of ₹499 showed ₹399.2 to
+  ₹598.8, and moving every price +20% could save ₹598.80; the limits now snap to whole rupees
+  (₹400 to ₹598).
 - **Removing the UPI ID did nothing.** Clearing it and tapping Save kept the old ID (and the QR);
   the server now clears it.
 - **Plan sales counted as washes.** Plans sold at the counter are shown on their own in Reports
@@ -57,6 +62,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- **This branch's prices, set by the branch owner.** The page is laid out like HQ's Base prices,
+  but for the branch's own price book (e.g. "Standard prices"), so a branch owner never needs HQ's
+  pages.
+  - **Tabs** for each vehicle group the branch washes (two-wheeler, car, three-wheeler,
+    commercial, heavy, farm), from the vehicles picked when the branch was opened.
+  - **Grid of services × sizes (S, M, L, XL).** Tap a price to set it for every vehicle of that
+    size: quick picks (HQ's price, −10%, −5%, +5%, +10%) or a typed price, a preview of the shop,
+    community and home price, and the staff commission. Your own prices show in amber with HQ's
+    beside them; "Mixed" when the vehicles of a size differ. "Use HQ's price" undoes it.
+  - **Move every price** of a group by −10%, −5%, +5% or +10% at once, or back to HQ's prices.
+  - **Community and Doorstep tabs** show what those customers pay. Community prices follow the
+    shop price by the community rule (e.g. 5% less) and can't be typed; home prices add the visit
+    charge.
+  - HQ's limits apply everywhere (e.g. 20% less to 20% more), and edges are whole rupees.
+  - The "Edit base prices in Mana Wash HQ" button is gone.
+  - **Branches sell Mana Wash HQ's services only.** There's no "Your own services" any more, and
+    the server refuses a branch adding, editing or pricing a service of its own.
+  - Switching vehicle tabs no longer drops size labels or the legend (Android layout animation).
 - **Wash plans at the shop.** A plan can now be sold at the community, the shop, or both (HQ ›
   Services and plans › Plans › "Where it’s sold"; the service must be done there).
   - **Selling:** New Wash shows "Sell a plan for KA01AB1234" once the phone and number plate are
@@ -256,6 +279,75 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- **Add and send invite.** Adding a teammate is name, mobile number and role, then one button,
+  **Add … and send invite**: it adds them and opens WhatsApp on your phone with the invite ready
+  (install link, their number, the WhatsApp code, choose their own PIN) — you press send. The
+  "Details → WhatsApp code → Their PIN" bar is gone (those happen on their phone). Someone who
+  already works at another branch is told to use the PIN they have. Anyone who hasn't signed in
+  yet has **Send invite again** in Team. HQ's Open a branch and Add an owner send the same
+  invite to the new owner.
+- **More is three sections: Branch, Mana Wash HQ, Account** (Sync stays on top).
+  - **Branch:** Reports, Staff report, Attendance, Team · Prices, Vehicles, How this branch
+    washes, Branch details, Google review link, UPI QR code · Cash drawer, Expenses, Inventory,
+    Rewards, Vehicle size guide · People asking, Customer feedback and Switch branch when they
+    apply. Managers see Attendance, Team and the shift rows; staff see the shift rows and their
+    earnings, as before.
+  - **Mana Wash HQ** (admins only): All branches, Services and plans, Base prices, Pricing rules,
+    HQ settings, Error log.
+  - **Account:** Edit profile, Change PIN, Your phones, Sign out.
+- **Opening hours, clearly.** Times are picked, not typed: an hour, minutes and AM / PM in a
+  sheet, shown as "7:00 AM". The week is a Mon–Sun strip: tap a day to close it, **as many days
+  as you like** (at least one stays open). A line says it plainly ("Open 7:00 AM to 8:00 PM ·
+  6 days a week · closed Sunday"), and the header shows the hours in AM / PM. The customer app
+  shows several closed days too ("closed Saturdays and Sundays", "opens Monday 8 am").
+  Migration **0034** adds `shops.weekly_off_days`; `weekly_off` stays as the first closed day for
+  older apps.
+- **Branch details has tabs:** Name (with how it reads on a bill), Contact & hours, Location (the
+  map and how far you serve customers), UPI & review (the UPI QR code and the Google review link,
+  which moved here from More), In the app (listed or not, and the areas), From HQ (the
+  facts HQ set, locked). Each section is a card with its own icon and a one-line explanation.
+- **Branch details** replaces "Branch in the app" and the shop-name sheet: name and city, address,
+  customer phone, opening and closing time, weekly holiday, the location on the map, the app's
+  radius and areas, and what HQ set (code, business, opened on, status, owners). The location
+  is set once, on the map; the separate "Hub location" box is gone (both saved the same place,
+  but only the map moved the shop's wash point).
+- **Vehicles** has its own page in Branch: the same screen as HQ's page for the branch (each
+  group with a switch, its kinds by size, a switch each), saving **the same list**. A switch
+  in either place shows in the other, in New Wash, This branch's prices and the customer app; a
+  kind switched back on brings its vehicle back even if it was once removed by hand. The old
+  photo-picker drawer is gone.
+- **A plan opens on its own page,** like a service (HQ › Services and plans › Plans): a header
+  that updates as you type (where it's sold, from ₹…, discount or own prices), then The plan
+  (name, the wash, washes and months with − / +, a better wash now and then), Where it's sold
+  (Communities / At the shop / Shop and communities, with shop use and paying in parts), Price
+  (from the wash price less a discount, or an own price per size, with what members pay), and
+  How it shows. Services and plans share the same editor cards.
+- **Price books in This branch's prices.** Above "Move every price", the owner sees HQ's price
+  books (Standard, Metro, Value…) and the one the branch uses. A new Pricing rule, **"Owners may
+  pick their price book"** (off by default), lets them switch: they're warned first, their own
+  prices are cleared, and every price (community too) becomes the new book's. With the rule off
+  the books are shown, and HQ picks.
+- **All branches shows each branch's pricing:** "Standard prices", or "Standard + 12 own prices"
+  when its owner set some; each price book says how many of its branches have their own prices.
+- **How this branch washes is just the three switches** (Shop, Community, Doorstep). "Where you
+  wash" and its sheet are gone: every place washes exactly what's switched on in Vehicles (kept
+  in step on every menu build), and starts from the branch's location (moving the pin moves the
+  team too).
+- **One distance for the branch:** Branch details › "How far you serve customers" (3–30 km). It's
+  how far people find the branch in the customer app, and how far its team goes; saving it sets
+  the hub's and the team's reach, so there's no second distance to keep in step.
+- **HQ sees what a branch changed.** On HQ's page for a branch, a service its owner stopped
+  selling says "Stopped by the branch", and Prices says how many shop prices the owner set
+  themselves (or that every price is the book's).
+- **Vehicle size guide:** each company's logo beside its name in "Pick a company" and in the
+  list. The logos now live in the shared UI package, used by both apps.
+- **What this branch offers** (shop, community, doorstep switches) moved to How this branch
+  washes.
+- **This branch's prices: one tab per vehicle group.** Instead of "Cars & more" and
+  "Two-wheelers", the page has a tab for each group the branch washes (Two-wheeler, Car,
+  Three-wheeler, Commercial, Heavy, Farm & machines), as chosen when it opened. Each tab shows
+  that group's vehicles and only the HQ services priced for them (Anti-Rust isn't under
+  Three-wheeler).
 - **Plans live with Services.** HQ › Services and plans has a Services | Plans tab bar; the
   separate Wash plans row under Communities is gone.
 - **HQ wording brought up to date.**

@@ -1,12 +1,17 @@
 import React from 'react';
 import { StyleSheet, Switch, Text, View } from 'react-native';
 import { VehicleArt, colors, radius, spacing, typography } from '@mana/ui';
-import type { Catalog } from '../shared';
+
+/** What the list needs from HQ's catalog: the groups with their sizes, and the kinds. */
+export interface KindsCatalog {
+  classes: { id: string; name: string; sizes: { id: string; key: string; name: string }[] }[];
+  bodyTypes: { id: string; key: string; name: string; classId: string; sizeId: string }[];
+}
 
 /**
  * The kinds of vehicle a branch washes, by group (Cars, Two-wheelers, Farm & machines…) and,
  * inside each group, by size: S · Small, M · Medium… with a switch for the group and for each
- * kind. Used on a branch's page and when opening a branch.
+ * kind. Used on a branch's page in HQ, when opening a branch, and in the owner's Vehicles.
  */
 export function VehicleKindsList({
   catalog,
@@ -14,7 +19,7 @@ export function VehicleKindsList({
   onChange,
   disabled,
 }: {
-  catalog: Catalog;
+  catalog: KindsCatalog;
   /** The kinds switched on (body type ids). */
   value: string[];
   /** The new list, and what changed ("Tractor on", "Cars off") for a message. */

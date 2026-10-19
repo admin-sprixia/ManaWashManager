@@ -152,6 +152,8 @@ r = await call(T.owner, 'PUT', `/business/branches/${SHOP}/menu`, { serviceIds: 
 check('Switching a combo on brings the services it bundles', r.status === 200 && [DUO, EXPRESS, POLISH].every((id) => r.body?.menu?.includes(id)) && r.body?.menu?.length === 3, show(r));
 r = await call(T.owner, 'PUT', `/business/branches/${SHOP}/menu`, { serviceIds: ['cs_nope'] });
 check('An unknown service can’t be switched on', r.status === 404, show(r));
+r = await call(T.owner, 'POST', '/services', { name: 'My own wash', vehicles: [] });
+check('A branch can’t add its own service: HQ’s services only', r.status === 403 && r.body?.error === 'hq_services_only', show(r));
 r = await call(T.staff, 'PUT', `/business/branches/${SHOP}/menu`, { serviceIds: [EXPRESS] });
 check('Only HQ switches services on for a branch', r.status === 403, show(r));
 r = await call(T.owner, 'PUT', `/business/branches/${SHOP}/menu`, { serviceIds: [SMALL] });

@@ -32,7 +32,6 @@ import {
   colors,
   showAlert,
   radius,
-  shadow,
   showToast,
   spacing,
   typography,
@@ -42,6 +41,7 @@ import { formatRupees } from '../../utils/format';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { failure, ToggleChips, useCatalog, type Catalog, type CatalogService } from './shared';
 import { classesOn, groupServices, orderAfterMove, startingPrice } from './servicesShared';
+import { EditorCard, SwitchRow } from './editorParts';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BusinessServiceEdit'>;
 
@@ -264,7 +264,7 @@ function Editor({
       </View>
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         {/* 1 · The basics */}
-        <Card title="The basics">
+        <EditorCard title="The basics">
           <TextField label="Name" placeholder="Basic Wash" value={name} onChangeText={setName} maxLength={CATALOG_SERVICE_NAME_MAX} autoCapitalize="words" />
           <ChoiceChips<ServiceKind>
             label="Kind"
@@ -280,10 +280,10 @@ function Editor({
             onChangeText={setNote}
             maxLength={CATALOG_SERVICE_DESCRIPTION_MAX}
           />
-        </Card>
+        </EditorCard>
 
         {/* 2 · Where it's done */}
-        <Card title="Where it’s done" badge={placesLabel} badgeWarn={!places.shop && !team}>
+        <EditorCard title="Where it’s done" badge={placesLabel} badgeWarn={!places.shop && !team}>
           <View style={styles.placeRow}>
             {PLACES.map((p) => {
               const ticked = places[p.key];
@@ -307,10 +307,10 @@ function Editor({
               One price in Base prices, the hub’s. A community pays it less the community rule; a home adds the visit charge.
             </Text>
           ) : null}
-        </Card>
+        </EditorCard>
 
         {/* 3 · Vehicles */}
-        <Card title="Vehicles">
+        <EditorCard title="Vehicles">
           <ToggleChips
             label="For which vehicles"
             options={vehicleOptions}
@@ -350,11 +350,11 @@ function Editor({
             <Text style={styles.link}>Which size is my vehicle? Open the size guide ›</Text>
           </Pressable>
           <Text style={styles.help}>Base prices asks for a price for each size ticked here, and branches sell only these sizes.</Text>
-        </Card>
+        </EditorCard>
 
         {/* 4 · Combo builder */}
         {isBundled ? null : (
-          <Card
+          <EditorCard
             title="Combo"
             badge={isCombo ? (picked.length >= 2 ? `${picked.length} services` : 'Pick 2 or more') : undefined}
             badgeWarn={isCombo && picked.length < 2}
@@ -408,11 +408,11 @@ function Editor({
                 </View>
               </>
             )}
-          </Card>
+          </EditorCard>
         )}
 
         {/* 5 · Time and what's included */}
-        <Card title="Time and what’s included">
+        <EditorCard title="Time and what’s included">
           <Text style={styles.fieldLabel}>How long it takes</Text>
           <View style={styles.timeRow}>
             <Pressable onPress={() => stepDuration(-1)} style={({ pressed }) => [styles.stepBtn, pressed && styles.pressed]} accessibilityLabel="Less time" hitSlop={6}>
@@ -494,10 +494,10 @@ function Editor({
             ) : null}
           </View>
           <Text style={styles.help}>Separate with commas: each one becomes a chip. Tap × to remove one.</Text>
-        </Card>
+        </EditorCard>
 
         {/* 6 · How it shows */}
-        <Card title="How it shows">
+        <EditorCard title="How it shows">
           <SwitchRow
             title="Show in the customer app"
             subtitle={showInApp ? 'Customers see it and can book it' : 'Staff sell it; customers don’t see it in the app'}
@@ -510,7 +510,7 @@ function Editor({
             value={popular}
             onChange={setPopular}
           />
-        </Card>
+        </EditorCard>
 
         {service && group && group.items.length > 1 ? (
           <View style={styles.moveRow}>
@@ -535,47 +535,6 @@ function Editor({
         </View>
       </ScrollView>
     </ScreenContainer>
-  );
-}
-
-function Card({
-  title,
-  badge,
-  badgeWarn,
-  right,
-  children,
-}: {
-  title: string;
-  badge?: string;
-  badgeWarn?: boolean;
-  right?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <View style={[styles.card, shadow('sm')]}>
-      <View style={styles.cardHead}>
-        <Text style={[styles.cardTitle, styles.flex]}>{title}</Text>
-        {badge ? (
-          <View style={[styles.badge, badgeWarn && styles.badgeWarn]}>
-            <Text style={[styles.badgeText, badgeWarn && styles.badgeTextWarn]}>{badge}</Text>
-          </View>
-        ) : null}
-        {right}
-      </View>
-      {children}
-    </View>
-  );
-}
-
-function SwitchRow({ title, subtitle, value, onChange }: { title: string; subtitle: string; value: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <View style={styles.switchRow}>
-      <View style={styles.flex}>
-        <Text style={styles.switchTitle}>{title}</Text>
-        <Text style={styles.switchSub}>{subtitle}</Text>
-      </View>
-      <Switch value={value} onValueChange={onChange} trackColor={{ true: colors.indigo, false: colors.border }} thumbColor={colors.white} accessibilityLabel={title} />
-    </View>
   );
 }
 
@@ -633,13 +592,6 @@ const styles = StyleSheet.create({
   loading: { marginTop: spacing.xl },
   centerPad: { padding: spacing.lg, gap: spacing.md, alignItems: 'center' },
   scroll: { padding: spacing.md, paddingBottom: spacing.xxl, gap: spacing.md },
-  card: { backgroundColor: colors.white, borderRadius: radius.xl, padding: spacing.md, gap: spacing.sm + 4 },
-  cardHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  cardTitle: { ...typography.heading, fontSize: 17, color: colors.ink, letterSpacing: -0.2 },
-  badge: { paddingHorizontal: 10, height: 26, borderRadius: radius.pill, justifyContent: 'center', backgroundColor: colors.indigoPale },
-  badgeWarn: { backgroundColor: '#FEE2E2' },
-  badgeText: { ...typography.caption, fontSize: 12, color: colors.indigo, fontWeight: '800', letterSpacing: 0 },
-  badgeTextWarn: { color: colors.danger },
   help: { ...typography.caption, fontSize: 12.5, color: colors.slateDeep, letterSpacing: 0, lineHeight: 18 },
   link: { ...typography.caption, fontSize: 12.5, color: colors.indigo, fontWeight: '700', letterSpacing: 0 },
   fieldLabel: { ...typography.label, fontSize: 13, color: colors.slateDeep, fontWeight: '700' },
@@ -777,9 +729,6 @@ const styles = StyleSheet.create({
   idea: { paddingHorizontal: 10, height: 30, borderRadius: radius.pill, backgroundColor: colors.indigoPale, justifyContent: 'center' },
   ideaText: { ...typography.caption, fontSize: 12, color: colors.indigo, fontWeight: '700', letterSpacing: 0 },
 
-  switchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  switchTitle: { ...typography.bodyStrong, fontSize: 14.5, color: colors.ink, fontWeight: '700' },
-  switchSub: { ...typography.caption, fontSize: 12, color: colors.slateDeep, letterSpacing: 0 },
 
   moveRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.xs },
   moveLabel: { ...typography.label, color: colors.slateDeep, flex: 1 },

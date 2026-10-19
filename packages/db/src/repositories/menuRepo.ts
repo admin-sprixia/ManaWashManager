@@ -178,19 +178,21 @@ function linkVehicleTypes(shopId: string, businessId: string, data: CatalogData,
 }
 
 /**
- * The kinds of vehicle head office lets the branch wash: a branch vehicle type whose kind isn't
- * on the branch's list is hidden; putting it back on the list shows again only the ones hidden
- * that way (never one the owner removed). Plans already sold for it carry on.
+ * The kinds of vehicle the branch washes: its list (switched by HQ on the branch's page or by
+ * the owner in Vehicles — one list) decides. A vehicle type whose kind is off is hidden; one
+ * whose kind is on the list shows again. Without a list yet, only the ones hidden that way come
+ * back (never one the owner removed). Plans already sold for it carry on.
  */
 function applyHqSwitches(shopId: string, data: CatalogData, branch: Branch): SqlStatement[] {
   const off = new Set(data.bodyTypes.filter((b) => !b.active || (branch.kinds != null && !branch.kinds.has(b.id))).map((b) => b.id));
   const statements: SqlStatement[] = [];
   for (const vt of branch.vehicleTypes) {
     const hqOff = vt.bodyTypeId != null && off.has(vt.bodyTypeId);
+    const listed = branch.kinds != null && vt.bodyTypeId != null && branch.kinds.has(vt.bodyTypeId);
     if (hqOff && vt.active) {
       vt.active = false;
       vt.hqHidden = true;
-    } else if (!hqOff && vt.hqHidden) {
+    } else if (!hqOff && !vt.active && (vt.hqHidden || listed)) {
       vt.active = true;
       vt.hqHidden = false;
     } else continue;
@@ -236,6 +238,23 @@ async function publishOnce(d1: D1Database, shopId: string): Promise<PublishResul
   const statements: SqlStatement[] = [];
   let changes = 0;
 
+  // Every hub and team takes exactly the groups the branch washes (its Vehicles): no per-place choice.
+  const washed = new Set(data.bodyTypes.filter((b) => b.active && (branch.kinds == null || branch.kinds.has(b.id))).map((b) => b.classId));
+  if (washed.size) {
+    for (const p of branch.points) {
+      const have = new Set(p.classes.map((c) => c.classId));
+      const drop = [...have].filter((id) => !washed.has(id));
+      const add = [...washed].filter((id) => !have.has(id));
+      if (!drop.length && !add.length) continue;
+      for (const id of drop) {
+        statements.push({ sql: 'DELETE FROM service_point_classes WHERE shop_id = ? AND point_id = ? AND class_id = ?', params: [shopId, p.id, id] });
+      }
+      statements.push(...insertRows('service_point_classes', ['shop_id', 'point_id', 'class_id'], add.map((id) => [shopId, p.id, id])));
+      p.classes = [...washed].map((classId) => ({ classId }));
+      changes += 1;
+    }
+  }
+
   // Vehicle types: tie hand-made ones to body types.
   const links = linkVehicleTypes(shopId, businessId, data, branch);
   statements.push(...links);
@@ -271,7 +290,9 @@ async function publishOnce(d1: D1Database, shopId: string): Promise<PublishResul
           const b = index.body.get(id);
           if (b) classes.add(b.classKey);
         }
-        const classIds = [...classes].map((k) => index.classIdByKey.get(k)).filter((id): id is string => !!id);
+        const classIds = washed.size
+          ? [...washed]
+          : [...classes].map((k) => index.classIdByKey.get(k)).filter((id): id is string => !!id);
         const pointId = newId();
         statements.push(
           {
@@ -283,7 +304,7 @@ async function publishOnce(d1: D1Database, shopId: string): Promise<PublishResul
               kind === 'hub' ? 'Main hub' : 'Community team',
               located ? shop.latitude : null,
               located ? shop.longitude : null,
-              located ? (kind === 'hub' ? pointRadius(shop.serviceRadiusKm) : COMMUNITY_TEAM_RADIUS_KM) : null,
+              located ? (kind === 'hub' ? pointRadius(shop.serviceRadiusKm) : (shop.serviceRadiusKm ?? COMMUNITY_TEAM_RADIUS_KM)) : null,
               branch.points.length,
             ],
           },
@@ -691,8 +712,8 @@ export const menuRepo = {
   },
 
   /**
-   * A branch's own price for a catalog service, within the business policy; `null` goes back to
-   * the list price. Applied straight to the price row, so the menu doesn't need a rebuild.
+   * A branch's own shop price for a catalog service, within the business policy; `null` goes back
+   * to the list price. Its community price follows by the rule, so it can't be set on its own.
    */
   async setOverride(
     d1: D1Database,
@@ -700,46 +721,68 @@ export const menuRepo = {
     userId: string,
     input: { serviceId: string; vehicleTypeId: string; mode: DeliveryMode; price: number | null },
   ): Promise<{ price: number; listPrice: number; overridden: boolean }> {
+    if (input.mode !== 'hub') {
+      throw new CatalogError('invalid', 'Community prices follow your shop price by the community rule: change the shop price.');
+    }
+    const [result] = await menuRepo.setOverrides(d1, shopId, userId, [input]);
+    return result!;
+  },
+
+  /**
+   * Several shop prices at once (a whole size, or every price moved by a %), each checked against
+   * the policy, then one menu rebuild so the community prices follow them. All or nothing: one
+   * price out of range saves none.
+   */
+  async setOverrides(
+    d1: D1Database,
+    shopId: string,
+    userId: string,
+    items: readonly { serviceId: string; vehicleTypeId: string; price: number | null }[],
+  ): Promise<{ price: number; listPrice: number; overridden: boolean }[]> {
     const pdb = createPlatformDb(d1);
     const db = createShopDb(d1, shopId);
     const shop = await catalogRepo.branchOf(pdb, shopId);
-    const [data, row] = await Promise.all([
+    const [data, rows] = await Promise.all([
       shop?.businessId ? catalogRepo.load(d1, shop.businessId) : Promise.resolve(null),
-      db.servicePrice.findFirst({
-        where: { serviceId: input.serviceId, vehicleTypeId: input.vehicleTypeId, mode: input.mode },
-        select: { id: true, listPrice: true, service: { select: { catalogServiceId: true } } },
+      db.servicePrice.findMany({
+        where: { mode: 'hub', listPrice: { not: null }, service: { catalogServiceId: { not: null } } },
+        select: { serviceId: true, vehicleTypeId: true, listPrice: true },
       }),
     ]);
-    if (!data || !row?.service.catalogServiceId || row.listPrice == null) {
-      throw new CatalogError('not_found', 'This price isn’t set by the business catalog.');
+    if (!data) throw new CatalogError('not_found', 'This branch isn’t part of the business.');
+    const listOf = new Map(rows.map((r) => [`${r.serviceId}|${r.vehicleTypeId}`, r.listPrice!]));
+    const results: { price: number; listPrice: number; overridden: boolean }[] = [];
+    const statements: SqlStatement[] = [];
+    for (const item of items) {
+      const list = listOf.get(`${item.serviceId}|${item.vehicleTypeId}`);
+      if (list == null) throw new CatalogError('not_found', 'This price isn’t set by the business catalog.');
+      if (item.price != null) {
+        const check = checkOverride(list, item.price, data.policy);
+        if (check === 'not_allowed') throw new CatalogError('invalid', 'Branch prices are switched off by the business.');
+        if (check === 'out_of_range') throw new CatalogError('invalid', 'That price is outside what the business allows.');
+      }
+      results.push({ ...effectivePrice(list, item.price, data.policy), listPrice: list });
+      const key = [item.serviceId, item.vehicleTypeId, 'hub'];
+      statements.push(
+        item.price == null
+          ? {
+              sql: 'DELETE FROM branch_price_overrides WHERE shop_id = ? AND service_id = ? AND vehicle_type_id = ? AND mode = ?',
+              params: [shopId, ...key],
+            }
+          : {
+              sql: `INSERT INTO branch_price_overrides (shop_id, service_id, vehicle_type_id, mode, price, updated_by_user_id)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (service_id, vehicle_type_id, mode) DO UPDATE SET price = excluded.price,
+                      updated_by_user_id = excluded.updated_by_user_id, updated_at = ${SQL_NOW}`,
+              params: [shopId, ...key, item.price, userId],
+            },
+      );
     }
-    const list = row.listPrice;
-    if (input.price != null) {
-      const check = checkOverride(list, input.price, data.policy);
-      if (check === 'not_allowed') throw new CatalogError('invalid', 'Branch prices are switched off by the business.');
-      if (check === 'out_of_range') throw new CatalogError('invalid', 'That price is outside what the business allows.');
-    }
-    const eff = effectivePrice(list, input.price, data.policy);
-    const key = [input.serviceId, input.vehicleTypeId, input.mode];
-    await runStatements(d1, [
-      input.price == null
-        ? {
-            sql: 'DELETE FROM branch_price_overrides WHERE shop_id = ? AND service_id = ? AND vehicle_type_id = ? AND mode = ?',
-            params: [shopId, ...key],
-          }
-        : {
-            sql: `INSERT INTO branch_price_overrides (shop_id, service_id, vehicle_type_id, mode, price, updated_by_user_id)
-                  VALUES (?, ?, ?, ?, ?, ?)
-                  ON CONFLICT (service_id, vehicle_type_id, mode) DO UPDATE SET price = excluded.price,
-                    updated_by_user_id = excluded.updated_by_user_id, updated_at = ${SQL_NOW}`,
-            params: [shopId, ...key, input.price, userId],
-          },
-      {
-        sql: 'UPDATE service_prices SET price = ?, source = ? WHERE shop_id = ? AND id = ?',
-        params: [eff.price, eff.overridden ? 'override' : 'template', shopId, row.id],
-      },
-    ]);
-    return { price: eff.price, listPrice: list, overridden: eff.overridden };
+    // A community price typed before they followed the rule would only confuse a later reader.
+    statements.push({ sql: "DELETE FROM branch_price_overrides WHERE shop_id = ? AND mode = 'doorstep'", params: [shopId] });
+    await runStatements(d1, statements);
+    await menuRepo.publish(d1, shopId);
+    return results;
   },
 
   /** Stop (or start again) offering a catalog service at this branch, when the policy allows. */

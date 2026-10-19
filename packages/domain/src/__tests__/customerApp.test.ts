@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   canRateWash,
   formatClock,
+  formatOffDays,
   hoursSummary,
+  offDaysOf,
+  parseOffDays,
   isValidClock,
   isValidRegistration,
   liveStatusText,
@@ -55,8 +58,8 @@ describe('opening hours', () => {
     expect(openState(hours, ist('2026-10-05', '10:00'))).toEqual({ kind: 'open', label: 'Open now · till 8:30 pm' });
     expect(openState(hours, ist('2026-10-05', '07:00'))).toEqual({ kind: 'closed', label: 'Closed · opens 8 am' });
   });
-  it('mentions tomorrow’s day off after closing', () => {
-    expect(openState(hours, ist('2026-10-05', '21:00'))).toEqual({ kind: 'closed', label: 'Closed · Tuesday off' });
+  it('says when it opens next after closing, skipping days off', () => {
+    expect(openState(hours, ist('2026-10-05', '21:00'))).toEqual({ kind: 'closed', label: 'Closed · opens Wednesday 8 am' });
     expect(openState(hours, ist('2026-10-07', '21:00'))).toEqual({
       kind: 'closed',
       label: 'Closed · opens 8 am tomorrow',
@@ -68,6 +71,20 @@ describe('opening hours', () => {
       label: 'Closed today (Tuesday off)',
     });
     expect(openState(hours, ist('2026-10-06', '12:00')).kind).toBe('closed');
+  });
+  it('can be closed on several days', () => {
+    const weekend = { opensAt: '08:00', closesAt: '20:00', weeklyOff: 0, weeklyOffDays: [6, 0] };
+    expect(hoursSummary(weekend)).toBe('8 am – 8 pm · closed Sundays and Saturdays');
+    // Friday night (10 Oct 2026): Saturday and Sunday off, so it opens Monday.
+    expect(openState(weekend, ist('2026-10-09', '21:00'))).toEqual({ kind: 'closed', label: 'Closed · opens Monday 8 am' });
+    expect(openState(weekend, ist('2026-10-10', '07:00'))).toEqual({ kind: 'closed', label: 'Closed today (Saturday off)' });
+  });
+  it('stores closed days as a sorted list', () => {
+    expect(formatOffDays([6, 0, 6])).toBe('0,6');
+    expect(formatOffDays([])).toBeNull();
+    expect(parseOffDays('0,6')).toEqual([0, 6]);
+    expect(parseOffDays('9,x')).toEqual([]);
+    expect(offDaysOf({ weeklyOff: 2 })).toEqual([2]);
   });
   it('is unknown without hours', () => {
     expect(openState({ opensAt: null, closesAt: null, weeklyOff: null }, new Date())).toEqual({ kind: 'unknown' });

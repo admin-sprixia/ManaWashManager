@@ -1,177 +1,67 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import {
-  LayoutAnimation,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  UIManager,
-  View,
-} from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { InferResponseType } from 'hono/client';
 import {
   ScreenContainer,
   ScreenHeader,
-  Button,
   showAlert,
-  IconChevronDown,
-  IconChevronRight,
-  IconEdit,
+  showToast,
   IconPlus,
-  IconSearch,
-  IconSparkle,
   IconTrash,
-  Notice,
   colors,
   radius,
   shadow,
   spacing,
   typography,
-  VehicleArt,
 } from '@mana/ui';
-import { NewServiceSheet, type NewServiceInput } from '../components/NewServiceSheet';
-import { EditServiceSheet } from '../components/EditServiceSheet';
-import { PriceSheet } from '../components/PriceSheet';
-import { VehiclePickerSheet } from '../components/VehiclePickerSheet';
-import { VehicleStack } from '../components/VehicleStack';
-import { Fab } from '../components/Fab';
 import { Band, BandRow, ScreenHero, SectionTitle } from '../components/ScreenChrome';
 import { api, apiErrorMessage } from '../api/client';
 import { NetworkError } from '../api/network';
-import { formatRupees } from '../utils/format';
-import {
-  overrideRange,
-  parseServiceAppliesTo,
-  parseVehicleCategory,
-  serviceAppliesToCategory,
-  type DeliveryMode,
-  type Service,
-  type ServicePrice,
-  type VehicleCategory,
-  type VehicleType,
-} from '@mana/domain';
+import { BranchPricesPane } from './branchPrices/BranchPricesPane';
+import type { BranchSheet, SheetService } from './branchPrices/types';
+import { isVehicleClassKey, parseVehicleCategory, VEHICLE_CLASSES, type VehicleClassKey } from '@mana/domain';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
-
-function animate() {
-  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-}
-
-/** A branch service; `catalogServiceId` is set when it comes from the business price list. */
-type BranchService = Service & { catalogServiceId: string | null };
-type PriceRow = ServicePrice & { id?: string; source?: string; listPrice?: number | null };
 type Network = InferResponseType<(typeof api)['services']['network']['$get'], 200>;
-
-function normalizeServices(
-  rows: Array<{
-    id: string;
-    name: string;
-    description: string | null;
-    active: boolean;
-    sortOrder: number;
-    appliesTo: string;
-    includes?: string[];
-    catalogServiceId: string | null;
-  }>,
-): BranchService[] {
-  return rows.map((s) => ({
-    ...s,
-    appliesTo: parseServiceAppliesTo(s.appliesTo),
-  }));
-}
-
-const isCombo = (s: Service) => (s.includes?.length ?? 0) > 0;
-const fromCatalog = (s: BranchService) => s.catalogServiceId != null;
-
-function normalizeVehicleTypes(
-  rows: Array<{ id: string; name: string; sortOrder: number; category: string }>,
-): VehicleType[] {
-  return rows.map((vt) => ({
-    ...vt,
-    category: parseVehicleCategory(vt.category),
-  }));
-}
-
-type Prompt =
-  | { kind: 'addService' }
-  | {
-      kind: 'editPrice';
-      serviceId: string;
-      serviceName: string;
-      vehicleTypeId: string;
-      vehicleTypeName: string;
-      price: number | null;
-    };
-
 type SettingsScreenProps = NativeStackScreenProps<RootStackParamList, 'Settings'>;
 
-const CATEGORIES: { id: VehicleCategory; label: string }[] = [
-  { id: 'car', label: 'Cars & more' },
-  { id: 'bike', label: 'Two-wheelers' },
-];
+/** The group (Car, Three-wheeler, Farm & machines…) of each vehicle the branch washes. */
+function groupsOf(rows: Array<{ category: string; classKey?: string }>): VehicleClassKey[] {
+  return rows.map((vt) =>
+    vt.classKey && isVehicleClassKey(vt.classKey) ? vt.classKey : parseVehicleCategory(vt.category) === 'bike' ? 'twoWheeler' : 'car',
+  );
+}
 
-const MODES: { id: DeliveryMode; label: string }[] = [
-  { id: 'hub', label: 'At the shop' },
-  { id: 'doorstep', label: 'Doorstep' },
-];
-
+/**
+ * This branch's prices: Mana Wash HQ's services from the branch's price book, by vehicle group
+ * and size. Branches sell HQ's services only; the owner sets shop prices inside HQ's limits and
+ * may stop offering a service when HQ allows it. Owner only.
+ */
 export function SettingsScreen({ navigation }: SettingsScreenProps) {
-  const [services, setServices] = useState<BranchService[]>([]);
-  const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
-  const [prices, setPrices] = useState<PriceRow[]>([]);
+  const [washed, setWashed] = useState<VehicleClassKey[]>([]);
   const [network, setNetwork] = useState<Network | null>(null);
-  const [mode, setMode] = useState<DeliveryMode>('hub');
-  const [prompt, setPrompt] = useState<Prompt | null>(null);
-  // Separate from `prompt` so the picker can open over New service without closing it.
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [sheet, setSheet] = useState<BranchSheet | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [category, setCategory] = useState<VehicleCategory>('car');
-  const [expandedServiceId, setExpandedServiceId] = useState<string | null>(null);
-  const [serviceQuery, setServiceQuery] = useState('');
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [commissions, setCommissions] = useState<{ serviceId: string; vehicleTypeId: string; amount: number }[]>([]);
+  const [group, setGroup] = useState<VehicleClassKey>('car');
+
   const load = useCallback(async () => {
     try {
-      // Services first: reading the menu rebuilds it when the business price list changed.
-      const servicesRes = await api.services.$get({ query: {} });
-      const [vehicleTypesRes, pricesRes, commissionsRes, networkRes] = await Promise.all([
+      const [typesRes, networkRes, sheetRes] = await Promise.all([
         api.services['vehicle-types'].$get({ query: {} }),
-        api.services.prices.$get({ query: {} }),
-        api.services.commissions.$get(),
         api.services.network.$get(),
+        api.services['branch-prices'].$get(),
       ]);
-      if (!servicesRes.ok || !vehicleTypesRes.ok || !pricesRes.ok) throw new Error('load_failed');
-      setServices(normalizeServices(await servicesRes.json()));
-      setVehicleTypes(normalizeVehicleTypes(await vehicleTypesRes.json()));
-      setPrices(await pricesRes.json());
-      if (commissionsRes.ok) setCommissions(await commissionsRes.json());
-      if (networkRes.ok) {
-        const next = await networkRes.json();
-        setNetwork(next);
-        setMode((m) => (next.modes.includes(m) ? m : (next.modes[0] ?? 'hub')));
-      }
+      if (!typesRes.ok || !sheetRes.ok) throw new Error(await apiErrorMessage(sheetRes.ok ? typesRes : sheetRes, 'Couldn’t load the prices.'));
+      setWashed(groupsOf(await typesRes.json()));
+      setSheet(await sheetRes.json());
+      if (networkRes.ok) setNetwork(await networkRes.json());
       setError(null);
     } catch (e) {
-      setError(
-        e instanceof NetworkError
-          ? 'Settings need a connection. Check your internet and come back.'
-          : 'Couldn’t load your services. Pull back and try again.',
-      );
+      setError(e instanceof NetworkError ? 'Prices need a connection. Check your internet and come back.' : (e as Error).message);
     }
   }, []);
-
-  const commissionFor = useCallback(
-    (serviceId: string, vehicleTypeId: string): number | null =>
-      commissions.find((r) => r.serviceId === serviceId && r.vehicleTypeId === vehicleTypeId)?.amount ?? null,
-    [commissions],
-  );
 
   useFocusEffect(
     useCallback(() => {
@@ -179,148 +69,34 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
     }, [load]),
   );
 
-  const typesForCategory = useMemo(
-    () => vehicleTypes.filter((vt) => vt.category === category),
-    [vehicleTypes, category],
-  );
+  // One tab per group the branch washes (chosen when it opened, changed in More › Vehicles).
+  const groups = useMemo(() => {
+    const list = VEHICLE_CLASSES.filter((c) => washed.includes(c.key));
+    return list.length > 0 ? list : VEHICLE_CLASSES.filter((c) => c.key === 'car' || c.key === 'twoWheeler');
+  }, [washed]);
+  useEffect(() => {
+    if (!groups.some((g) => g.key === group)) setGroup(groups[0]!.key);
+  }, [groups, group]);
+  const groupDef = VEHICLE_CLASSES.find((c) => c.key === group) ?? VEHICLE_CLASSES[1]!;
 
-  // Combos first: they're the headline offers.
-  const servicesForCategory = useMemo(
-    () =>
-      services
-        .filter((s) => serviceAppliesToCategory(s.appliesTo, category))
-        .sort((a, b) => Number(isCombo(b)) - Number(isCombo(a))),
-    [services, category],
-  );
-
-  const serviceName = useCallback(
-    (id: string) => services.find((s) => s.id === id)?.name ?? null,
-    [services],
-  );
-  const plainServices = useMemo(() => services.filter((s) => !isCombo(s)), [services]);
-  const editingService = services.find((s) => s.id === editingId) ?? null;
-
-  const visibleServices = useMemo(() => {
-    const q = serviceQuery.trim().toLowerCase();
-    if (!q) return servicesForCategory;
-    return servicesForCategory.filter((s) => s.name.toLowerCase().includes(q));
-  }, [servicesForCategory, serviceQuery]);
-
-  const rowFor = useCallback(
-    (serviceId: string, vehicleTypeId: string): PriceRow | null =>
-      prices.find(
-        (p) => p.serviceId === serviceId && p.vehicleTypeId === vehicleTypeId && (p.mode ?? 'hub') === mode,
-      ) ?? null,
-    [prices, mode],
-  );
-  const priceFor = useCallback(
-    (serviceId: string, vehicleTypeId: string): number | null => rowFor(serviceId, vehicleTypeId)?.price ?? null,
-    [rowFor],
-  );
-  const policy = network?.policy ?? null;
-  const hasCatalog = services.some(fromCatalog);
-
-  const closePrompt = () => setPrompt(null);
-
-  const saveEdit = async (changes: { name: string; description: string; includes?: string[] }) => {
-    if (!editingId) return null;
-    try {
-      const res = await api.services[':id'].$patch({
-        param: { id: editingId },
-        json: { name: changes.name, description: changes.description || null, includes: changes.includes },
-      });
-      if (!res.ok) return apiErrorMessage(res, 'Could not save changes.');
-      setEditingId(null);
-      await load();
-      return null;
-    } catch (e) {
-      return e instanceof NetworkError ? 'Saving needs a connection.' : 'Something went wrong.';
-    }
-  };
-
-  const addService = async (input: NewServiceInput): Promise<string | null> => {
-    try {
-      const res = await api.services.$post({
-        json: {
-          name: input.name,
-          description: input.description || undefined,
-          includes: input.includes.length ? input.includes : undefined,
-          vehicles: input.vehicles.map((v) => ({ ...v, mode })),
-        },
-      });
-      if (!res.ok) return apiErrorMessage(res, 'Could not add this service.');
-      closePrompt();
-      animate();
-      await load();
-      return null;
-    } catch (e) {
-      return e instanceof NetworkError ? 'Adding services needs a connection.' : 'Something went wrong.';
-    }
-  };
-
-  // For a business price this clears the branch's own price; otherwise it stops offering it.
-  const removePrice = async (): Promise<string | null> => {
-    if (prompt?.kind !== 'editPrice') return null;
-    try {
-      const res = await api.services.prices.$delete({
-        json: { serviceId: prompt.serviceId, vehicleTypeId: prompt.vehicleTypeId, mode },
-      });
-      if (!res.ok) return apiErrorMessage(res, 'Could not update this service.');
-      closePrompt();
-      await load();
-      return null;
-    } catch (e) {
-      return e instanceof NetworkError ? 'Changing services needs a connection.' : 'Something went wrong.';
-    }
-  };
-
-  const addVehicleType = async (name: string): Promise<string | null> => {
-    try {
-      const res = await api.services['vehicle-types'].$post({ json: { name, category } });
-      if (!res.ok) return apiErrorMessage(res, 'Could not add this vehicle.');
-      await load();
-      return null;
-    } catch (e) {
-      return e instanceof NetworkError ? 'Adding vehicles needs a connection.' : 'Something went wrong.';
-    }
-  };
-
-  const removeVehicleType = async (id: string): Promise<string | null> => {
-    try {
-      const res = await api.services['vehicle-types'][':id'].$delete({ param: { id } });
-      if (!res.ok) return apiErrorMessage(res, 'Could not remove this vehicle.');
-      await load();
-      return null;
-    } catch (e) {
-      return e instanceof NetworkError ? 'Removing needs a connection.' : 'Something went wrong.';
-    }
-  };
-
-  const deleteService = (service: BranchService) => {
-    const catalog = fromCatalog(service);
+  const stopOffering = (service: SheetService) =>
     showAlert(
-      catalog ? `Stop offering ${service.name} here?` : `Delete ${service.name}?`,
-      catalog
-        ? 'It disappears from New Wash at this branch. Other branches keep it, and you can bring it back any time.'
-        : 'It disappears from New Wash. Past washes and reports keep it.',
+      `Stop offering ${service.name} here?`,
+      'It disappears from New Wash at this branch. Other branches keep it, and you can bring it back any time.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: catalog ? 'Stop offering' : 'Delete',
+          text: 'Stop offering',
           style: 'destructive',
           onPress: () => {
             void (async () => {
               try {
                 const res = await api.services[':id'].$delete({ param: { id: service.id } });
-                if (!res.ok) {
-                  setError(await apiErrorMessage(res, 'Could not delete this service.'));
-                  return;
-                }
-                animate();
-                setExpandedServiceId(null);
+                if (!res.ok) return showToast(await apiErrorMessage(res, 'Couldn’t stop offering it.'), 'error');
                 await load();
+                showToast(`${service.name} is off the menu here`);
               } catch (e) {
-                setError(e instanceof NetworkError ? 'Deleting needs a connection.' : 'Something went wrong.');
+                showToast(e instanceof NetworkError ? 'This needs a connection.' : 'Something went wrong.', 'error');
               }
             })();
           },
@@ -328,91 +104,22 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
       ],
       { icon: <IconTrash size={26} color={colors.danger} /> },
     );
-  };
 
-  const bringBack = async (serviceId: string) => {
+  const bringBack = async (serviceId: string, name: string) => {
     try {
       const res = await api.services[':id'].hidden.$put({ param: { id: serviceId }, json: { hidden: false } });
-      if (!res.ok) {
-        setError(await apiErrorMessage(res, 'Could not bring this service back.'));
-        return;
-      }
-      animate();
+      if (!res.ok) return showToast(await apiErrorMessage(res, 'Couldn’t bring it back.'), 'error');
       await load();
+      showToast(`${name} is back on the menu`);
     } catch (e) {
-      setError(e instanceof NetworkError ? 'This needs a connection.' : 'Something went wrong.');
+      showToast(e instanceof NetworkError ? 'This needs a connection.' : 'Something went wrong.', 'error');
     }
   };
 
-  const savePrice = async (price: number, commission: number | null): Promise<string | null> => {
-    if (prompt?.kind !== 'editPrice') return null;
-    const key = { serviceId: prompt.serviceId, vehicleTypeId: prompt.vehicleTypeId };
-    const row = rowFor(key.serviceId, key.vehicleTypeId);
-    const catalogPrice = row?.listPrice != null && services.find((s) => s.id === key.serviceId)?.catalogServiceId;
-    try {
-      if (price !== prompt.price) {
-        // Setting a business price back to the list price drops the branch price, so later list
-        // changes reach this branch again.
-        const res =
-          catalogPrice && price === row?.listPrice
-            ? await api.services.prices.$delete({ json: { ...key, mode } })
-            : await api.services.prices.$put({ json: { ...key, mode, price } });
-        if (!res.ok) return apiErrorMessage(res, 'Could not save price.');
-      }
-      if (commission !== commissionFor(key.serviceId, key.vehicleTypeId)) {
-        const res = await api.services.commissions.$put({ json: { ...key, amount: commission } });
-        if (!res.ok) return apiErrorMessage(res, 'Could not save commission.');
-      }
-      closePrompt();
-      await load();
-      return null;
-    } catch (e) {
-      return e instanceof NetworkError ? 'Saving prices needs a connection.' : 'Something went wrong.';
-    }
-  };
-
-  const switchMode = (next: DeliveryMode) => {
-    if (next === mode) return;
-    animate();
-    setMode(next);
-  };
-
-  const switchCategory = (next: VehicleCategory) => {
-    if (next === category) return;
-    animate();
-    setCategory(next);
-    setExpandedServiceId(null);
-    setServiceQuery('');
-  };
-
-  const toggleService = (serviceId: string) => {
-    animate();
-    setExpandedServiceId((current) => (current === serviceId ? null : serviceId));
-  };
-
-  const promptRow = prompt?.kind === 'editPrice' ? rowFor(prompt.serviceId, prompt.vehicleTypeId) : null;
-  const promptBusiness =
-    prompt?.kind === 'editPrice' &&
-    promptRow?.listPrice != null &&
-    services.find((s) => s.id === prompt.serviceId)?.catalogServiceId &&
-    policy
-      ? {
-          listPrice: promptRow.listPrice,
-          range: policy.branchOverrides ? overrideRange(promptRow.listPrice, policy) : null,
-          overridden: promptRow.source === 'override',
-        }
-      : undefined;
-
-  const familyWord = category === 'bike' ? 'two-wheeler' : 'vehicle';
-  const openPicker = () => setPickerOpen(true);
-  const openNewService = () => setPrompt({ kind: 'addService' });
-  const vehicleCount = typesForCategory.length;
-
-  const offeredCount = servicesForCategory.filter((s) =>
-    typesForCategory.some((vt) => priceFor(s.id, vt.id) != null),
-  ).length;
-  const comboCount = servicesForCategory.filter(isCombo).length;
-  const categoryLabel = CATEGORIES.find((c) => c.id === category)?.label ?? '';
+  const groupCells = sheet?.services.flatMap((s) => s.cells.filter((c) => c.classKey === group)) ?? [];
+  const ownPrices = groupCells.filter((c) => c.hub?.own).length;
+  const hqServices = sheet?.services.filter((s) => s.cells.some((c) => c.classKey === group)).length ?? 0;
+  const vehicleCount = sheet?.groups.find((g) => g.key === group)?.sizes.reduce((n, z) => n + z.vehicles.length, 0) ?? 0;
 
   return (
     <ScreenContainer noPadding>
@@ -421,324 +128,57 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
       </View>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <ScreenHero
-          eyebrow={`SERVICES & PRICES · ${categoryLabel.toUpperCase()}`}
-          title={
-            servicesForCategory.length === 0
-              ? 'No services yet'
-              : `${servicesForCategory.length} ${servicesForCategory.length === 1 ? 'service' : 'services'}`
-          }
+          eyebrow={`THIS BRANCH · ${groupDef.name.toUpperCase()}`}
+          title={sheet ? `${sheet.bookName} prices` : 'Your prices'}
           meta={
-            mode === 'doorstep'
-              ? 'Doorstep prices for each vehicle you wash. Tap a service to set them.'
-              : 'Prices for each vehicle you wash. Tap a service to set them.'
+            !sheet
+              ? 'Mana Wash HQ’s prices for each vehicle you wash.'
+              : sheet.policy.branchOverrides
+                ? `HQ’s prices for this branch. You can charge ${sheet.policy.maxDecreasePct}% less to ${sheet.policy.maxIncreasePct}% more.`
+                : 'HQ’s prices for this branch. HQ has fixed them for every branch.'
           }
           chips={[
+            { label: 'Your prices', value: ownPrices },
+            { label: 'HQ services', value: hqServices },
             { label: 'Vehicles', value: vehicleCount },
-            { label: 'Priced', value: offeredCount },
-            { label: 'Combos', value: comboCount },
           ]}
         />
 
-        {/* Cars and two-wheelers keep separate vehicle lists and menus */}
         <View style={styles.segmentWrap}>
-          <View style={styles.segment}>
-            {CATEGORIES.map((c) => {
-              const on = category === c.id;
-              return (
-                <Pressable
-                  key={c.id}
-                  onPress={() => switchCategory(c.id)}
-                  style={[styles.segmentBtn, on && styles.segmentBtnOn]}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: on }}
-                >
-                  <Text style={[styles.segmentLabel, on && styles.segmentLabelOn]}>{c.label}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          {(network?.modes.length ?? 0) > 1 ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.groupScroll}>
             <View style={styles.segment}>
-              {MODES.map((m) => {
-                const on = mode === m.id;
+              {groups.map((c) => {
+                const on = group === c.key;
                 return (
                   <Pressable
-                    key={m.id}
-                    onPress={() => switchMode(m.id)}
+                    key={c.key}
+                    onPress={() => setGroup(c.key)}
                     style={[styles.segmentBtn, on && styles.segmentBtnOn]}
                     accessibilityRole="tab"
                     accessibilityState={{ selected: on }}
                   >
-                    <Text style={[styles.segmentLabel, on && styles.segmentLabelOn]}>{m.label}</Text>
+                    <Text style={[styles.segmentLabel, on && styles.segmentLabelOn]}>{c.name}</Text>
                   </Pressable>
                 );
               })}
             </View>
-          ) : null}
+          </ScrollView>
         </View>
 
-        {hasCatalog && policy ? (
-          <View style={styles.banner}>
-            <Notice tone="info" title="Prices from Mana Wash HQ">
-              {policy.branchOverrides
-                ? `Services marked PRICE LIST come from HQ. You can charge up to ${policy.maxDecreasePct}% less or ${policy.maxIncreasePct}% more at this branch.`
-                : 'Services marked PRICE LIST come from HQ, at HQ’s prices.'}
-            </Notice>
-            {network?.isBusinessAdmin ? (
-              <Button label="Edit base prices in Mana Wash HQ" variant="secondary" onPress={() => navigation.navigate('BusinessPrices')} />
-            ) : null}
-          </View>
-        ) : null}
-
-        {/* Vehicles: one compact band, the full grid lives in the picker */}
-        <SectionTitle>Vehicles you wash</SectionTitle>
-        <Band style={styles.band}>
-          <BandRow
-            title={
-              vehicleCount === 0
-                ? `No ${familyWord}s yet`
-                : `${vehicleCount} ${familyWord}${vehicleCount === 1 ? '' : 's'}`
-            }
-            subtitle={
-              vehicleCount === 0
-                ? `Pick the ${familyWord}s your shop washes. Staff choose one on every new wash.`
-                : undefined
-            }
-            right={
-              <View style={styles.editPill}>
-                {vehicleCount === 0 ? <IconPlus size={14} color={colors.white} /> : null}
-                <Text style={styles.editPillText}>{vehicleCount === 0 ? 'Add' : 'Edit'}</Text>
-              </View>
-            }
-            last={vehicleCount === 0}
-            onPress={openPicker}
+        {sheet && sheet.services.length > 0 ? (
+          <BranchPricesPane
+            sheet={sheet}
+            groupKey={group}
+            onChanged={load}
+            onStopOffering={sheet.policy.branchCanHideServices ? stopOffering : undefined}
           />
-          {vehicleCount > 0 ? (
-            <Pressable
-              onPress={openPicker}
-              style={styles.vehiclesStack}
-              accessibilityRole="button"
-              accessibilityLabel={`Vehicles you wash, ${vehicleCount}. Edit`}
-            >
-              <VehicleStack names={typesForCategory.map((vt) => vt.name)} size={40} max={6} />
-            </Pressable>
-          ) : null}
-        </Band>
-
-        {/* Services for this family */}
-        <SectionTitle meta={servicesForCategory.length > 0 ? 'Tap a service to see and change its prices' : undefined}>
-          Services
-        </SectionTitle>
-
-        {servicesForCategory.length > 6 ? (
-          <View style={styles.searchBand}>
-            <IconSearch size={16} color={colors.slate} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder={`Search ${familyWord} services…`}
-              placeholderTextColor={colors.slate}
-              value={serviceQuery}
-              onChangeText={setServiceQuery}
-              autoCorrect={false}
-            />
-            {serviceQuery.length > 0 ? (
-              <Pressable onPress={() => setServiceQuery('')} hitSlop={8}>
-                <Text style={styles.clearSearch}>Clear</Text>
-              </Pressable>
-            ) : null}
-          </View>
+        ) : sheet ? (
+          <Text style={[styles.note, styles.pad]}>Mana Wash HQ hasn’t priced any services for this branch yet.</Text>
         ) : null}
-
-        {servicesForCategory.length === 0 ? (
-          <View style={styles.empty}>
-            <View style={styles.emptyIcon}>
-              <IconSparkle size={30} color={colors.water} />
-            </View>
-            <Text style={styles.emptyTitle}>Add your first service</Text>
-            <Text style={styles.emptyBody}>
-              Like Full Wash or Foam Wash. Choose which {familyWord}s it’s for and set a price for each.
-            </Text>
-            <View style={styles.emptyCta}>
-              <Button label="Add service" icon={<IconPlus size={18} color={colors.white} />} onPress={openNewService} />
-            </View>
-          </View>
-        ) : (
-          <Band style={styles.band}>
-            {visibleServices.map((service, index) => {
-              const expanded = expandedServiceId === service.id;
-              const offered = typesForCategory.filter((vt) => priceFor(service.id, vt.id) != null);
-              const notOffered = typesForCategory.filter((vt) => priceFor(service.id, vt.id) == null);
-              const set = offered.map((vt) => priceFor(service.id, vt.id) as number);
-              const low = set.length ? Math.min(...set) : null;
-              const high = set.length ? Math.max(...set) : null;
-              const range =
-                low == null ? null : low === high ? formatRupees(low) : `${formatRupees(low)}–${formatRupees(high!)}`;
-              const last = index === visibleServices.length - 1;
-              const combo = isCombo(service);
-              const catalog = fromCatalog(service);
-              const includedNames = (service.includes ?? [])
-                .map(serviceName)
-                .filter((n): n is string => n != null);
-              const openPrice = (vt: VehicleType) =>
-                setPrompt({
-                  kind: 'editPrice',
-                  serviceId: service.id,
-                  serviceName: service.name,
-                  vehicleTypeId: vt.id,
-                  vehicleTypeName: vt.name,
-                  price: priceFor(service.id, vt.id),
-                });
-
-              return (
-                <View key={service.id} style={!last && styles.rowDivider}>
-                  <Pressable
-                    onPress={() => toggleService(service.id)}
-                    style={({ pressed }) => [styles.serviceRow, (expanded || pressed) && styles.serviceRowOpen]}
-                    accessibilityRole="button"
-                    accessibilityState={{ expanded }}
-                  >
-                    <View style={styles.serviceCopy}>
-                      <View style={styles.nameRow}>
-                        {combo ? (
-                          <View style={styles.comboTag}>
-                            <Text style={styles.comboTagText}>COMBO</Text>
-                          </View>
-                        ) : null}
-                        {catalog ? (
-                          <View style={styles.listTag}>
-                            <Text style={styles.listTagText}>PRICE LIST</Text>
-                          </View>
-                        ) : null}
-                        <Text style={styles.serviceName} numberOfLines={1}>
-                          {service.name}
-                        </Text>
-                      </View>
-                      {combo && includedNames.length > 0 ? (
-                        <Text style={styles.includesText} numberOfLines={2}>
-                          {includedNames.join(' + ')}
-                        </Text>
-                      ) : null}
-                      {service.description ? (
-                        <Text style={styles.descText} numberOfLines={expanded ? undefined : 1}>
-                          {service.description}
-                        </Text>
-                      ) : null}
-                      {offered.length > 0 ? (
-                        <View style={styles.serviceMeta}>
-                          <VehicleStack names={offered.map((vt) => vt.name)} size={24} max={4} />
-                          <Text style={styles.serviceMetaText}>
-                            {offered.length === vehicleCount
-                              ? `All ${familyWord}s`
-                              : `${offered.length} ${familyWord}${offered.length === 1 ? '' : 's'}`}
-                          </Text>
-                        </View>
-                      ) : (
-                        <View style={styles.todoPill}>
-                          <Text style={styles.todoPillText}>Not offered for any {familyWord}</Text>
-                        </View>
-                      )}
-                    </View>
-                    {range ? <Text style={styles.serviceRange}>{range}</Text> : null}
-                    <View style={[styles.chevron, expanded && styles.chevronOpen]}>
-                      <IconChevronDown size={18} color={expanded ? colors.waterDeep : colors.slate} />
-                    </View>
-                  </Pressable>
-
-                  {expanded && (
-                    <View style={styles.priceList}>
-                      {offered.length > 0 ? <Text style={styles.priceGroupLabel}>Offered for</Text> : null}
-                      {offered.map((vt) => {
-                        const commission = commissionFor(service.id, vt.id);
-                        const row = rowFor(service.id, vt.id);
-                        const own = row?.source === 'override' && row.listPrice != null;
-                        return (
-                          <Pressable
-                            key={vt.id}
-                            onPress={() => openPrice(vt)}
-                            style={({ pressed }) => [styles.priceRow, pressed && styles.priceRowPressed]}
-                            accessibilityRole="button"
-                            accessibilityLabel={`${vt.name} price`}
-                          >
-                            <VehicleArt name={vt.name} style={styles.priceThumb} />
-                            <View style={styles.priceCopy}>
-                              <Text style={styles.priceVehicle} numberOfLines={1}>
-                                {vt.name}
-                              </Text>
-                              {own ? (
-                                <Text style={styles.priceOwn}>Branch price · list {formatRupees(row.listPrice!)}</Text>
-                              ) : null}
-                              {commission != null ? (
-                                <Text style={styles.priceCommission}>Staff gets {formatRupees(commission)}</Text>
-                              ) : null}
-                            </View>
-                            <Text style={styles.priceValue}>{formatRupees(priceFor(service.id, vt.id) ?? 0)}</Text>
-                            <IconChevronRight size={16} color={colors.slate} />
-                          </Pressable>
-                        );
-                      })}
-                      {catalog && notOffered.length > 0 ? (
-                        <Text style={styles.catalogNote}>
-                          {notOffered.map((vt) => vt.name).join(', ')}: not in HQ’s price list
-                          {mode === 'doorstep' ? ' for doorstep washes' : ''}.
-                        </Text>
-                      ) : null}
-                      {!catalog && notOffered.length > 0 ? (
-                        <Text style={styles.priceGroupLabel}>Not offered</Text>
-                      ) : null}
-                      {(catalog ? [] : notOffered).map((vt) => (
-                        <Pressable
-                          key={vt.id}
-                          onPress={() => openPrice(vt)}
-                          style={({ pressed }) => [styles.priceRow, pressed && styles.priceRowPressed]}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Offer for ${vt.name}`}
-                        >
-                          <VehicleArt name={vt.name} style={[styles.priceThumb, styles.priceThumbOff]} />
-                          <View style={styles.priceCopy}>
-                            <Text style={[styles.priceVehicle, styles.priceVehicleOff]} numberOfLines={1}>
-                              {vt.name}
-                            </Text>
-                          </View>
-                          <View style={styles.offerPill}>
-                            <IconPlus size={12} color={colors.waterDeep} />
-                            <Text style={styles.offerPillText}>Offer</Text>
-                          </View>
-                        </Pressable>
-                      ))}
-                      <View style={styles.actionsRow}>
-                        {!catalog ? (
-                          <Pressable
-                            onPress={() => setEditingId(service.id)}
-                            style={({ pressed }) => [styles.editRow, pressed && styles.cardPressed]}
-                            accessibilityRole="button"
-                          >
-                            <IconEdit size={16} color={colors.waterDeep} />
-                            <Text style={styles.editText}>Edit details</Text>
-                          </Pressable>
-                        ) : null}
-                        {!catalog || policy?.branchCanHideServices ? (
-                          <Pressable
-                            onPress={() => deleteService(service)}
-                            style={({ pressed }) => [styles.deleteRow, pressed && styles.cardPressed]}
-                            accessibilityRole="button"
-                          >
-                            <IconTrash size={16} color={colors.danger} />
-                            <Text style={styles.deleteText}>{catalog ? 'Stop offering here' : 'Delete'}</Text>
-                          </Pressable>
-                        ) : null}
-                      </View>
-                    </View>
-                  )}
-                </View>
-              );
-            })}
-          </Band>
-        )}
 
         {network && network.hidden.length > 0 ? (
           <>
-            <SectionTitle>Not offered at this branch</SectionTitle>
+            <SectionTitle meta="HQ services you stopped selling here">Not offered at this branch</SectionTitle>
             <Band style={styles.band}>
               {network.hidden.map((h, i) => (
                 <BandRow
@@ -748,8 +188,8 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
                   last={i === network.hidden.length - 1}
                   right={
                     <Pressable
-                      onPress={() => void bringBack(h.id)}
-                      style={({ pressed }) => [styles.offerPill, pressed && styles.cardPressed]}
+                      onPress={() => void bringBack(h.id, h.name)}
+                      style={({ pressed }) => [styles.offerPill, pressed && styles.pressed]}
                       accessibilityRole="button"
                       accessibilityLabel={`Offer ${h.name} again`}
                     >
@@ -766,50 +206,6 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
         {error ? <Text style={[styles.error, styles.pad]}>{error}</Text> : null}
         <View style={styles.bottomPad} />
       </ScrollView>
-
-      {servicesForCategory.length > 0 ? (
-        <Fab label="Add service" icon={<IconPlus size={22} color={colors.white} />} onPress={openNewService} bottom={spacing.lg} />
-      ) : null}
-
-      <NewServiceSheet
-        visible={prompt?.kind === 'addService'}
-        category={category}
-        vehicleTypes={vehicleTypes}
-        services={services}
-        priceFor={priceFor}
-        onClose={closePrompt}
-        onPickVehicles={openPicker}
-        onSave={addService}
-      />
-      <EditServiceSheet
-        service={editingService}
-        plainServices={plainServices}
-        onClose={() => setEditingId(null)}
-        onSave={saveEdit}
-      />
-      <VehiclePickerSheet
-        visible={pickerOpen}
-        category={category}
-        existing={typesForCategory.map((vt) => ({ id: vt.id, name: vt.name }))}
-        onClose={() => setPickerOpen(false)}
-        onAdd={addVehicleType}
-        onRemove={removeVehicleType}
-      />
-      <PriceSheet
-        visible={prompt?.kind === 'editPrice'}
-        title={
-          prompt?.kind === 'editPrice'
-            ? `${prompt.serviceName} · ${prompt.vehicleTypeName}${mode === 'doorstep' ? ' · Doorstep' : ''}`
-            : ''
-        }
-        price={prompt?.kind === 'editPrice' ? prompt.price : null}
-        commission={prompt?.kind === 'editPrice' ? commissionFor(prompt.serviceId, prompt.vehicleTypeId) : null}
-        business={promptBusiness}
-        onClose={closePrompt}
-        onSave={savePrice}
-        onReset={promptBusiness ? removePrice : undefined}
-        onRemove={prompt?.kind === 'editPrice' && prompt.price != null && !promptBusiness ? removePrice : undefined}
-      />
     </ScreenContainer>
   );
 }
@@ -817,176 +213,24 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
 const styles = StyleSheet.create({
   headerPad: { paddingHorizontal: spacing.md },
   pad: { paddingHorizontal: spacing.md },
-  content: {
-    paddingTop: spacing.xs,
-    gap: spacing.sm,
-  },
-  segmentWrap: { paddingHorizontal: spacing.md, gap: spacing.sm },
+  content: { paddingTop: spacing.xs, gap: spacing.sm },
+  segmentWrap: { paddingHorizontal: spacing.md },
   band: { marginTop: spacing.xs },
-  vehiclesStack: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.md,
-    backgroundColor: colors.white,
-  },
-  cardPressed: { opacity: 0.85 },
-  segment: {
-    flexDirection: 'row',
-    backgroundColor: '#E8F1F8',
-    borderRadius: radius.pill,
-    padding: 4,
-  },
+  pressed: { opacity: 0.85 },
+  groupScroll: { flexGrow: 1 },
+  segment: { flexGrow: 1, flexDirection: 'row', backgroundColor: '#E8F1F8', borderRadius: radius.pill, padding: 4 },
   segmentBtn: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: 'auto',
     alignItems: 'center',
     justifyContent: 'center',
     height: 40,
+    paddingHorizontal: spacing.md,
     borderRadius: radius.pill,
   },
-  segmentBtnOn: {
-    backgroundColor: colors.white,
-    ...shadow('sm'),
-  },
-  segmentLabel: {
-    ...typography.bodyStrong,
-    fontSize: 15,
-    color: colors.slateDeep,
-  },
+  segmentBtnOn: { backgroundColor: colors.white, ...shadow('sm') },
+  segmentLabel: { ...typography.bodyStrong, fontSize: 15, color: colors.slateDeep },
   segmentLabelOn: { color: colors.waterDeep, fontWeight: '700' },
-  editPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    height: 34,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.pill,
-    backgroundColor: colors.water,
-  },
-  editPillText: { ...typography.label, color: colors.white, fontWeight: '700' },
-  sectionTitle: { ...typography.heading, color: colors.waterInk },
-  searchBand: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.md,
-    marginHorizontal: spacing.md,
-    height: 44,
-  },
-  searchInput: {
-    flex: 1,
-    ...typography.body,
-    fontSize: 15,
-    color: colors.waterInk,
-    paddingVertical: 0,
-  },
-  clearSearch: { ...typography.caption, color: colors.water, fontWeight: '700' },
-  empty: {
-    alignItems: 'center',
-    backgroundColor: colors.white,
-    borderRadius: radius.lg,
-    paddingVertical: spacing.xl,
-    paddingHorizontal: spacing.lg,
-    gap: spacing.sm,
-    marginHorizontal: spacing.md,
-    ...shadow('sm'),
-  },
-  emptyIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: colors.waterPale,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.xs,
-  },
-  emptyTitle: { ...typography.heading, color: colors.waterInk },
-  emptyBody: {
-    ...typography.body,
-    fontSize: 15,
-    color: colors.slateDeep,
-    lineHeight: 21,
-    textAlign: 'center',
-  },
-  emptyCta: { alignSelf: 'stretch', marginTop: spacing.md },
-  rowDivider: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  serviceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingLeft: spacing.md,
-    paddingRight: spacing.sm,
-    paddingVertical: spacing.md,
-    minHeight: 76,
-    backgroundColor: colors.white,
-  },
-  serviceRowOpen: { backgroundColor: colors.surface },
-  serviceCopy: { flex: 1, gap: 6 },
-  serviceName: { ...typography.bodyStrong, fontSize: 17, color: colors.waterInk, flexShrink: 1 },
-  serviceMeta: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  serviceMetaText: { ...typography.label, fontWeight: '500', color: colors.slateDeep },
-  serviceRange: { ...typography.bodyStrong, fontSize: 15, color: colors.waterInk },
-  todoPill: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: radius.pill,
-    backgroundColor: '#FEF3C7',
-  },
-  todoPillText: { ...typography.caption, color: colors.amberDeep, fontWeight: '700', letterSpacing: 0 },
-  chevron: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  chevronOpen: {
-    backgroundColor: colors.waterPale,
-    transform: [{ rotate: '180deg' }],
-  },
-  priceList: {
-    backgroundColor: colors.surface,
-    paddingBottom: spacing.md,
-  },
-  priceGroupLabel: {
-    ...typography.caption,
-    color: colors.slateDeep,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.xs,
-  },
-  priceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    minHeight: 60,
-  },
-  priceRowPressed: { backgroundColor: colors.waterPale },
-  priceThumb: {
-    width: 56,
-    height: 42,
-    borderRadius: radius.sm,
-    backgroundColor: colors.waterMidnight,
-  },
-  priceThumbOff: { opacity: 0.4 },
-  priceCopy: { flex: 1, gap: 2 },
-  priceVehicle: { ...typography.body, fontSize: 15, color: colors.waterInk },
-  priceVehicleOff: { color: colors.slate },
-  priceCommission: { ...typography.caption, color: colors.teal, letterSpacing: 0 },
-  priceValue: { ...typography.bodyStrong, color: colors.waterInk, fontSize: 17 },
   offerPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -997,61 +241,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.waterPale,
   },
   offerPillText: { ...typography.label, color: colors.waterDeep, fontWeight: '700' },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  comboTag: {
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-    backgroundColor: '#EDE9FE',
-  },
-  comboTagText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.8, color: '#5B21B6' },
-  listTag: {
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-    backgroundColor: '#CCFBF1',
-  },
-  listTagText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.8, color: colors.tealDeep },
-  banner: { gap: spacing.sm, paddingHorizontal: spacing.md },
-  priceOwn: { ...typography.caption, color: colors.amberDeep, letterSpacing: 0 },
-  catalogNote: {
-    ...typography.caption,
-    color: colors.slateDeep,
-    letterSpacing: 0,
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
-  },
-  includesText: { ...typography.label, fontWeight: '600', color: '#5B21B6' },
-  descText: { ...typography.label, fontWeight: '400', color: colors.slateDeep, lineHeight: 18 },
-  actionsRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-    paddingHorizontal: spacing.md,
-  },
-  editRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.pill,
-    backgroundColor: colors.waterPale,
-  },
-  editText: { ...typography.label, color: colors.waterDeep, fontWeight: '700' },
-  deleteRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.pill,
-    backgroundColor: '#FEE2E2',
-  },
-  deleteText: { ...typography.label, color: colors.danger, fontWeight: '700' },
-  bottomPad: { height: 120 },
-  error: {
-    color: colors.danger,
-    ...typography.label,
-  },
+  note: { ...typography.body, color: colors.slateDeep, fontSize: 14, lineHeight: 20 },
+  error: { color: colors.danger, ...typography.label },
+  bottomPad: { height: spacing.xxl },
 });

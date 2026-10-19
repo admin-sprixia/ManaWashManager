@@ -1,7 +1,7 @@
 import React from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
-import { colors } from '@mana/ui';
-import { MAKE_LOGOS } from '../data/makeLogos';
+import { colors } from '../theme';
+import { MAKE_LOGOS } from '../makeLogos';
 
 /** Brand colours for the lettered badge of makes with no logo in MAKE_LOGOS. */
 const BADGE_COLORS: Record<string, string> = {

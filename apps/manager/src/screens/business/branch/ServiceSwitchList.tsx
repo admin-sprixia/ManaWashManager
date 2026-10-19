@@ -17,11 +17,14 @@ export function ServiceSwitchList({
   onToggle,
   onAll,
   runs,
+  stopped = [],
   disabled,
 }: {
   catalog: Catalog;
   /** The services switched on. */
   value: string[];
+  /** Services the branch's owner stopped selling there (switched on by HQ, off at the branch). */
+  stopped?: string[];
   onToggle: (id: string, on: boolean) => void;
   onAll: (on: boolean) => void;
   /** Where the branch works (its agreement, or what's switched on): explains services that won't sell. */
@@ -33,6 +36,7 @@ export function ServiceSwitchList({
   const onCount = live.filter((s) => value.includes(s.id)).length;
 
   const blocker = (s: Catalog['services'][number]): string | null => {
+    if (stopped.includes(s.id)) return 'Stopped by the branch: its owner took it off their menu';
     if (startingPrice(catalog, s) == null) return 'No prices yet: it shows once it’s priced in Base prices';
     const sells = (s.places.shop && runs.hub) || (s.places.community && runs.community) || (s.places.doorstep && runs.doorstep);
     if (!sells) return `Not sold here: this branch doesn’t do ${servicePlacesLabel(s.places).replace(' only', '').toLowerCase()}`;

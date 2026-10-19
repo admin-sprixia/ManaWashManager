@@ -30,7 +30,6 @@ import {
   IconEdit,
   IconReceipt,
   IconShield,
-  IconStar,
   IconSync,
   IconUsers,
   colors,

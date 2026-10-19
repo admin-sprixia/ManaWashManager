@@ -64,6 +64,7 @@ const POLICY_KEYS: Readonly<Record<keyof PricingPolicy, string>> = {
   maxIncreasePct: 'pricing.maxIncreasePct',
   maxDecreasePct: 'pricing.maxDecreasePct',
   branchCanHideServices: 'pricing.branchCanHideServices',
+  branchPicksBook: 'pricing.branchPicksBook',
 };
 
 const SIZE_COUNT = VEHICLE_CLASSES.reduce((n, c) => n + c.sizes.length, 0);
@@ -163,6 +164,10 @@ export interface CatalogView extends CatalogData {
     upToDate: boolean;
     /** Head-office services switched on for this branch. */
     menu: string[];
+    /** Head-office services the branch's owner stopped selling there. */
+    stopped: string[];
+    /** Shop prices (per vehicle) the branch set itself. */
+    ownPrices: number;
     /** The kinds of vehicle it washes (body type ids). */
     vehicles: string[];
     /** What its agreement allows, what the owner switched on, and what runs. */
@@ -431,6 +436,13 @@ export const catalogRepo = {
     const menus = await pdb.$queryRaw<{ shop_id: string; catalog_service_id: string }[]>`
       SELECT m.shop_id, m.catalog_service_id FROM branch_menu_services m JOIN shops s ON s.id = m.shop_id
        WHERE s.business_id = ${businessId}`;
+    // What each branch's owner changed on their side: services they stopped selling, own prices.
+    const stopped = await pdb.$queryRaw<{ shop_id: string; catalog_service_id: string }[]>`
+      SELECT v.shop_id, v.catalog_service_id FROM services v JOIN shops s ON s.id = v.shop_id
+       WHERE s.business_id = ${businessId} AND v.branch_hidden = 1 AND v.catalog_service_id IS NOT NULL`;
+    const ownPrices = await pdb.$queryRaw<{ shop_id: string; n: number }[]>`
+      SELECT o.shop_id, COUNT(*) AS n FROM branch_price_overrides o JOIN shops s ON s.id = o.shop_id
+       WHERE s.business_id = ${businessId} AND o.mode = 'hub' GROUP BY o.shop_id`;
     const owners = await pdb.$queryRaw<
       { id: string; shop_id: string; name: string; phone: string; active: number; pin_set: number }[]
     >`
@@ -448,6 +460,10 @@ export const catalogRepo = {
         upToDate: menuVersion >= data.business.catalogVersion,
         /** Head-office services switched on for this branch. */
         menu: menus.filter((m) => m.shop_id === b.id).map((m) => m.catalog_service_id),
+        /** Head-office services the branch's owner stopped selling there (when HQ allows it). */
+        stopped: stopped.filter((m) => m.shop_id === b.id).map((m) => m.catalog_service_id),
+        /** Shop prices (per vehicle) the branch set itself, within HQ's pricing rules. */
+        ownPrices: Number(ownPrices.find((o) => o.shop_id === b.id)?.n ?? 0),
         /** The kinds of vehicle this branch washes (body type ids). */
         vehicles: vehiclesOf(b.id),
         owners: owners
@@ -533,6 +549,13 @@ export const catalogRepo = {
         })),
       ),
     ]);
+  },
+
+  /** The vehicle groups (class ids) a branch washes: those with a kind on its list. */
+  async washedClasses(d1: D1Database, businessId: string, shopId: string): Promise<Set<string>> {
+    const data = await requireData(d1, businessId);
+    const list = await catalogRepo.branchVehicles(createPlatformDb(d1), shopId);
+    return new Set(data.bodyTypes.filter((b) => b.active && (list == null || list.has(b.id))).map((b) => b.classId));
   },
 
   /** One price book's base prices (paise), for building branch menus. */

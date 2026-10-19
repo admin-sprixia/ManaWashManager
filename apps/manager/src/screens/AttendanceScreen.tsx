@@ -21,7 +21,6 @@ import {
   IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
-  IconLock,
   IconSync,
   IconUsers,
   colors,

@@ -216,6 +216,7 @@ const policySchema = z
     maxIncreasePct: z.number().int().min(0).max(MAX_OVERRIDE_PCT),
     maxDecreasePct: z.number().int().min(0).max(MAX_OVERRIDE_PCT),
     branchCanHideServices: z.boolean(),
+    branchPicksBook: z.boolean(),
   })
   .partial();
 
@@ -634,10 +635,13 @@ export const businessRoutes = new Hono<{ Bindings: Env }>()
     } catch (e) {
       return catalogError(c, e);
     }
+    const owner = { name: body.ownerName, hasPin: false };
     const result = await withLock(c.env, `branches:${businessId}`, () =>
       withPhoneLock(c.env, body.ownerPhone, async () => {
         const candidate = await ownerCandidate(platform, body.ownerPhone);
         if ('problem' in candidate) return candidate;
+        owner.name = candidate.name ?? body.ownerName;
+        owner.hasPin = candidate.pin.hash != null;
         return openBranch(
           c.env,
           businessId,
@@ -656,7 +660,8 @@ export const businessRoutes = new Hono<{ Bindings: Env }>()
     if (result === null) return c.json({ error: 'busy' as const, message: 'Another branch is being opened right now. Try again in a moment.' }, 409);
     if ('problem' in result) return c.json(result.problem.body, result.problem.status);
     if ('error' in result) return planErrorResponse(c, result);
-    return c.json({ id: result.shopId, code: result.plan.code, name: result.plan.name, town: result.plan.town.name }, 201);
+    // The owner's name and whether they already have a PIN, for HQ's WhatsApp invite.
+    return c.json({ id: result.shopId, code: result.plan.code, name: result.plan.name, town: result.plan.town.name, owner }, 201);
   })
   // Only HQ makes someone an owner: a teammate of the branch is promoted, anyone else is added.
   .post('/branches/:id/owners', zValidator('param', idParam), zValidator('json', ownerSchema), async (c) => {
@@ -672,7 +677,7 @@ export const businessRoutes = new Hono<{ Bindings: Env }>()
       }
       if (here) {
         await userRepo.update(db, here.id, { role: 'owner', active: true });
-        return { id: here.id };
+        return { id: here.id, name: here.name, hasPin: here.pinHash != null };
       }
       const candidate = await ownerCandidate(platform, body.phone);
       if ('problem' in candidate) return candidate;
@@ -682,7 +687,7 @@ export const businessRoutes = new Hono<{ Bindings: Env }>()
         role: 'owner',
         pin: candidate.pin,
       });
-      return { id: owner.id };
+      return { id: owner.id, name: owner.name, hasPin: candidate.pin.hash != null };
     });
     forgetShop(id);
     if (result === null) return c.json(phoneBusy, 409);

@@ -17,10 +17,9 @@ import {
   vehicleMakeNames,
   vehicleModelNames,
 } from '@mana/domain';
-import { Button, ChoiceChips, Notice, TextField, colors, showToast, spacing } from '@mana/ui';
+import { Button, ChoiceChips, MakeLogo, Notice, TextField, colors, showToast, spacing } from '@mana/ui';
 import { EdgePanel, SectionLabel } from '../components/CardList';
 import { ScreenHeader } from '../components/ScreenHeader';
-import { MakeLogo } from '../components/MakeLogo';
 import { SearchSelect } from '../components/SearchSelect';
 import { VehicleTypePicker, suggestedTypeId } from '../components/VehicleTypePicker';
 import { api, send } from '../api/client';

@@ -42,3 +42,6 @@ coverage/
 
 # Speed reports from npm run perf:report (machine-specific measurements)
 apps/api/perf-results/
+
+# Training guides with phone screenshots, kept outside git
+docs/App Usage Guide/

@@ -73,7 +73,7 @@ export function visibleLanes(
 
 const laneListeners = new Set<(lanes: LaneAvailability) => void>();
 
-/** The branch's services just changed (Shop details › Services): every home screen updates its tabs now. */
+/** The branch's services just changed (How this branch washes › What this branch offers): every home screen updates its tabs now. */
 export function announceLanes(lanes: LaneAvailability) {
   void writeCache(CacheKeys.lanes, lanes);
   for (const listener of laneListeners) listener(lanes);

@@ -147,6 +147,17 @@ export function categoryForClass(classKey: string | null | undefined): VehicleCa
   return vehicleClassDef(classKey)?.category ?? 'car';
 }
 
+/**
+ * The group a branch's vehicle type is in (Car, Three-wheeler, Farm & machines…): from the business
+ * body type it's tied to (ids end in `_<bodyKey>`), else from its name, else its menu.
+ */
+export function vehicleClassOf(vt: { bodyTypeId: string | null; name: string; category: string }): VehicleClassKey {
+  const linked = vt.bodyTypeId ? BODY_TYPES.find((b) => vt.bodyTypeId!.endsWith(`_${b.key}`)) : undefined;
+  const body = linked ?? bodyTypeForName(vt.name);
+  if (body) return body.classKey;
+  return vt.category === 'bike' ? 'twoWheeler' : 'car';
+}
+
 export function isVehicleClassKey(key: string): key is VehicleClassKey {
   return CLASS_BY_KEY.has(key as VehicleClassKey);
 }

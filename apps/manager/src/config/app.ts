@@ -4,6 +4,9 @@ import release from './release.json';
 /** Shared product version (see scripts/version.mjs); shown in More and attached to crash reports. */
 export const APP_VERSION: string = pkg.version;
 
+/** Where a new teammate installs this app; sent in the WhatsApp invite from Team. */
+export const PARTNER_APP_LINK = 'https://play.google.com/store/apps/details?id=com.sprixia.srimanawashpartner';
+
 /** Where "Send to support" in the error log goes. */
 export const SUPPORT_EMAIL = 'support@sprixia.com';
 

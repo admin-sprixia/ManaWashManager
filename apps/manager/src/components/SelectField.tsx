@@ -20,6 +20,8 @@ export interface SelectOption<T extends string> {
   hint?: string;
   /** Options with the same group are listed under one heading ("Morning"). */
   group?: string;
+  /** A picture before the label (a company's logo); also shown in the field once picked. */
+  leading?: React.ReactNode;
 }
 
 interface BaseProps<T extends string> {
@@ -164,6 +166,7 @@ function OptionList<T extends string>({
                 accessibilityRole={multiple ? 'checkbox' : 'radio'}
                 accessibilityState={multiple ? { checked: on } : { selected: on }}
               >
+                {o.leading ?? null}
                 <View style={styles.rowCopy}>
                   <Text style={[styles.rowLabel, on && { color: accent }]}>{o.label}</Text>
                   {o.hint ? <Text style={styles.rowHint}>{o.hint}</Text> : null}
@@ -214,7 +217,7 @@ export function SelectField<T extends string>({
         label={label}
         text={selected?.label ?? null}
         placeholder={placeholder}
-        icon={icon}
+        icon={selected?.leading ?? icon}
         hint={hint}
         error={error}
         accent={accent}

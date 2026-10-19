@@ -27,12 +27,10 @@ import {
   IconEdit,
   IconGift,
   IconStar,
-  IconUpi,
   IconLock,
   IconPerson,
   IconPhone,
   IconLogout,
-  IconMapPin,
   IconReceipt,
   IconRupee,
   IconSettings,
@@ -52,9 +50,6 @@ import { ScreenHero, SectionTitle } from '../components/ScreenChrome';
 import { SetPinSheet } from '../components/SetPinSheet';
 import { PhonesSheet } from '../components/PhonesSheet';
 import { EditProfileSheet } from '../components/EditProfileSheet';
-import { ReviewLinkSheet } from '../components/ReviewLinkSheet';
-import { UpiSheet } from '../components/UpiSheet';
-import { ShopDetailsSheet } from '../components/ShopDetailsSheet';
 import { ShopSwitcherSheet } from '../components/ShopSwitcherSheet';
 import { EarningsCard } from '../components/EarningsCard';
 import { USER_ROLE_LABEL } from '@mana/domain';
@@ -103,13 +98,8 @@ export function MoreScreen({ navigation }: Props) {
   const [pinOpen, setPinOpen] = useState(false);
   const [phonesOpen, setPhonesOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const [upiOpen, setUpiOpen] = useState(false);
-  const [shopOpen, setShopOpen] = useState(false);
   const [branchesOpen, setBranchesOpen] = useState(false);
   const {
-    googleReviewUrl,
-    upiId,
     unseenErrors,
     info: shop,
     stock,
@@ -243,34 +233,6 @@ export function MoreScreen({ navigation }: Props) {
           />
         </Pressable>
 
-        {shop ? (
-          <>
-            <SectionTitle>Shop</SectionTitle>
-            <EdgeGroup>
-              <EdgeRow
-                icon={<IconStore size={19} color={colors.waterDeep} />}
-                title={shop.name}
-                subtitle={
-                  isOwner
-                    ? `Branch code ${shop.code} · tap to rename`
-                    : `Branch code ${shop.code}`
-                }
-                right={isOwner ? <Pill label="Edit" tone="water" /> : undefined}
-                chevron={false}
-                onPress={isOwner ? () => setShopOpen(true) : undefined}
-              />
-              {myShops.length > 1 ? (
-                <EdgeRow
-                  icon={<IconSync size={18} color={colors.waterDeep} />}
-                  title="Switch branch"
-                  subtitle={`You work at ${myShops.length} branches · also at the top of the home screen`}
-                  onPress={() => setBranchesOpen(true)}
-                />
-              ) : null}
-            </EdgeGroup>
-          </>
-        ) : null}
-
         <SectionTitle>Sync</SectionTitle>
         <EdgeGroup>
           <EdgeRow
@@ -346,7 +308,87 @@ export function MoreScreen({ navigation }: Props) {
           </>
         ) : null}
 
-        <SectionTitle>Shift</SectionTitle>
+        <SectionTitle meta={shop ? `${shop.name} · code ${shop.code}` : undefined}>Branch</SectionTitle>
+        {isOwner ? (
+          <EdgeGroup>
+            <EdgeRow
+              icon={<IconChart size={19} color={colors.waterDeep} />}
+              title="Reports"
+              subtitle="Revenue, expenses, net and exports"
+              onPress={() => navigation.navigate('Reports')}
+            />
+            <EdgeRow
+              icon={<IconShield size={19} color={colors.tealDeep} />}
+              iconBg="#CCFBF1"
+              title="Staff report"
+              subtitle="Sales, commission and days worked per person"
+              onPress={() => navigation.navigate('StaffReport')}
+            />
+            <EdgeRow
+              icon={<IconCalendarCheck size={19} color={colors.tealDeep} />}
+              iconBg="#CCFBF1"
+              title="Attendance"
+              subtitle="Mark who worked today"
+              onPress={() => navigation.navigate('Attendance')}
+            />
+            <EdgeRow
+              icon={<IconUsers size={19} color="#5B21B6" />}
+              iconBg="#EDE9FE"
+              title="Team"
+              subtitle="Add staff and managers, reset PINs"
+              onPress={() => navigation.navigate('Team')}
+            />
+          </EdgeGroup>
+        ) : isManager ? (
+          <EdgeGroup>
+            <EdgeRow
+              icon={<IconCalendarCheck size={19} color={colors.tealDeep} />}
+              iconBg="#CCFBF1"
+              title="Attendance"
+              subtitle="Mark who worked today"
+              onPress={() => navigation.navigate('Attendance')}
+            />
+            <EdgeRow
+              icon={<IconUsers size={19} color="#5B21B6" />}
+              iconBg="#EDE9FE"
+              title="Team"
+              subtitle="Add staff and reset their PINs"
+              onPress={() => navigation.navigate('Team')}
+            />
+          </EdgeGroup>
+        ) : null}
+
+        {isOwner ? (
+          <EdgeGroup>
+            <EdgeRow
+              icon={<IconRupee size={19} color={colors.amberDeep} />}
+              iconBg="#FEF3C7"
+              title="Prices"
+              subtitle="This branch’s prices and staff commission"
+              onPress={() => navigation.navigate('Settings')}
+            />
+            <EdgeRow
+              icon={<IconCar size={19} color={colors.waterDeep} />}
+              title="Vehicles"
+              subtitle="What this branch washes, by size"
+              onPress={() => navigation.navigate('BranchVehicles')}
+            />
+            <EdgeRow
+              icon={<IconSparkle size={19} color={colors.indigo} />}
+              iconBg={colors.indigoPale}
+              title="How this branch washes"
+              subtitle="Shop, community and doorstep, and their teams"
+              onPress={() => navigation.navigate('ServicePoints')}
+            />
+            <EdgeRow
+              icon={<IconStore size={19} color={colors.waterDeep} />}
+              title="Branch details"
+              subtitle="Name, contact, hours, location, UPI, review link"
+              onPress={() => navigation.navigate('BranchProfile')}
+            />
+          </EdgeGroup>
+        ) : null}
+
         <EdgeGroup>
           <EdgeRow
             icon={<IconDrawer size={19} color={colors.tealDeep} />}
@@ -402,10 +444,9 @@ export function MoreScreen({ navigation }: Props) {
           />
         </EdgeGroup>
 
-        {customerApp.listed ? (
-          <>
-            <SectionTitle>Customers</SectionTitle>
-            <EdgeGroup>
+        {customerApp.listed || myShops.length > 1 ? (
+          <EdgeGroup>
+            {customerApp.listed ? (
               <EdgeRow
                 icon={<IconUserPlus size={19} color={colors.waterDeep} />}
                 title="People asking"
@@ -421,29 +462,37 @@ export function MoreScreen({ navigation }: Props) {
                 }
                 onPress={() => navigation.navigate('ServiceRequests')}
               />
-              {customerApp.listed ? (
-                <EdgeRow
-                  icon={<IconStar size={19} color={colors.amberDeep} />}
-                  iconBg="#FEF3C7"
-                  title="Customer feedback"
-                  subtitle={feedbackSubtitle(customerApp.openProblems, customerApp.pendingVehicles)}
-                  right={
-                    customerApp.openProblems + customerApp.pendingVehicles > 0 ? (
-                      <Pill
-                        label={String(customerApp.openProblems + customerApp.pendingVehicles)}
-                        tone="danger"
-                      />
-                    ) : undefined
-                  }
-                  onPress={() =>
-                    navigation.navigate('AppFeedback', {
-                      tab: !customerApp.openProblems && customerApp.pendingVehicles ? 'vehicles' : 'problems',
-                    })
-                  }
-                />
-              ) : null}
-            </EdgeGroup>
-          </>
+            ) : null}
+            {customerApp.listed ? (
+              <EdgeRow
+                icon={<IconStar size={19} color={colors.amberDeep} />}
+                iconBg="#FEF3C7"
+                title="Customer feedback"
+                subtitle={feedbackSubtitle(customerApp.openProblems, customerApp.pendingVehicles)}
+                right={
+                  customerApp.openProblems + customerApp.pendingVehicles > 0 ? (
+                    <Pill
+                      label={String(customerApp.openProblems + customerApp.pendingVehicles)}
+                      tone="danger"
+                    />
+                  ) : undefined
+                }
+                onPress={() =>
+                  navigation.navigate('AppFeedback', {
+                    tab: !customerApp.openProblems && customerApp.pendingVehicles ? 'vehicles' : 'problems',
+                  })
+                }
+              />
+            ) : null}
+            {myShops.length > 1 ? (
+              <EdgeRow
+                icon={<IconSync size={18} color={colors.waterDeep} />}
+                title="Switch branch"
+                subtitle={`You work at ${myShops.length} branches · also at the top of the home screen`}
+                onPress={() => setBranchesOpen(true)}
+              />
+            ) : null}
+          </EdgeGroup>
         ) : null}
 
         {businessAdmin ? (
@@ -483,118 +532,24 @@ export function MoreScreen({ navigation }: Props) {
                 subtitle="Business name, admins, update every branch"
                 onPress={() => navigation.navigate('Business')}
               />
-            </EdgeGroup>
-          </>
-        ) : null}
-
-        {isManager ? (
-          <>
-            <SectionTitle>Manager</SectionTitle>
-            <EdgeGroup>
-              <EdgeRow
-                icon={<IconUsers size={19} color="#5B21B6" />}
-                iconBg="#EDE9FE"
-                title="Team"
-                subtitle="Add staff and reset their PINs"
-                onPress={() => navigation.navigate('Team')}
-              />
-              <EdgeRow
-                icon={<IconCalendarCheck size={19} color={colors.tealDeep} />}
-                iconBg="#CCFBF1"
-                title="Attendance"
-                subtitle="Mark who worked today"
-                onPress={() => navigation.navigate('Attendance')}
-              />
-            </EdgeGroup>
-          </>
-        ) : null}
-
-        {isOwner ? (
-          <>
-            <SectionTitle>Owner</SectionTitle>
-            <EdgeGroup>
-              <EdgeRow
-                icon={<IconChart size={19} color={colors.waterDeep} />}
-                title="Reports"
-                subtitle="Revenue, expenses, net and exports"
-                onPress={() => navigation.navigate('Reports')}
-              />
-              <EdgeRow
-                icon={<IconShield size={19} color={colors.tealDeep} />}
-                iconBg="#CCFBF1"
-                title="Staff report"
-                subtitle="Sales, commission and days worked per person"
-                onPress={() => navigation.navigate('StaffReport')}
-              />
-              <EdgeRow
-                icon={<IconCalendarCheck size={19} color={colors.tealDeep} />}
-                iconBg="#CCFBF1"
-                title="Attendance"
-                subtitle="Mark who worked today"
-                onPress={() => navigation.navigate('Attendance')}
-              />
-              <EdgeRow
-                icon={<IconUsers size={19} color="#5B21B6" />}
-                iconBg="#EDE9FE"
-                title="Team"
-                subtitle="Add staff and managers, reset PINs"
-                onPress={() => navigation.navigate('Team')}
-              />
-              <EdgeRow
-                icon={<IconSettings size={19} color={colors.amberDeep} />}
-                iconBg="#FEF3C7"
-                title="This branch’s prices"
-                subtitle="Its price list and staff commission"
-                onPress={() => navigation.navigate('Settings')}
-              />
-              <EdgeRow
-                icon={<IconCar size={19} color={colors.waterDeep} />}
-                title="How this branch washes"
-                subtitle="The shop, the community team, and which vehicles"
-                onPress={() => navigation.navigate('ServicePoints')}
-              />
-              <EdgeRow
-                icon={<IconMapPin size={19} color={colors.tealDeep} />}
-                iconBg="#CCFBF1"
-                title="Branch in the app"
-                subtitle="Address, hours and area shown to customers"
-                onPress={() => navigation.navigate('ServiceArea')}
-              />
-              <EdgeRow
-                icon={<IconStar size={19} color={colors.amberDeep} />}
-                iconBg="#FEF3C7"
-                title="Google review link"
-                subtitle={
-                  googleReviewUrl
-                    ? 'Added to thank-you messages'
-                    : 'Not set — thank-you messages skip the review ask'
-                }
-                right={!googleReviewUrl ? <Pill label="Set up" tone="amber" /> : undefined}
-                onPress={() => setReviewOpen(true)}
-              />
-              <EdgeRow
-                icon={<IconUpi size={19} color={colors.waterDeep} />}
-                title="UPI QR code"
-                subtitle={upiId ? `Shown when a customer pays by UPI · ${upiId}` : 'Not set — add your UPI ID to show a QR'}
-                right={!upiId ? <Pill label="Set up" tone="amber" /> : undefined}
-                onPress={() => setUpiOpen(true)}
-              />
-              <EdgeRow
-                icon={<IconBug size={19} color={colors.slateDeep} />}
-                iconBg="#F1F5F9"
-                title="Error log"
-                subtitle={
-                  unseenErrors > 0
-                    ? `${unseenErrors} new since you last looked`
-                    : 'App crashes and server errors'
-                }
-                right={
-                  unseenErrors > 0 ? (
-                    <Pill label={unseenErrors > 99 ? '99+' : String(unseenErrors)} tone="danger" />
-                  ) : undefined
-                }
-                onPress={() => navigation.navigate('ErrorLog')}
-              />
+              {isOwner ? (
+                <EdgeRow
+                  icon={<IconBug size={19} color={colors.slateDeep} />}
+                  iconBg="#F1F5F9"
+                  title="Error log"
+                  subtitle={
+                    unseenErrors > 0
+                      ? `${unseenErrors} new since you last looked`
+                      : 'App crashes and server errors'
+                  }
+                  right={
+                    unseenErrors > 0 ? (
+                      <Pill label={unseenErrors > 99 ? '99+' : String(unseenErrors)} tone="danger" />
+                    ) : undefined
+                  }
+                  onPress={() => navigation.navigate('ErrorLog')}
+                />
+              ) : null}
             </EdgeGroup>
           </>
         ) : null}
@@ -634,9 +589,6 @@ export function MoreScreen({ navigation }: Props) {
 
       <EditProfileSheet visible={profileOpen} onClose={() => setProfileOpen(false)} />
       <PhonesSheet visible={phonesOpen} onClose={() => setPhonesOpen(false)} />
-      <ReviewLinkSheet visible={reviewOpen} onClose={() => setReviewOpen(false)} />
-      <UpiSheet visible={upiOpen} onClose={() => setUpiOpen(false)} />
-      <ShopDetailsSheet visible={shopOpen} onClose={() => setShopOpen(false)} />
       <ShopSwitcherSheet
         visible={branchesOpen}
         onClose={() => setBranchesOpen(false)}

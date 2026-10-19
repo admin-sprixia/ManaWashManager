@@ -204,7 +204,7 @@ const VAN = r.body?.id;
 check('Owner adds a doorstep team for cars and farm vehicles', r.status === 201 && !!VAN, show(r));
 prices = (await call(OA, 'GET', '/services/prices')).body ?? [];
 check('Doorstep prices appear with the extra (₹400 → ₹460)', priceOf(prices, fullA, vtA.Hatchback.id, 'doorstep')?.price === 46000, JSON.stringify(priceOf(prices, fullA, vtA.Hatchback.id, 'doorstep')));
-check('…the extra is at least ₹50 (₹150 bike wash isn’t done at the door: bikes aren’t on the van)', !priceOf(prices, fullA, vtA.Scooter.id, 'doorstep'));
+check('…the van takes what the branch washes, bikes too, with at least ₹50 extra (₹150 → ₹200+)', (priceOf(prices, fullA, vtA.Scooter.id, 'doorstep')?.price ?? 0) >= (priceOf(prices, fullA, vtA.Scooter.id)?.price ?? Infinity) + 5000, JSON.stringify(priceOf(prices, fullA, vtA.Scooter.id, 'doorstep')));
 check('A hub-only service gets no doorstep price', !priceOf(prices, underA, vtA.Hatchback.id, 'doorstep'));
 
 r = await call(OA, 'PUT', '/business/prices', { priceBookId: book, entries: [{ serviceId: FULL, sizeId: size('farm', 'L'), price: 150000 }] });
@@ -215,9 +215,9 @@ prices = (await call(OA, 'GET', '/services/prices')).body ?? [];
 check('…priced at the door (₹1,500 + 15% = ₹1,725, to the rupee)', priceOf(prices, fullA, tractor?.id, 'doorstep')?.price === 172500, JSON.stringify(priceOf(prices, fullA, tractor?.id, 'doorstep')));
 check('…and the hub price, which home washes are charged (plus the visit charge)', priceOf(prices, fullA, tractor?.id, 'hub')?.price === 150000, JSON.stringify(priceOf(prices, fullA, tractor?.id, 'hub')));
 r = await call(OA, 'GET', '/services/network');
-check('…but the hub doesn’t take tractors: they’re washed at homes only', r.body?.homeOnlyTypes?.includes(tractor?.id), show(r));
+check('…and the shop takes them too: every place washes what the branch washes', !r.body?.homeOnlyTypes?.includes(tractor?.id), show(r));
 r = await call(OB, 'GET', '/services/vehicle-types');
-check('A branch without a farm team gets no Tractor type', !(r.body ?? []).some((v) => v.name === 'Tractor'), show(r));
+check('A branch that washes every kind gets a Tractor type too', (r.body ?? []).some((v) => v.name === 'Tractor'), show(r));
 
 // ─── The vehicles each branch washes ─────────────────────────────────────────
 
@@ -240,9 +240,41 @@ r = await call(OA, 'PUT', `/business/branches/${A}/vehicles`, { bodyTypeIds: [..
 vts = (await call(OA, 'GET', '/services/vehicle-types')).body ?? [];
 check('Putting tractors back brings its Tractor type back', r.status === 200 && vts.some((v) => v.name === 'Tractor'), vts.map((v) => v.name).join(', '));
 r = await call(OB, 'GET', '/services/vehicle-types');
-check('…at that branch only', !(r.body ?? []).some((v) => v.name === 'Tractor'));
+check('…and the other branch, washing every kind, is unaffected', (r.body ?? []).some((v) => v.name === 'Tractor'));
 r = await call(OA, 'PATCH', `/business/body-types/${tractorBody.id}`, { active: false });
 check('There’s no switch for the whole business any more', r.status === 200 && (await call(OA, 'GET', '/business/catalog')).body?.bodyTypes?.find((b) => b.id === tractorBody.id)?.active === true, show(r));
+
+// The owner's Vehicles and HQ's page for the branch are one list.
+const hatchBody = cat.bodyTypes.find((b) => b.key === 'hatch');
+const hqListOf = async (id) => (await call(OA, 'GET', '/business/catalog')).body?.branches?.find((b) => b.id === id)?.vehicles ?? [];
+r = await call(OB, 'GET', '/branch/vehicles');
+const bOn = r.body?.vehicles ?? [];
+check('The owner sees the kinds the branch washes, as HQ does', r.status === 200 && bOn.length > 0 && bOn.length === (await hqListOf(B)).length, show(r));
+r = await call(OB, 'PUT', '/branch/vehicles', { bodyTypeIds: bOn.filter((id) => id !== hatchBody.id) });
+vts = (await call(OB, 'GET', '/services/vehicle-types')).body ?? [];
+check('The owner switches hatchbacks off: gone from New Wash…', r.status === 200 && !vts.some((v) => v.name === 'Hatchback'), vts.map((v) => v.name).join(', '));
+check('…and off on HQ’s page for the branch', !(await hqListOf(B)).includes(hatchBody.id));
+r = await call(OA, 'PUT', `/business/branches/${B}/vehicles`, { bodyTypeIds: [...(await hqListOf(B)), hatchBody.id] });
+vts = (await call(OB, 'GET', '/services/vehicle-types')).body ?? [];
+check('HQ switches them back on: back in New Wash…', r.status === 200 && vts.some((v) => v.name === 'Hatchback'), vts.map((v) => v.name).join(', '));
+check('…and on in the owner’s Vehicles', ((await call(OB, 'GET', '/branch/vehicles')).body?.vehicles ?? []).includes(hatchBody.id));
+r = await call(SA, 'PUT', '/branch/vehicles', { bodyTypeIds: bOn });
+check('Staff can’t change the vehicles', r.status === 403, show(r));
+r = await call(OB, 'PUT', '/branch/vehicles', { bodyTypeIds: [] });
+check('The owner can’t switch every kind off', r.status === 400, show(r));
+const bikeKinds = kindsOf('twoWheeler');
+r = await call(OB, 'PUT', '/branch/vehicles', { bodyTypeIds: bOn.filter((id) => !bikeKinds.includes(id)) });
+let pts = (await call(OB, 'GET', '/branch/points')).body;
+check(
+  'Two-wheelers switched off: the hub and teams stop taking them',
+  r.status === 200 && pts?.points?.length > 0 && pts.points.every((p) => !p.classIds.includes(cls.twoWheeler.id)) && !pts.washedClassIds.includes(cls.twoWheeler.id),
+  JSON.stringify(pts?.points?.map((p) => p.classIds)),
+);
+r = await call(OB, 'PATCH', `/branch/points/${pts.points[0].id}`, { classIds: [cls.car.id, cls.twoWheeler.id] });
+check('…and a place can’t take a group the branch doesn’t wash', r.status === 400 && r.body?.error === 'not_washed', show(r));
+await call(OB, 'PUT', '/branch/vehicles', { bodyTypeIds: bOn });
+pts = (await call(OB, 'GET', '/branch/points')).body;
+check('Switched back on: a place takes them again', pts?.points?.some((p) => p.classIds.includes(cls.twoWheeler.id)), JSON.stringify(pts?.points?.map((p) => p.classIds)));
 
 // ─── Companies and models (the vehicle size guide) ───────────────────────────
 
@@ -302,6 +334,30 @@ r = await call(OA, 'PUT', '/services/prices', { serviceId: fullA, vehicleTypeId:
 check('…but not beyond it', r.status === 400, show(r));
 prices = (await call(OA, 'GET', '/services/prices')).body ?? [];
 check('The menu shows the branch price', priceOf(prices, fullA, vtA.Hatchback.id)?.price === 44000 && priceOf(prices, fullA, vtA.Hatchback.id)?.source === 'override');
+const communityRow = prices.find((p) => p.serviceId === fullA && p.vehicleTypeId === vtA.Hatchback.id && p.mode === 'doorstep');
+check('Its community price follows the branch’s shop price by the rule', !communityRow || (communityRow.source === 'override' && communityRow.price !== communityRow.listPrice), JSON.stringify(communityRow));
+r = await call(OA, 'PUT', '/services/prices', { serviceId: fullA, vehicleTypeId: vtA.Hatchback.id, mode: 'doorstep', price: 30000 });
+check('…so a community price can’t be typed on its own', r.status === 400, show(r));
+
+r = await call(OA, 'GET', '/services/branch-prices');
+const carS = r.body?.services?.find((s) => s.id === fullA)?.cells?.find((c) => c.classKey === 'car' && c.sizeKey === 'S');
+check('The owner’s price sheet: by group and size, from the branch’s price book', r.status === 200 && !!r.body?.bookName && carS?.hub?.price === 44000 && carS?.hub?.own === true && r.body?.groups?.some((g) => g.key === 'car'), JSON.stringify(carS));
+r = await call(OA, 'PUT', '/services/branch-prices/size', { serviceId: fullA, classKey: 'car', sizeKey: 'S', price: 43000, commission: 2000 });
+prices = (await call(OA, 'GET', '/services/prices')).body ?? [];
+const rates = (await call(OA, 'GET', '/services/commissions')).body ?? [];
+check('One price for a size sets every vehicle of it, with its commission', r.status === 200 && r.body?.vehicles >= 1 && priceOf(prices, fullA, vtA.Hatchback.id)?.price === 43000 && rates.some((x) => x.serviceId === fullA && x.vehicleTypeId === vtA.Hatchback.id && x.amount === 2000), show(r));
+r = await call(OA, 'PUT', '/services/branch-prices/size', { serviceId: fullA, classKey: 'car', sizeKey: 'S', price: 1000 });
+check('…but not outside what HQ allows', r.status === 400, show(r));
+r = await call(OA, 'PUT', '/services/branch-prices/shift', { classKey: 'car', percent: 30 });
+check('Moving every price by more than HQ allows is refused', r.status === 400, show(r));
+r = await call(OA, 'PUT', '/services/branch-prices/shift', { classKey: 'car', percent: 10 });
+prices = (await call(OA, 'GET', '/services/prices')).body ?? [];
+const hatch = priceOf(prices, fullA, vtA.Hatchback.id);
+check('Every car price moves 10% up from HQ’s price, rounded to ₹1', r.status === 200 && r.body?.prices > 0 && hatch?.price === Math.round((hatch?.listPrice * 1.1) / 100) * 100 && hatch?.source === 'override', `${show(r)} ${JSON.stringify(hatch)}`);
+r = await call(OA, 'PUT', '/services/branch-prices/shift', { classKey: 'car', percent: null });
+prices = (await call(OA, 'GET', '/services/prices')).body ?? [];
+check('…and all back to HQ’s prices', r.status === 200 && prices.filter((p) => p.mode === 'hub' && p.vehicleTypeId === vtA.Hatchback.id).every((p) => p.source !== 'override'), show(r));
+r = await call(OA, 'PUT', '/services/prices', { serviceId: fullA, vehicleTypeId: vtA.Hatchback.id, mode: 'hub', price: 44000 });
 
 r = await call(OA, 'PUT', '/business/prices', { priceBookId: book, entries: [{ serviceId: FULL, sizeId: size('car', 'S'), price: 42000 }] });
 prices = (await call(OA, 'GET', '/services/prices')).body ?? [];
@@ -341,6 +397,24 @@ r = await call(OA, 'DELETE', `/services/${underA}`);
 check('When the business forbids it, a branch can’t remove catalog services', r.status === 400, show(r));
 await call(OA, 'PATCH', '/business/policy', { branchCanHideServices: true });
 
+// ─── What a branch changes shows on HQ's page for it ─────────────────────────
+
+const hqBranch = async (id) => (await call(OA, 'GET', '/business/catalog')).body?.branches?.find((b) => b.id === id);
+await call(OA, 'DELETE', `/services/${underA}`);
+check('A branch stops selling a service: HQ’s page for it says so', (await hqBranch(A))?.stopped?.includes(UNDER));
+await call(OA, 'PUT', `/services/${underA}/hidden`, { hidden: false });
+check('…and stops saying so once it’s back', !(await hqBranch(A))?.stopped?.includes(UNDER));
+const ownBefore = (await hqBranch(A))?.ownPrices ?? 0;
+r = await call(OA, 'PUT', '/services/branch-prices/size', { serviceId: fullA, classKey: 'car', sizeKey: 'M', price: 52000 });
+const ownAfter = (await hqBranch(A))?.ownPrices ?? 0;
+check('A branch sets its own price: HQ’s page counts it', r.status === 200 && ownAfter > ownBefore, `${ownBefore} → ${ownAfter} ${show(r)}`);
+await call(OA, 'PUT', '/services/branch-prices/size', { serviceId: fullA, classKey: 'car', sizeKey: 'M', price: null });
+check('…and not once it’s back to HQ’s price', ((await hqBranch(A))?.ownPrices ?? 0) === ownBefore);
+const nameB = (await hqBranch(B))?.name;
+r = await call(OB, 'PUT', '/shop/info', { name: 'Kovur Main Road', city: 'Kovur' });
+check('A branch renames itself: HQ’s list shows the new name', r.status === 200 && (await hqBranch(B))?.name === 'Kovur Main Road', show(r));
+await call(OB, 'PUT', '/shop/info', { name: nameB, city: null });
+
 r = await call(OA, 'PATCH', `/business/services/${UNDER}`, { name: 'Underbody Wash' });
 names = ((await call(OB, 'GET', '/services')).body ?? []).map((s) => s.name);
 check('Renaming in the catalog renames it at every branch', r.status === 200 && names.includes('Underbody Wash') && !names.includes('Underbody'), names.join(', '));
@@ -371,6 +445,25 @@ r = await call(OA, 'DELETE', `/business/price-books/${book}`);
 check('The default price book can’t be deleted', r.status === 409, show(r));
 await call(OA, 'PATCH', `/business/branches/${B}`, { priceBookId: null });
 
+// The owner picks a price book, when HQ allows it.
+r = await call(OB, 'GET', '/services/branch-prices');
+check('The owner sees HQ’s price books and which one the branch uses', r.body?.books?.length >= 2 && r.body?.bookId === book && r.body?.policy?.branchPicksBook === false, show(r));
+r = await call(OB, 'PUT', '/services/branch-prices/book', { priceBookId: PREMIUM });
+check('…but can’t switch while HQ picks the book', r.status === 400, show(r));
+await call(OA, 'PATCH', '/business/policy', { branchPicksBook: true });
+await call(OB, 'PUT', '/services/branch-prices/size', { serviceId: svcB['Full Wash']?.id, classKey: 'car', sizeKey: 'S', price: 44000 });
+check('An own price shows on HQ’s list for the branch', ((await hqBranch(B))?.ownPrices ?? 0) > 0);
+r = await call(OB, 'PUT', '/services/branch-prices/book', { priceBookId: PREMIUM });
+pricesB = (await call(OB, 'GET', '/services/prices')).body ?? [];
+const onPremium = priceOf(pricesB, svcB['Full Wash']?.id, vtB.Hatchback?.id);
+check('Allowed: the owner moves to Premium, its prices apply…', r.status === 200 && r.body?.cleared > 0 && onPremium?.price === 55000 && onPremium?.source === 'template', `${show(r)} ${JSON.stringify(onPremium)}`);
+const hqB = await hqBranch(B);
+check('…their own prices are cleared, and HQ sees Premium', hqB?.priceBookId === PREMIUM && hqB?.ownPrices === 0, JSON.stringify({ book: hqB?.priceBookId, own: hqB?.ownPrices }));
+r = await call(OB, 'PUT', '/services/branch-prices/book', { priceBookId: 'pb_nope' });
+check('An unknown book is refused', r.status === 404, show(r));
+await call(OB, 'PUT', '/services/branch-prices/book', { priceBookId: book });
+await call(OA, 'PATCH', '/business/policy', { branchPicksBook: false });
+
 // ─── Washes: hub and doorstep ────────────────────────────────────────────────
 
 const start = (extra) =>
@@ -392,7 +485,7 @@ check('A wash with no mode is a hub wash at the hub price', r.status === 201 && 
 r = await start({ mode: 'doorstep', services: [{ serviceId: underA, quantity: 1 }] });
 check('A hub-only service can’t be done at the door', r.status === 400 && r.body?.error === 'not_at_homes', show(r));
 r = await start({ vehicleTypeId: tractor?.id });
-check('A tractor can’t be washed at the shop, which doesn’t take them', r.status === 400 && r.body?.error === 'not_at_shop', show(r));
+check('A tractor can be washed at the shop too, since the branch washes tractors', r.status === 201, show(r));
 r = await call(OB, 'POST', '/jobs/start', {
   id: `job_cc_${run}_${rand(6)}`,
   customer: { phone: `98${rand(8)}`, name: 'Door Customer' },
@@ -417,7 +510,7 @@ const hatchListed = listed?.vehicleTypes?.find((v) => v.name === 'Hatchback');
 check('The customer app lists how the branch washes', listed?.modes?.join() === 'hub,doorstep', show(r));
 check('…with hub prices, the same at the door', fullListed?.prices?.some((p) => p.vehicleTypeId === hatchListed?.id && p.price === 42000) && fullListed?.doorstepPrices?.some((p) => p.vehicleTypeId === hatchListed?.id && p.price === 42000), JSON.stringify(fullListed));
 check('…plus the visit charge rules for a wash at home', listed?.visit?.visitFeePaise === 4900 && listed?.visit?.maxKm === 15, JSON.stringify(listed?.visit));
-check('…and a tractor isn’t on the shop’s list (the hub doesn’t take them)', !fullListed?.prices?.some((p) => p.vehicleTypeId === tractor?.id) && fullListed?.doorstepPrices?.some((p) => p.vehicleTypeId === tractor?.id), JSON.stringify(fullListed));
+check('…and a tractor is on the shop’s list and at the door', fullListed?.prices?.some((p) => p.vehicleTypeId === tractor?.id) && fullListed?.doorstepPrices?.some((p) => p.vehicleTypeId === tractor?.id), JSON.stringify(fullListed));
 check('…and each vehicle type’s body type for its picture', hatchListed?.bodyKey === 'hatch', JSON.stringify(hatchListed));
 r = await call(null, 'POST', '/c/service-area/check', { location: { latitude: 15.7, longitude: 80.06 } });
 check('A place only the doorstep team reaches is served', r.status === 200 && r.body?.served === true && r.body?.branch?.name === 'Catalog Hub', show(r));
@@ -463,6 +556,15 @@ const stale = d1Rows(
 );
 check('Every branch’s menu is up to date', stale[0]?.n === 0, JSON.stringify(stale));
 check('Classes the admin can pick for points come from the catalog', classesA.length === 6);
+
+// One distance for the branch: Branch details sets how far its hub and team go.
+r = await call(OA, 'PUT', '/service-area', { latitude: 15.7, longitude: 80.05, radiusKm: 12 });
+const ptsA = (await call(OA, 'GET', '/branch/points')).body?.points ?? [];
+check(
+  'Setting how far the branch serves sets its team’s reach too',
+  r.status === 200 && ptsA.filter((p) => p.latitude != null).every((p) => p.radiusKm === 12) && ptsA.some((p) => p.kind === 'doorstep'),
+  JSON.stringify(ptsA.map((p) => [p.kind, p.radiusKm])),
+);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

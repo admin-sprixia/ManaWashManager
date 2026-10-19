@@ -36,7 +36,7 @@ import { PRICE_BOOK_NAME_MAX } from '@mana/domain';
 import { api } from '../../api/client';
 import { formatRupees } from '../../utils/format';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
-import { formatPercent, plural, useCatalog, type Catalog } from './shared';
+import { plural, useCatalog, type Catalog } from './shared';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BusinessBranches'>;
 type Book = Catalog['priceBooks'][number];
@@ -260,7 +260,7 @@ export function BranchesScreen({ navigation }: Props) {
               b.code,
               b.city,
               b.owners.length ? b.owners.map((o) => o.name).join(', ') : 'No owner',
-              `${bookName(b.priceBookId)} prices`,
+              b.ownPrices > 0 ? `${bookName(b.priceBookId)} + ${b.ownPrices} own ${b.ownPrices === 1 ? 'price' : 'prices'}` : `${bookName(b.priceBookId)} prices`,
             ]
               .filter(Boolean)
               .join(' · ');
@@ -322,7 +322,9 @@ export function BranchesScreen({ navigation }: Props) {
         </Text>
         <View style={styles.band}>
           {catalog.priceBooks.map((b, i) => {
-            const using = catalog.branches.filter((br) => (br.priceBookId ?? defaultBook?.id) === b.id).length;
+            const onBook = catalog.branches.filter((br) => (br.priceBookId ?? defaultBook?.id) === b.id);
+            const using = onBook.length;
+            const custom = onBook.filter((br) => br.ownPrices > 0).length;
             return (
               <Pressable
                 key={b.id}
@@ -351,6 +353,7 @@ export function BranchesScreen({ navigation }: Props) {
                   </View>
                   <Text style={styles.rowMeta}>
                     {plural(using, 'branch')}
+                    {custom > 0 ? ` · ${custom} with ${custom === 1 ? 'its' : 'their'} own prices` : ''}
                   </Text>
                 </View>
               </Pressable>

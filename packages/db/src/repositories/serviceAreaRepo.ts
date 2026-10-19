@@ -1,4 +1,4 @@
-import { areaNameKey, type ServiceBranch } from '@mana/domain';
+import { areaNameKey, formatOffDays, offDaysOf, parseOffDays, type ServiceBranch } from '@mana/domain';
 import type { DbClient } from '../client';
 import { isUniqueClash } from '../retryOnClash';
 
@@ -22,10 +22,12 @@ export const serviceAreaRepo = {
           opensAt: true,
           closesAt: true,
           weeklyOff: true,
+          weeklyOffDays: true,
         },
       }),
       db.serviceArea.findMany({ orderBy: [{ active: 'desc' }, { name: 'asc' }], select: areaSelect }),
     ]);
+    const offDays = shop ? offDaysOf({ weeklyOff: shop.weeklyOff, weeklyOffDays: shop.weeklyOffDays ? parseOffDays(shop.weeklyOffDays) : undefined }) : [];
     return {
       inCustomerApp: shop?.inCustomerApp ?? false,
       hub: shop?.latitude != null && shop.longitude != null ? { latitude: shop.latitude, longitude: shop.longitude } : null,
@@ -35,7 +37,8 @@ export const serviceAreaRepo = {
         phone: shop?.contactPhone ?? null,
         opensAt: shop?.opensAt ?? null,
         closesAt: shop?.closesAt ?? null,
-        weeklyOff: shop?.weeklyOff ?? null,
+        weeklyOff: offDays[0] ?? null,
+        weeklyOffDays: offDays,
       },
       areas,
     };
@@ -44,8 +47,9 @@ export const serviceAreaRepo = {
   /** What customers see on the branch page: address, phone and opening hours. */
   async setContact(
     db: DbClient,
-    data: { address: string | null; phone: string | null; opensAt: string | null; closesAt: string | null; weeklyOff: number | null },
+    data: { address: string | null; phone: string | null; opensAt: string | null; closesAt: string | null; weeklyOffDays: number[] },
   ) {
+    const days = offDaysOf({ weeklyOff: null, weeklyOffDays: data.weeklyOffDays });
     await db.shop.update({
       where: { id: db.$shopId() },
       data: {
@@ -53,7 +57,9 @@ export const serviceAreaRepo = {
         contactPhone: data.phone,
         opensAt: data.opensAt,
         closesAt: data.closesAt,
-        weeklyOff: data.weeklyOff,
+        // The first closed day too, for apps that only know one.
+        weeklyOff: days[0] ?? null,
+        weeklyOffDays: formatOffDays(days),
       },
     });
   },
@@ -64,11 +70,18 @@ export const serviceAreaRepo = {
     return (shop?.inCustomerApp ?? false) && shop?.status === 'active';
   },
 
+  /**
+   * Where the branch is and how far it serves customers: one distance for the branch, so its hub
+   * and its team (which starts from the branch) go as far.
+   */
   async setHub(db: DbClient, data: { latitude: number | null; longitude: number | null; radiusKm: number | null }) {
     await db.shop.update({
       where: { id: db.$shopId() },
       data: { latitude: data.latitude, longitude: data.longitude, serviceRadiusKm: data.radiusKm },
     });
+    if (data.radiusKm != null) {
+      await db.servicePoint.updateMany({ where: { latitude: { not: null } }, data: { radiusKm: data.radiusKm } });
+    }
   },
 
   /** Null when a live area already has this name. */

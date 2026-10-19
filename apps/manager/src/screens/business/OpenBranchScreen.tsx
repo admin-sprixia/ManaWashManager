@@ -41,6 +41,7 @@ import {
 import { api, apiErrorMessage } from '../../api/client';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import type { Point } from '../../utils/location';
+import { sendInvite } from '../../utils/teamInvite';
 import { LocationPicker } from '../places/communityParts';
 import { AgreementServices } from '../../components/AgreementServices';
 import { failure, useCatalog } from './shared';
@@ -228,10 +229,15 @@ export function OpenBranchScreen({ navigation }: Props) {
         },
       });
       if (res.status === 201) {
-        const opened = (await res.json()) as { id: string; code: string; name: string };
+        const opened = (await res.json()) as { id: string; code: string; name: string; owner?: { name: string; hasPin: boolean } };
+        const owner = { name: opened.owner?.name ?? ownerName.trim(), phone, role: 'owner' as const, hasPin: opened.owner?.hasPin ?? false };
         showAlert(
           `${opened.name} is open`,
-          `Branch code ${opened.code}. The owner signs in with ${phone} and a WhatsApp code, then sets their own PIN.`,
+          `Branch code ${opened.code}. Send ${owner.name} the invite on WhatsApp so they can install the app and sign in.`,
+          [
+            { text: 'Later', style: 'cancel' },
+            { text: 'Send invite', onPress: () => void sendInvite(owner, opened.name) },
+          ],
         );
         navigation.replace('BusinessBranch', { branchId: opened.id });
         return;
@@ -578,7 +584,7 @@ export function OpenBranchScreen({ navigation }: Props) {
                   onChangeText={setOwnerPhone}
                   keyboardType="phone-pad"
                   maxLength={14}
-                  hint="They sign in with this number and a WhatsApp code, then set their own PIN."
+                  hint="Once the branch opens, you send them an invite on WhatsApp."
                 />
               </View>
               <View style={styles.summary}>

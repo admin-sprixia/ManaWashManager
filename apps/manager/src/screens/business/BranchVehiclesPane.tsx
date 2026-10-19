@@ -1,23 +1,34 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { colors, spacing, typography } from '@mana/ui';
-import { api } from '../../api/client';
-import type { Catalog } from './shared';
-import { VehicleKindsList } from './branch/VehicleKindsList';
-
-type Branch = Catalog['branches'][number];
-type Run = (call: () => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>, done?: string) => Promise<string | null>;
+import { VehicleKindsList, type KindsCatalog } from './branch/VehicleKindsList';
 
 /**
- * The kinds of vehicle a branch washes. A kind switched off here disappears from the branch's
- * New Wash and the customer app; its prices stay with head office. Which size each kind is priced
- * as is set in the vehicle size guide.
+ * The kinds of vehicle a branch washes, switched on HQ's page for the branch and in the owner's
+ * Vehicles — the same list and the same screen. A kind switched off disappears from the branch's
+ * New Wash and the customer app; its prices stay with head office. Which size each kind is
+ * priced as is set in the vehicle size guide.
  */
-export function BranchVehiclesPane({ catalog, branch, run }: { catalog: Catalog; branch: Branch; run: Run }) {
-  const [on, setOn] = useState<string[]>(branch.vehicles);
+export function BranchVehiclesPane({
+  catalog,
+  branchName,
+  value,
+  onSave,
+  heading = true,
+}: {
+  catalog: KindsCatalog;
+  branchName: string;
+  /** The title, help and count above the list; off where the screen's header card says it. */
+  heading?: boolean;
+  /** The kinds switched on (body type ids). */
+  value: string[];
+  /** Saves the new list; resolves with an error message, or null once saved. */
+  onSave: (next: string[], what: string) => Promise<string | null>;
+}) {
+  const [on, setOn] = useState<string[]>(value);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => setOn(branch.vehicles), [branch.vehicles]);
+  useEffect(() => setOn(value), [value]);
 
   const save = async (next: string[], what: string) => {
     if (!next.length) {
@@ -28,10 +39,7 @@ export function BranchVehiclesPane({ catalog, branch, run }: { catalog: Catalog;
     setOn(next);
     setBusy(true);
     setError(null);
-    const message = await run(
-      () => api.business.branches[':id'].vehicles.$put({ param: { id: branch.id }, json: { bodyTypeIds: next } }),
-      `${what} at ${branch.name}`,
-    );
+    const message = await onSave(next, what);
     setBusy(false);
     if (message) {
       setOn(before);
@@ -41,14 +49,18 @@ export function BranchVehiclesPane({ catalog, branch, run }: { catalog: Catalog;
 
   return (
     <View style={styles.pane}>
-      <Text style={styles.title}>Vehicles washed here</Text>
-      <Text style={styles.hint}>
-        Switch on what {branch.name} washes. Its hub and community team take these. Each kind’s size (and so its price) is in the
-        vehicle size guide.
-      </Text>
-      <Text style={styles.summary}>
-        {on.length} of {catalog.bodyTypes.length} kinds on
-      </Text>
+      {heading ? (
+        <>
+          <Text style={styles.title}>Vehicles washed here</Text>
+          <Text style={styles.hint}>
+            Switch on what {branchName} washes. Its hub and community team take these. Each kind’s size (and so its price) is in
+            the vehicle size guide.
+          </Text>
+          <Text style={styles.summary}>
+            {on.length} of {catalog.bodyTypes.length} kinds on
+          </Text>
+        </>
+      ) : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <VehicleKindsList catalog={catalog} value={on} disabled={busy} onChange={(next, what) => void save(next, what)} />
     </View>

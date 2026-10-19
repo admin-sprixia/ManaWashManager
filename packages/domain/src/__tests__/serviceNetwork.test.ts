@@ -87,6 +87,12 @@ describe('branch overrides', () => {
     expect(checkOverride(50000, 55000, { ...policy, branchOverrides: false })).toBe('not_allowed');
   });
 
+  it('keeps the range edges in whole rupees', () => {
+    expect(overrideRange(49900, policy)).toEqual({ min: 40000, max: 59800 });
+    expect(checkOverride(49900, 59880, policy)).toBe('out_of_range');
+    expect(overrideRange(4900, { ...policy, maxIncreasePct: 1, maxDecreasePct: 1 })).toEqual({ min: 4900, max: 4900 });
+  });
+
   it('pulls a stale override back into range and ignores it when switched off', () => {
     expect(effectivePrice(50000, 90000, policy)).toEqual({ price: 60000, overridden: true });
     expect(effectivePrice(50000, 55000, { ...policy, branchOverrides: false })).toEqual({ price: 50000, overridden: false });
@@ -248,6 +254,20 @@ describe('planBranchMenu', () => {
       policy: { ...DEFAULT_PRICING_POLICY, branchCanHideServices: false },
     });
     expect(locked.services.map((s) => s.catalogServiceId)).toContain('under');
+  });
+
+  it('moves the community price with the branch’s own shop price, by the rule', () => {
+    const plan = planBranchMenu({
+      ...input,
+      overrides: new Map([
+        [branchPriceKey('wash', 'vt_hatch', 'hub'), 44000],
+        // A typed community price is ignored: the community price is always the rule.
+        [branchPriceKey('wash', 'vt_hatch', 'doorstep'), 30000],
+      ]),
+    });
+    const community = plan.prices.find((p) => p.catalogServiceId === 'wash' && p.vehicleTypeId === 'vt_hatch' && p.mode === 'doorstep');
+    expect(community).toMatchObject({ price: 50600, listPrice: 46000, source: 'override' });
+    expect(priceOf(plan, 'wash', 'vt_suv', 'doorstep')).toBe(80500);
   });
 
   it('files services under cars, bikes or both from their classes', () => {

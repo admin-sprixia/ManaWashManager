@@ -184,6 +184,8 @@ export interface PricingPolicy {
   maxDecreasePct: number;
   /** Branch owners may stop offering a catalog service at their branch. */
   branchCanHideServices: boolean;
+  /** Branch owners may move their branch to another of HQ's price books (Standard, Metro…). */
+  branchPicksBook: boolean;
 }
 
 /** Worked-out prices (₹474.05 by the community rule) are rounded to the rupee. */
@@ -195,6 +197,7 @@ export const DEFAULT_PRICING_POLICY: PricingPolicy = {
   maxIncreasePct: 20,
   maxDecreasePct: 20,
   branchCanHideServices: true,
+  branchPicksBook: false,
 };
 
 export const MAX_OVERRIDE_PCT = 100;
@@ -214,6 +217,7 @@ export function parsePricingPolicy(raw: Partial<Record<keyof PricingPolicy, stri
     maxIncreasePct: int(raw.maxIncreasePct, 0, MAX_OVERRIDE_PCT, d.maxIncreasePct),
     maxDecreasePct: int(raw.maxDecreasePct, 0, MAX_OVERRIDE_PCT, d.maxDecreasePct),
     branchCanHideServices: bool(raw.branchCanHideServices, d.branchCanHideServices),
+    branchPicksBook: bool(raw.branchPicksBook, d.branchPicksBook),
   };
 }
 
@@ -291,11 +295,17 @@ export function listPrice(input: {
   return { price: rounded, steps };
 }
 
-/** The prices a branch may set for a service whose list price is `list`. */
+/**
+ * The prices a branch may set for a service whose list price is `list`. The edges snap inward
+ * to the rounding step (whole rupees), so no edge is a paise price; the list price always fits.
+ */
 export function overrideRange(list: number, policy: PricingPolicy): { min: number; max: number } {
+  const step = Math.max(1, policy.roundToPaise);
+  const low = Math.ceil((list * (100 - policy.maxDecreasePct)) / 100 / step) * step;
+  const high = Math.floor((list * (100 + policy.maxIncreasePct)) / 100 / step) * step;
   return {
-    min: clampPrice(Math.ceil((list * (100 - policy.maxDecreasePct)) / 100)),
-    max: clampPrice(Math.floor((list * (100 + policy.maxIncreasePct)) / 100)),
+    min: clampPrice(Math.min(list, low)),
+    max: clampPrice(Math.max(list, high)),
   };
 }
 
@@ -442,28 +452,31 @@ export function planBranchMenu(input: BranchPlanInput): BranchPlan {
         serviceModesInclude(s.modes, 'doorstep') &&
         (s.details?.teamAt ?? 'both') !== 'community' &&
         Boolean(input.classesByMode.get('doorstep')?.has(v.classKey));
-      for (const mode of DELIVERY_MODES) {
-        const served = serviceModesInclude(s.modes, mode) && Boolean(input.classesByMode.get(mode)?.has(v.classKey));
-        if (!served && !(mode === 'hub' && atHomes)) continue;
-        const list = listPrice({
-          base,
+      const classKey = v.classKey;
+      const priceAt = (mode: DeliveryMode, from: number, zonePercentBp: number) =>
+        listPrice({
+          base: from,
           mode,
-          classKey: v.classKey,
+          classKey,
           adjustments: input.adjustments,
-          zonePercentBp: input.zonePercentBp,
+          zonePercentBp,
           roundToPaise: input.policy.roundToPaise,
           doorstepBase: input.doorstepPrices?.get(key),
         }).price;
-        const stored = input.overrides.get(branchPriceKey(s.id, v.vehicleTypeId, mode)) ?? null;
-        const eff = effectivePrice(list, stored, input.policy);
-        prices.push({
-          catalogServiceId: s.id,
-          vehicleTypeId: v.vehicleTypeId,
-          mode,
-          price: eff.price,
-          listPrice: list,
-          source: eff.overridden ? 'override' : 'template',
-        });
+      // The branch's shop price (its own, within the policy, or the list price) …
+      const hubList = priceAt('hub', base, input.zonePercentBp);
+      const hub = effectivePrice(hubList, input.overrides.get(branchPriceKey(s.id, v.vehicleTypeId, 'hub')) ?? null, input.policy);
+      for (const mode of DELIVERY_MODES) {
+        const served = serviceModesInclude(s.modes, mode) && Boolean(input.classesByMode.get(mode)?.has(v.classKey));
+        if (!served && !(mode === 'hub' && atHomes)) continue;
+        if (mode === 'hub') {
+          prices.push({ catalogServiceId: s.id, vehicleTypeId: v.vehicleTypeId, mode, price: hub.price, listPrice: hubList, source: hub.overridden ? 'override' : 'template' });
+        } else {
+          // … and its community price follows it by the community rule: a branch never types one.
+          const list = priceAt(mode, base, input.zonePercentBp);
+          const price = hub.overridden ? priceAt(mode, hub.price, 0) : list;
+          prices.push({ catalogServiceId: s.id, vehicleTypeId: v.vehicleTypeId, mode, price, listPrice: list, source: hub.overridden ? 'override' : 'template' });
+        }
         offered.add(s.id);
       }
     }

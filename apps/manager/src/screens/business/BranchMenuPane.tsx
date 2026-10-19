@@ -49,6 +49,7 @@ export function BranchMenuPane({ catalog, branch, run }: { catalog: Catalog; bra
         catalog={catalog}
         value={menu}
         runs={branch.services.live}
+        stopped={branch.stopped}
         disabled={busy}
         onToggle={(id, on) =>
           void save(on ? [...menu, id] : menu.filter((x) => x !== id), on ? `${nameOf(id)} is on at ${branch.name}` : `${nameOf(id)} switched off at ${branch.name}`)

@@ -85,6 +85,7 @@ check('Kovur gets KVR and the branch KVR-001, named Kovur', kovurPlan?.town?.cod
 check('A first branch in a town has no area by default', kovurPlan?.area === null && kovurPlan.choices.areas.includes('Kovur Cutchery'), show(r));
 r = await open(KOVUR);
 check('HQ opens it', r.status === 201 && r.body.code === 'KVR-001', show(r));
+check('…with the new owner’s name and no PIN yet, for the WhatsApp invite', typeof r.body?.owner?.name === 'string' && r.body.owner.hasPin === false, show(r));
 const kovurTown = towns().find((t) => t.code === 'KVR');
 check('The town is saved with its district and state', kovurTown?.district === 'SPSR Nellore' && kovurTown?.state === 'Andhra Pradesh', JSON.stringify(towns()));
 

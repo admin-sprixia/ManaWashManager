@@ -27,6 +27,7 @@ import {
   IconStore,
   IconTag,
   IconUsers,
+  IconWhatsApp,
   ScreenContainer,
   ScreenHeader,
   TextField,
@@ -50,8 +51,9 @@ import {
 } from '@mana/domain';
 import { api } from '../../api/client';
 import { formatDateTime, formatRupees } from '../../utils/format';
+import { sendInvite } from '../../utils/teamInvite';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
-import { formatPercent, plural, useCatalog, type Catalog } from './shared';
+import { plural, useCatalog, type Catalog } from './shared';
 import { AgreementServices } from '../../components/AgreementServices';
 import { BranchMenuPane } from './BranchMenuPane';
 import { BranchVehiclesPane } from './BranchVehiclesPane';
@@ -241,19 +243,24 @@ export function BranchDetailScreen({ navigation, route }: Props) {
     if (!isValidPhone(phone)) return setFormError('Enter a 10-digit mobile number.');
     setBusy(true);
     setFormError(null);
-    const message = await run(
-      () =>
-        api.business.branches[':id'].owners.$post({
-          param: { id: branch.id },
-          json: { name: ownerName.trim(), phone },
-        }),
-      `${ownerName.trim()} is now an owner`,
-    );
+    const out: { owner?: { name: string; hasPin: boolean } } = {};
+    const message = await run(async () => {
+      const res = await api.business.branches[':id'].owners.$post({
+        param: { id: branch.id },
+        json: { name: ownerName.trim(), phone },
+      });
+      if (res.status === 201) out.owner = await res.json();
+      return res;
+    }, `${ownerName.trim()} is now an owner`);
     setBusy(false);
     if (message) return setFormError(message);
     setOwnerName('');
     setOwnerPhone('');
     setAddingOwner(false);
+    void sendInvite(
+      { name: out.owner?.name ?? ownerName.trim(), phone, role: 'owner', hasPin: out.owner?.hasPin ?? false },
+      branch.name,
+    );
   };
 
   const removeOwner = (owner: Owner) => {
@@ -530,7 +537,19 @@ export function BranchDetailScreen({ navigation, route }: Props) {
         ) : null}
 
         {workspace === 'menu' ? <BranchMenuPane catalog={catalog} branch={branch} run={run} /> : null}
-        {workspace === 'vehicles' ? <BranchVehiclesPane catalog={catalog} branch={branch} run={run} /> : null}
+        {workspace === 'vehicles' ? (
+          <BranchVehiclesPane
+            catalog={catalog}
+            branchName={branch.name}
+            value={branch.vehicles}
+            onSave={(next, what) =>
+              run(
+                () => api.business.branches[':id'].vehicles.$put({ param: { id: branch.id }, json: { bodyTypeIds: next } }),
+                `${what} at ${branch.name}`,
+              )
+            }
+          />
+        ) : null}
 
         {workspace === 'prices' ? (
           <PricesPane
@@ -538,6 +557,7 @@ export function BranchDetailScreen({ navigation, route }: Props) {
             bookOptions={bookOptions}
             busy={busy}
             error={formError}
+            ownPrices={branch.ownPrices}
             onBook={setBookId}
             onSave={() => void savePrices()}
           />
@@ -589,8 +609,16 @@ export function BranchDetailScreen({ navigation, route }: Props) {
         onClose={() => setAddingOwner(false)}
         dismissable={!busy}
         title="Add an owner"
-        subtitle="They sign in with this number and a WhatsApp code."
-        footer={<Button label="Add owner" size="lg" loading={busy} onPress={() => void addOwner()} />}
+        subtitle="We’ll open WhatsApp with an invite and the steps for them."
+        footer={
+          <Button
+            label="Add owner and send invite"
+            size="lg"
+            icon={<IconWhatsApp size={20} variant="mono" color={colors.white} />}
+            loading={busy}
+            onPress={() => void addOwner()}
+          />
+        }
       >
         <TextField
           label="Name"
@@ -876,6 +904,7 @@ function PricesPane({
   bookOptions,
   busy,
   error,
+  ownPrices,
   onBook,
   onSave,
 }: {
@@ -883,6 +912,8 @@ function PricesPane({
   bookOptions: { value: string; label: string; hint: string }[];
   busy: boolean;
   error: string | null;
+  /** Shop prices (per vehicle) the branch's owner set themselves. */
+  ownPrices: number;
   onBook: (id: string) => void;
   onSave: () => void;
 }) {
@@ -892,6 +923,11 @@ function PricesPane({
     <View style={styles.pane}>
       <Text style={styles.sectionTitle}>How this branch prices</Text>
       <Text style={styles.hint}>The price book its menu is built from, for New Wash and the customer app.</Text>
+      <Text style={styles.hint}>
+        {ownPrices > 0
+          ? `Its owner set their own shop price for ${ownPrices} ${ownPrices === 1 ? 'vehicle' : 'vehicles'}, within your pricing rules; the rest are the book’s.`
+          : 'Every shop price is the book’s: its owner hasn’t changed any.'}
+      </Text>
 
       {/* Equation preview */}
       <View style={styles.equation}>

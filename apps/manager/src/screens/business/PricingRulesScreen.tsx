@@ -87,6 +87,7 @@ function BranchFreedom({ catalog, run }: { catalog: Catalog; run: ReturnType<typ
   const [up, setUp] = useState(String(policy.maxIncreasePct));
   const [down, setDown] = useState(String(policy.maxDecreasePct));
   const [hide, setHide] = useState<'yes' | 'no'>(policy.branchCanHideServices ? 'yes' : 'no');
+  const [books, setBooks] = useState<'yes' | 'no'>(policy.branchPicksBook ? 'yes' : 'no');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -95,6 +96,7 @@ function BranchFreedom({ catalog, run }: { catalog: Catalog; run: ReturnType<typ
     setUp(String(policy.maxIncreasePct));
     setDown(String(policy.maxDecreasePct));
     setHide(policy.branchCanHideServices ? 'yes' : 'no');
+    setBooks(policy.branchPicksBook ? 'yes' : 'no');
   }, [policy]);
 
   const pct = (t: string) => {
@@ -130,6 +132,7 @@ function BranchFreedom({ catalog, run }: { catalog: Catalog; run: ReturnType<typ
   const changed =
     (overrides === 'yes') !== policy.branchOverrides ||
     (hide === 'yes') !== policy.branchCanHideServices ||
+    (books === 'yes') !== policy.branchPicksBook ||
     (overrides === 'yes' && (upN !== policy.maxIncreasePct || downN !== policy.maxDecreasePct));
 
   const save = async () => {
@@ -145,6 +148,7 @@ function BranchFreedom({ catalog, run }: { catalog: Catalog; run: ReturnType<typ
             branchOverrides: overrides === 'yes',
             ...(overrides === 'yes' ? { maxIncreasePct: upN!, maxDecreasePct: downN! } : {}),
             branchCanHideServices: hide === 'yes',
+            branchPicksBook: books === 'yes',
           },
         }),
       'Saved · every branch updated',
@@ -187,6 +191,18 @@ function BranchFreedom({ catalog, run }: { catalog: Catalog; run: ReturnType<typ
           {hide === 'yes'
             ? 'Owners can hide a service at their branch and bring it back later.'
             : 'Every service you switch on for a branch stays on its menu.'}
+        </Text>
+      </Panel>
+
+      <Panel
+        title="Choosing a price book"
+        subtitle={`Can an owner move their branch to another of your price books (${catalog.priceBooks.map((b) => b.name).join(', ')})?`}
+      >
+        <ChoiceChips label="Owners may pick their price book" options={YES_NO} value={books} onChange={setBooks} />
+        <Text style={styles.help}>
+          {books === 'yes'
+            ? 'Owners see your books in This branch’s prices and can switch. Their own prices are cleared when they do, and you see the book each branch uses in All branches.'
+            : 'You pick each branch’s book in All branches. Owners see which one they’re on.'}
         </Text>
       </Panel>
 

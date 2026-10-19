@@ -14,9 +14,9 @@ import {
 import {
   IconClose,
   IconSearch,
+  MakeLogo,
   ScreenContainer,
   ScreenHeader,
-  catalogVehicleByKey,
   colors,
   radius,
   spacing,
@@ -130,6 +130,10 @@ export function VehicleGuideScreen({ navigation, route }: Props) {
     [allRows, category, showOff, body],
   );
   const makes = useMemo(() => [...new Set(inCategory.map((r) => r.make))], [inCategory]);
+  const makeOptions = useMemo(
+    () => makes.map((m) => ({ value: m, label: m, leading: <MakeLogo make={m} height={26} /> })),
+    [makes],
+  );
   const bodies = useMemo(
     () =>
       data.bodyTypes
@@ -281,7 +285,7 @@ export function VehicleGuideScreen({ navigation, route }: Props) {
           <SelectField
             label="Company"
             value={make}
-            options={makes.map((m) => ({ value: m, label: m }))}
+            options={makeOptions}
             onChange={setMake}
             placeholder="All companies"
             sheetTitle="Pick a company"
@@ -332,7 +336,8 @@ export function VehicleGuideScreen({ navigation, route }: Props) {
         contentContainerStyle={styles.list}
         renderSectionHeader={({ section }) => (
           <View style={styles.sectionHead}>
-            <Text style={styles.sectionTitle}>{section.title}</Text>
+            <MakeLogo make={section.title} height={20} />
+            <Text style={[styles.sectionTitle, styles.flex]}>{section.title}</Text>
             <Text style={styles.sectionCount}>{section.data.length}</Text>
           </View>
         )}
@@ -452,7 +457,7 @@ const styles = StyleSheet.create({
   sectionHead: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: 6,
     backgroundColor: colors.surface,

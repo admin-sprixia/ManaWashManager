@@ -46,6 +46,8 @@ model Shop {
   closesAt         String?   @map("closes_at")
   /// Day of the week the branch is closed: Sunday = 0 … Saturday = 6.
   weeklyOff        Int?      @map("weekly_off")
+  /// Every day it closes, "0,6" (Sunday = 0); weeklyOff is the first of them, for older apps.
+  weeklyOffDays    String?   @map("weekly_off_days")
   /// The business this branch belongs to (service network), and how it is priced: its price book
   /// (null = the business's default) and zone (null = none).
   businessId       String?   @map("business_id")

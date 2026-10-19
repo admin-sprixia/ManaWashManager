@@ -127,15 +127,17 @@ export const shopRoutes = new Hono<{ Bindings: Env }>()
       pincode: shop.pincode,
     });
   })
-  // Where the branch is. Its hub moves with it when it has just one (the usual case); a branch
-  // with several hubs moves each from How this branch washes.
+  // Where the branch is. Its hub, and its team (which starts from the branch), move with it when
+  // it has one of each (the usual case).
   .put('/location', requireRole('owner'), zValidator('json', locationSchema), async (c) => {
     const { latitude, longitude } = c.req.valid('json');
     const db = c.get('db');
     await createPlatformDb(c.env.DB).shop.update({ where: { id: c.get('session').shopId }, data: { latitude, longitude } });
-    const hubs = await db.servicePoint.findMany({ where: { kind: 'hub', active: true }, select: { id: true } });
-    if (hubs.length === 1) await db.servicePoint.updateMany({ where: { id: hubs[0]!.id }, data: { latitude, longitude } });
-    return c.json({ location: { latitude, longitude }, hubMoved: hubs.length === 1 });
+    const points = await db.servicePoint.findMany({ select: { id: true, kind: true } });
+    const single = (kind: string) => points.filter((p) => p.kind === kind);
+    const moving = [single('hub'), single('doorstep')].filter((list) => list.length === 1).map((list) => list[0]!.id);
+    if (moving.length) await db.servicePoint.updateMany({ where: { id: { in: moving } }, data: { latitude, longitude } });
+    return c.json({ location: { latitude, longitude }, hubMoved: single('hub').length === 1 });
   })
   // The name customers see on WhatsApp messages, PDFs and every phone in the shop.
   .put('/info', requireRole('owner'), zValidator('json', shopInfoSchema), async (c) => {

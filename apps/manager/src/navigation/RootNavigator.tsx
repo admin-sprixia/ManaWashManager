@@ -19,12 +19,14 @@ import { ErrorLogScreen } from '../screens/ErrorLogScreen';
 import { InventoryScreen } from '../screens/InventoryScreen';
 import { RewardsScreen } from '../screens/RewardsScreen';
 import { AppFeedbackScreen } from '../screens/AppFeedbackScreen';
-import { ServiceAreaScreen } from '../screens/ServiceAreaScreen';
+import { BranchProfileScreen } from '../screens/BranchProfileScreen';
+import { BranchVehiclesScreen } from '../screens/BranchVehiclesScreen';
 import { ServiceRequestsScreen } from '../screens/ServiceRequestsScreen';
 import { ServicePointsScreen } from '../screens/ServicePointsScreen';
 import { BusinessScreen } from '../screens/business/BusinessScreen';
 import { CatalogServicesScreen } from '../screens/business/CatalogServicesScreen';
 import { ServiceEditorScreen } from '../screens/business/ServiceEditorScreen';
+import { PlanEditorScreen } from '../screens/business/PlanEditorScreen';
 import { VehicleGuideScreen } from '../screens/VehicleGuideScreen';
 import { PriceListScreen } from '../screens/business/PriceListScreen';
 import { PricingRulesScreen } from '../screens/business/PricingRulesScreen';
@@ -64,13 +66,17 @@ export type RootStackParamList = {
   Inventory: undefined;
   Rewards: undefined;
   ServiceRequests: undefined;
-  ServiceArea: undefined;
+  /** The owner's branch details: name, contact, hours, holiday, location, the app's area. */
+  BranchProfile: undefined;
+  BranchVehicles: undefined;
   AppFeedback: { tab?: 'problems' | 'vehicles' | 'ratings' } | undefined;
   ServicePoints: undefined;
   Business: undefined;
   BusinessServices: { tab?: 'services' | 'plans' } | undefined;
   /** Add (no id) or edit one business service. */
   BusinessServiceEdit: { serviceId?: string } | undefined;
+  /** Add (no id) or edit one wash plan. */
+  BusinessPlanEdit: { planId?: string } | undefined;
   /** Which size every vehicle is priced as; opened on a tab or size. */
   VehicleGuide: { category?: 'car' | 'bike'; size?: string } | undefined;
   BusinessPrices: undefined;
@@ -133,6 +139,7 @@ export function RootNavigator() {
         <Stack.Screen name="Business" component={BusinessScreen} options={slide} />
         <Stack.Screen name="BusinessServices" component={CatalogServicesScreen} options={slide} />
         <Stack.Screen name="BusinessServiceEdit" component={ServiceEditorScreen} options={slide} />
+        <Stack.Screen name="BusinessPlanEdit" component={PlanEditorScreen} options={slide} />
         <Stack.Screen name="VehicleGuide" component={VehicleGuideScreen} options={slide} />
         <Stack.Screen name="BusinessPrices" component={PriceListScreen} options={slide} />
         <Stack.Screen name="BusinessRules" component={PricingRulesScreen} options={slide} />
@@ -147,16 +154,22 @@ export function RootNavigator() {
         <Stack.Screen name="AddMember" component={AddMemberScreen} options={slide} />
         <Stack.Screen name="PlaceDemand" component={PlaceDemandScreen} options={slide} />
         {/* Screens a role can't use aren't even registered for it — the API enforces the same
-            rules, this just keeps them out of reach in the UI. Managers run the team only. */}
-        {canManageTeam ? <Stack.Screen name="Team" component={TeamScreen} options={slide} /> : null}
+            rules, this just keeps them out of reach in the UI. Managers run the team and its
+            attendance only. */}
+        {canManageTeam ? (
+          <>
+            <Stack.Screen name="Team" component={TeamScreen} options={slide} />
+            <Stack.Screen name="Attendance" component={AttendanceScreen} options={slide} />
+          </>
+        ) : null}
         {isOwner ? (
           <>
             <Stack.Screen name="Reports" component={ReportsScreen} options={slide} />
             <Stack.Screen name="Settings" component={SettingsScreen} options={slide} />
             <Stack.Screen name="StaffReport" component={StaffReportScreen} options={slide} />
-            <Stack.Screen name="Attendance" component={AttendanceScreen} options={slide} />
             <Stack.Screen name="ErrorLog" component={ErrorLogScreen} options={slide} />
-            <Stack.Screen name="ServiceArea" component={ServiceAreaScreen} options={slide} />
+            <Stack.Screen name="BranchProfile" component={BranchProfileScreen} options={slide} />
+            <Stack.Screen name="BranchVehicles" component={BranchVehiclesScreen} options={slide} />
             <Stack.Screen name="ServicePoints" component={ServicePointsScreen} options={slide} />
             <Stack.Screen name="PlaceForm" component={PlaceFormScreen} options={slide} />
             <Stack.Screen name="PlaceLive" component={PlaceLiveScreen} options={{ ...slide, gestureEnabled: false }} />

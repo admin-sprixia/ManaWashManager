@@ -5,6 +5,7 @@ export * from './components/Icons';
 export { AlertHost, showAlert, type AlertButton, type AlertOptions } from './components/AppAlert';
 export { AuthHero } from './components/AuthHero';
 export { VehicleArt, vehicleKind } from './components/VehicleArt';
+export { MakeLogo } from './components/MakeLogo';
 export { Avatar, initials } from './components/Avatar';
 export { BottomSheet } from './components/BottomSheet';
 export { BRAND_MARK, BRAND_SRI, BRAND_SRI_GOLD, BrandMark } from './components/BrandMark';

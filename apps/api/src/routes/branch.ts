@@ -56,6 +56,7 @@ const updatePointSchema = z
   .refine((p) => p.latitude === undefined || p.longitude !== undefined, locationIssue)
   .refine((p) => p.latitude === undefined || located(p), locationIssue);
 const servicesSchema = z.object({ hub: z.boolean(), community: z.boolean(), doorstep: z.boolean() });
+const vehiclesSchema = z.object({ bodyTypeIds: z.array(z.string().max(100)).max(200) });
 
 type Ctx = Context<{ Bindings: Env }>;
 
@@ -81,6 +82,15 @@ async function communityStopProblem(c: Ctx, shopId: string) {
     : null;
 }
 
+/** A hub or team can only take groups the branch washes (switched on in its Vehicles). */
+async function unwashedProblem(c: Ctx, shopId: string, classIds: string[]) {
+  const businessId = await catalogRepo.businessForShop(c.env.DB, shopId);
+  const washed = await catalogRepo.washedClasses(c.env.DB, businessId, shopId);
+  return classIds.every((id) => washed.has(id))
+    ? null
+    : { error: 'not_washed' as const, message: 'This branch doesn’t wash one of those groups. Switch its vehicles on in Vehicles first.' };
+}
+
 /** What the owner has on, read back from the points after a change made on How this branch washes. */
 function offeredFromPoints(points: Pick<ServicePointView, 'kind' | 'active'>[], before: BranchServices): BranchServices {
   const community = points.some((p) => p.kind === 'doorstep' && p.active);
@@ -97,16 +107,20 @@ export const branchRoutes = new Hono<{ Bindings: Env }>()
     const businessId = await catalogRepo.businessForShop(c.env.DB, shopId);
     // The menu build makes the hub or team the branch offers, so there is always something to show.
     await menuRepo.publishIfStale(c.env.DB, shopId);
-    const [points, catalog, services] = await Promise.all([
+    const [points, catalog, services, washed] = await Promise.all([
       servicePointRepo.list(c.env.DB, shopId),
       catalogRepo.load(c.env.DB, businessId),
       branchServiceRepo.get(createPlatformDb(c.env.DB), shopId),
+      catalogRepo.washedClasses(c.env.DB, businessId, shopId),
     ]);
     return c.json({
-      points,
+      // Each place's groups the branch washes now; the others wait for their vehicles to come back.
+      points: points.map((p) => ({ ...p, classIds: p.classIds.filter((id) => washed.has(id)) })),
       homeWash: services?.live.doorstep ?? false,
       services,
       classes: (catalog?.classes ?? []).map((cl) => ({ id: cl.id, key: cl.key, name: cl.name, category: cl.category })),
+      /** The groups the branch washes: the only ones a hub or team can take. */
+      washedClassIds: [...washed],
     });
   })
   .post('/points', requireRole('owner'), zValidator('json', createPointSchema), async (c) => {
@@ -116,6 +130,8 @@ export const branchRoutes = new Hono<{ Bindings: Env }>()
     if (!services) return c.json({ error: 'not_found' as const }, 404);
     const key = serviceOfKind(body.kind);
     if (!services.allowed[key]) return c.json(notInAgreement(key), 403);
+    const unwashed = await unwashedProblem(c, shopId, body.classIds);
+    if (unwashed) return c.json(unwashed, 400);
     try {
       const id = await servicePointRepo.create(c.env.DB, shopId, body);
       await branchServiceRepo.setOffered(c.env.DB, shopId, { ...services.offered, [key]: true });
@@ -141,6 +157,8 @@ export const branchRoutes = new Hono<{ Bindings: Env }>()
     const offered = offeredFromPoints(after, services.offered);
     const problem = branchServicesProblem(liveBranchServices(services.allowed, offered));
     if (problem) return c.json({ error: 'invalid' as const, message: problem }, 400);
+    const unwashed = patch.classIds ? await unwashedProblem(c, shopId, patch.classIds) : null;
+    if (unwashed) return c.json(unwashed, 400);
     if (services.live.community && !offered.community) {
       const stop = await communityStopProblem(c, shopId);
       if (stop) return c.json(stop, 409);
@@ -183,4 +201,38 @@ export const branchRoutes = new Hono<{ Bindings: Env }>()
     }
     const live = liveBranchServices(services.allowed, want);
     return c.json({ lanes: live, services: { allowed: services.allowed, offered: want, live } });
+  })
+  /**
+   * The kinds of vehicle this branch washes: the same list Mana Wash HQ switches on the branch's
+   * page, so a change on either side shows on both, in New Wash and in the customer app.
+   */
+  .get('/vehicles', requireRole('owner'), async (c) => {
+    const shopId = c.get('session').shopId;
+    const businessId = await catalogRepo.businessForShop(c.env.DB, shopId);
+    const [data, list] = await Promise.all([catalogRepo.load(c.env.DB, businessId), catalogRepo.branchVehicles(createPlatformDb(c.env.DB), shopId)]);
+    if (!data) return c.json({ error: 'not_found' as const, message: 'This branch isn’t part of the business.' }, 404);
+    const kinds = data.bodyTypes.filter((b) => b.active);
+    return c.json({
+      classes: data.classes.map((cl) => ({ id: cl.id, key: cl.key, name: cl.name, sizes: cl.sizes.map((z) => ({ id: z.id, key: z.key, name: z.name })) })),
+      bodyTypes: kinds.map((b) => ({ id: b.id, key: b.key, name: b.name, classId: b.classId, sizeId: b.sizeId })),
+      /** Switched on here; every kind while the branch has no list of its own yet. */
+      vehicles: kinds.map((b) => b.id).filter((id) => list == null || list.has(id)),
+    });
+  })
+  .put('/vehicles', requireRole('owner'), zValidator('json', vehiclesSchema), async (c) => {
+    const shopId = c.get('session').shopId;
+    const businessId = await catalogRepo.businessForShop(c.env.DB, shopId);
+    try {
+      const data = await catalogRepo.load(c.env.DB, businessId);
+      // Kinds HQ switched off for everyone aren't shown to the owner; they stay on the list as they were.
+      const list = await catalogRepo.branchVehicles(createPlatformDb(c.env.DB), shopId);
+      const hqOff = (data?.bodyTypes ?? []).filter((b) => !b.active && (list == null || list.has(b.id))).map((b) => b.id);
+      const vehicles = await catalogRepo.checkBranchVehicles(c.env.DB, businessId, c.req.valid('json').bodyTypeIds);
+      await catalogRepo.saveBranchVehicles(c.env.DB, businessId, shopId, [...new Set([...vehicles, ...hqOff])]);
+      await menuRepo.markStale(c.env.DB, shopId);
+      await menuRepo.publish(c.env.DB, shopId);
+      return c.json({ ok: true as const, vehicles });
+    } catch (e) {
+      return catalogError(c, e);
+    }
   });

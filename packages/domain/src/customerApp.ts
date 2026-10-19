@@ -98,8 +98,31 @@ export function formatClock(value: string): string {
 export interface OpeningHours {
   opensAt: string | null;
   closesAt: string | null;
-  /** Day of the week the branch is closed, or null. */
+  /** The first day of the week the branch is closed, or null (kept for older apps). */
   weeklyOff: number | null;
+  /** Every day of the week it's closed (Sunday = 0); when missing, just `weeklyOff`. */
+  weeklyOffDays?: number[];
+}
+
+/** A branch is open at least one day a week. */
+export const MAX_WEEKLY_OFF_DAYS = 6;
+
+/** Its closed days, sorted, from either field. */
+export function offDaysOf(hours: Pick<OpeningHours, 'weeklyOff' | 'weeklyOffDays'>): number[] {
+  const days = hours.weeklyOffDays ?? (hours.weeklyOff != null ? [hours.weeklyOff] : []);
+  return [...new Set(days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort((a, b) => a - b);
+}
+
+/** "0,6" (as stored) → [0, 6]; anything else is dropped. */
+export function parseOffDays(text: string | null | undefined): number[] {
+  if (!text) return [];
+  return offDaysOf({ weeklyOff: null, weeklyOffDays: text.split(',').map((t) => Number(t.trim())) });
+}
+
+/** [6, 0] → "0,6" (as stored), or null for none. */
+export function formatOffDays(days: number[]): string | null {
+  const sorted = offDaysOf({ weeklyOff: null, weeklyOffDays: days });
+  return sorted.length ? sorted.join(',') : null;
 }
 
 const IST_OFFSET_MINUTES = 330;
@@ -121,23 +144,27 @@ export function openState(hours: OpeningHours, now: Date): OpenState {
   const { day, minutes } = istClock(now);
   const opens = clockMinutes(hours.opensAt);
   const closes = clockMinutes(hours.closesAt);
-  const offToday = hours.weeklyOff === day;
+  const off = offDaysOf(hours);
+  const offToday = off.includes(day);
   if (!offToday && minutes >= opens && minutes < closes) {
     return { kind: 'open', label: `Open now · till ${formatClock(hours.closesAt)}` };
   }
   if (!offToday && minutes < opens) return { kind: 'closed', label: `Closed · opens ${formatClock(hours.opensAt)}` };
-  const tomorrowOff = hours.weeklyOff === (day + 1) % 7;
   if (offToday && minutes < opens) return { kind: 'closed', label: `Closed today (${WEEKDAY_LABELS[day]} off)` };
-  return tomorrowOff
-    ? { kind: 'closed', label: `Closed · ${WEEKDAY_LABELS[(day + 1) % 7]} off` }
-    : { kind: 'closed', label: `Closed · opens ${formatClock(hours.opensAt)} tomorrow` };
+  // The next day it opens: tomorrow, or later when several days in a row are off.
+  const ahead = [1, 2, 3, 4, 5, 6, 7].find((n) => !off.includes((day + n) % 7)) ?? 1;
+  if (ahead === 1) return { kind: 'closed', label: `Closed · opens ${formatClock(hours.opensAt)} tomorrow` };
+  return { kind: 'closed', label: `Closed · opens ${WEEKDAY_LABELS[(day + ahead) % 7]} ${formatClock(hours.opensAt)}` };
 }
 
-/** "8 am – 8 pm · closed Tuesdays". */
+/** "8 am – 8 pm · closed Tuesdays" / "… · closed Saturdays and Sundays". */
 export function hoursSummary(hours: OpeningHours): string | null {
   if (!hours.opensAt || !hours.closesAt) return null;
   const range = `${formatClock(hours.opensAt)} – ${formatClock(hours.closesAt)}`;
-  return hours.weeklyOff == null ? `${range} · every day` : `${range} · closed ${WEEKDAY_LABELS[hours.weeklyOff]}s`;
+  const off = offDaysOf(hours).map((d) => `${WEEKDAY_LABELS[d]}s`);
+  if (!off.length) return `${range} · every day`;
+  const days = off.length === 1 ? off[0] : `${off.slice(0, -1).join(', ')} and ${off[off.length - 1]}`;
+  return `${range} · closed ${days}`;
 }
 
 // ─── Live status ────────────────────────────────────────────────────────────

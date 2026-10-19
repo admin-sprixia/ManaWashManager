@@ -151,6 +151,7 @@ check('There is no join-requests list', requests.status === 404, show(requests))
 const ravi = newPhone();
 const added = await call(manaOwner, 'POST', '/team', { name: 'Ravi', phone: ravi });
 check('The owner adds Ravi from Team (as staff)', added.status === 201, show(added));
+check('A new number has no PIN yet (the app tells the owner what Ravi does next)', added.body?.hasPin === false && added.body?.name === 'Ravi', show(added));
 const raviKnown = await call(null, 'POST', '/auth/start', { phone: ravi });
 check('Ravi’s number is now known: a WhatsApp code first', raviKnown.status === 200 && raviKnown.body?.next === 'code', show(raviKnown));
 const raviFirst = await signInAs(ravi);
@@ -203,6 +204,7 @@ check(
 
 const reAdd = await call(manaOwner, 'POST', '/team', { name: 'Ravi', phone: ravi });
 check('MANA can add him back while he works at the other branch too', reAdd.status === 201, show(reAdd));
+check('…and he keeps the PIN he has there', reAdd.body?.hasPin === true, show(reAdd));
 const reAddAgain = await call(manaOwner, 'POST', '/team', { name: 'Ravi', phone: ravi });
 check('…but not twice in the same branch', reAddAgain.status === 409, show(reAddAgain));
 const raviShops = await call(raviInB.body.token, 'GET', '/auth/shops');

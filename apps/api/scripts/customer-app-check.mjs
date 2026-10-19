@@ -273,13 +273,18 @@ check(
   show(r),
 );
 check('Branches: unlisted shops aren’t shown', !r.body?.branches?.some((b) => b.id === 'shop_test_c'));
+const timesOf = { opensAt: manaBranch?.hours?.opensAt ?? null, closesAt: manaBranch?.hours?.closesAt ?? null };
 r = await call(staffA, 'PUT', '/service-area/contact', { address: null, phone: null, opensAt: null, closesAt: null, weeklyOff: null });
 check('Staff can’t change the branch contact', r.status === 403, show(r));
-r = await call(A, 'PUT', '/service-area/contact', { ...manaBranch?.hours, address: manaBranch?.address, phone: manaBranch?.phone, closesAt: '06:00' });
+r = await call(A, 'PUT', '/service-area/contact', { ...timesOf, address: manaBranch?.address, phone: manaBranch?.phone, closesAt: '06:00' });
 check('Closing before opening → 400', r.status === 400, show(r));
-r = await call(A, 'PUT', '/service-area/contact', { ...manaBranch?.hours, address: manaBranch?.address, phone: manaBranch?.phone, weeklyOff: 1 });
+r = await call(A, 'PUT', '/service-area/contact', { ...timesOf, address: manaBranch?.address, phone: manaBranch?.phone, weeklyOff: 1 });
 check('Owner saves the contact and hours', r.status === 200 && r.body?.contact?.weeklyOff === 1, show(r));
-await call(A, 'PUT', '/service-area/contact', { ...manaBranch?.hours, address: manaBranch?.address, phone: manaBranch?.phone });
+r = await call(A, 'PUT', '/service-area/contact', { ...timesOf, address: manaBranch?.address, phone: manaBranch?.phone, weeklyOffDays: [0, 6] });
+check('…closed on several days: Sunday and Saturday', r.status === 200 && r.body?.contact?.weeklyOffDays?.join() === '0,6' && r.body?.contact?.weeklyOff === 0, show(r));
+r = await call(A, 'PUT', '/service-area/contact', { ...timesOf, address: manaBranch?.address, phone: manaBranch?.phone, weeklyOffDays: [0, 1, 2, 3, 4, 5, 6] });
+check('…but never every day of the week', r.status === 400, show(r));
+await call(A, 'PUT', '/service-area/contact', { ...timesOf, address: manaBranch?.address, phone: manaBranch?.phone });
 
 // ─── Live status of today's wash ──────────────────────────────────────────
 

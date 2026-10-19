@@ -122,7 +122,7 @@ export function PaymentSheet({ visible, amount, subtitle, onClose, onConfirm, cu
           <UpiQr upiId={upiId} payee={info?.name ?? 'Car wash'} amount={amount} note={subtitle} />
         ) : (
           <Text style={styles.qrHint}>
-            Add your shop’s UPI ID in More → UPI QR code to show a QR the customer can scan here.
+            Add your shop’s UPI ID in More → Branch details → UPI & review to show a QR the customer can scan here.
           </Text>
         )
       ) : null}

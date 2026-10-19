@@ -26,7 +26,7 @@ export const SERVICE_ROWS: { key: BranchServiceKey; title: string; text: string;
  * doors — within what head office's agreement allows. Switching one on makes its hub or team at
  * the branch's location; Doorstep needs the community team.
  */
-export function BranchTypesCard() {
+export function BranchTypesCard({ onChanged }: { onChanged?: () => void } = {}) {
   const [services, setServices] = useState<Services | null>(null);
   const [busy, setBusy] = useState<BranchServiceKey | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +62,7 @@ export function BranchTypesCard() {
       const body = await res.json();
       setServices(body.services);
       announceLanes(body.lanes);
+      onChanged?.();
       showToast(`${SERVICE_ROWS.find((t) => t.key === key)!.title} ${on ? 'switched on' : 'switched off'}`);
     } catch (e) {
       setError(e instanceof NetworkError ? 'This needs a connection.' : (e as Error).message);

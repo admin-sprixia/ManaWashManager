@@ -21,8 +21,7 @@ import {
   serializeWashPlanRules,
   washesPerWeek,
   washPlanPrice,
-  type InstallmentState,
-} from '../washPlans';
+  type InstallmentState, MIN_PLAN_SAVING_BP, maxPlanPrice, planPriceWithSaving, scaledPlanPrice, secondCarPlanPrice, secondCarIndexes } from '../washPlans';
 
 describe('rules', () => {
   it('falls back to defaults for anything missing or out of range', () => {
@@ -217,5 +216,67 @@ describe('rupees', () => {
     expect(formatInr(12_500_050)).toBe('₹1,25,000.50');
     expect(formatInr(9_900)).toBe('₹99');
     expect(formatInr(-50)).toBe('-₹0.50');
+  });
+});
+
+describe('plans are always a saving', () => {
+  it('lowers a plan that costs more than its washes one by one', () => {
+    // Basic Plan for a hatchback: ₹1,849 against 4 × ₹449 = ₹1,796.
+    expect(planPriceWithSaving(184900, 179600)).toBe(170600);
+    expect(planPriceWithSaving(184900, 179600)).toBeLessThan(179600);
+  });
+
+  it('lowers a plan whose saving is under the minimum', () => {
+    // ₹1,780 saves only ₹16 on ₹1,796: lowered to 5% off, down to the rupee.
+    expect(planPriceWithSaving(178000, 179600)).toBe(maxPlanPrice(179600));
+  });
+
+  it('keeps a price that already saves more than the minimum', () => {
+    expect(planPriceWithSaving(150000, 179600)).toBe(150000);
+  });
+
+  it('saves at least MIN_PLAN_SAVING_BP, in whole rupees', () => {
+    for (const listTotal of [5500, 107600, 179600, 583700, 1398800]) {
+      const most = maxPlanPrice(listTotal);
+      expect(most % 100).toBe(0);
+      expect(listTotal - most).toBeGreaterThanOrEqual((listTotal * MIN_PLAN_SAVING_BP) / 10000);
+    }
+  });
+
+  it('leaves a plan with nothing to compare against alone', () => {
+    expect(planPriceWithSaving(99900, 0)).toBe(99900);
+  });
+});
+
+describe('plans follow the branch', () => {
+  it('keeps head office’s price at a Standard branch', () => {
+    expect(scaledPlanPrice(184900, 199600, 199600)).toBe(184900);
+  });
+
+  it('moves with a cheaper price book, so the saving stays the same share', () => {
+    // Kovur on "Value": 4 × ₹449 instead of 4 × ₹499.
+    const plan = scaledPlanPrice(184900, 179600, 199600);
+    expect(plan).toBe(166400);
+    expect(1 - plan / 179600).toBeCloseTo(1 - 184900 / 199600, 2);
+  });
+
+  it('leaves the price alone with nothing to compare against', () => {
+    expect(scaledPlanPrice(184900, 179600, 0)).toBe(184900);
+  });
+});
+
+describe('second car in the same home', () => {
+  it('takes 10% off, in whole rupees', () => {
+    expect(secondCarPlanPrice(184900)).toBe(166400);
+    expect(secondCarPlanPrice(109900)).toBe(98900);
+  });
+
+  it('charges the dearest plan in full and the rest at the second-car price', () => {
+    expect([...secondCarIndexes([184900, 294900, 109900], false)].sort()).toEqual([0, 2]);
+  });
+
+  it('gives every new plan the second-car price when one is already running', () => {
+    expect([...secondCarIndexes([184900], true)]).toEqual([0]);
+    expect(secondCarIndexes([184900], false).size).toBe(0);
   });
 });

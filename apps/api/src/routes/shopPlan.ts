@@ -40,10 +40,34 @@ const sellSchema = z.object({
 export const shopPlanRoutes = new Hono<{ Bindings: Env }>()
   .use('*', requireAuth)
   /** The plans sold here for a vehicle type, with their price. */
-  .get('/for-sale', zValidator('query', z.object({ vehicleTypeId: z.string().min(1).max(64) })), async (c) => {
-    const plans = await shopPlanRepo.forSale(c.env.DB, c.get('session').shopId, c.req.valid('query').vehicleTypeId);
+  /** Every plan sold at the counter, priced for each vehicle type: the hub menu's plans. */
+  .get('/menu', async (c) => {
+    const plans = await shopPlanRepo.menu(c.env.DB, c.get('session').shopId);
     return c.json({ plans });
   })
+  /**
+   * The plans for a vehicle type. With the customer's phone (and the vehicle's number), a second
+   * car in the same home is priced 10% off.
+   */
+  .get(
+    '/for-sale',
+    zValidator(
+      'query',
+      z.object({
+        vehicleTypeId: z.string().min(1).max(64),
+        phone: z.string().max(20).optional(),
+        registrationNumber: z.string().max(20).optional(),
+      }),
+    ),
+    async (c) => {
+      const { vehicleTypeId, phone, registrationNumber } = c.req.valid('query');
+      const shopId = c.get('session').shopId;
+      const normalized = phone ? normalizePhone(phone) : null;
+      const secondCar = normalized ? await shopPlanRepo.isSecondCar(c.env.DB, shopId, normalized, registrationNumber ?? null) : false;
+      const plans = await shopPlanRepo.forSale(c.env.DB, shopId, vehicleTypeId, secondCar);
+      return c.json({ plans, secondCar });
+    },
+  )
   /** A vehicle's running shop plans here, and whether each can pay for a wash today. */
   .get('/vehicle', zValidator('query', z.object({ registrationNumber: registrationSchema })), async (c) => {
     const plans = await shopPlanRepo.forVehicle(c.get('db'), c.req.valid('query').registrationNumber, new Date());
@@ -95,8 +119,9 @@ export const shopPlanRoutes = new Hono<{ Bindings: Env }>()
         customerId: customer.id,
         vehicleId: vehicle.id,
         createdByUserId: session.sub,
-        subtotal: sold.value.total,
-        discount: 0,
+        subtotal: sold.value.fullTotal,
+        discount: sold.value.fullTotal - sold.value.total,
+        ...(sold.value.fullTotal > sold.value.total ? { discountReason: 'Second car in the same home: 10% off the plan' } : {}),
         total: sold.value.total,
         createdAt: now,
         lineItems: [{ serviceId: shopPlanRepo.saleServiceId(session.shopId), priceAtTime: sold.value.total, commissionAtTime: 0, quantity: 1 }],

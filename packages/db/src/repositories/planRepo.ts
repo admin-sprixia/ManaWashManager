@@ -15,7 +15,12 @@ import {
   upgradeWashes,
   washesPerWeek,
   washPlanPrice,
+  planPriceWithSaving,
+  scaledPlanPrice,
+  listPrice,
+  parsePricingPolicy,
   type DeliveryMode,
+  type ModeAdjustment,
   type PlacePriceMode,
   type ServiceKind,
   type WashPlanRules,
@@ -167,7 +172,75 @@ export interface PlaceMenu {
   }[];
 }
 
+/**
+ * Per-wash prices at head office's Standard (default) price book, worked out the way a branch's
+ * list prices are (community rule, rounding) but with no zone, own prices or volume discount: the
+ * prices head office set its plans' fixed prices against. Returns a lookup by service and size.
+ */
+async function standardPrices(
+  pdb: DbClient,
+  businessId: string,
+  plans: readonly { catalogServiceId: string; upgradeServiceId: string | null }[],
+  mode: PlacePriceMode,
+): Promise<(catalogServiceId: string, sizeId: string) => number | null> {
+  const serviceIds = [...new Set(plans.flatMap((p) => [p.catalogServiceId, p.upgradeServiceId]).filter((id): id is string => !!id))];
+  if (!serviceIds.length) return () => null;
+  const [book, sizes, classes, rules, rounding] = await Promise.all([
+    pdb.priceBook.findFirst({ where: { businessId, isDefault: true }, select: { id: true } }),
+    pdb.vehicleSize.findMany({ where: { businessId }, select: { id: true, classId: true } }),
+    pdb.vehicleClass.findMany({ where: { businessId }, select: { id: true, key: true } }),
+    pdb.modeAdjustment.findMany({ where: { businessId } }),
+    pdb.businessSetting.findFirst({ where: { businessId, key: 'pricing.roundToPaise' }, select: { value: true } }),
+  ]);
+  if (!book) return () => null;
+  const entries = await pdb.priceBookEntry.findMany({
+    where: { priceBookId: book.id, serviceId: { in: serviceIds } },
+    select: { serviceId: true, sizeId: true, price: true, doorstepPrice: true },
+  });
+  const classKey = new Map(classes.map((c) => [c.id, c.key]));
+  const classOfSize = new Map(sizes.map((s) => [s.id, classKey.get(s.classId) ?? null]));
+  const adjustments: ModeAdjustment[] = rules.map((a) => ({
+    mode: a.mode === 'doorstep' ? 'doorstep' : 'hub',
+    classKey: a.classId ? (classKey.get(a.classId) ?? null) : null,
+    percentBp: a.percentBp,
+    fixedPaise: a.fixedPaise,
+    minExtraPaise: a.minExtraPaise,
+  }));
+  const roundToPaise = parsePricingPolicy({ roundToPaise: rounding?.value }).roundToPaise;
+  const entry = new Map(entries.map((e) => [`${e.serviceId}|${e.sizeId}`, e]));
+  return (catalogServiceId, sizeId) => {
+    const e = entry.get(`${catalogServiceId}|${sizeId}`);
+    const cls = classOfSize.get(sizeId);
+    if (!e || e.price <= 0 || !cls) return null;
+    return listPrice({ base: e.price, mode, classKey: cls, adjustments, zonePercentBp: 0, roundToPaise, doorstepBase: e.doorstepPrice }).price;
+  };
+}
+
 export const planRepo = {
+  /**
+   * Whether the customer already has a plan running at this branch on another vehicle (a shop
+   * plan, or a community plan waiting, due or active): their next car is the second car at home.
+   */
+  async customerHasPlan(db: DbClient, customerId: string, exceptVehicleId?: string | null): Promise<boolean> {
+    const [shop, place] = await Promise.all([
+      db.shopPlanOrder.count({
+        where: { customerId, status: 'active', ...(exceptVehicleId ? { vehicleId: { not: exceptVehicleId } } : {}) },
+      }),
+      db.placeOrder.findMany({
+        where: { customerId, kind: 'plan', status: { in: ['waitlist', 'awaiting_payment', 'active'] } },
+        select: { memberVehicleId: true },
+      }),
+    ]);
+    if (shop > 0) return true;
+    if (!place.length) return false;
+    if (!exceptVehicleId) return true;
+    const vehicles = await db.memberVehicle.findMany({
+      where: { id: { in: place.map((o) => o.memberVehicleId) } },
+      select: { vehicleId: true },
+    });
+    return vehicles.some((v) => v.vehicleId !== exceptVehicleId);
+  },
+
   async list(pdb: DbClient, businessId: string, options: { activeOnly?: boolean } = {}): Promise<WashPlanView[]> {
     const plans = await pdb.washPlan.findMany({
       where: { businessId, ...(options.activeOnly ? { active: true } : {}) },
@@ -379,6 +452,7 @@ export const planRepo = {
       shop?.priceZoneId ? pdb.priceZone.findUnique({ where: { id: shop.priceZoneId }, select: { percentBp: true, active: true } }) : Promise.resolve(null),
     ]);
     const zoneBp = zone?.active ? zone.percentBp : 0;
+    const standardPerWash = businessId ? await standardPrices(pdb, businessId, plans, priceMode) : () => null;
     const bodyOf = new Map(bodies.map((b) => [b.id, b]));
     const sizeOfType = new Map(types.map((t) => [t.id, (t.bodyTypeId && bodyOf.get(t.bodyTypeId)?.sizeId) || null]));
     // Only what's done there (Community, or Shop, ticked), priced the way it's paid.
@@ -407,6 +481,17 @@ export const planRepo = {
         const upgrade = better && p.upgradeEvery ? { every: p.upgradeEvery, name: better.name, catalogServiceId: p.upgradeServiceId! } : null;
         const ups = upgradeWashes(p.washes, upgrade);
         const fixed = new Map(p.prices.filter((x) => x.mode === priceMode).map((x) => [x.sizeId, x.price]));
+        /** What this plan's washes cost at head office's Standard book, for a size (null = can't tell). */
+        const standardTotal = (size: string | null) => {
+          if (!size) return null;
+          const per = standardPerWash(p.catalogServiceId, size);
+          const up = better ? standardPerWash(p.upgradeServiceId!, size) : null;
+          if (per == null || (better && up == null)) return null;
+          return per * (p.washes - ups) + (up ?? 0) * ups;
+        };
+        // No Standard price to compare against: as before, the zone and volume discount move it.
+        const fixedAtBranch = (own: number, branchTotal: number, standard: number | null) =>
+          standard ? scaledPlanPrice(own, branchTotal, standard) : less(fixedPlanPrice(own, zoneBp));
         return [
           {
             id: p.id,
@@ -429,7 +514,13 @@ export const planRepo = {
                 {
                   vehicleTypeId: pr.vehicleTypeId,
                   perWash: pr.price,
-                  total: own != null ? less(fixedPlanPrice(own, zoneBp)) : washPlanPrice(listTotal / p.washes, p.washes, p.discountBp),
+                  // Head office's fixed price follows this branch's wash prices (book, own prices, zone,
+                  // community discount), so the plan saves the same share here as at a Standard branch;
+                  // and it's always a saving against the same washes one by one (MIN_PLAN_SAVING_BP).
+                  total: planPriceWithSaving(
+                    own != null ? fixedAtBranch(own, listTotal, standardTotal(size ?? null)) : washPlanPrice(listTotal / p.washes, p.washes, p.discountBp),
+                    listTotal,
+                  ),
                   listTotal,
                 },
               ];

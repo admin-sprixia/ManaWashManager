@@ -1,4 +1,4 @@
-import { listPrice, washPlanPrice, type PlacePriceMode } from '@mana/domain';
+import { listPrice, planPriceWithSaving, washPlanPrice, type PlacePriceMode } from '@mana/domain';
 import type { Catalog } from './shared';
 
 export type PlanMode = 'hub' | 'doorstep';
@@ -39,7 +39,8 @@ export function planSizes(catalog: Catalog, serviceId: string) {
 
 /**
  * What one vehicle of each size pays for the plan: its own price when set, otherwise the
- * washes one by one (every Nth the better wash) less the discount, at the default price book.
+ * washes one by one (every Nth the better wash) less the discount, at the default price book —
+ * and never less of a saving than the minimum (`capped`: the price set was lowered to keep it).
  */
 export function planPreview(
   catalog: Catalog,
@@ -53,7 +54,8 @@ export function planPreview(
     const ups = plan.upgradeId && better != null ? Math.floor(plan.washes / plan.every) : 0;
     const listTotal = perWash * (plan.washes - ups) + (better ?? 0) * ups;
     const own = plan.fixed?.get(priceKey(size.id, priceMode));
-    const total = own ?? washPlanPrice(listTotal / plan.washes, plan.washes, plan.discountBp);
-    return [{ key: size.id, name: size.name, total, save: Math.max(0, listTotal - total) }];
+    const asSet = own ?? washPlanPrice(listTotal / plan.washes, plan.washes, plan.discountBp);
+    const total = planPriceWithSaving(asSet, listTotal);
+    return [{ key: size.id, name: size.name, total, save: Math.max(0, listTotal - total), capped: total < asSet, asSet }];
   });
 }

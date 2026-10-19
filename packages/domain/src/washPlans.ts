@@ -167,6 +167,55 @@ export function washPlanPrice(perWash: number, washes: number, discountBp: numbe
   return roundRupee((perWash * washes * (10000 - discountBp)) / 10000);
 }
 
+/**
+ * A plan's fixed price at a branch whose washes cost differently from head office's Standard price
+ * book (another book, the owner's own prices, a zone, a community discount): moved by the same
+ * ratio as the washes, so the plan saves the same share everywhere. `standardListTotal` is what
+ * its washes cost at the Standard book; `branchListTotal` what they cost at this branch.
+ */
+export function scaledPlanPrice(fixed: number, branchListTotal: number, standardListTotal: number): number {
+  if (standardListTotal <= 0 || branchListTotal <= 0) return fixed;
+  return roundRupee((fixed * branchListTotal) / standardListTotal);
+}
+
+/** A second car in the same home gets this off its plan (1000 = 10%). */
+export const SECOND_CAR_PLAN_DISCOUNT_BP = 1000;
+
+/** A plan's price for a second car in the same home: 10% off, in whole rupees. */
+export function secondCarPlanPrice(total: number): number {
+  return roundRupee((total * (10000 - SECOND_CAR_PLAN_DISCOUNT_BP)) / 10000);
+}
+
+/**
+ * Which plans in one purchase get the second-car price. A customer who already has a plan running
+ * gets it on every new one; otherwise the dearest plan is full price and the rest get it.
+ * Returns the indexes (into `totals`) that are a second car.
+ */
+export function secondCarIndexes(totals: readonly number[], alreadyHasPlan: boolean): Set<number> {
+  const order = totals.map((t, i) => [t, i] as const).sort((a, b) => b[0] - a[0] || a[1] - b[1]);
+  return new Set(order.slice(alreadyHasPlan ? 0 : 1).map(([, i]) => i));
+}
+
+/**
+ * A plan always saves the customer at least this much against paying for its washes one by one
+ * (500 = 5%): nobody picks a plan that costs the same or more.
+ */
+export const MIN_PLAN_SAVING_BP = 500;
+
+/** The most a plan may cost: its washes one by one, less MIN_PLAN_SAVING_BP, in whole rupees (down). */
+export function maxPlanPrice(listTotal: number): number {
+  return Math.floor((listTotal * (10000 - MIN_PLAN_SAVING_BP)) / 10000 / 100) * 100;
+}
+
+/**
+ * A plan's price kept a real saving: whatever was set (a fixed price or a discount), never more
+ * than maxPlanPrice. A lower price stands. Applied wherever a plan is priced, so a change to the
+ * wash prices later can't make a plan stop saving.
+ */
+export function planPriceWithSaving(total: number, listTotal: number): number {
+  return listTotal > 0 ? Math.min(total, maxPlanPrice(listTotal)) : total;
+}
+
 /** A plan's fixed price at a branch: the zone moves it like any list price; whole rupees. */
 export function fixedPlanPrice(price: number, zonePercentBp: number): number {
   return roundRupee((price * (10000 + zonePercentBp)) / 10000);

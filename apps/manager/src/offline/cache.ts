@@ -31,6 +31,8 @@ export const CacheKeys = {
   vehicleSizes: 'vehicle.sizes.v1',
   /** Doorstep cash the signed-in person held when last online: `{ userId, held }`. */
   held: 'cash.held.v1',
+  /** The branch's menu (services, vehicle types, prices, places), for More › Menu offline. */
+  menu: 'menu.v1',
 } as const;
 
 export async function readCache<T>(key: string): Promise<T | null> {

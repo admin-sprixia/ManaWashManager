@@ -224,5 +224,23 @@ check(
   `${show(r)} ${JSON.stringify(added)}`,
 );
 
+// ─── A second car in the same home: 10% off its plan ─────────────────────────
+
+const secondPlate = `AP39SC${rand(4)}`;
+r = await call(OA, 'GET', `/shop-plans/for-sale?vehicleTypeId=${hatch}&phone=${phone}&registrationNumber=${secondPlate}`);
+const second = (r.body?.plans ?? []).find((p) => p.planId === SHOP_PLAN);
+check('A customer with a plan running sees their second car’s plan at 10% off', r.body?.secondCar === true && second?.total === 161600 && second?.secondCar?.fullTotal === 179600, JSON.stringify(second));
+r = await call(OA, 'GET', `/shop-plans/for-sale?vehicleTypeId=${hatch}&phone=98${rand(8)}`);
+check('…a new customer pays the usual price', r.body?.secondCar === false && (r.body?.plans ?? []).find((p) => p.planId === SHOP_PLAN)?.total === 179600, show(r));
+r = await call(OA, 'POST', '/shop-plans/sell', {
+  id: `sale_${run}_${rand(6)}`,
+  customer: { phone, name: 'Plan Customer' },
+  registrationNumber: secondPlate,
+  vehicleTypeId: hatch,
+  planId: SHOP_PLAN,
+  paymentMethod: 'cash',
+});
+check('…and is billed 10% off, shown as a discount on the bill', r.status === 201 && r.body?.job?.total === 161600 && r.body?.job?.subtotal === 179600 && r.body?.job?.discount === 18000, show(r));
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

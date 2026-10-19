@@ -29,6 +29,7 @@ import { CatalogServicesScreen } from '../screens/business/CatalogServicesScreen
 import { ServiceEditorScreen } from '../screens/business/ServiceEditorScreen';
 import { PlanEditorScreen } from '../screens/business/PlanEditorScreen';
 import { VehicleGuideScreen } from '../screens/VehicleGuideScreen';
+import { MenuScreen } from '../screens/MenuScreen';
 import { PriceListScreen } from '../screens/business/PriceListScreen';
 import { PricingRulesScreen } from '../screens/business/PricingRulesScreen';
 import { BranchesScreen } from '../screens/business/BranchesScreen';
@@ -82,6 +83,8 @@ export type RootStackParamList = {
   BusinessPlanEdit: { planId?: string } | undefined;
   /** Which size every vehicle is priced as; opened on a tab or size. */
   VehicleGuide: { category?: 'car' | 'bike'; size?: string } | undefined;
+  /** The branch's hub, community and doorstep menus, for every vehicle or one; shared as a PDF. */
+  Menu: undefined;
   BusinessPrices: undefined;
   BusinessRules: undefined;
   BusinessBranches: undefined;
@@ -160,6 +163,7 @@ export function RootNavigator() {
         <Stack.Screen name="Rewards" component={RewardsScreen} options={slide} />
         <Stack.Screen name="ServiceRequests" component={ServiceRequestsScreen} options={slide} />
         <Stack.Screen name="AppFeedback" component={AppFeedbackScreen} options={slide} />
+        <Stack.Screen name="Menu" component={MenuScreen} options={slide} />
         {/* Business admins are picked by phone, so the API decides who may use these. */}
         <Stack.Screen name="Business" component={BusinessScreen} options={slide} />
         <Stack.Screen name="BusinessServices" component={CatalogServicesScreen} options={slide} />

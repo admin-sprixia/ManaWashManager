@@ -16,6 +16,8 @@ interface PlanOffer {
   popular: boolean;
   total: number;
   listTotal: number;
+  /** A second car in the same home: `total` is 10% off this usual price. */
+  secondCar?: { fullTotal: number } | null;
 }
 
 const PAY_OPTIONS = [
@@ -77,7 +79,10 @@ export function SellPlanSheet({
     let alive = true;
     void (async () => {
       try {
-        const res = await api['shop-plans']['for-sale'].$get({ query: { vehicleTypeId } });
+        // With the customer's phone, a second car in the same home is priced 10% off.
+        const res = await api['shop-plans']['for-sale'].$get({
+          query: { vehicleTypeId, phone: customer.phone, registrationNumber },
+        });
         if (!alive) return;
         if (!res.ok) return setError(await apiErrorMessage(res, 'Couldn’t load the plans.'));
         const body = await res.json();
@@ -90,7 +95,7 @@ export function SellPlanSheet({
     return () => {
       alive = false;
     };
-  }, [visible, vehicleTypeId]);
+  }, [visible, vehicleTypeId, customer.phone, registrationNumber]);
 
   const picked = plans?.find((p) => p.planId === planId) ?? null;
 
@@ -175,8 +180,12 @@ export function SellPlanSheet({
                   {p.upgrade ? `, every ${p.upgrade.every}th ${p.upgrade.name}` : ''} · {p.months === 1 ? '1 month' : `${p.months} months`}
                 </Text>
                 {save > 0 ? <Text style={styles.save}>Saves {formatMoney(save)}</Text> : null}
+                {p.secondCar ? <Text style={styles.secondCar}>Second car at home · 10% off</Text> : null}
               </View>
-              <Text style={styles.price}>{formatMoney(p.total)}</Text>
+              <View style={styles.priceCol}>
+                {p.secondCar ? <Text style={styles.wasPrice}>{formatMoney(p.secondCar.fullTotal)}</Text> : null}
+                <Text style={styles.price}>{formatMoney(p.total)}</Text>
+              </View>
             </Pressable>
           );
         })}
@@ -222,4 +231,7 @@ const styles = StyleSheet.create({
   planMeta: { ...typography.caption, fontSize: 12.5, color: colors.slateDeep, letterSpacing: 0 },
   save: { ...typography.caption, fontSize: 12, color: colors.tealDeep, fontWeight: '800', letterSpacing: 0 },
   price: { ...typography.heading, fontSize: 18, color: colors.waterInk },
+  priceCol: { alignItems: 'flex-end' },
+  wasPrice: { ...typography.caption, fontSize: 12, color: colors.slate, textDecorationLine: 'line-through', letterSpacing: 0 },
+  secondCar: { ...typography.caption, fontSize: 12, color: colors.tealDeep, fontWeight: '800', letterSpacing: 0, marginTop: 2 },
 });

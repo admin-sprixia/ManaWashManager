@@ -8,6 +8,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- **Branch menu.** More › Menu shows the hub, community and doorstep menus (only the ones the
+  branch runs) — plans first, then services in Express, Basic, Shine order — for every vehicle,
+  cars or bikes, a size, or a company and model, with only what the branch washes. It shares as a
+  PDF on the logo's night indigo, ending with the app link and a QR code for the exact price.
+
+### Changed
+
+- **Plans save the same everywhere.** HQ's plan prices are set against its Standard price book;
+  a branch whose washes cost differently (another book, its own prices, a zone, the community
+  discount) now gets its plans moved by the same amount, so a plan saves the same share at every
+  branch (a branch on a 10% cheaper book gets 10% cheaper plans). As a safety net a plan never
+  costs less than 5% below its washes one by one; HQ's plan editor shows when that applies.
+- **Second car in the same home: 10% off its plan.** At the counter, a customer who already has a
+  plan running on another vehicle is offered the plan 10% off (the bill shows it as a discount);
+  joining a community with several cars, the dearest plan is full price and the rest 10% off
+  (every new plan, when one is already running). The order's title says "second car 10% off".
+
 ### Fixed
 
 - **Wash photos showed as blank tiles once uploaded.** The wash page loaded them with the session

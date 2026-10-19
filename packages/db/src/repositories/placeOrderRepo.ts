@@ -31,6 +31,9 @@ import {
   type PayMode,
   type VisitOutcome,
   type WashPlanRules,
+  SECOND_CAR_PLAN_DISCOUNT_BP,
+  secondCarIndexes,
+  secondCarPlanPrice,
 } from '@mana/domain';
 import { createPlatformDb, createShopDb, type D1Database, type DbClient } from '../client';
 import { newId } from '../ids';
@@ -167,6 +170,18 @@ function priceChoice(menu: PlaceMenu, rules: WashPlanRules, vehicleTypeId: strin
     singlePrice: total,
     total,
     payMode: 'full',
+  };
+}
+
+/** A plan for the second car in the same home: 10% off, noted on the order and its receipt. */
+function asSecondCar(o: PricedOrder): PricedOrder {
+  const total = secondCarPlanPrice(o.total);
+  const snapshot = JSON.parse(o.snapshot) as Record<string, unknown>;
+  return {
+    ...o,
+    title: `${o.title} · second car 10% off`,
+    snapshot: JSON.stringify({ ...snapshot, secondCar: { discountBp: SECOND_CAR_PLAN_DISCOUNT_BP, fullTotal: o.total } }),
+    total,
   };
 }
 
@@ -441,8 +456,17 @@ export const placeOrderRepo = {
     // Customers joining in the app can't buy what HQ keeps for staff to sell.
     const menu = input.via === 'staff' ? full : { ...full, services: full.services.filter((s) => s.showInApp) };
     const counter = await loadCounter(db, place);
+    // A second car in the same home gets 10% off its plan: every new plan when the customer already
+    // has one running, otherwise all but the dearest plan in this join.
+    const prePriced = input.vehicles.map((v) => {
+      const typeId = v.vehicleId ? owned.find((o) => o.id === v.vehicleId)?.vehicleTypeId : v.vehicleTypeId;
+      return typeId && v.choice.kind === 'plan' ? priceChoice(menu, rules, typeId, v.choice).total : null;
+    });
+    const planAt = prePriced.flatMap((t, i) => (t == null ? [] : [i]));
+    const hasPlan = planAt.length ? await planRepo.customerHasPlan(db, customer.id) : false;
+    const secondCar = new Set([...secondCarIndexes(planAt.map((i) => prePriced[i]!), hasPlan)].map((k) => planAt[k]!));
     const orders: { id: string; title: string; total: number; dueNow: number; firstWashOn: string | null; status: string; kind: string }[] = [];
-    for (const v of input.vehicles) {
+    for (const [index, v] of input.vehicles.entries()) {
       let memberVehicleId = newId();
       let reused = false;
       let vehicleTypeId = v.vehicleTypeId;
@@ -461,7 +485,8 @@ export const placeOrderRepo = {
         }
       }
       if (!vehicleTypeId) return placeFail('invalid', 'Pick the vehicle type.');
-      const priced = priceChoice(menu, rules, vehicleTypeId, v.choice);
+      const base = priceChoice(menu, rules, vehicleTypeId, v.choice);
+      const priced = secondCar.has(index) && base.kind === 'plan' ? asSecondCar(base) : base;
       if (!reused) {
         statements.push({
           sql: `INSERT INTO member_vehicles (id, shop_id, member_id, customer_id, vehicle_type_id, vehicle_id) VALUES (?, ?, ?, ?, ?, ?)`,

@@ -1,4 +1,4 @@
-import { istDay, isUpgradeWash, planLastDay, shopPlanProblem, type PaymentMethod } from '@mana/domain';
+import { istDay, isUpgradeWash, planLastDay, secondCarPlanPrice, shopPlanProblem, type PaymentMethod } from '@mana/domain';
 import { createPlatformDb, createShopDb, type D1Database, type DbClient } from '../client';
 import { isUniqueClash } from '../retryOnClash';
 import { newId } from '../ids';
@@ -20,6 +20,8 @@ export interface ShopPlanForSale {
   /** What the customer pays for the plan, and the washes one by one. */
   total: number;
   listTotal: number;
+  /** A second car in the same home: `total` is 10% off; this is the plan's usual price. */
+  secondCar: { fullTotal: number } | null;
 }
 
 /** A vehicle's running shop plan, as New Wash sees it. */
@@ -46,7 +48,19 @@ export type ShopPlanResult<T> = { ok: true; value: T } | { ok: false; message: s
  */
 export const shopPlanRepo = {
   /** The plans this branch sells at the counter for a vehicle type, priced at the hub. */
-  async forSale(d1: D1Database, shopId: string, vehicleTypeId: string): Promise<ShopPlanForSale[]> {
+  /** Every plan sold at this branch's counter, priced for each vehicle type (for the branch menu). */
+  async menu(d1: D1Database, shopId: string) {
+    const pdb = createPlatformDb(d1);
+    const shop = await pdb.shop.findUnique({ where: { id: shopId }, select: { businessId: true } });
+    if (!shop?.businessId) return [];
+    return (await planRepo.menu(pdb, shopId, shop.businessId, 'hub', undefined, 'shop')).plans;
+  },
+
+  /**
+   * `secondCar`: the customer already has a plan running on another vehicle, so these are priced
+   * for a second car in the same home (10% off).
+   */
+  async forSale(d1: D1Database, shopId: string, vehicleTypeId: string, secondCar = false): Promise<ShopPlanForSale[]> {
     const pdb = createPlatformDb(d1);
     const shop = await pdb.shop.findUnique({ where: { id: shopId }, select: { businessId: true } });
     if (!shop?.businessId) return [];
@@ -63,11 +77,23 @@ export const shopPlanRepo = {
           serviceName: p.serviceName,
           upgrade: p.upgrade ? { every: p.upgrade.every, name: p.upgrade.name } : null,
           popular: p.popular,
-          total: price.total,
+          total: secondCar ? secondCarPlanPrice(price.total) : price.total,
           listTotal: price.listTotal,
+          secondCar: secondCar ? { fullTotal: price.total } : null,
         },
       ];
     });
+  },
+
+  /** Whether a customer (by phone) buying a plan for this vehicle would be the second car at home. */
+  async isSecondCar(d1: D1Database, shopId: string, phone: string, registrationNumber?: string | null): Promise<boolean> {
+    const db = createShopDb(d1, shopId);
+    const customer = await db.customer.findFirst({ where: { phone }, select: { id: true } });
+    if (!customer) return false;
+    const vehicle = registrationNumber
+      ? await db.vehicle.findFirst({ where: { registrationNumber, customerId: customer.id }, select: { id: true } })
+      : null;
+    return planRepo.customerHasPlan(db, customer.id, vehicle?.id ?? null);
   },
 
   /** A vehicle's running shop plans at this branch, and whether each can pay for a wash today. */
@@ -128,12 +154,16 @@ export const shopPlanRepo = {
       byUserId: string;
       now: Date;
     },
-  ): Promise<ShopPlanResult<{ orderId: string; jobId: string; total: number; endsOn: string }>> {
+  ): Promise<ShopPlanResult<{ orderId: string; jobId: string; total: number; fullTotal: number; endsOn: string }>> {
     const db = createShopDb(d1, shopId);
     const already = await db.shopPlanOrder.findFirst({ where: { saleJobId: input.saleId } });
-    if (already) return { ok: true, value: { orderId: already.id, jobId: already.saleJobId, total: already.price, endsOn: already.endsOn } };
+    if (already) {
+      return { ok: true, value: { orderId: already.id, jobId: already.saleJobId, total: already.price, fullTotal: already.price, endsOn: already.endsOn } };
+    }
 
-    const offer = (await shopPlanRepo.forSale(d1, shopId, input.vehicleTypeId)).find((p) => p.planId === input.planId);
+    // A second car in the same home: another plan of theirs is running on a different vehicle.
+    const secondCar = await planRepo.customerHasPlan(db, input.customerId, input.vehicleId);
+    const offer = (await shopPlanRepo.forSale(d1, shopId, input.vehicleTypeId, secondCar)).find((p) => p.planId === input.planId);
     if (!offer) return { ok: false, message: 'This plan isn’t sold here for this vehicle.' };
     const plan = await createPlatformDb(d1).washPlan.findUnique({
       where: { id: input.planId },
@@ -189,10 +219,12 @@ export const shopPlanRepo = {
     } catch (e) {
       if (!isUniqueClash(e)) throw e;
       const winner = await db.shopPlanOrder.findFirst({ where: { saleJobId: input.saleId } });
-      if (winner) return { ok: true, value: { orderId: winner.id, jobId: winner.saleJobId, total: winner.price, endsOn: winner.endsOn } };
+      if (winner) {
+        return { ok: true, value: { orderId: winner.id, jobId: winner.saleJobId, total: winner.price, fullTotal: winner.price, endsOn: winner.endsOn } };
+      }
       throw e;
     }
-    return { ok: true, value: { orderId, jobId: input.saleId, total: offer.total, endsOn } };
+    return { ok: true, value: { orderId, jobId: input.saleId, total: offer.total, fullTotal: offer.secondCar?.fullTotal ?? offer.total, endsOn } };
   },
 
   /** The service the sale's bill line goes on. */

@@ -291,7 +291,10 @@ const monthly = info?.menu?.plans?.find((p) => p.id === MONTHLY);
 const quarterly = info?.menu?.plans?.find((p) => p.id === QUARTERLY);
 const doorHatch = info?.menu?.services?.find((s) => s.id && s.name === 'Complete Wash')?.prices?.find((p) => p.vehicleTypeId === hatch?.id)?.price;
 check('The place’s menu has its flats, vehicle types and plans', info?.units?.length === 6 && !!hatch && !!scooter && !!monthly && !!quarterly, show(r));
-check('Plan prices come from the doorstep price × washes, less the discount', monthly?.prices?.find((p) => p.vehicleTypeId === hatch?.id)?.total === doorHatch * 4 && quarterly?.prices?.find((p) => p.vehicleTypeId === hatch?.id)?.total === Math.round((doorHatch * 12 * 0.95) / 100) * 100, `${doorHatch} ${JSON.stringify(monthly?.prices)}`);
+// A plan always saves at least 5% on its washes one by one (whole rupees, down): a plan with no
+// discount is lowered to that.
+const planCap = (listTotal) => Math.floor((listTotal * 0.95) / 100) * 100;
+check('Plan prices come from the doorstep price × washes, less the discount, always saving at least 5%', monthly?.prices?.find((p) => p.vehicleTypeId === hatch?.id)?.total === planCap(doorHatch * 4) && quarterly?.prices?.find((p) => p.vehicleTypeId === hatch?.id)?.total === Math.min(Math.round((doorHatch * 12 * 0.95) / 100) * 100, planCap(doorHatch * 12)), `${doorHatch} ${JSON.stringify(monthly?.prices)}`);
 check('…and the first wash is the next wash day (a week out)', info?.firstWash?.['1']?.day === addDays(today, 7), JSON.stringify(info?.firstWash));
 
 // ─── Flow A from far away: the team confirms ─────────────────────────────────
@@ -312,7 +315,7 @@ const C1 = r.body?.session?.token;
 const order1 = r.body?.orders?.[0];
 check('Joining from 1.6 km away waits for the team', r.status === 201 && r.body?.memberStatus === 'pending' && r.body?.checks?.includes('far_away'), show(r));
 check('…and signs them in as a new customer', !!C1 && r.body?.newCustomer === true);
-check('…with the plan for their hatchback, first wash next week, unpaid', order1?.status === 'awaiting_payment' && order1?.firstWashOn === addDays(today, 7) && order1?.total === doorHatch * 4 && !!order1?.payBy, JSON.stringify(order1));
+check('…with the plan for their hatchback, first wash next week, unpaid', order1?.status === 'awaiting_payment' && order1?.firstWashOn === addDays(today, 7) && order1?.total === planCap(doorHatch * 4) && !!order1?.payBy, JSON.stringify(order1));
 r = await call(C1, 'POST', `/c/orders/${order1.id}/pay`);
 check('Payment opens only after the team confirms', r.status === 403 && r.body?.error === 'not_allowed', show(r));
 
@@ -527,6 +530,34 @@ r = await call(null, 'POST', '/c/join', {
   vehicles: [{ vehicleTypeId: hatch.id, choice: { kind: 'plan', planId: 'nope', payMode: 'full' } }],
 });
 check('An unknown plan is refused', r.status === 400, show(r));
+
+// A second car in the same home: the dearer plan is full price, the other 10% off.
+{
+  const monthlyFor = (typeId) => info.menu.plans.find((p) => p.id === MONTHLY)?.prices.find((p) => p.vehicleTypeId === typeId)?.total;
+  const hatchFull = monthlyFor(hatch.id);
+  const scooterFull = monthlyFor(scooter.id);
+  r = await call(null, 'POST', '/c/join', {
+    ticket: (await newCustomer()).ticket,
+    placeId: P1,
+    unit: { text: '302' },
+    location: { latitude: LAT, longitude: LNG },
+    vehicles: [
+      { vehicleTypeId: scooter.id, choice: { kind: 'plan', planId: MONTHLY, payMode: 'full' } },
+      { vehicleTypeId: hatch.id, choice: { kind: 'plan', planId: MONTHLY, payMode: 'full' } },
+    ],
+  });
+  const [scooterOrder, hatchOrder] = r.body?.orders ?? [];
+  const dearerIsHatch = hatchFull >= scooterFull;
+  const tenOff = (x) => Math.round((x * 0.9) / 100) * 100;
+  check(
+    'Two cars in one home on plans: the dearer one is full price, the second 10% off',
+    r.status === 201 &&
+      hatchOrder?.total === (dearerIsHatch ? hatchFull : tenOff(hatchFull)) &&
+      scooterOrder?.total === (dearerIsHatch ? tenOff(scooterFull) : scooterFull) &&
+      /second car 10% off/.test((dearerIsHatch ? scooterOrder : hatchOrder)?.title ?? ''),
+    `${hatchFull} ${scooterFull} ${JSON.stringify(r.body?.orders)}`,
+  );
+}
 
 // ─── Parts and renewal ───────────────────────────────────────────────────────
 const c6 = await newCustomer();

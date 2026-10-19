@@ -321,6 +321,15 @@ export function MoreScreen({ navigation }: Props) {
         ) : null}
 
         <SectionTitle meta={shop ? `${shop.name} · code ${shop.code}` : undefined}>Branch</SectionTitle>
+        <EdgeGroup>
+          <EdgeRow
+            icon={<IconReceipt size={19} color="#8A5A12" />}
+            iconBg="#FCEFD6"
+            title="Menu"
+            subtitle="Hub, community and doorstep menus by vehicle; share as PDF"
+            onPress={() => navigation.navigate('Menu')}
+          />
+        </EdgeGroup>
         {isOwner ? (
           <EdgeGroup>
             <EdgeRow

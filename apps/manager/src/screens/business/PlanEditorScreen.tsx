@@ -14,6 +14,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { InferResponseType } from 'hono/client';
 import {
   MAX_PLAN_PRICE_PAISE,
+  MIN_PLAN_SAVING_BP,
   PLAN_SOLD_AT,
   PLAN_SOLD_AT_LABEL,
   WASH_PLAN_MAX_DISCOUNT_BP,
@@ -521,6 +522,7 @@ export function PlanEditorScreen({ navigation, route }: Props) {
                       : null,
                   ].filter((c): c is NonNullable<typeof c> => c != null);
                   const save = Math.max(...cells.map((c) => c.p?.save ?? 0));
+                  const capped = cells.some((c) => c.p?.capped);
                   return (
                     <View key={row.key} style={[styles.payRow, i > 0 && styles.payDivider]}>
                       <View style={styles.flex}>
@@ -534,6 +536,11 @@ export function PlanEditorScreen({ navigation, route }: Props) {
                         ) : (
                           <Text style={styles.payNoSave}>Same as single washes</Text>
                         )}
+                        {capped ? (
+                          <Text style={styles.payCapped}>
+                            Lowered so members save at least {MIN_PLAN_SAVING_BP / 100}%
+                          </Text>
+                        ) : null}
                       </View>
                       {cells.map((c) => (
                         <View
@@ -556,7 +563,8 @@ export function PlanEditorScreen({ navigation, route }: Props) {
                 })}
                 <Text style={[styles.help, styles.payFoot]}>
                   For {previewWashes} {previewWashes === 1 ? 'wash' : 'washes'}, from the default
-                  price book. Branches on another book, or with their own prices, may differ; big
+                  price book. A plan always costs at least {MIN_PLAN_SAVING_BP / 100}% less than its
+                  washes one by one; a price above that is lowered. Branches on another book, or with their own prices, may differ; big
                   communities may get a volume discount on top.
                 </Text>
               </View>
@@ -860,6 +868,14 @@ const styles = StyleSheet.create({
     color: colors.slate,
     letterSpacing: 0,
     marginTop: 2,
+  },
+  payCapped: {
+    ...typography.caption,
+    fontSize: 11.5,
+    color: colors.amberDeep,
+    fontWeight: '700',
+    letterSpacing: 0,
+    marginTop: 3,
   },
   saveTag: {
     alignSelf: 'flex-start',

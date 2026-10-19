@@ -9,7 +9,7 @@ import {
 } from './reportPdf';
 
 /** Encode PDF bytes to base64 without relying on Hermes `btoa` (not always present). */
-function bytesToBase64(bytes: Uint8Array): string {
+export function bytesToBase64(bytes: Uint8Array): string {
   const chunk = 0x8000;
   let binary = '';
   for (let i = 0; i < bytes.length; i += chunk) {

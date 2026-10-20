@@ -414,20 +414,33 @@ export async function buildMenuPdf(input: MenuPdfInput): Promise<Uint8Array> {
           y -= 14;
           section.items.forEach((item, idx) => {
             const subLines = sub(item) ? wrap(sub(item), nameCol - 24, 7.5, regular).slice(0, 2) : [];
-            const h = 20 + subLines.length * 9;
+            // A plan shows what it saves under each price, so the row needs room for that line.
+            const saves = item.saving && cols.some((c) => item.saving!.get(c.id));
+            const h = Math.max(20 + subLines.length * 9, saves ? 32 : 0);
             if (y - h < FOOTER_H + 16) {
               newPage(false);
               colHeader();
             }
             if (idx % 2 === 0) panel(M, y + 12, CONTENT_W, h, 0.035);
-            text(item.service.name, M + 12, y - 2, { size: 10, font: bold, maxWidth: nameCol - 20 });
-            if (item.service.popular) page.drawCircle({ x: M + 6, y: y + 1.5, size: 1.8, color: GOLD });
+            const popular = Boolean(item.service.popular);
+            const nameW = text(item.service.name, M + 12, y - 2, { size: 10, font: bold, maxWidth: nameCol - 20 - (popular ? 50 : 0) });
+            if (popular) {
+              // The same gold tag as the one-vehicle list, right after the name.
+              const bx = M + 12 + nameW + 6;
+              page.drawSvgPath(roundedRect(44, 11, 5.5), { x: bx, y: y + 7.5, color: GOLD });
+              text('POPULAR', bx + 22, y - 0.6, { size: 5.8, font: bold, color: hex('#3A2A0C'), align: 'center' });
+            }
             subLines.forEach((l, i) => text(l, M + 12, y - 13 - i * 9, { size: 7.5, color: LAVENDER }));
             cols.forEach((c, i) => {
               const right = M + nameCol + colW * (i + 1) - 10;
               const p = item.prices.get(c.id);
               if (p == null) text('-', right, y - 2, { size: 10, color: MIST, align: 'right' });
               else price(p, right, y - 2, 10.5);
+              const saved = item.saving?.get(c.id);
+              if (p != null && saved) {
+                const sw = price(saved, right, y - 14, 7, true, GOLD);
+                text('Save', right - sw - 2.5, y - 14, { size: 7, font: bold, color: GOLD, align: 'right' });
+              }
             });
             y -= h;
           });
@@ -438,8 +451,7 @@ export async function buildMenuPdf(input: MenuPdfInput): Promise<Uint8Array> {
     }
     // A short key under the tables.
     ensure(24);
-    page.drawCircle({ x: M + 4, y: y + 3, size: 1.8, color: GOLD });
-    text('Most popular   ·   - = not offered for that size', M + 12, y, {
+    text('- = not offered for that size', M, y, {
       size: 7.5,
       color: MIST,
     });

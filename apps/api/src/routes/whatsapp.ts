@@ -3,10 +3,12 @@
 /// <reference path="../assets.d.ts" />
 import { Hono, type Context } from 'hono';
 import { createPlatformDb, customerAppRepo, shopPlanRepo, vehicleModelRepo } from '@mana/db';
-import { chatReply, type ChatBranch, type ChatContext, type ChatInput } from '@mana/domain';
+import { chatFlowChoice, chatFlowReply, chatReply, type ChatBranch, type ChatContext, type ChatFlowRequest, type ChatInput } from '@mana/domain';
 import banner from '../assets/whatsapp-banner.jpg';
+import makeLogos from '../assets/make-logos.json';
 import { reportError } from '../lib/alerts';
 import { countHit } from '../lib/rateLimit';
+import { decryptFlowRequest, type EncryptedFlowRequest } from '../lib/whatsappFlowCrypto';
 import {
   chatPerson,
   logIncoming,
@@ -41,7 +43,13 @@ interface WaMessage {
   id: string;
   type: string;
   text?: { body?: string };
-  interactive?: { type?: string; button_reply?: { id?: string; title?: string }; list_reply?: { id?: string; title?: string } };
+  interactive?: {
+    type?: string;
+    button_reply?: { id?: string; title?: string };
+    list_reply?: { id?: string; title?: string };
+    /** The finished Services & Prices Flow. */
+    nfm_reply?: { response_json?: string };
+  };
   /** A quick-reply button on a template (the bill's "Rate us"). */
   button?: { payload?: string; text?: string };
 }
@@ -69,6 +77,8 @@ interface WaWebhook {
 function inputOf(m: WaMessage): { input: ChatInput; body: string | null } {
   const choice = m.interactive?.button_reply ?? m.interactive?.list_reply;
   if (choice?.id) return { input: { kind: 'choice', id: choice.id }, body: choice.id };
+  const flowChoice = m.interactive?.nfm_reply?.response_json ? chatFlowChoice(m.interactive.nfm_reply.response_json) : null;
+  if (flowChoice) return { input: { kind: 'choice', id: flowChoice }, body: flowChoice };
   if (m.button?.payload) return { input: { kind: 'choice', id: m.button.payload }, body: m.button.payload };
   const text = m.text?.body ?? m.button?.text ?? '';
   // A photo, voice note or sticker gets the welcome, like "hi".
@@ -90,6 +100,7 @@ async function chatContext(env: Env, origin: string): Promise<ChatContext> {
     businessName: business?.name ?? hubs[0]?.name ?? 'our car wash',
     edits,
     bannerUrl: `${origin}/whatsapp/banner.jpg?v=${BANNER_VERSION}`,
+    flows: !!env.WHATSAPP_FLOW_ID?.trim() && !!env.WHATSAPP_FLOW_PRIVATE_KEY?.trim(),
     branches: hubs.map(
       (b, i): ChatBranch => ({
         id: b.id,
@@ -203,6 +214,28 @@ export const whatsappRoutes = new Hono<{ Bindings: Env }>()
       return c.text(c.req.query('hub.challenge') ?? '');
     }
     return c.json({ error: 'forbidden' as const }, 403);
+  })
+  /**
+   * The Services & Prices Flow's screens. WhatsApp signs and encrypts every request; a request we
+   * can't decrypt gets 421, which makes WhatsApp fetch our public key again and retry.
+   */
+  .post('/flow', async (c) => {
+    const pem = c.env.WHATSAPP_FLOW_PRIVATE_KEY?.trim();
+    const secret = c.env.WHATSAPP_APP_SECRET?.trim();
+    const body = await c.req.text();
+    if (!pem || !secret) return c.json({ error: 'not_configured' as const }, 503);
+    if (!(await verifyMetaSignature(body, c.req.header('x-hub-signature-256'), secret))) {
+      return c.json({ error: 'bad_signature' as const }, 401);
+    }
+    let decrypted: Awaited<ReturnType<typeof decryptFlowRequest>>;
+    try {
+      decrypted = await decryptFlowRequest(JSON.parse(body) as EncryptedFlowRequest, pem);
+    } catch {
+      return c.body(null, 421);
+    }
+    const request = decrypted.request as ChatFlowRequest;
+    const reply = chatFlowReply(request, await chatContext(c.env, new URL(c.req.url).origin), makeLogos as Record<string, string>);
+    return c.text(await decrypted.encryptReply(reply));
   })
   .post('/webhook', async (c) => {
     const secret = c.env.WHATSAPP_APP_SECRET?.trim();

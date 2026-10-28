@@ -59,8 +59,31 @@ function graphError(body: string): string | null {
 }
 
 /** The Cloud API body for one of the assistant's messages. */
-export function chatPayload(m: ChatMessage): { kind: string; body: string; payload: Record<string, unknown> } {
+export function chatPayload(m: ChatMessage, env?: Env): { kind: string; body: string; payload: Record<string, unknown> } {
   switch (m.type) {
+    case 'flow':
+      return {
+        kind: 'flow',
+        body: m.text,
+        payload: {
+          type: 'interactive',
+          interactive: {
+            type: 'flow',
+            body: { text: m.text },
+            action: {
+              name: 'flow',
+              parameters: {
+                flow_message_version: '3',
+                flow_id: env?.WHATSAPP_FLOW_ID?.trim(),
+                flow_token: m.token,
+                flow_cta: m.button,
+                // The first screen comes from our endpoint (its INIT request).
+                flow_action: 'data_exchange',
+              },
+            },
+          },
+        },
+      };
     case 'text':
       return { kind: 'text', body: m.text, payload: { type: 'text', text: { body: m.text, preview_url: true } } };
     case 'buttons':
@@ -118,7 +141,7 @@ export function chatPayload(m: ChatMessage): { kind: string; body: string; paylo
 /** Sends the assistant's messages in order (stops at the first failure) and logs each one. */
 export async function sendChat(env: Env, phone: string, messages: ChatMessage[], purpose = 'chat'): Promise<boolean> {
   for (const m of messages) {
-    const { kind, body, payload } = chatPayload(m);
+    const { kind, body, payload } = chatPayload(m, env);
     const sent = await graphSend(env, { recipient_type: 'individual', to: waId(phone), ...payload });
     await logOutgoing(env, { phone, kind, body, purpose, sent });
     if (!sent.ok) return false;

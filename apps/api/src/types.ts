@@ -42,6 +42,10 @@ export interface Env {
   WHATSAPP_BUSINESS_ID?: string;
   /** Tests only (needs DEV_MODE): send Graph API calls to a stand-in server. */
   WHATSAPP_API_BASE?: string;
+  /** The published Services & Prices Flow (npm run whatsapp:flow); unset = plain company lists. */
+  WHATSAPP_FLOW_ID?: string;
+  /** Secret: decrypts the Flow's requests (PKCS#8 PEM; its public key is registered with Meta). */
+  WHATSAPP_FLOW_PRIVATE_KEY?: string;
   /**
    * Dev-only, and only honoured for requests to localhost: every WhatsApp code is
    * DEV_RECOVERY_CODE (default 000000), reusable, and no message is sent when WhatsApp isn't

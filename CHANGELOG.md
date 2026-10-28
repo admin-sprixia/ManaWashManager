@@ -33,6 +33,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   (`wash_ready`, `wash_bill`; `npm run whatsapp:templates` submits them and shows their status).
   The manager app's "Send on WhatsApp" ready prompt and Thank-you buttons are gone; marking a wash
   Ready says the customer will get a WhatsApp.
+- **Numbered prices on WhatsApp.** A model's price list numbers every wash and plan; replying with
+  a number shows what's in it (checklist, time, or the plan's washes, upgrade and cost per wash).
+  Migration `0003_whatsapp_chat_context.sql` remembers the list each number saw last.
+- **Services & Prices WhatsApp Flow (ready, off until Meta verifies the business).** A full-screen
+  picker: companies with their logos → models → that model's prices, served encrypted from
+  `POST /whatsapp/flow`; finishing it sends the numbered list in the chat. `npm run whatsapp:flow`
+  uploads and publishes it; set `WHATSAPP_FLOW_ID` to switch it on (README → Services & Prices Flow).
+- **WhatsApp profile photo** with the drop filling the circle, so it reads in the chat list.
 - **Privacy policy and data-deletion pages** at `/legal/privacy` and `/legal/data-deletion` on the
   API, for publishing the Meta app and the Play Store listings.
 

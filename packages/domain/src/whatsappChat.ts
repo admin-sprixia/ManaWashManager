@@ -84,6 +84,8 @@ export interface ChatContext {
   person?: ChatPerson | null;
   /** For the greeting and today's hours (India time); defaults to now. */
   now?: Date;
+  /** The Services & Prices Flow is published: Car / Bike opens it instead of the company list. */
+  flows?: boolean;
 }
 
 export type ChatInput = { kind: 'text'; text: string } | { kind: 'choice'; id: string };
@@ -104,6 +106,8 @@ export type ChatMessage =
   | { type: 'list'; text: string; button: string; title: string; rows: ChatRow[]; footer?: string }
   /** One button that opens a link (Google Maps, the review page). */
   | { type: 'link'; text: string; button: string; url: string; footer?: string }
+  /** One button that opens the Services & Prices Flow; `token` says which branch and vehicle. */
+  | { type: 'flow'; text: string; button: string; token: string }
   | { type: 'location'; latitude: number; longitude: number; name: string; address: string };
 
 export interface ChatResult {
@@ -367,7 +371,7 @@ function start(t: Turn): ChatMessage[] {
 /** Car or Bike, or straight to the companies when the branch washes only one. */
 function servicesReply(t: Turn, b: ChatBranch): ChatMessage[] {
   const cats = categoriesAt(b, t.edits);
-  if (cats.length === 1) return [makeList(t, b, cats[0]!, 0)];
+  if (cats.length === 1) return [t.ctx.flows ? flowOpener(t, b, cats[0]!) : makeList(t, b, cats[0]!, 0)];
   if (cats.length === 0) {
     return [
       {
@@ -687,6 +691,129 @@ function typedModel(t: Turn, b: ChatBranch, text: string): { messages: ChatMessa
   return null;
 }
 
+// ─── The Services & Prices Flow ──────────────────────────────────────────────
+
+/** Which branch, vehicle and language a Flow was opened for. */
+export const chatFlowToken = (branchId: string, category: VehicleCategory, lang: ChatLang) => id('flow', branchId, category, lang);
+
+function parseFlowToken(token: string | undefined) {
+  const [kind, branchId, category, lang] = (token ?? '').split('|');
+  if (kind !== 'flow' || !branchId) return null;
+  return { branchId, category: (category === 'bike' ? 'bike' : 'car') as VehicleCategory, lang: (lang === 'te' ? 'te' : 'en') as ChatLang };
+}
+
+function flowOpener(t: Turn, b: ChatBranch, category: VehicleCategory): ChatMessage {
+  const bike = category === 'bike';
+  return {
+    type: 'flow',
+    text: te(t)
+      ? `మీ ${bike ? 'బైక్ లేదా స్కూటర్' : 'కార్'} కంపెనీ, మోడల్ ఎంచుకోండి. ఆ మోడల్ ధరలు, ప్లాన్‌లు చూపిస్తాం. 👇`
+      : `Pick your ${bike ? 'bike or scooter' : 'car'}'s company and model, and we'll show its prices and plans. 👇`,
+    button: te(t) ? (bike ? 'బైక్ ఎంచుకోండి' : 'కార్ ఎంచుకోండి') : bike ? 'Choose your bike' : 'Choose your car',
+    token: chatFlowToken(b.id, category, t.lang),
+  };
+}
+
+/** WhatsApp's RichText markdown for a model's price list (bold is **…**, lists are numbered). */
+function flowPrices(t: Turn, b: ChatBranch, make: string, model: string): string {
+  const found = priceItems(t, b, make, model);
+  if (!found || !found.services.length) {
+    return say(t, `# ${make} ${model}\nSorry, we don't wash this one at ${placeName(t, b)} yet.`, `# ${make} ${model}\nక్షమించండి, దీనికి ఇంకా ధరలు లేవు.`);
+  }
+  const line = (item: PriceItem, n: number) => {
+    const star = item.popular ? ' ⭐' : '';
+    if (item.kind === 'service') return `${n}. **${item.name}**${star} — ${rupees(item.price)}`;
+    const saving = item.listPrice - item.price;
+    const save = saving > 0 ? say(t, ` · save ${rupees(saving)}`, ` · ${rupees(saving)} ఆదా`) : '';
+    return `${n}. **${item.name}**${star} — ${rupees(item.price)} · ${planSpan(t, item.plan.washes, item.plan.months)}${save}`;
+  };
+  const { type, services, plans } = found;
+  return [
+    `# 🚘 ${make} ${model}`,
+    `${type.name} · ${placeName(t, b)}${b.city ? `, ${b.city}` : ''}`,
+    '',
+    say(t, '## 🧽 Washes', '## 🧽 వాష్‌లు'),
+    ...services.map((s, i) => line(s, i + 1)),
+    ...(plans.length ? ['', say(t, '## 📅 Wash plans', '## 📅 వాష్ ప్లాన్‌లు'), ...plans.map((p, i) => line(p, services.length + i + 1))] : []),
+    '',
+    say(t, "Tap below to get this in chat, then reply with a number to see what's included.", 'దీన్ని చాట్‌లో పొందండి, తర్వాత వివరాల కోసం నంబర్ పంపండి.'),
+  ].join('\n');
+}
+
+/** A decrypted request from the Flow, as WhatsApp sends it to our endpoint. */
+export interface ChatFlowRequest {
+  action: string;
+  screen?: string;
+  data?: Record<string, unknown>;
+  flow_token?: string;
+}
+
+/**
+ * The next screen for a Flow request: the companies (with `logos`, base64 PNGs by company) when
+ * it opens, that company's models, then the model's prices. `{ data }` alone answers a health
+ * check or an error report.
+ */
+export function chatFlowReply(
+  req: ChatFlowRequest,
+  ctx: ChatContext,
+  logos: Readonly<Record<string, string>> = {},
+): { screen?: string; data: Record<string, unknown> } {
+  if (req.action === 'ping') return { data: { status: 'active' } };
+  if (req.data && 'error' in req.data) return { data: { acknowledged: true } };
+  const token = parseFlowToken(req.flow_token);
+  const b = (token && branchOf(ctx, token.branchId)) ?? ctx.branches[0];
+  const lang = token?.lang ?? 'en';
+  const category = token?.category ?? 'car';
+  const t: Turn = { ctx, lang, now: ctx.now ?? new Date(), edits: ctx.edits ?? [] };
+  if (!b) return { screen: 'PRICES', data: { company: '', model: '', prices: say(t, 'Prices are coming soon. 🙏', 'ధరలు త్వరలో. 🙏'), done: say(t, 'Close', 'మూసివేయి') } };
+  const bike = category === 'bike';
+  const companies = () => ({
+    screen: 'COMPANY',
+    data: {
+      heading: te(t) ? `మీ ${bike ? 'బైక్' : 'కార్'} ఏ కంపెనీది?` : `Which company makes your ${bike ? 'bike or scooter' : 'car'}?`,
+      label: say(t, 'Company', 'కంపెనీ'),
+      next: say(t, 'Next', 'తదుపరి'),
+      companies: makesAt(b, category, t.edits)
+        .slice(0, 100)
+        .map((m) => ({ id: m, title: cut(m, 30), ...(logos[m] ? { image: logos[m], 'alt-text': `${m} logo` } : {}) })),
+    },
+  });
+  const step = typeof req.data?.step === 'string' ? req.data.step : null;
+  const company = typeof req.data?.company === 'string' ? req.data.company : '';
+  const model = typeof req.data?.model === 'string' ? req.data.model : '';
+  if (req.action === 'INIT' || !step || !company) return companies();
+  if (step === 'company') {
+    const models = modelsAt(b, category, t.edits).filter((r) => r.make === company);
+    if (!models.length) return companies();
+    return {
+      screen: 'MODEL',
+      data: {
+        heading: say(t, `Which ${company} is it?`, `ఏ ${company} మోడల్?`),
+        label: say(t, 'Model', 'మోడల్'),
+        next: say(t, 'See prices', 'ధరలు చూడండి'),
+        company,
+        models: models.slice(0, 200).map((r) => ({ id: r.model, title: cut(r.model, 30), description: bodyTypeDef(r.bodyKey)?.label ?? '' })),
+      },
+    };
+  }
+  return {
+    screen: 'PRICES',
+    data: { company, model, prices: flowPrices(t, b, company, model), done: say(t, 'Get this in chat', 'చాట్‌లో పొందండి') },
+  };
+}
+
+/** The finished Flow (its reply in the chat): the choice that sends that model's price list. */
+export function chatFlowChoice(responseJson: string): string | null {
+  try {
+    const r = JSON.parse(responseJson) as { company?: unknown; model?: unknown; flow_token?: unknown };
+    const token = parseFlowToken(typeof r.flow_token === 'string' ? r.flow_token : undefined);
+    if (!token || typeof r.company !== 'string' || typeof r.model !== 'string' || !r.company || !r.model) return null;
+    return id('pr', token.branchId, r.company, r.model);
+  } catch {
+    return null;
+  }
+}
+
 // ─── The reply ───────────────────────────────────────────────────────────────
 
 function branchOf(ctx: ChatContext, branchId: string | undefined): ChatBranch | null {
@@ -793,7 +920,7 @@ export function chatReply(input: ChatInput, ctx: ChatContext): ChatResult {
     case 'home':
       return done(servicesReply(t, b));
     case 'cat':
-      return done([makeList(t, b, category, 0)]);
+      return done([ctx.flows ? flowOpener(t, b, category) : makeList(t, b, category, 0)]);
     case 'mk':
       return done([makeList(t, b, category, Number(rest[1]) || 0)]);
     case 'mo':

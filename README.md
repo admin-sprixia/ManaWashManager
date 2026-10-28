@@ -136,6 +136,21 @@ wipe the live database.
    and Telugu (`@mana/domain`'s `whatsappTemplates.ts`). Submit them to Meta once and check their
    approval with `npm run whatsapp:templates -- submit` / `npm run whatsapp:templates` (needs
    `WHATSAPP_BUSINESS_ACCOUNT_ID` in `.dev.vars`). Until they're approved nothing is sent.
+   **Services & Prices Flow** (optional) — a full-screen picker inside WhatsApp: companies with
+   logos → models → prices (`@mana/domain`'s `whatsappFlow.ts`; screens answered by
+   `POST /whatsapp/flow`). WhatsApp encrypts every Flow request, so it needs a key pair (kept in
+   the gitignored `.wrangler/flow-keys/`):
+   ```bash
+   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out .wrangler/flow-keys/<env>-private.pem
+   openssl pkey -in .wrangler/flow-keys/<env>-private.pem -pubout -out .wrangler/flow-keys/<env>-public.pem
+   npx wrangler secret put WHATSAPP_FLOW_PRIVATE_KEY < .wrangler/flow-keys/<env>-private.pem
+   curl -X POST "https://graph.facebook.com/v25.0/<phone number id>/whatsapp_business_encryption" \
+     -H "Authorization: Bearer <token>" --data-urlencode "business_public_key@.wrangler/flow-keys/<env>-public.pem"
+   npm run whatsapp:flow -- https://<api host> publish   # prints WHATSAPP_FLOW_ID
+   ```
+   Then set `WHATSAPP_FLOW_ID` (a var) and deploy. WhatsApp sends Flows only once the business has
+   passed Meta's business verification; until `WHATSAPP_FLOW_ID` is set, Car / Bike use plain lists.
+   Company logos come from the app's; run `node scripts/build-flow-logos.mjs` after adding one.
    Test locally with `npm run test:whatsapp` (its header shows the `wrangler dev` flags).
 4. **Create the tables** — `npm run db:migrate:remote` applies every file in `migrations/`.
    The live database starts empty: no demo shop, no demo accounts. Then load India Post's

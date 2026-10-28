@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  chatFlowChoice,
+  chatFlowReply,
+  chatFlowToken,
   chatReply,
+  WA_FLOW_JSON,
   findModels,
   rateChoiceId,
   vehicleGuideRows,
@@ -322,5 +326,44 @@ describe('WhatsApp assistant', () => {
   it('says sorry for a model the branch has no price for', () => {
     const body = bodyOf(only(choose('pr|b1|Tata|Prima').messages));
     expect(body).toContain("don't wash");
+  });
+  it('with the Flow published, Car opens it instead of the company list', () => {
+    const withFlow = { ...ctx, flows: true };
+    const m = as(only(reply({ kind: 'choice', id: 'cat|b1|car' }, withFlow).messages), 'flow');
+    expect(m.token).toBe('flow|b1|car|en');
+    expect(m.button).toBe('Choose your car');
+    expect([...m.button].length).toBeLessThanOrEqual(30);
+  });
+
+  it('the Flow walks companies (with logos) → models → prices', () => {
+    const token = chatFlowToken('b1', 'car', 'en');
+    expect(chatFlowReply({ action: 'ping' }, ctx)).toEqual({ data: { status: 'active' } });
+    const open = chatFlowReply({ action: 'INIT', flow_token: token }, ctx, { 'Maruti Suzuki': 'BASE64' });
+    expect(open.screen).toBe('COMPANY');
+    const companies = open.data.companies as { id: string; title: string; image?: string }[];
+    expect(companies[0]).toEqual({ id: 'Maruti Suzuki', title: 'Maruti Suzuki', image: 'BASE64', 'alt-text': 'Maruti Suzuki logo' });
+    expect(companies.some((c) => c.id === 'Honda' && !c.image)).toBe(true);
+    const models = chatFlowReply({ action: 'data_exchange', screen: 'COMPANY', data: { step: 'company', company: 'Maruti Suzuki' }, flow_token: token }, ctx);
+    expect(models.screen).toBe('MODEL');
+    expect((models.data.models as { id: string }[]).some((r) => r.id === 'Swift')).toBe(true);
+    const prices = chatFlowReply({ action: 'data_exchange', screen: 'MODEL', data: { step: 'model', company: 'Maruti Suzuki', model: 'Swift' }, flow_token: token }, ctx);
+    expect(prices.screen).toBe('PRICES');
+    expect(prices.data.prices).toContain('1. **Foam Wash** ⭐ — ₹299');
+    expect(prices.data.prices).toContain('3. **Shine** ⭐ — ₹999 · 4 washes in a month · save ₹197');
+    const telugu = chatFlowReply({ action: 'INIT', flow_token: chatFlowToken('b1', 'bike', 'te') }, ctx);
+    expect(telugu.data.heading).toBe('మీ బైక్ ఏ కంపెనీది?');
+  });
+
+  it('finishing the Flow sends that model’s price list in the chat', () => {
+    const choice = chatFlowChoice(JSON.stringify({ company: 'Maruti Suzuki', model: 'Swift', flow_token: 'flow|b1|car|en' }));
+    expect(choice).toBe('pr|b1|Maruti Suzuki|Swift');
+    expect(bodyOf(only(choose(choice!).messages))).toContain('1️⃣ Foam Wash');
+    expect(chatFlowChoice('not json')).toBeNull();
+  });
+
+  it('the Flow layout has a screen for every step of the routing', () => {
+    const ids = WA_FLOW_JSON.screens.map((sc) => sc.id);
+    expect(Object.keys(WA_FLOW_JSON.routing_model)).toEqual(ids);
+    expect(JSON.stringify(WA_FLOW_JSON).length).toBeLessThan(10_000_000);
   });
 });

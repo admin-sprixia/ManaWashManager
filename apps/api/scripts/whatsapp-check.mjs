@@ -9,9 +9,14 @@
 //   npx wrangler dev --var DEV_MODE:true --var WHATSAPP_API_BASE:http://127.0.0.1:8798 \
 //     --var WHATSAPP_API_TOKEN:standin --var WHATSAPP_PHONE_NUMBER_ID:standin-phone \
 //     --var WHATSAPP_APP_SECRET:local-app-secret --var WHATSAPP_VERIFY_TOKEN:local-verify \
-//     --var WHATSAPP_OTP_BYPASS:true --var WHATSAPP_BUSINESS_ID:<business id>
+//     --var WHATSAPP_OTP_BYPASS:true --var WHATSAPP_BUSINESS_ID:<business id> \
+//     --var WHATSAPP_FLOW_ID:standin-flow
+// (WHATSAPP_FLOW_PRIVATE_KEY comes from .dev.vars; its public half is .wrangler/flow-keys/local-public.pem.)
 //   cd apps/api && npm run test:whatsapp
-import { createHmac } from 'node:crypto';
+import { constants, createCipheriv, createDecipheriv, createHmac, publicEncrypt, randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import http from 'node:http';
+import https from 'node:https';
 import { createServer } from 'node:http';
 import { API, apiFetch, d1Rows, d1Run, signIn } from './lib/target.mjs';
 
@@ -121,7 +126,8 @@ check('a second Hi welcomes them back', bodyOf((await text('hello'))[0]).include
 const services = await choose(`svc|${branch}`);
 check('Services & Prices asks which vehicle (or lists companies)', services.length === 1 && (buttonsOf(services[0]).length > 0 || rowsOf(services[0]).length > 0));
 
-const makes = await choose(`cat|${branch}|car`);
+// The plain company list (what Car shows when no Flow is published).
+const makes = await choose(`mk|${branch}|car|0`);
 const makeRows = rowsOf(makes[0]);
 check('Car lists companies (up to 10 rows)', makeRows.length > 0 && makeRows.length <= 10, JSON.stringify(makes[0]).slice(0, 300));
 if (makeRows.length) {
@@ -179,6 +185,59 @@ check('a late “delivered” never undoes “read”', d1Rows(`SELECT status FR
   const before = sent.length;
   await deliver({ metadata: { phone_number_id: 'meta-test-number' }, messages: [{ from: `91${phone}`, id: `wamid.other.${phone}`, type: 'text', text: { body: 'hi' } }] });
   check('messages to another number on the Meta app are ignored', sent.length === before);
+}
+
+// ─── The Services & Prices Flow ──────────────────────────────────────────────
+{
+  const publicKey = readFileSync(new URL('../.wrangler/flow-keys/local-public.pem', import.meta.url), 'utf8');
+  const rawPost = (url, headers, body) =>
+    new Promise((resolve, reject) => {
+      const req = (url.startsWith('https') ? https : http).request(url, { method: 'POST', headers }, (res) => {
+        res.resume();
+        resolve(res.statusCode);
+      });
+      req.on('error', reject);
+      req.end(body);
+    });
+  /** Calls our Flow endpoint the way WhatsApp does: AES-GCM body, its key wrapped with our RSA key, signed. */
+  async function flow(request, { tamper = false } = {}) {
+    const key = randomBytes(16);
+    const iv = randomBytes(16);
+    const cipher = createCipheriv('aes-128-gcm', key, iv);
+    const data = Buffer.concat([cipher.update(JSON.stringify(request)), cipher.final(), cipher.getAuthTag()]);
+    const wrapped = publicEncrypt({ key: publicKey, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256' }, key);
+    const body = JSON.stringify({
+      encrypted_flow_data: data.toString('base64'),
+      encrypted_aes_key: (tamper ? randomBytes(wrapped.length) : wrapped).toString('base64'),
+      initial_vector: iv.toString('base64'),
+    });
+    const headers = { 'content-type': 'application/json', 'x-hub-signature-256': sign(body) };
+    // Node's fetch retries a 421 by itself (and then fails), so that one goes over plain http.
+    if (tamper) return { status: await rawPost(`${API}/whatsapp/flow`, headers, body) };
+    const res = await apiFetch(`${API}/whatsapp/flow`, { method: 'POST', headers, body });
+    if (res.status !== 200) return { status: res.status };
+    const sealed = Buffer.from(await res.text(), 'base64');
+    const flipped = Buffer.from(iv.map((b) => b ^ 0xff));
+    const decipher = createDecipheriv('aes-128-gcm', key, flipped);
+    decipher.setAuthTag(sealed.subarray(-16));
+    return { status: 200, reply: JSON.parse(Buffer.concat([decipher.update(sealed.subarray(0, -16)), decipher.final()]).toString()) };
+  }
+  const ping = await flow({ version: '3.0', action: 'ping' });
+  check('the Flow endpoint answers WhatsApp’s health check', ping.reply?.data?.status === 'active', JSON.stringify(ping));
+  check('a request that can’t be decrypted gets 421', (await flow({ action: 'ping' }, { tamper: true })).status === 421);
+  const token = `flow|${branch}|car|en`;
+  const open = await flow({ version: '3.0', action: 'INIT', flow_token: token });
+  const companies = open.reply?.data?.companies ?? [];
+  check('opening the Flow lists companies, with logos', open.reply?.screen === 'COMPANY' && companies.length > 0 && companies.some((c) => c.image), JSON.stringify(open).slice(0, 200));
+  const models = await flow({ version: '3.0', action: 'data_exchange', screen: 'COMPANY', data: { step: 'company', company: companies[0]?.id }, flow_token: token });
+  const firstModel = models.reply?.data?.models?.[0]?.id;
+  check(`${companies[0]?.id} lists its models`, models.reply?.screen === 'MODEL' && !!firstModel, JSON.stringify(models).slice(0, 200));
+  const priced = await flow({ version: '3.0', action: 'data_exchange', screen: 'MODEL', data: { step: 'model', company: companies[0]?.id, model: firstModel }, flow_token: token });
+  check('picking a model shows its prices', priced.reply?.screen === 'PRICES' && priced.reply.data.prices.includes('₹'), JSON.stringify(priced).slice(0, 300));
+  const done = await say({ type: 'interactive', interactive: { type: 'nfm_reply', nfm_reply: { name: 'flow', response_json: JSON.stringify({ company: companies[0]?.id, model: firstModel, flow_token: token }) } } });
+  check('finishing the Flow sends the numbered price list in the chat', /1️⃣/.test(done.map(bodyOf).join('\n')), bodyOf(done[0]).slice(0, 200));
+  const opener = await choose(`cat|${branch}|car`);
+  check('Car opens the Flow', opener[0]?.interactive?.type === 'flow' && opener[0].interactive.action.parameters.flow_token === token, JSON.stringify(opener).slice(0, 300));
 }
 
 // ─── Ready and the bill go out by themselves ─────────────────────────────────

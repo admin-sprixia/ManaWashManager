@@ -28,6 +28,7 @@
     "test:pricing": "node scripts/pricing-check.mjs",
     "test:shop-plans": "node scripts/shop-plans-check.mjs",
     "test:whatsapp": "node scripts/whatsapp-check.mjs",
+    "whatsapp:templates": "node --no-warnings scripts/whatsapp-templates.mjs",
     "perf:trips": "node scripts/trips-check.mjs",
     "perf:report": "node scripts/perf-report.mjs",
     "db:check": "node --no-warnings scripts/db-check.mjs",

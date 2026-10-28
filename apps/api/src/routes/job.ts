@@ -59,6 +59,7 @@ import { occurredAt } from '../lib/clientTime';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { formatIstDateOnly, startOfIstDay } from '../lib/istDate';
 import { reportQuerySchema, resolveReportWindow, windowMeta } from '../lib/reportWindow';
+import { executionCtx, queueWashMessage } from '../lib/washMessages';
 import type { Env } from '../types';
 
 const MAX_SERVICE_QUANTITY = 20;
@@ -1078,14 +1079,19 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     const washerIds = body.status === 'washing' ? body.washerIds : undefined;
     if (washerIds && !(await checkWashers(db, washerIds))) return c.json(invalidWashers, 400);
 
+    const at = occurredAt(c, body.occurredAt);
     const updated = await jobRepo.updateStatus(db, id, {
       from,
       to: body.status,
       userId: c.get('session').sub,
-      at: occurredAt(c, body.occurredAt),
+      at,
       washerIds,
     });
-    if (updated) return c.json(updated, 200);
+    if (updated) {
+      // The customer hears it's ready on WhatsApp, from the business number.
+      if (body.status === 'ready') await queueWashMessage(executionCtx(c), c.env, c.get('session').shopId, id, 'ready', at);
+      return c.json(updated, 200);
+    }
     // Someone else moved it between our read and write.
     const now = await jobRepo.findBoardRow(db, id);
     if (now?.status === body.status) return c.json(now, 200);
@@ -1210,11 +1216,12 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       );
     }
 
+    const paidAt = occurredAt(c, body.occurredAt);
     const paid = await jobRepo.markPaid(db, id, {
       from,
       paymentMethod: body.paymentMethod,
       userId,
-      at: occurredAt(c, body.occurredAt),
+      at: paidAt,
     });
     if (!paid) {
       const now = await jobRepo.findBoardRow(db, id);
@@ -1234,6 +1241,8 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     // A referred customer's first wash is now paid: the referrer earns their reward. A car's
     // first paid wash gets the welcome gift.
     const gifted = await settle();
+    // The bill and a thank-you go to the customer on WhatsApp.
+    await queueWashMessage(executionCtx(c), c.env, c.get('session').shopId, id, 'bill', paidAt);
     return c.json((gifted ? await jobRepo.findBoardRow(db, id) : null) ?? paid, 200);
   })
   // Void with a reason. Anyone can void an unpaid job; voiding a paid one reverses collected

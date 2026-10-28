@@ -24,3 +24,4 @@ export * from './branchServices';
 export * from './doorstepPricing';
 export * from './shopSettings';
 export * from './whatsappChat';
+export * from './whatsappTemplates';

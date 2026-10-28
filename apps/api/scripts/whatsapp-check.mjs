@@ -1,7 +1,9 @@
 // The WhatsApp assistant end to end: Meta's webhook check, signed deliveries (unsigned ones
 // refused), the banner, a customer saying hi, Services & Prices → Car →
 // company → model and that model's prices, typing a model, directions, Telugu (remembered for the
-// number), STOP/START, a repeated delivery answered once, and delivery reports.
+// number), STOP/START, a repeated delivery answered once, delivery reports, and the Ready and
+// bill templates a wash sends by itself (once each). Adds a throwaway owner to a branch of the
+// business for that last part.
 // A stand-in Graph API on :8798 records what the server sends back. Only writes the whatsapp_*
 // tables and rate_limits, so it can run against your local data. Run the API with:
 //   npx wrangler dev --var DEV_MODE:true --var WHATSAPP_API_BASE:http://127.0.0.1:8798 \
@@ -11,7 +13,7 @@
 //   cd apps/api && npm run test:whatsapp
 import { createHmac } from 'node:crypto';
 import { createServer } from 'node:http';
-import { API, apiFetch, d1Rows } from './lib/target.mjs';
+import { API, apiFetch, d1Rows, d1Run, signIn } from './lib/target.mjs';
 
 const APP_SECRET = process.env.WHATSAPP_APP_SECRET ?? 'local-app-secret';
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN ?? 'local-verify';
@@ -174,6 +176,59 @@ check('a late “delivered” never undoes “read”', d1Rows(`SELECT status FR
   const before = sent.length;
   await deliver({ metadata: { phone_number_id: 'meta-test-number' }, messages: [{ from: `91${phone}`, id: `wamid.other.${phone}`, type: 'text', text: { body: 'hi' } }] });
   check('messages to another number on the Meta app are ignored', sent.length === before);
+}
+
+// ─── Ready and the bill go out by themselves ─────────────────────────────────
+{
+  const BUSINESS = process.env.WHATSAPP_BUSINESS_ID ?? 'biz_mana';
+  const priced = d1Rows(
+    `SELECT p.shop_id, p.service_id, p.vehicle_type_id FROM service_prices p JOIN services v ON v.id = p.service_id JOIN shops s ON s.id = p.shop_id
+     WHERE s.business_id = '${BUSINESS}' AND p.mode = 'hub' AND p.price > 0 AND v.active = 1 LIMIT 1`,
+  )[0];
+  const ownerPhone = `93${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
+  d1Run(`INSERT INTO users (id, shop_id, name, phone, role) VALUES ('user_wa_${ownerPhone}', '${priced.shop_id}', 'WhatsApp Check', '${ownerPhone}', 'owner')`);
+  const token = (await signIn(ownerPhone, '258025')).body?.token;
+  const call = async (method, path, body) => {
+    const res = await apiFetch(API + path, { method, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json().catch(() => null) };
+  };
+  const templates = (name) => sent.filter((m) => m.type === 'template' && m.to === `91${phone}` && m.template?.name === name);
+  const jobId = `job_wa_${phone}`;
+  const started = await call('POST', '/jobs/start', {
+    id: jobId,
+    customer: { phone, name: 'Ravi Kumar' },
+    registrationNumber: `AP39WA${phone.slice(-4)}`,
+    make: 'Maruti Suzuki',
+    model: 'Swift',
+    vehicleTypeId: priced.vehicle_type_id,
+    services: [{ serviceId: priced.service_id, quantity: 1 }],
+  });
+  check('a wash starts for the WhatsApp customer', started.status === 201, JSON.stringify(started.body).slice(0, 300));
+  await call('PATCH', `/jobs/${jobId}/status`, { status: 'washing' });
+  check('nothing is sent while it’s washing', templates('wash_ready').length === 0);
+  await call('PATCH', `/jobs/${jobId}/status`, { status: 'ready' });
+  const ready = templates('wash_ready');
+  const readyParams = ready[0]?.template?.components?.[0]?.parameters?.map((x) => x.text) ?? [];
+  check(
+    'Ready sends the wash_ready template, with the car and Get Directions',
+    ready.length === 1 && readyParams[0] === 'Ravi' && readyParams[1]?.startsWith('Maruti Suzuki Swift (AP39WA') &&
+      ready[0].template.components[1]?.parameters?.[0]?.payload === `loc|${priced.shop_id}`,
+    JSON.stringify(ready).slice(0, 400),
+  );
+  const paid = await call('POST', `/jobs/${jobId}/pay`, { paymentMethod: 'upi' });
+  check('the wash is paid', paid.status === 200, JSON.stringify(paid.body).slice(0, 200));
+  const bill = templates('wash_bill');
+  const billParams = bill[0]?.template?.components?.[0]?.parameters?.map((x) => x.text) ?? [];
+  check(
+    'Paid sends the wash_bill template with the amount, UPI and Rate us',
+    bill.length === 1 && billParams[4]?.startsWith('₹') && billParams[5] === 'UPI' &&
+      bill[0].template.components[1]?.parameters?.[0]?.payload === `rate|${priced.shop_id}`,
+    JSON.stringify(bill).slice(0, 400),
+  );
+  await call('POST', `/jobs/${jobId}/pay`, { paymentMethod: 'upi' });
+  check('paying again (a retry) sends no second bill', templates('wash_bill').length === 1);
+  const logged = d1Rows(`SELECT purpose FROM whatsapp_messages WHERE job_id = '${jobId}' ORDER BY created_at`).map((r) => r.purpose).join(',');
+  check('both are logged with the wash', logged === 'ready,bill', logged);
 }
 
 graph.close();

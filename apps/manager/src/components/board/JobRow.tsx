@@ -1,7 +1,7 @@
 import React, { memo } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { PAYMENT_METHOD_LABEL } from '@mana/domain';
-import { IconCheck, IconGift, IconPlay, IconRupee, IconWhatsApp, MakeLogo, colors, radius, spacing, statusColors, typography } from '@mana/ui';
+import { IconCheck, IconGift, IconPlay, IconRupee, MakeLogo, colors, radius, spacing, statusColors, typography } from '@mana/ui';
 import type { BoardJob } from '../../offline/types';
 import { formatRupees } from '../../utils/format';
 import {
@@ -40,14 +40,13 @@ interface JobRowProps {
   first: boolean;
   onOpen: (job: BoardJob) => void;
   onAction: (job: BoardJob) => void;
-  onThankYou: (job: BoardJob) => void;
 }
 
 /**
  * One job on the board: a plain full-width row. The company and model (or the plate) and the
  * total, the plate, the services, who and when, and the single next step.
  */
-export const JobRow = memo(function JobRow({ job, busy, first, onOpen, onAction, onThankYou }: JobRowProps) {
+export const JobRow = memo(function JobRow({ job, busy, first, onOpen, onAction }: JobRowProps) {
   const isVoid = job.status === 'void';
   const action = actionLabel(job);
   const gift = giftNote(job);
@@ -165,17 +164,6 @@ export const JobRow = memo(function JobRow({ job, busy, first, onOpen, onAction,
                 </>
               )}
             </Pressable>
-          ) : job.status === 'paid' ? (
-            <Pressable
-              onPress={() => onThankYou(job)}
-              hitSlop={10}
-              style={({ pressed }) => [styles.action, styles.actionThanks, pressed && styles.pressed]}
-              accessibilityRole="button"
-              accessibilityLabel="Send thank-you on WhatsApp"
-            >
-              <IconWhatsApp size={16} />
-              <Text style={styles.thanksText}>Thank you</Text>
-            </Pressable>
           ) : null}
         </View>
 
@@ -235,10 +223,8 @@ const styles = StyleSheet.create({
   },
   actionNext: { backgroundColor: colors.indigoPale },
   actionCollect: { backgroundColor: colors.indigo },
-  actionThanks: { backgroundColor: '#EAF8F0', borderWidth: StyleSheet.hairlineWidth, borderColor: '#BBE7CC' },
   actionText: { ...typography.label, color: colors.indigo, fontSize: 13 },
   actionTextCollect: { color: colors.white },
-  thanksText: { ...typography.label, color: '#0F7A3D', fontSize: 13 },
   pressed: { opacity: 0.7 },
 
   syncPending: { ...typography.caption, color: colors.amberDeep, fontSize: 12, fontWeight: '700', letterSpacing: 0 },

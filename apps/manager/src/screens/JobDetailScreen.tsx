@@ -42,7 +42,6 @@ import { SellPlanSheet } from '../components/newWash/SellPlanSheet';
 import { PaymentSheet } from '../components/PaymentSheet';
 import { ReasonSheet } from '../components/ReasonSheet';
 import { PeoplePickerSheet } from '../components/PeoplePickerSheet';
-import { ReadyPromptSheet } from '../components/ReadyPromptSheet';
 import { JobPhotos, type JobPhoto } from '../components/JobPhotos';
 import { api, API_BASE_URL, apiErrorMessage } from '../api/client';
 import { NetworkError } from '../api/network';
@@ -154,7 +153,6 @@ export function JobDetailScreen({ navigation, route }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [sheet, setSheet] = useState<'pay' | 'void' | 'correct' | 'start' | 'washers' | 'sellers' | null>(null);
-  const [readyJob, setReadyJob] = useState<BoardJob | null>(null);
 
   // Each answer is applied in one go: the old architecture would redraw the page per update.
   const load = useCallback(async () => {
@@ -275,7 +273,7 @@ export function JobDetailScreen({ navigation, route }: Props) {
     const message = await actions.advance(job.id, next);
     setBusy(false);
     if (message) showToast(message, 'error');
-    else if (next === 'ready') setReadyJob(job);
+    else if (next === 'ready') showToast('Ready. The customer gets a WhatsApp to come pick it up.');
   };
 
   const call = () => void Linking.openURL(`tel:${job.customer.phone}`).catch(() => undefined);
@@ -642,7 +640,6 @@ export function JobDetailScreen({ navigation, route }: Props) {
         }}
       />
 
-      <ReadyPromptSheet job={readyJob} onClose={() => setReadyJob(null)} />
       {canSellPlan && vehicleTypeId ? (
         <SellPlanSheet
           visible={selling}

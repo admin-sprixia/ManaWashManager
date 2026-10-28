@@ -1,3 +1,6 @@
+// The .jpg import below is typed in ../assets.d.ts, which apps importing these routes don't otherwise see.
+// eslint-disable-next-line @typescript-eslint/triple-slash-reference
+/// <reference path="../assets.d.ts" />
 import { Hono, type Context } from 'hono';
 import { createPlatformDb, customerAppRepo, shopPlanRepo, vehicleModelRepo } from '@mana/db';
 import { chatReply, type ChatBranch, type ChatContext, type ChatInput } from '@mana/domain';

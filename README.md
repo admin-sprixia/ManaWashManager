@@ -129,6 +129,13 @@ wipe the live database.
    Callback URL `https://<api host>/whatsapp/webhook`, Verify token = `WHATSAPP_VERIFY_TOKEN`,
    **Verify and save**, subscribe the **messages** field, switch on **Subscribe webhooks** for the
    number, and **Publish** the app (Meta sends real customers' messages only to a published app).
+   Subscribe the app to the number's WhatsApp Business Account too, or no message reaches the
+   webhook: `curl -X POST "https://graph.facebook.com/v25.0/<WABA id>/subscribed_apps" -H "Authorization: Bearer <token>"`.
+   **Ready and bill messages** go out by themselves when a hub wash moves to Ready and when a wash
+   is paid (`src/lib/washMessages.ts`), from the `wash_ready` and `wash_bill` templates in English
+   and Telugu (`@mana/domain`'s `whatsappTemplates.ts`). Submit them to Meta once and check their
+   approval with `npm run whatsapp:templates -- submit` / `npm run whatsapp:templates` (needs
+   `WHATSAPP_BUSINESS_ACCOUNT_ID` in `.dev.vars`). Until they're approved nothing is sent.
    Test locally with `npm run test:whatsapp` (its header shows the `wrangler dev` flags).
 4. **Create the tables** — `npm run db:migrate:remote` applies every file in `migrations/`.
    The live database starts empty: no demo shop, no demo accounts. Then load India Post's

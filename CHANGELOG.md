@@ -26,6 +26,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   is in English or Telugu; the choice is remembered per number, and writing in Telugu switches to
   it. Migration `0002_whatsapp_language.sql` stores the language. The banner is built by
   `branding/whatsapp-banner/build-banner.mjs` and served at `/whatsapp/banner.jpg`.
+- **Ready for pickup and the bill go out on WhatsApp by themselves.** When a hub wash moves to
+  Ready the customer gets "your car is ready for pickup" with the amount due and a Get Directions
+  button; when a wash (or a plan) is paid they get the bill and a thank-you with a Rate us button.
+  Sent once per wash from the business number, in English or Telugu, from Meta-approved templates
+  (`wash_ready`, `wash_bill`; `npm run whatsapp:templates` submits them and shows their status).
+  The manager app's "Send on WhatsApp" ready prompt and Thank-you buttons are gone; marking a wash
+  Ready says the customer will get a WhatsApp.
 - **Privacy policy and data-deletion pages** at `/legal/privacy` and `/legal/data-deletion` on the
   API, for publishing the Meta app and the Play Store listings.
 

@@ -38,7 +38,6 @@ import { StatusBadge } from '../components/StatusBadge';
 import { PlateBadge } from '../components/newWash/Highlight';
 import { api } from '../api/client';
 import { buildWhatsAppLink, formatRelativeDate, formatRupees } from '../utils/format';
-import { buildThankYouMessage } from '../utils/messages';
 import { SHOP } from '../config/shop';
 import { useShop } from '../offline/ShopProvider';
 import { useSync } from '../offline/SyncProvider';
@@ -174,7 +173,7 @@ function favouriteService(history: HistoryJob[]): string | null {
 export function CustomerProfileScreen({ route, navigation }: CustomerProfileScreenProps) {
   const { customerId } = route.params;
   const insets = useSafeAreaInsets();
-  const { googleReviewUrl, rewardsOn } = useShop();
+  const { rewardsOn } = useShop();
   const [data, setData] = useState<LoadState>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -328,20 +327,6 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
 
   const startWash = (registration?: string) =>
     navigation.navigate('NewWash', registration ? { registration } : undefined);
-
-  const thankYouMessage = (job: HistoryJob) =>
-    buildThankYouMessage({
-      jobId: job.id,
-      customerName: customer.name,
-      registrationNumber: job.vehicle.registrationNumber,
-      vehicleType: job.vehicle.vehicleType?.name,
-      services: job.jobServices.map((js) => ({ name: js.service.name, quantity: js.quantity })),
-      total: job.total,
-      discount: job.discount,
-      paymentMethod: job.paymentMethod,
-      visitedAt: job.createdAt,
-      reviewUrl: googleReviewUrl,
-    });
 
   const greetingMessage = `Hi${firstName ? ` ${firstName}` : ''}, this is ${SHOP.name}. How can we help you today?`;
 
@@ -603,16 +588,6 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
                               {formatRupees(job.discount)} off
                               {job.discountReason ? ` · ${job.discountReason}` : ''}
                             </Text>
-                          ) : null}
-                          {job.status === 'paid' ? (
-                            <Pressable
-                              onPress={() => openWhatsApp(customer.phone, thankYouMessage(job))}
-                              style={({ pressed }) => [styles.thankYou, pressed && styles.pressed]}
-                              hitSlop={6}
-                            >
-                              <IconWhatsApp size={14} />
-                              <Text style={styles.thankYouLabel}>Send thank-you</Text>
-                            </Pressable>
                           ) : null}
                         </View>
                         <View style={styles.historyRight}>
@@ -1055,14 +1030,6 @@ const styles = StyleSheet.create({
   historyMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   historyMeta: { ...typography.caption, color: colors.slateDeep },
   discountNote: { ...typography.caption, color: colors.amberDeep },
-  thankYou: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    alignSelf: 'flex-start',
-    paddingVertical: 2,
-  },
-  thankYouLabel: { ...typography.label, color: colors.teal, fontSize: 12 },
   historyRight: { alignItems: 'flex-end', gap: 8 },
   historyPrice: { ...typography.bodyStrong, color: colors.waterInk, fontSize: 16 },
   historyPriceVoid: { color: colors.slate, textDecorationLine: 'line-through' },

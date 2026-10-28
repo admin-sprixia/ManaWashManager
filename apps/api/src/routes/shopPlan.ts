@@ -5,6 +5,7 @@ import { customerRepo, jobRepo, shopPlanRepo } from '@mana/db';
 import { VEHICLE_MAKE_MAX, normalizePhone, type JobStatus } from '@mana/domain';
 import { occurredAt } from '../lib/clientTime';
 import { requireAuth } from '../middleware/auth';
+import { executionCtx, queueWashMessage } from '../lib/washMessages';
 import type { Env } from '../types';
 
 const registrationSchema = z
@@ -132,7 +133,10 @@ export const shopPlanRoutes = new Hono<{ Bindings: Env }>()
       job = await jobRepo.findBoardRow(db, body.id);
     }
     if (job && job.status !== 'paid') {
-      job = (await jobRepo.markPaid(db, body.id, { from: job.status as JobStatus, paymentMethod: body.paymentMethod, userId: session.sub, at: now })) ?? job;
+      const paid = await jobRepo.markPaid(db, body.id, { from: job.status as JobStatus, paymentMethod: body.paymentMethod, userId: session.sub, at: now });
+      // The plan's bill goes to the customer on WhatsApp.
+      if (paid) await queueWashMessage(executionCtx(c), c.env, session.shopId, body.id, 'bill', now);
+      job = paid ?? job;
     }
     return c.json({ job, plan: { id: sold.value.orderId, endsOn: sold.value.endsOn } }, 201);
   });

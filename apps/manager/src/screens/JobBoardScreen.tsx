@@ -27,7 +27,6 @@ import {
 import { SyncBanner } from '../components/SyncBanner';
 import { PaymentSheet } from '../components/PaymentSheet';
 import { PeoplePickerSheet } from '../components/PeoplePickerSheet';
-import { ReadyPromptSheet } from '../components/ReadyPromptSheet';
 import { ShopSwitcherSheet } from '../components/ShopSwitcherSheet';
 import { Fab } from '../components/Fab';
 import { BoardCompactBar, BoardHero } from '../components/board/BoardHeader';
@@ -45,8 +44,6 @@ import { useReminderCount } from '../offline/useReminderCount';
 import { useJobActions } from '../offline/useJobActions';
 import { useShop } from '../offline/ShopProvider';
 import type { BoardJob } from '../offline/types';
-import { buildThankYouMessage } from '../utils/messages';
-import { openWhatsApp } from '../utils/whatsapp';
 import { activityAt, customerLine, firstName, isToday, NEXT_STATUS, vehicleHeadline } from '../utils/jobs';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { MAX_WASHERS_PER_JOB } from '@mana/domain';
@@ -77,9 +74,7 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [payJob, setPayJob] = useState<BoardJob | null>(null);
   const [washerJob, setWasherJob] = useState<BoardJob | null>(null);
-  const [readyJob, setReadyJob] = useState<BoardJob | null>(null);
   const {
-    googleReviewUrl,
     unseenErrors,
     lowStock,
     myShops,
@@ -152,7 +147,7 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
       const message = await actions.advance(job.id, next);
       setBusyId(null);
       if (message) showToast(message, 'error');
-      else if (next === 'ready') setReadyJob(job);
+      else if (next === 'ready') showToast('Ready. The customer gets a WhatsApp to come pick it up.');
     },
     [actions, busyId],
   );
@@ -162,25 +157,6 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
   const onOpen = useCallback(
     (job: BoardJob) => navigation.navigate('JobDetail', { jobId: job.id }),
     [navigation],
-  );
-
-  const onThankYou = useCallback(
-    (job: BoardJob) => {
-      const message = buildThankYouMessage({
-        jobId: job.id,
-        customerName: job.customer.name,
-        registrationNumber: job.vehicle.registrationNumber,
-        vehicleType: job.vehicle.vehicleType.name,
-        services: job.jobServices.map((js) => ({ name: js.service.name, quantity: js.quantity })),
-        total: job.total,
-        discount: job.discount,
-        paymentMethod: job.paymentMethod,
-        visitedAt: job.createdAt,
-        reviewUrl: googleReviewUrl,
-      });
-      void openWhatsApp(job.customer.phone, message);
-    },
-    [googleReviewUrl],
   );
 
   const stats = useMemo(() => jobStats(laneJobs), [laneJobs]);
@@ -276,7 +252,6 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
               first={index === 0}
               onOpen={onOpen}
               onAction={onRowAction}
-              onThankYou={onThankYou}
             />
           )}
           ListEmptyComponent={
@@ -360,7 +335,6 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
         }}
       />
 
-      <ReadyPromptSheet job={readyJob} onClose={() => setReadyJob(null)} />
       <ShopSwitcherSheet visible={shopsOpen} onClose={() => setShopsOpen(false)} />
     </ScreenContainer>
   );

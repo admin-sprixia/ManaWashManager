@@ -495,14 +495,14 @@ export function BranchProfileScreen({ navigation }: Props) {
                   icon={<IconStar size={18} color={colors.amberDeep} />}
                   tint="#FEF3C7"
                   title="Google review link"
-                  subtitle="Added to the thank-you message after a wash, so happy customers can rate you on Google."
+                  subtitle="The WhatsApp bill’s Rate us button opens it, so happy customers can rate you on Google."
                 >
                   <View style={[styles.setting, googleReviewUrl ? styles.settingOn : styles.settingOff]}>
                     <View style={[styles.statusDot, { backgroundColor: googleReviewUrl ? colors.teal : colors.amber }]} />
                     <View style={styles.flex}>
-                      <Text style={styles.settingLabel}>{googleReviewUrl ? 'In thank-you messages' : 'Not set yet'}</Text>
+                      <Text style={styles.settingLabel}>{googleReviewUrl ? 'On WhatsApp bills' : 'Not set yet'}</Text>
                       <Text style={styles.settingValue} numberOfLines={1}>
-                        {googleReviewUrl ?? 'Thank-you messages skip the review ask'}
+                        {googleReviewUrl ?? 'Rate us just says thank you'}
                       </Text>
                     </View>
                   </View>

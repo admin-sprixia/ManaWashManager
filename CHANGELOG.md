@@ -40,6 +40,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   picker: companies with their logos → models → that model's prices, served encrypted from
   `POST /whatsapp/flow`; finishing it sends the numbered list in the chat. `npm run whatsapp:flow`
   uploads and publishes it; set `WHATSAPP_FLOW_ID` to switch it on (README → Services & Prices Flow).
+- **WhatsApp catalog.** Every hub wash and wash plan for each kind of vehicle (Hatchbacks, Sedans &
+  Compact SUVs, SUVs & 7-Seaters, Luxury Cars, Scooters, Bikes, Premium Bikes) at shop prices, as
+  a product feed Commerce Manager reads daily (`/whatsapp/catalog.csv`), each with a styled card
+  instead of a photo (`node scripts/build-catalog-cards.mjs --staging` draws and uploads them).
 - **WhatsApp profile photo** with the drop filling the circle, so it reads in the chat list.
 - **Privacy policy and data-deletion pages** at `/legal/privacy` and `/legal/data-deletion` on the
   API, for publishing the Meta app and the Play Store listings.

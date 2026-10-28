@@ -3,7 +3,7 @@
 /// <reference path="../assets.d.ts" />
 import { Hono, type Context } from 'hono';
 import { createPlatformDb, customerAppRepo, shopPlanRepo, vehicleModelRepo } from '@mana/db';
-import { chatFlowChoice, chatFlowReply, chatReply, type ChatBranch, type ChatContext, type ChatFlowRequest, type ChatInput } from '@mana/domain';
+import { catalogFeed, catalogProducts, chatFlowChoice, chatFlowReply, chatReply, type ChatBranch, type ChatContext, type ChatFlowRequest, type ChatInput } from '@mana/domain';
 import banner from '../assets/whatsapp-banner.jpg';
 import makeLogos from '../assets/make-logos.json';
 import { reportError } from '../lib/alerts';
@@ -34,6 +34,9 @@ import type { Env } from '../types';
 /** Replies to one number per 10 minutes; past that, someone is hammering the assistant. */
 const REPLIES_PER_WINDOW = 40;
 const WINDOW_SECONDS = 10 * 60;
+
+/** Each catalog item's "website" (Meta requires one). */
+const CATALOG_LINK = 'https://srimanawash.com/';
 
 /** WhatsApp caches the welcome's picture by its link: bump this whenever the banner changes. */
 const BANNER_VERSION = 3;
@@ -214,6 +217,39 @@ export const whatsappRoutes = new Hono<{ Bindings: Env }>()
       return c.text(c.req.query('hub.challenge') ?? '');
     }
     return c.json({ error: 'forbidden' as const }, 403);
+  })
+  /**
+   * The WhatsApp catalog as a product feed, read by Commerce Manager on a schedule: the first hub
+   * branch's washes and plans per kind of vehicle, at shop prices.
+   */
+  .get('/catalog.csv', async (c) => {
+    const origin = new URL(c.req.url).origin;
+    const ctx = await chatContext(c.env, origin);
+    const branch = ctx.branches[0];
+    if (!branch) return c.text('', 404);
+    c.header('Cache-Control', 'public, max-age=900');
+    return c.body(
+      catalogFeed(branch, { brand: ctx.businessName, link: CATALOG_LINK, imageUrl: (id) => `${origin}/whatsapp/catalog/${id}.jpg` }),
+      200,
+      { 'Content-Type': 'text/csv; charset=utf-8' },
+    );
+  })
+  /** The same products with their card text, for scripts/build-catalog-cards.mjs. */
+  .get('/catalog.json', async (c) => {
+    const ctx = await chatContext(c.env, new URL(c.req.url).origin);
+    const branch = ctx.branches[0];
+    const products = branch ? catalogProducts(branch) : [];
+    return c.json({
+      businessName: ctx.businessName,
+      city: branch?.city ?? null,
+      products: products.map((p) => ({ id: p.id, kind: p.kind, title: p.title, section: p.section.label, card: p.card })),
+    });
+  })
+  /** A product's card picture (uploaded by scripts/build-catalog-cards.mjs). */
+  .get('/catalog/:file{[a-z0-9-]+\\.jpg}', async (c) => {
+    const object = await c.env.PHOTOS.get(`catalog/${c.req.param('file')}`);
+    if (!object) return c.text('Not found', 404);
+    return c.body(object.body, 200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400' });
   })
   /**
    * The Services & Prices Flow's screens. WhatsApp signs and encrypts every request; a request we

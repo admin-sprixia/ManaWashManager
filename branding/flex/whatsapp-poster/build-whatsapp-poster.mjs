@@ -24,7 +24,6 @@ const W = 610;
 const H = 1220;
 const SANS = 'Avenir Next';
 const SERIF = 'Didot';
-const TELUGU = 'Telugu Sangam MN';
 
 /** A logo file inlined at (x, y) and `width` wide, its ids prefixed so two logos can't clash. */
 function inline(file, x, y, width, prefix) {
@@ -130,7 +129,7 @@ ${qr(qrX, qrY, QR)}
 ${badge.svg}
 
 <text x="${W / 2}" y="${qrY + QR + 70}" text-anchor="middle" font-family="${SERIF}" font-size="40" fill="#FFFFFF">Scan &amp; say <tspan font-style="italic" fill="url(#gold)">Hi</tspan></text>
-<text x="${W / 2}" y="${qrY + QR + 104}" text-anchor="middle" font-family="${SANS}" font-size="17" fill="#C4CCF0">or WhatsApp <tspan font-weight="700" fill="#FFFFFF">${NUMBER}</tspan>  ·  English | <tspan font-family="${TELUGU}">తెలుగు</tspan></text>
+<text x="${W / 2}" y="${qrY + QR + 104}" text-anchor="middle" font-family="${SANS}" font-size="17" fill="#C4CCF0">or WhatsApp <tspan font-weight="700" fill="#FFFFFF">${NUMBER}</tspan>  ·  English or Telugu</text>
 
 <rect x="70" y="${qrY + QR + 132}" width="${W - 140}" height="1" fill="url(#goldLine)"/>
 ${feature(70, qrY + QR + 182, 'tag', 'Exact prices', 'for your car or bike')}

@@ -20,7 +20,6 @@ const H = 628;
 const S = 2; // drawn at 2× for crisp edges
 const SANS = 'Avenir Next';
 const SERIF = 'Didot';
-const TELUGU = 'Telugu Sangam MN';
 
 const defs = `
 <linearGradient id="night" x1="0" y1="0" x2="0" y2="1">
@@ -126,7 +125,7 @@ ${bead(mx - 190, floorY + 14, 6, 0.8)}${bead(mx + 200, floorY + 4, 4.5, 0.7)}${b
   ${diamond(80, 482)}<text x="96" y="489">Bills &amp; pickup alerts in your chat</text>
 </g>
 <rect x="72" y="526" width="300" height="50" rx="25" fill="none" stroke="url(#gold)" stroke-width="1.4"/>
-<text x="222" y="558" text-anchor="middle" font-family="${SANS}" font-weight="600" font-size="17" letter-spacing="3" fill="#F8E2B0">SAY HI  ·  <tspan font-family="${TELUGU}" letter-spacing="0">తెలుగు</tspan> / ENGLISH</text>
+<text x="222" y="558" text-anchor="middle" font-family="${SANS}" font-weight="600" font-size="17" letter-spacing="3" fill="#F8E2B0">SAY HI ON WHATSAPP</text>
 ${frame}
 </svg>`;
   const markH = 250;

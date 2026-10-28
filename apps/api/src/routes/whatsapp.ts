@@ -39,7 +39,7 @@ const WINDOW_SECONDS = 10 * 60;
 const CATALOG_LINK = 'https://srimanawash.com/';
 
 /** WhatsApp caches the welcome's picture by its link: bump this whenever the banner changes. */
-const BANNER_VERSION = 3;
+const BANNER_VERSION = 4;
 
 interface WaMessage {
   from: string;

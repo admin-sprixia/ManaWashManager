@@ -1,5 +1,5 @@
 // Builds the shop's printed posters in the brand's indigo and gold, from the live menu so their
-// prices always match the app and WhatsApp:
+// prices always match the app and WhatsApp. English only (the logo's శ్రీ aside):
 //   counter card (A5, two sides)  · UPI to pay, and "Rate us on Google"
 //   plans poster (2 × 3 ft)       · the monthly wash plans per car size
 //   price board  (4 × 3 ft)       · every wash × kind of vehicle
@@ -38,7 +38,6 @@ const ADDRESS = 'Near Highway · Sai Baba Temple · Kovur';
 const HOURS = 'Open daily 7 AM – 8 PM';
 const SANS = 'Avenir Next';
 const SERIF = 'Didot';
-const TELUGU = 'Telugu Sangam MN';
 
 // ─── The menu ────────────────────────────────────────────────────────────────
 function parseCsv(text) {
@@ -237,8 +236,7 @@ ${stars}
 <text x="${W / 2}" y="${16 + logo.height + 46}" text-anchor="middle" font-family="${SERIF}" font-size="13" fill="#FFFFFF">Loved the <tspan font-style="italic" fill="url(#gold)">shine?</tspan></text>
 <text x="${W / 2}" y="${16 + logo.height + 55}" text-anchor="middle" font-family="${SANS}" font-size="4.4" fill="#C4CCF0">A quick Google review helps us a lot</text>
 ${REVIEW_URL ? qrTile(REVIEW_URL, (W - qs) / 2, 110, qs) : qrPlaceholder((W - qs) / 2, 110, qs, 'REVIEW LINK')}
-<text x="${W / 2}" y="${110 + qs + 11}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="4.8" letter-spacing="1.6" fill="#F8E2B0">SCAN · RATE US ON GOOGLE</text>
-<text x="${W / 2}" y="${110 + qs + 18}" text-anchor="middle" font-family="${TELUGU}" font-size="4" fill="#C4CCF0">మీ రివ్యూ మాకు చాలా విలువైనది</text>`,
+<text x="${W / 2}" y="${110 + qs + 11}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="4.8" letter-spacing="1.6" fill="#F8E2B0">SCAN · RATE US ON GOOGLE</text>`,
     'Sri Mana Wash counter card, back: rate us on Google',
   );
 }
@@ -259,8 +257,7 @@ ${REVIEW_URL ? qrTile(REVIEW_URL, (W - qs) / 2, 110, qs) : qrPlaceholder((W - qs
   let body = `${frame(W, H)}${logo.svg}
 <text x="${W / 2}" y="${y}" text-anchor="middle" font-family="${SANS}" font-weight="600" font-size="13" letter-spacing="7" fill="#9BAEF5">MONTHLY WASH PLANS</text>
 <text x="${W / 2}" y="${y + 50}" text-anchor="middle" font-family="${SERIF}" font-size="44" fill="#FFFFFF">Wash every week.</text>
-<text x="${W / 2}" y="${y + 96}" text-anchor="middle" font-family="${SERIF}" font-style="italic" font-size="42" fill="url(#gold)">Pay once, save more.</text>
-<text x="${W / 2}" y="${y + 126}" text-anchor="middle" font-family="${TELUGU}" font-size="15" fill="#C4CCF0">నెలవారీ వాష్ ప్లాన్‌లు · ఒకసారి కట్టండి, ఆదా చేయండి</text>`;
+<text x="${W / 2}" y="${y + 96}" text-anchor="middle" font-family="${SERIF}" font-style="italic" font-size="42" fill="url(#gold)">Pay once, save more.</text>`;
   y += 150;
   for (const plan of monthly) {
     const c = cardOf(plan, 'hatch');
@@ -315,7 +312,6 @@ ${REVIEW_URL ? qrTile(REVIEW_URL, (W - qs) / 2, 110, qs) : qrPlaceholder((W - qs
   const logo = inline('sri-mana-wash-horizontal-on-dark.svg', 60, 46, 330, 'pb');
   let body = `${frame(W, H, 1.4)}${logo.svg}
 <text x="${W - 60}" y="86" text-anchor="end" font-family="${SERIF}" font-size="60" fill="#FFFFFF">Price list</text>
-<text x="${W - 60}" y="120" text-anchor="end" font-family="${TELUGU}" font-size="22" fill="#C4CCF0">ధరల పట్టిక · షాప్ ధరలు</text>
 <rect x="60" y="150" width="${W - 120}" height="1.2" fill="url(#goldLine)"/>`;
   // Cars.
   const nameW = 400;
@@ -389,8 +385,7 @@ ${REVIEW_URL ? qrTile(REVIEW_URL, (W - qs) / 2, 110, qs) : qrPlaceholder((W - qs
   let y = 30 + logo.height + 38;
   let body = `${frame(W, H, k)}${logo.svg}
 <text x="${W / 2}" y="${y}" text-anchor="middle" font-family="${SERIF}" font-size="30" fill="#FFFFFF">Relax.</text>
-<text x="${W / 2}" y="${y + 24}" text-anchor="middle" font-family="${SERIF}" font-style="italic" font-size="15" fill="url(#gold)">We'll WhatsApp you when it's ready.</text>
-<text x="${W / 2}" y="${y + 39}" text-anchor="middle" font-family="${TELUGU}" font-size="8" fill="#C4CCF0">మీ వాహనం సిద్ధమైనప్పుడు WhatsApp లో తెలియజేస్తాం</text>`;
+<text x="${W / 2}" y="${y + 24}" text-anchor="middle" font-family="${SERIF}" font-style="italic" font-size="15" fill="url(#gold)">We'll WhatsApp you when it's ready.</text>`;
   y += 62;
   const steps = [
     ['wash', 'We wash it', 'with care, inside and out'],
@@ -423,33 +418,30 @@ ${REVIEW_URL ? qrTile(REVIEW_URL, (W - qs) / 2, 110, qs) : qrPlaceholder((W - qs
   const logo = inline('sri-mana-wash-horizontal-on-dark.svg', (W - 150) / 2, 28, 150, 'vl');
   let y = 28 + logo.height + 34;
   let body = `${frame(W, H, k)}${logo.svg}
-<rect x="${W / 2 - 62}" y="${y - 12}" width="124" height="17" rx="8.5" fill="url(#gold)"/>
-<text x="${W / 2}" y="${y}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="7.6" letter-spacing="2.4" fill="#1B2878">PLEASE NOTE · <tspan letter-spacing="0" font-family="${TELUGU}">గమనిక</tspan></text>
+<rect x="${W / 2 - 46}" y="${y - 12}" width="92" height="17" rx="8.5" fill="url(#gold)"/>
+<text x="${W / 2}" y="${y}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="7.6" letter-spacing="2.4" fill="#1B2878">PLEASE NOTE</text>
 <text x="${W / 2}" y="${y + 36}" text-anchor="middle" font-family="${SERIF}" font-size="25" fill="#FFFFFF">Take your valuables</text>
-<text x="${W / 2}" y="${y + 62}" text-anchor="middle" font-family="${SERIF}" font-style="italic" font-size="25" fill="url(#gold)">with you</text>
-<text x="${W / 2}" y="${y + 80}" text-anchor="middle" font-family="${TELUGU}" font-size="8.6" fill="#C4CCF0">దయచేసి విలువైన వస్తువులు వాహనం నుండి తీసుకోండి</text>`;
+<text x="${W / 2}" y="${y + 62}" text-anchor="middle" font-family="${SERIF}" font-style="italic" font-size="25" fill="url(#gold)">with you</text>`;
   y += 104;
   const items = [
-    ['cash', 'Cash & wallets', 'నగదు'],
-    ['phone', 'Phones', 'ఫోన్లు'],
-    ['gold', 'Gold & jewellery', 'బంగారం'],
-    ['docs', 'Documents', 'పత్రాలు'],
-    ['keys', 'Spare keys', 'తాళాలు'],
-    ['glasses', 'Glasses', 'కళ్ళద్దాలు'],
+    ['cash', 'Cash & wallets'],
+    ['phone', 'Phones'],
+    ['gold', 'Gold & jewellery'],
+    ['docs', 'Documents'],
+    ['keys', 'Spare keys'],
+    ['glasses', 'Glasses'],
   ];
   const colW = (W - 60) / 3;
-  items.forEach(([icon, label, te], i) => {
+  items.forEach(([icon, label], i) => {
     const cx = 30 + colW * (i % 3) + colW / 2;
     const cy = y + Math.floor(i / 3) * 70 + 20;
     body += ringIcon(icon, cx, cy, 17);
     body += `<text x="${cx}" y="${cy + 31}" text-anchor="middle" font-family="${SANS}" font-weight="600" font-size="8" fill="#FFFFFF">${esc(label)}</text>`;
-    body += `<text x="${cx}" y="${cy + 42}" text-anchor="middle" font-family="${TELUGU}" font-size="7" fill="#9BAEF5">${te}</text>`;
   });
   y += 150;
   body += `<rect x="40" y="${y}" width="${W - 80}" height="0.6" fill="url(#goldLine)"/>`;
   body += `<text x="${W / 2}" y="${y + 18}" text-anchor="middle" font-family="${SANS}" font-size="7.6" fill="#C4CCF0">We are not responsible for items left in the vehicle.</text>`;
-  body += `<text x="${W / 2}" y="${y + 30}" text-anchor="middle" font-family="${TELUGU}" font-size="7.2" fill="#9BAEF5">వాహనంలో వదిలిన వస్తువులకు మేము బాధ్యులం కాదు.</text>`;
-  body += `<text x="${W / 2}" y="${H - 22}" text-anchor="middle" font-family="${SANS}" font-size="6.4" letter-spacing="1.4" fill="#9BAEF5">THANK YOU · <tspan letter-spacing="0" font-family="${TELUGU}">ధన్యవాదాలు</tspan></text>`;
+  body += `<text x="${W / 2}" y="${H - 22}" text-anchor="middle" font-family="${SANS}" font-size="6.4" letter-spacing="1.4" fill="#9BAEF5">THANK YOU</text>`;
   await write('valuables-notice-a3', W, H, body, 'Sri Mana Wash valuables notice (A3)');
 }
 
@@ -471,7 +463,6 @@ ${REVIEW_URL ? qrTile(REVIEW_URL, (W - qs) / 2, 110, qs) : qrPlaceholder((W - qs
 ${mark.svg}
 ${name.svg}
 <text x="${textX + 6}" y="${150 + name.height + 92}" font-family="${SANS}" font-weight="700" font-size="76" letter-spacing="14" fill="#C4CCF0">CAR &amp; BIKE WASH</text>
-<text x="${textX + 6}" y="${150 + name.height + 150}" font-family="${TELUGU}" font-size="48" fill="#9BAEF5">కార్ &amp; బైక్ వాష్</text>
 ${arrow}
 <text x="${right ? ax + 290 : ax + 430}" y="${arrowY + 22}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="68" fill="#1B2878">${esc(HIGHWAY.distance)}</text>
 <text x="${right ? ax + 860 : ax - 140}" y="${arrowY - 8}" text-anchor="${right ? 'start' : 'end'}" font-family="${SANS}" font-weight="700" font-size="44" fill="#FFFFFF">7 AM – 8 PM</text>

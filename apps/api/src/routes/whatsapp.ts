@@ -30,7 +30,7 @@ const REPLIES_PER_WINDOW = 40;
 const WINDOW_SECONDS = 10 * 60;
 
 /** WhatsApp caches the welcome's picture by its link: bump this whenever the banner changes. */
-const BANNER_VERSION = 1;
+const BANNER_VERSION = 2;
 
 interface WaMessage {
   from: string;

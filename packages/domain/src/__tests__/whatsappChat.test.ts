@@ -240,7 +240,7 @@ describe('WhatsApp assistant', () => {
     const plan = as(only(reply({ kind: 'text', text: '3' }, seen).messages), 'buttons');
     expect(plan.text).toContain('*₹999* (save ₹197)');
     expect(plan.text).toContain('4 washes in a month, a *Foam Wash* each time');
-    expect(plan.text).toContain('Every 4th wash is a *Interior Clean*');
+    expect(plan.text).toContain('Every 4th wash is an *Interior Clean*');
     expect(plan.text).toContain("That's *₹250* a wash.");
     expect(bodyOf(only(reply({ kind: 'text', text: '9' }, seen).messages))).toContain('from *1* to *3*');
     const telugu = { ...seen, person: { ...seen.person, lang: 'te' as const } };

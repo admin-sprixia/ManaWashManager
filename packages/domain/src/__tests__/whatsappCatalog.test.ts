@@ -57,6 +57,9 @@ describe('WhatsApp catalog', () => {
     expect(sedan.description).toContain('For Sedan, Compact SUV.');
     expect(sedan.description).toContain('✓ Full vacuum');
     expect(sedan.description).toContain('Takes about 45 minutes.');
+    // Communities aren't offered yet, so nothing about them is listed.
+    const withCommunity = { ...branch, services: [{ ...branch.services[0]!, description: 'Done at the shop. Community customers get free pick-up.' }] };
+    expect(catalogProducts(withCommunity)[0]!.description).not.toMatch(/community/i);
     // Trucks aren't in the shop's catalog.
     expect(products.some((p) => p.id.includes('truck'))).toBe(false);
   });

@@ -546,12 +546,12 @@ function details(t: Turn, b: ChatBranch, make: string, model: string, n: number)
   } else {
     const p = item.plan;
     const saving = item.listPrice - item.price;
-    const each = p.serviceName ? say(t, `a *${p.serviceName}* each time`, `ప్రతిసారి *${p.serviceName}*`) : null;
+    const each = p.serviceName ? say(t, `${/^[AEIOU]/i.test(p.serviceName) ? 'an' : 'a'} *${p.serviceName}* each time`, `ప్రతిసారి *${p.serviceName}*`) : null;
     body = [
       `🚘 ${make} ${model} · *${rupees(item.price)}*${saving > 0 ? say(t, ` (save ${rupees(saving)})`, ` (${rupees(saving)} ఆదా)`) : ''}`,
       '',
       `📅 ${planSpan(t, p.washes, p.months)}${each ? `, ${each}` : ''}`,
-      ...(p.upgrade ? [say(t, `✨ Every ${p.upgrade.every}th wash is a *${p.upgrade.name}*`, `✨ ప్రతి ${p.upgrade.every}వ వాష్ *${p.upgrade.name}*`)] : []),
+      ...(p.upgrade ? [say(t, `✨ Every ${p.upgrade.every}th wash is ${/^[AEIOU]/i.test(p.upgrade.name) ? 'an' : 'a'} *${p.upgrade.name}*`, `✨ ప్రతి ${p.upgrade.every}వ వాష్ *${p.upgrade.name}*`)] : []),
       ...[perWash(t, item.price, p.washes)].filter((x): x is string => !!x),
       '',
       say(t, 'Buy it at the counter on your next visit.', 'మీ తదుపరి విజిట్‌లో కౌంటర్ వద్ద తీసుకోండి.'),

@@ -49,6 +49,16 @@ const slug = (s: string) =>
     .replace(/^-|-$/g, '');
 const rupees = (paise: number) => `₹${(paise / 100).toLocaleString('en-IN')}`;
 
+/** Communities aren't offered yet: sentences about them stay out of the catalog. */
+function withoutCommunity(text: string | null | undefined): string | null {
+  const kept = (text ?? '')
+    .split(/(?<=\.)\s+/)
+    .filter((sentence) => !/communit/i.test(sentence))
+    .join(' ')
+    .trim();
+  return kept || null;
+}
+
 function typeKey(t: ChatBranch['vehicleTypes'][number]): string | null {
   return t.bodyKey ?? bodyTypeForName(t.name)?.key ?? null;
 }
@@ -70,7 +80,8 @@ export function catalogProducts(branch: ChatBranch): CatalogProduct[] {
     for (const s of branch.services) {
       const price = s.prices.find((p) => p.vehicleTypeId === type.id && p.price > 0)?.price;
       if (!price) continue;
-      const checklist = s.checklist ?? [];
+      const checklist = (s.checklist ?? []).filter((c) => !/communit/i.test(c));
+      const about = withoutCommunity(s.description);
       out.push({
         id: `${slug(s.name)}--${section.key}`,
         section,
@@ -78,12 +89,12 @@ export function catalogProducts(branch: ChatBranch): CatalogProduct[] {
         title: s.name,
         description: [
           `For ${vehicles}.`,
-          ...(s.description ? [s.description] : []),
+          ...(about ? [about] : []),
           ...(checklist.length ? ['', "What's included:", ...checklist.map((c) => `✓ ${c}`)] : []),
           ...(s.durationMin ? ['', `Takes about ${s.durationMin} minutes.`] : []),
         ].join('\n'),
         price,
-        card: { subtitle: s.description ?? null, lines: checklist, footer: s.durationMin ? `About ${s.durationMin} min` : null, popular: s.popular },
+        card: { subtitle: about, lines: checklist, footer: s.durationMin ? `About ${s.durationMin} min` : null, popular: s.popular },
       });
     }
     for (const p of branch.plans) {
@@ -92,8 +103,8 @@ export function catalogProducts(branch: ChatBranch): CatalogProduct[] {
       const saving = price.listTotal - price.total;
       const lines = [
         planSpan(p.washes, p.months),
-        ...(p.serviceName ? [`A ${p.serviceName} each time`] : []),
-        ...(p.upgrade ? [`Every ${p.upgrade.every}th wash is a ${p.upgrade.name}`] : []),
+        ...(p.serviceName ? [`${/^[AEIOU]/i.test(p.serviceName) ? 'An' : 'A'} ${p.serviceName} each time`] : []),
+        ...(p.upgrade ? [`Every ${p.upgrade.every}th wash is ${/^[AEIOU]/i.test(p.upgrade.name) ? 'an' : 'a'} ${p.upgrade.name}`] : []),
         ...(p.washes > 1 ? [`Just ${rupees(Math.round(price.total / p.washes / 100) * 100)} a wash`] : []),
       ];
       out.push({

@@ -5,10 +5,9 @@ import { VEHICLE_MAKES, vehicleGuideRows, vehicleTypeKeysFor, type VehicleGuideR
 
 /**
  * The WhatsApp assistant on the business number. "Hi" gets the welcome: the banner, a greeting by
- * name with today's hours, and Services & Prices / Get Directions / తెలుగు, then a More options
- * list (rate us, talk to us, timings, plans, language). Services & Prices walks Car or Bike →
- * company → model to that model's hub prices; typing a model ("swift", "activa") jumps straight
- * there. Everything is in English or Telugu, whichever the customer picked or writes in. Pure: the
+ * name, today's hours, the address and phone, and Services & Prices / Get Directions / తెలుగు.
+ * Services & Prices walks Car or Bike → company → model to that model's hub prices and wash
+ * plans. Customers pick from the lists; a typed model name ("swift") still works, unadvertised. Everything is in English or Telugu, whichever the customer picked or writes in. Pure: the
  * API feeds in the branches, who's writing and what they sent, and sends back what this returns.
  *
  * Every button and list row carries everything the next step needs in its id
@@ -311,18 +310,17 @@ function welcome(t: Turn, b: ChatBranch): Extract<ChatMessage, { type: 'buttons'
         : bikesOnly
           ? 'Professional bike care.'
           : 'Professional car and bike care.',
-    ...(today || address ? [''] : []),
+    ...(today || address || b.phone ? [''] : []),
     ...(today ? [today] : []),
     ...(address ? [`📍 ${address}`] : []),
+    ...(b.phone ? [`📞 ${formatPhone(b.phone)}`] : []),
     '',
     say(t, 'How can we help you today?', 'మీకు ఎలా సహాయం చేయగలం?'),
   ].join('\n');
-  const example = bikesOnly ? 'Activa' : cats.includes('bike') ? say(t, 'Swift or Activa', 'Swift') : say(t, 'Swift or Creta', 'Swift');
   return {
     type: 'buttons',
     ...(t.ctx.bannerUrl ? { imageUrl: t.ctx.bannerUrl } : {}),
     text,
-    footer: say(t, `Tip: type your model, like ${example}`, `చిట్కా: మీ మోడల్ టైప్ చేయండి, ఉదా: ${example}`),
     buttons: [
       servicesButton(t, b),
       directionsButton(t, b),
@@ -331,36 +329,7 @@ function welcome(t: Turn, b: ChatBranch): Extract<ChatMessage, { type: 'buttons'
   };
 }
 
-/** The second message: everything else, in one list. */
-function moreOptions(t: Turn, b: ChatBranch): ChatMessage {
-  const week = weekHours(t, b.hours);
-  const rows: ChatRow[] = [
-    ...(b.reviewUrl
-      ? [{ id: id('rate', b.id), title: say(t, '⭐ Rate us on Google', '⭐ Google లో రేట్ చేయండి'), description: say(t, 'Tell us how we did', 'మా సేవ ఎలా ఉందో చెప్పండి') }]
-      : []),
-    {
-      id: id('talk', b.id),
-      title: say(t, '📞 Talk to us', '📞 మాతో మాట్లాడండి'),
-      description: b.phone
-        ? say(t, `Call ${formatPhone(b.phone)}`, `కాల్ చేయండి: ${formatPhone(b.phone)}`)
-        : say(t, 'Visit us at the shop', 'షాప్‌కి నేరుగా రండి'),
-    },
-    ...(week ? [{ id: id('hrs', b.id), title: say(t, '🕗 Timings', '🕗 టైమింగ్స్'), description: cut(week, WA_ROW_DESCRIPTION_MAX) }] : []),
-    ...(b.plans.length
-      ? [{ id: id('pln', b.id), title: say(t, '🎁 Offers & plans', '🎁 ఆఫర్లు & ప్లాన్‌లు'), description: say(t, 'Monthly wash plans that save you money', 'డబ్బు ఆదా చేసే నెలవారీ వాష్ ప్లాన్‌లు') }]
-      : []),
-    { id: id('lang', b.id, te(t) ? 'en' : 'te'), title: '🌐 Language / భాష', description: 'English · తెలుగు' },
-  ];
-  return {
-    type: 'list',
-    text: say(t, 'Anything else? Tap *More options* 👇', 'ఇంకా ఏమైనా కావాలా? *మరిన్ని* నొక్కండి 👇'),
-    button: say(t, 'More options', 'మరిన్ని ఆప్షన్లు'),
-    title: cut(placeName(t, b), WA_ROW_TITLE_MAX),
-    rows,
-  };
-}
-
-const welcomeMessages = (t: Turn, b: ChatBranch): ChatMessage[] => [welcome(t, b), moreOptions(t, b)];
+const welcomeMessages = (t: Turn, b: ChatBranch): ChatMessage[] => [welcome(t, b)];
 
 /** More than one branch: which one first. */
 function branchPicker(t: Turn): ChatMessage {
@@ -408,7 +377,7 @@ function servicesReply(t: Turn, b: ChatBranch): ChatMessage[] {
   return [
     {
       type: 'buttons',
-      text: say(t, 'Which vehicle is it?\n\n_Or just type the model name, like *Swift* or *Activa*._', 'మీ వాహనం ఏది?\n\n_లేదా మోడల్ పేరు టైప్ చేయండి, ఉదా: *Swift*, *Activa*._'),
+      text: say(t, 'Which vehicle is it?', 'మీ వాహనం ఏది?'),
       buttons: [
         { id: id('cat', b.id, 'car'), title: say(t, '🚗 Car', '🚗 కార్') },
         { id: id('cat', b.id, 'bike'), title: say(t, '🏍️ Bike / Scooter', '🏍️ బైక్ / స్కూటర్') },
@@ -429,9 +398,7 @@ function makeList(t: Turn, b: ChatBranch, category: VehicleCategory, page: numbe
   const bike = category === 'bike';
   return {
     type: 'list',
-    text: te(t)
-      ? `మీ ${bike ? 'బైక్ లేదా స్కూటర్' : 'కార్'} ఏ కంపెనీది?\n\n_లేదా మోడల్ పేరు టైప్ చేయండి._`
-      : `Which company makes your ${bike ? 'bike or scooter' : 'car'}?\n\n_Or just type the model name._`,
+    text: te(t) ? `మీ ${bike ? 'బైక్ లేదా స్కూటర్' : 'కార్'} ఏ కంపెనీది?` : `Which company makes your ${bike ? 'bike or scooter' : 'car'}?`,
     button: say(t, 'Choose company', 'కంపెనీ ఎంచుకోండి'),
     title: page === 0 ? say(t, 'Companies', 'కంపెనీలు') : `${say(t, 'Companies', 'కంపెనీలు')} (${page + 1})`,
     rows,
@@ -522,37 +489,7 @@ function prices(t: Turn, b: ChatBranch, make: string, model: string): ChatMessag
   ];
 }
 
-/** Every plan, from its lowest price, before the customer has picked a vehicle. */
-function plansReply(t: Turn, b: ChatBranch): ChatMessage[] {
-  const lines = b.plans.flatMap((p) => {
-    const totals = p.prices.filter((x) => x.total > 0);
-    if (!totals.length) return [];
-    const from = Math.min(...totals.map((x) => x.total));
-    const most = Math.max(...totals.map((x) => x.listTotal - x.total));
-    const save = most > 0 ? say(t, ` (save up to ${rupees(most)})`, ` (${rupees(most)} వరకు ఆదా)`) : '';
-    return [`• ${p.name}${p.popular ? ' ⭐' : ''}: ${planSpan(t, p.washes, p.months)}, ${say(t, `from *${rupees(from)}*`, `*${rupees(from)}* నుండి`)}${save}`];
-  });
-  if (!lines.length) {
-    return [
-      {
-        type: 'buttons',
-        text: say(t, 'No offers running right now. Check back soon! 🙏', 'ప్రస్తుతం ఆఫర్లు ఏమీ లేవు. త్వరలో మళ్ళీ చూడండి! 🙏'),
-        buttons: [servicesButton(t, b), directionsButton(t, b)],
-      },
-    ];
-  }
-  const text = [
-    say(t, '🎁 *Wash plans*', '🎁 *వాష్ ప్లాన్‌లు*'),
-    say(t, 'Pay once, wash all month and save.', 'ఒకసారి కట్టండి, నెలంతా వాష్ చేయించుకోండి, డబ్బు ఆదా చేయండి.'),
-    '',
-    ...lines,
-    '',
-    say(t, 'Pick your vehicle to see its exact price 👇', 'మీ వాహనం ఎంచుకుంటే సరైన ధర చూపిస్తాం 👇'),
-  ].join('\n');
-  return [{ type: 'buttons', text: cut(text, WA_BUTTONS_BODY_MAX), buttons: [servicesButton(t, b), directionsButton(t, b), talkButton(t, b)] }];
-}
-
-// ─── Location, timings, talk, rate ───────────────────────────────────────────
+// ─── Location, talk, rate ───────────────────────────────────────────
 
 function mapsLink(t: Turn, b: ChatBranch): string {
   if (b.location) return `https://www.google.com/maps/dir/?api=1&destination=${b.location.latitude},${b.location.longitude}`;
@@ -581,20 +518,6 @@ function directionsReply(t: Turn, b: ChatBranch): ChatMessage[] {
     footer: menuFooter(t),
   });
   return out;
-}
-
-function hoursReply(t: Turn, b: ChatBranch): ChatMessage[] {
-  const week = weekHours(t, b.hours);
-  const today = todayLine(t, b.hours);
-  return [
-    {
-      type: 'buttons',
-      text: week
-        ? [say(t, `🕗 *Timings at ${placeName(t, b)}*`, `🕗 *${placeName(t, b)} టైమింగ్స్*`), week, ...(today ? ['', today] : [])].join('\n')
-        : say(t, 'Please call us for our timings. 🙏', 'మా టైమింగ్స్ కోసం మాకు కాల్ చేయండి. 🙏'),
-      buttons: [servicesButton(t, b), directionsButton(t, b), talkButton(t, b)],
-    },
-  ];
 }
 
 function talkReply(t: Turn, b: ChatBranch): ChatMessage[] {
@@ -795,10 +718,6 @@ export function chatReply(input: ChatInput, ctx: ChatContext): ChatResult {
       return done(prices(t, b, rest[0] ?? '', rest[1] ?? ''));
     case 'loc':
       return done(directionsReply(t, b));
-    case 'hrs':
-      return done(hoursReply(t, b));
-    case 'pln':
-      return done(plansReply(t, b));
     case 'talk':
       return done(talkReply(t, b));
     case 'rate':

@@ -326,7 +326,9 @@ for (const f of BIKE_PLANS) {
 }
 
 const keptPlans = [];
-for (const [i, { was, ...p }] of wanted.entries()) {
+// Every plan is sold at the shop counter and to communities (the printed menu is for both).
+for (const [i, { was, ...plan }] of wanted.entries()) {
+  const p = { ...plan, soldAt: 'both' };
   const existing =
     existingPlans.find((x) => x.name.toLowerCase() === p.name.toLowerCase()) ??
     (was ? existingPlans.find((x) => x.name.toLowerCase() === was.toLowerCase()) : undefined);

@@ -1,5 +1,5 @@
 // The WhatsApp assistant end to end: Meta's webhook check, signed deliveries (unsigned ones
-// refused), the banner, a customer saying hi (welcome + More options), Services & Prices → Car →
+// refused), the banner, a customer saying hi, Services & Prices → Car →
 // company → model and that model's prices, typing a model, directions, Telugu (remembered for the
 // number), STOP/START, a repeated delivery answered once, and delivery reports.
 // A stand-in Graph API on :8798 records what the server sends back. Only writes the whatsapp_*
@@ -101,7 +101,7 @@ if (multi) {
   check('several branches: asked which one first', rowsOf(welcome).length > 0);
   branch = rowsOf(welcome)[0].id.split('|')[1];
 } else {
-  check('“Hi” gets the welcome and the More options list', hi.length === 2 && hi[1]?.interactive?.type === 'list', JSON.stringify(hi).slice(0, 300));
+  check('“Hi” gets one welcome message', hi.length === 1, JSON.stringify(hi).slice(0, 300));
   check(
     'the welcome has the banner, a greeting by name and Services / Directions / Telugu',
     welcome?.interactive?.header?.image?.link?.includes('/whatsapp/banner.jpg') &&

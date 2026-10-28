@@ -99,22 +99,19 @@ function expectValid(messages: ChatMessage[]) {
 }
 
 describe('WhatsApp assistant', () => {
-  it('welcomes with the banner, today’s hours and three buttons, then a More options list', () => {
-    const [main, more, ...extra] = text('Hi').messages;
-    expect(extra).toHaveLength(0);
-    expectValid([main!, more!]);
-    const m = as(main, 'buttons');
+  it('welcomes with the banner, today’s hours, address, phone and three buttons', () => {
+    const m = as(only(text('Hi').messages), 'buttons');
+    expectValid([m]);
     expect(m.imageUrl).toBe('https://api.example/whatsapp/banner.jpg');
     expect(m.text).toContain('Good evening! 👋');
     expect(m.text).toContain('Welcome to *Sri Mana Wash*, Kovur.');
     expect(m.text).toContain('Professional car and bike care.');
     expect(m.text).toContain('🕗 Open today: 7 am – 8 pm');
     expect(m.text).toContain('📍 Near Highway, Sai Baba Temple, Kovur');
+    expect(m.text).toContain('📞 +91 91547 52999');
+    expect(m.footer).toBeUndefined();
     expect(m.buttons.map((b) => b.id)).toEqual(['svc|b1', 'loc|b1', 'lang|b1|te']);
     expect(m.buttons.map((b) => b.title)).toEqual(['🚗 Services & Prices', '📍 Get Directions', '🌐 తెలుగు']);
-    const list = as(more, 'list');
-    expect(list.rows.map((r) => r.id)).toEqual(['rate|b1', 'talk|b1', 'hrs|b1', 'pln|b1', 'lang|b1|te']);
-    expect(list.rows[1]!.description).toBe('Call +91 91547 52999');
   });
 
   it('greets by first name, and welcomes back someone we know', () => {
@@ -157,14 +154,16 @@ describe('WhatsApp assistant', () => {
 
   it('keeps every Telugu message inside WhatsApp’s limits', () => {
     const tel = { ...ctx, person: { name: null, returning: false, lang: 'te' as const } };
-    for (const choice of ['svc|b1', 'cat|b1|car', 'cat|b1|bike', 'mk|b1|car|1', 'mo|b1|car|Maruti Suzuki|0', 'pr|b1|Maruti Suzuki|Swift', 'loc|b1', 'hrs|b1', 'pln|b1', 'talk|b1', 'rate|b1']) {
+    for (const choice of ['svc|b1', 'cat|b1|car', 'cat|b1|bike', 'mk|b1|car|1', 'mo|b1|car|Maruti Suzuki|0', 'pr|b1|Maruti Suzuki|Swift', 'loc|b1', 'talk|b1', 'rate|b1']) {
       expectValid(reply({ kind: 'choice', id: choice }, tel).messages);
     }
     expect(bodyOf(reply({ kind: 'choice', id: 'pr|b1|Maruti Suzuki|Swift' }, tel).messages[0]!)).toContain('Shine ⭐: నెలలో 4 వాష్‌లు, *₹999* (₹197 ఆదా)');
   });
 
-  it('Services & Prices asks car or bike, or goes straight to companies', () => {
+  it('Services & Prices asks car or bike, or goes straight to companies, without typing hints', () => {
     const m = as(only(choose('svc|b1').messages), 'buttons');
+    expect(m.text).toBe('Which vehicle is it?');
+    expect(bodyOf(only(choose('cat|b1|bike').messages))).toBe('Which company makes your bike or scooter?');
     expect(m.buttons.map((b) => b.id)).toEqual(['cat|b1|car', 'cat|b1|bike']);
     const carsOnly = { ...ctx, branches: [{ ...hub, vehicleTypes: hub.vehicleTypes.filter((t) => t.category === 'car') }] };
     const direct = as(only(reply({ kind: 'choice', id: 'svc|b1' }, carsOnly).messages), 'list');
@@ -264,11 +263,6 @@ describe('WhatsApp assistant', () => {
     const body = bodyOf(only(choose('talk|b1').messages));
     expect(body).toContain('📞 *Call us:* +91 91547 52999');
     expect(body).toContain('📍 Or visit us: Near Highway, Sai Baba Temple, Kovur');
-  });
-
-  it('lists the timings and the plans', () => {
-    expect(bodyOf(only(choose('hrs|b1').messages))).toContain('7 am – 8 pm · every day');
-    expect(bodyOf(only(choose('pln|b1').messages))).toContain('Shine ⭐: 4 washes in a month, from *₹999* (save up to ₹197)');
   });
 
   it('answers the bill’s Rate us button with a review button', () => {

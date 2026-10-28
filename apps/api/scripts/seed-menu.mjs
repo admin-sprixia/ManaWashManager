@@ -326,9 +326,9 @@ for (const f of BIKE_PLANS) {
 }
 
 const keptPlans = [];
-// Every plan is sold at the shop counter and to communities (the printed menu is for both).
+// Plans are sold at the shop counter only for now; communities get them when that launches.
 for (const [i, { was, ...plan }] of wanted.entries()) {
-  const p = { ...plan, soldAt: 'both' };
+  const p = { ...plan, soldAt: 'shop' };
   const existing =
     existingPlans.find((x) => x.name.toLowerCase() === p.name.toLowerCase()) ??
     (was ? existingPlans.find((x) => x.name.toLowerCase() === was.toLowerCase()) : undefined);

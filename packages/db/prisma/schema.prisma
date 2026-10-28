@@ -1143,6 +1143,8 @@ model WhatsAppContact {
   marketingStoppedAt String? @map("marketing_stopped_at")
   lastInboundAt      String? @map("last_inbound_at")
   createdAt          String  @map("created_at")
+  /// "en" or "te": the language the assistant answers in.
+  language           String?
 
   @@map("whatsapp_contacts")
 }

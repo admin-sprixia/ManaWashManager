@@ -3,6 +3,12 @@ main = "src/worker.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
+# Pictures bundled into the worker (the WhatsApp banner), imported as bytes.
+[[rules]]
+type = "Data"
+globs = ["**/*.jpg"]
+fallthrough = false
+
 # Workers Logs: every request, console.error and exception is kept and searchable in the
 # Cloudflare dashboard (Workers → mana-api → Logs).
 [observability]

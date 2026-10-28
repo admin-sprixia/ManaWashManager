@@ -1,14 +1,17 @@
 import { Hono, type Context } from 'hono';
 import { createPlatformDb, customerAppRepo, shopPlanRepo, vehicleModelRepo } from '@mana/db';
 import { chatReply, type ChatBranch, type ChatContext, type ChatInput } from '@mana/domain';
+import banner from '../assets/whatsapp-banner.jpg';
 import { reportError } from '../lib/alerts';
 import { countHit } from '../lib/rateLimit';
 import {
+  chatPerson,
   logIncoming,
   logStatus,
   markReadTyping,
   phoneFromWaId,
   sendChat,
+  setLanguage,
   setMarketing,
   verifyMetaSignature,
   whatsappConfigured,
@@ -25,6 +28,9 @@ import type { Env } from '../types';
 /** Replies to one number per 10 minutes; past that, someone is hammering the assistant. */
 const REPLIES_PER_WINDOW = 40;
 const WINDOW_SECONDS = 10 * 60;
+
+/** WhatsApp caches the welcome's picture by its link: bump this whenever the banner changes. */
+const BANNER_VERSION = 1;
 
 interface WaMessage {
   from: string;
@@ -66,7 +72,7 @@ function inputOf(m: WaMessage): { input: ChatInput; body: string | null } {
 }
 
 /** The business's branches as the assistant needs them: hub prices, plans, hours, location. */
-async function chatContext(env: Env): Promise<ChatContext> {
+async function chatContext(env: Env, origin: string): Promise<ChatContext> {
   const pdb = createPlatformDb(env.DB);
   const businessId = env.WHATSAPP_BUSINESS_ID?.trim() || null;
   const [branches, business, edits] = await Promise.all([
@@ -79,6 +85,7 @@ async function chatContext(env: Env): Promise<ChatContext> {
   return {
     businessName: business?.name ?? hubs[0]?.name ?? 'our car wash',
     edits,
+    bannerUrl: `${origin}/whatsapp/banner.jpg?v=${BANNER_VERSION}`,
     branches: hubs.map(
       (b, i): ChatBranch => ({
         id: b.id,
@@ -107,18 +114,21 @@ async function handleMessage(env: Env, m: WaMessage, profileName: string | null,
   const phone = phoneFromWaId(m.from);
   if (!phone) return; // Indian numbers only.
   const { input, body } = inputOf(m);
+  // Who they are is read before their message is logged, so a first "Hi" isn't a returning one.
+  const person = await chatPerson(env, phone, env.WHATSAPP_BUSINESS_ID?.trim() || null, profileName);
   if (!(await logIncoming(env, { id: m.id, phone, kind: m.type, body, profileName }))) return;
   const { count } = await countHit(env, `wa:${phone}`, WINDOW_SECONDS);
   if (count > REPLIES_PER_WINDOW) return;
   await markReadTyping(env, m.id);
-  const result = chatReply(input, await getContext());
+  const result = chatReply(input, { ...(await getContext()), person });
   if (result.marketing) await setMarketing(env, phone, result.marketing === 'start');
+  if (result.lang) await setLanguage(env, phone, result.lang);
   await sendChat(env, phone, result.messages);
 }
 
-async function handleWebhook(env: Env, event: WaWebhook) {
+async function handleWebhook(env: Env, event: WaWebhook, origin: string) {
   let context: Promise<ChatContext> | null = null;
-  const getContext = () => (context ??= chatContext(env));
+  const getContext = () => (context ??= chatContext(env, origin));
   for (const entry of event.entry ?? []) {
     for (const change of entry.changes ?? []) {
       const value = change.value;
@@ -166,6 +176,11 @@ function inBackground(c: Context<{ Bindings: Env }>, work: Promise<unknown>) {
 }
 
 export const whatsappRoutes = new Hono<{ Bindings: Env }>()
+  /** The picture on top of the welcome message; WhatsApp fetches it by link. */
+  .get('/banner.jpg', (c) => {
+    c.header('Cache-Control', 'public, max-age=86400');
+    return c.body(banner, 200, { 'Content-Type': 'image/jpeg' });
+  })
   /** Meta checks the callback URL once when the webhook is saved. */
   .get('/webhook', (c) => {
     const token = c.env.WHATSAPP_VERIFY_TOKEN?.trim();
@@ -187,7 +202,7 @@ export const whatsappRoutes = new Hono<{ Bindings: Env }>()
       return c.json({ error: 'bad_request' as const }, 400);
     }
     if (event.object === 'whatsapp_business_account' && whatsappConfigured(c.env)) {
-      await inBackground(c, handleWebhook(c.env, event));
+      await inBackground(c, handleWebhook(c.env, event, new URL(c.req.url).origin));
     }
     return c.json({ ok: true as const });
   });

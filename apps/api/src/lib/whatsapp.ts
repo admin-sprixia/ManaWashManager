@@ -1,4 +1,4 @@
-import type { ChatMessage } from '@mana/domain';
+import type { ChatLang, ChatMessage } from '@mana/domain';
 import type { Env } from '../types';
 import { sameHex } from './recovery';
 
@@ -71,6 +71,7 @@ export function chatPayload(m: ChatMessage): { kind: string; body: string; paylo
           type: 'interactive',
           interactive: {
             type: 'button',
+            ...(m.imageUrl ? { header: { type: 'image', image: { link: m.imageUrl } } } : {}),
             body: { text: m.text },
             ...(m.footer ? { footer: { text: m.footer } } : {}),
             action: { buttons: m.buttons.map((b) => ({ type: 'reply', reply: { id: b.id, title: b.title } })) },
@@ -88,6 +89,20 @@ export function chatPayload(m: ChatMessage): { kind: string; body: string; paylo
             body: { text: m.text },
             ...(m.footer ? { footer: { text: m.footer } } : {}),
             action: { button: m.button, sections: [{ title: m.title, rows: m.rows }] },
+          },
+        },
+      };
+    case 'link':
+      return {
+        kind: 'link',
+        body: `${m.text}\n${m.url}`,
+        payload: {
+          type: 'interactive',
+          interactive: {
+            type: 'cta_url',
+            body: { text: m.text },
+            ...(m.footer ? { footer: { text: m.footer } } : {}),
+            action: { name: 'cta_url', parameters: { display_text: m.button, url: m.url } },
           },
         },
       };
@@ -199,6 +214,44 @@ export async function logStatus(env: Env, s: { id: string; status: string; error
          AND (CASE status WHEN 'sent' THEN 1 WHEN 'delivered' THEN 2 WHEN 'read' THEN 3 WHEN 'failed' THEN 4 ELSE 0 END) < ?4`,
     )
     .bind(s.id, s.status, clip(s.error, 500), rank)
+    .run();
+}
+
+/**
+ * What we know about a number before answering it: their name on our books (any of the
+ * business's branches) or on WhatsApp, whether they've washed with us or written before, and the
+ * language they picked. Read before this message is logged, so "written before" means earlier.
+ */
+export async function chatPerson(
+  env: Env,
+  phone: string,
+  businessId: string | null,
+  profileName: string | null,
+): Promise<{ name: string | null; returning: boolean; lang: ChatLang | null }> {
+  const [contact, customer] = await Promise.all([
+    d1(env)
+      .prepare('SELECT last_inbound_at AS seen, language FROM whatsapp_contacts WHERE phone = ?1')
+      .bind(phone)
+      .first<{ seen: string | null; language: string | null }>(),
+    businessId
+      ? d1(env)
+          .prepare(
+            `SELECT c.name AS name FROM customers c JOIN shops s ON s.id = c.shop_id
+             WHERE c.phone = ?1 AND s.business_id = ?2 ORDER BY (c.name IS NULL), c.created_at DESC LIMIT 1`,
+          )
+          .bind(phone, businessId)
+          .first<{ name: string | null }>()
+      : null,
+  ]);
+  const lang = contact?.language === 'te' || contact?.language === 'en' ? contact.language : null;
+  return { name: customer?.name?.trim() || profileName, returning: !!customer || !!contact?.seen, lang };
+}
+
+/** The language the assistant answers this number in from now on. */
+export async function setLanguage(env: Env, phone: string, lang: ChatLang): Promise<void> {
+  await d1(env)
+    .prepare(`INSERT INTO whatsapp_contacts (phone, language) VALUES (?1, ?2) ON CONFLICT (phone) DO UPDATE SET language = excluded.language`)
+    .bind(phone, lang)
     .run();
 }
 

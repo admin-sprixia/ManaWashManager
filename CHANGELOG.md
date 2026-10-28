@@ -18,6 +18,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   and out is logged with its delivery status. Meta's webhook is
   `/whatsapp/webhook`, refused without Meta's signature. New settings: `WHATSAPP_APP_SECRET`,
   `WHATSAPP_VERIFY_TOKEN` and `WHATSAPP_BUSINESS_ID` (README → WhatsApp assistant).
+- **WhatsApp welcome with banner, greeting and Telugu.** "Hi" now gets the Sri Mana Wash banner,
+  a greeting by name (good morning/afternoon/evening, or "Welcome back" for someone we know),
+  today's hours (or when it opens next) and the address, with Services & Prices / Get Directions /
+  తెలుగు buttons, then a More options list: Rate us on Google, Talk to us, Timings, Offers & plans,
+  Language. Directions and Rate us open Google Maps and the review page with one tap. Every reply
+  is in English or Telugu; the choice is remembered per number, and writing in Telugu switches to
+  it. Migration `0002_whatsapp_language.sql` stores the language. The banner is built by
+  `branding/whatsapp-banner/build-banner.mjs` and served at `/whatsapp/banner.jpg`.
 - **Privacy policy and data-deletion pages** at `/legal/privacy` and `/legal/data-deletion` on the
   API, for publishing the Meta app and the Play Store listings.
 

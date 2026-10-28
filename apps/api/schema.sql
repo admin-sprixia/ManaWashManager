@@ -888,7 +888,9 @@ CREATE TABLE whatsapp_contacts (
   profile_name TEXT CHECK (profile_name IS NULL OR length(profile_name) <= 120),
   marketing_stopped_at TEXT,
   last_inbound_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now'))
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  -- The language they picked on WhatsApp (or wrote to us in); the assistant answers in it.
+  language TEXT CHECK (language IS NULL OR language IN ('en', 'te'))
 );
 
 -- Every message in and out, by Meta's message id: incoming ones once each (Meta retries

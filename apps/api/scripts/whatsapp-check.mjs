@@ -1,6 +1,7 @@
 // The WhatsApp assistant end to end: Meta's webhook check, signed deliveries (unsigned ones
-// refused), a customer saying hi, picking Car → company → model and getting that model's prices,
-// typing a model, location, STOP/START, a repeated delivery answered once, and delivery reports.
+// refused), the banner, a customer saying hi (welcome + More options), Services & Prices → Car →
+// company → model and that model's prices, typing a model, directions, Telugu (remembered for the
+// number), STOP/START, a repeated delivery answered once, and delivery reports.
 // A stand-in Graph API on :8798 records what the server sends back. Only writes the whatsapp_*
 // tables and rate_limits, so it can run against your local data. Run the API with:
 //   npx wrangler dev --var DEV_MODE:true --var WHATSAPP_API_BASE:http://127.0.0.1:8798 \
@@ -72,6 +73,7 @@ async function say(message, { id } = {}) {
 const text = (body) => say({ type: 'text', text: { body } });
 const choose = (id, kind = 'button_reply') => say({ type: 'interactive', interactive: { type: kind, [kind]: { id, title: 'x' } } });
 const bodyOf = (m) => m?.text?.body ?? m?.interactive?.body?.text ?? '';
+const contactRow = () => d1Rows(`SELECT profile_name, last_inbound_at, language FROM whatsapp_contacts WHERE phone = '${phone}'`)[0];
 const buttonsOf = (m) => m?.interactive?.action?.buttons?.map((b) => b.reply) ?? [];
 const rowsOf = (m) => m?.interactive?.action?.sections?.[0]?.rows ?? [];
 
@@ -83,13 +85,14 @@ const rowsOf = (m) => m?.interactive?.action?.sections?.[0]?.rows ?? [];
   check('a wrong verify token is refused', bad.status === 403);
   const unsigned = await deliver({ messages: [] }, { signature: 'sha256=' + '0'.repeat(64) });
   check('a delivery with a bad signature is refused', unsigned.status === 401);
+  const pic = await apiFetch(`${API}/whatsapp/banner.jpg`);
+  check('the banner is served as a JPEG', pic.status === 200 && pic.headers.get('content-type') === 'image/jpeg' && (await pic.arrayBuffer()).byteLength > 10_000);
 }
 
 // ─── A conversation ──────────────────────────────────────────────────────────
 check('a new number starts with no contact row', d1Rows(`SELECT COUNT(*) AS n FROM whatsapp_contacts WHERE phone = '${phone}'`)[0]?.n === 0);
 
 const hi = await text('Hi');
-check('“Hi” gets one reply', hi.length === 1, JSON.stringify(hi));
 const welcome = hi[0];
 const firstButtons = buttonsOf(welcome);
 const multi = welcome?.interactive?.type === 'list';
@@ -98,12 +101,23 @@ if (multi) {
   check('several branches: asked which one first', rowsOf(welcome).length > 0);
   branch = rowsOf(welcome)[0].id.split('|')[1];
 } else {
-  check('the welcome offers Car / Bike / Location', firstButtons.some((b) => b.id.startsWith('cat|')) && firstButtons.some((b) => b.id.startsWith('loc|')), JSON.stringify(firstButtons));
+  check('“Hi” gets the welcome and the More options list', hi.length === 2 && hi[1]?.interactive?.type === 'list', JSON.stringify(hi).slice(0, 300));
+  check(
+    'the welcome has the banner, a greeting by name and Services / Directions / Telugu',
+    welcome?.interactive?.header?.image?.link?.includes('/whatsapp/banner.jpg') &&
+      bodyOf(welcome).includes('Ravi! 👋') &&
+      firstButtons.map((b) => b.id.split('|')[0]).join() === 'svc,loc,lang',
+    JSON.stringify(welcome).slice(0, 400),
+  );
   branch = firstButtons[0]?.id.split('|')[1];
 }
 
-const contact = d1Rows(`SELECT profile_name, last_inbound_at FROM whatsapp_contacts WHERE phone = '${phone}'`)[0];
+const contact = contactRow();
 check('the customer is recorded with their WhatsApp name', contact?.profile_name === 'Ravi Kumar' && !!contact?.last_inbound_at);
+check('a second Hi welcomes them back', bodyOf((await text('hello'))[0]).includes('Welcome back, Ravi'));
+
+const services = await choose(`svc|${branch}`);
+check('Services & Prices asks which vehicle (or lists companies)', services.length === 1 && (buttonsOf(services[0]).length > 0 || rowsOf(services[0]).length > 0));
 
 const makes = await choose(`cat|${branch}|car`);
 const makeRows = rowsOf(makes[0]);
@@ -125,7 +139,16 @@ const typed = await text('swift');
 check('typing “swift” jumps to its prices', typed.map(bodyOf).join('\n').includes('Swift'), bodyOf(typed[0]).slice(0, 300));
 
 const loc = await choose(`loc|${branch}`);
-check('Location sends the address card', loc.length >= 1 && loc.some((m) => m.type === 'location' || bodyOf(m).includes('📍')));
+const maps = loc.find((m) => m.interactive?.type === 'cta_url');
+check('Get Directions sends a Google Maps button', maps?.interactive?.action?.parameters?.url?.startsWith('https://www.google.com/maps/'), JSON.stringify(loc).slice(0, 400));
+
+// ─── Telugu ──────────────────────────────────────────────────────────────────
+const telugu = await choose(`lang|${branch}|te`);
+check('తెలుగు answers in Telugu', bodyOf(telugu[0]).includes('గారు') && buttonsOf(telugu[0]).some((b) => b.title === '🌐 English'), bodyOf(telugu[0]).slice(0, 200));
+check('the language is remembered for the number', contactRow()?.language === 'te');
+check('the next Hi comes in Telugu', bodyOf((await text('Hi'))[0]).includes('మళ్ళీ స్వాగతం'));
+await choose(`lang|${branch}|en`);
+check('English switches back', contactRow()?.language === 'en');
 
 // ─── STOP / START ────────────────────────────────────────────────────────────
 await text('STOP');
@@ -137,7 +160,7 @@ check('START turns them back on', d1Rows(`SELECT marketing_stopped_at IS NULL AS
 const dupId = `wamid.in.${phone}.dup`;
 const first = await say({ type: 'text', text: { body: 'hello' } }, { id: dupId });
 const again = await say({ type: 'text', text: { body: 'hello' } }, { id: dupId });
-check('Meta re-sending a message gets no second reply', first.length === 1 && again.length === 0);
+check('Meta re-sending a message gets no second reply', first.length > 0 && again.length === 0);
 
 // ─── Delivery reports ────────────────────────────────────────────────────────
 const out = d1Rows(`SELECT id, status FROM whatsapp_messages WHERE phone = '${phone}' AND direction = 'out' ORDER BY created_at DESC LIMIT 1`)[0];

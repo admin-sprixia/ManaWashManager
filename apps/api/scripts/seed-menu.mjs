@@ -213,11 +213,12 @@ const startingVehicles = catalog.bodyTypes
   .filter((b) => CLASSES_ON.has(catalog.classes.find((c) => c.id === b.classId)?.key))
   .map((b) => b.id);
 
-console.log('Every community price is the hub price less 10%');
+// A community never pays less than the hub (the API refuses it): its rule adds nothing for now.
+console.log('Every community price is the hub price');
 for (const a of catalog.adjustments.filter((x) => x.mode === 'doorstep' && x.classId != null)) {
   await call(owner, 'DELETE', '/business/adjustments', { mode: 'doorstep', classId: a.classId });
 }
-await call(owner, 'PUT', '/business/adjustments', { mode: 'doorstep', classId: null, percentBp: -1000, fixedPaise: 0, minExtraPaise: 0 });
+await call(owner, 'PUT', '/business/adjustments', { mode: 'doorstep', classId: null, percentBp: 0, fixedPaise: 0, minExtraPaise: 0 });
 
 console.log('Services');
 const keep = [];

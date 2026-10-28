@@ -62,6 +62,9 @@ routes = [{ pattern = "api-staging.manawashmanager.com", custom_domain = true }]
 ENVIRONMENT = "staging"
 STAGING_TEST_CODES = "true"
 STAGING_TEST_PHONES = "9888626111,9300000011,9300000012,9300000013,9300000021"
+# With WhatsApp set up, staging sends real codes; until Meta approves the login_code template
+# those can't go out, so the test numbers above keep the fixed code. Remove with the two above.
+WHATSAPP_OTP_BYPASS = "true"
 
 [env.staging.observability]
 enabled = true

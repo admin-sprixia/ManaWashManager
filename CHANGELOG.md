@@ -18,6 +18,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   and out is logged with its delivery status. Meta's webhook is
   `/whatsapp/webhook`, refused without Meta's signature. New settings: `WHATSAPP_APP_SECRET`,
   `WHATSAPP_VERIFY_TOKEN` and `WHATSAPP_BUSINESS_ID` (README → WhatsApp assistant).
+- **Privacy policy and data-deletion pages** at `/legal/privacy` and `/legal/data-deletion` on the
+  API, for publishing the Meta app and the Play Store listings.
 
 - **New community, step by step.** The visit form is now 7 clear steps with a track at the top
   (Place → Photos → Site check → Vehicles & time → Who to call → Days residents want → Check &

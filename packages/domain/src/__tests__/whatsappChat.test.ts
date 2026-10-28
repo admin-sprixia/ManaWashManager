@@ -35,6 +35,9 @@ const hub: ChatBranch = {
       id: 'foam',
       name: 'Foam Wash',
       popular: true,
+      description: 'Snow foam and a hand wash.',
+      checklist: ['Snow foam', 'Hand dry'],
+      durationMin: 30,
       prices: [
         { vehicleTypeId: 'hatch', price: 29900 },
         { vehicleTypeId: 'suv', price: 39900 },
@@ -44,7 +47,7 @@ const hub: ChatBranch = {
     { id: 'interior', name: 'Interior Clean', popular: false, prices: [{ vehicleTypeId: 'hatch', price: 19900 }] },
   ],
   plans: [
-    { name: 'Shine', washes: 4, months: 1, popular: true, prices: [{ vehicleTypeId: 'hatch', total: 99900, listTotal: 119600 }] },
+    { name: 'Shine', washes: 4, months: 1, popular: true, serviceName: 'Foam Wash', upgrade: { every: 4, name: 'Interior Clean' }, prices: [{ vehicleTypeId: 'hatch', total: 99900, listTotal: 119600 }] },
   ],
 };
 // Wednesday 28 Oct 2026, 6:30 pm in India.
@@ -209,12 +212,38 @@ describe('WhatsApp assistant', () => {
     const body = bodyOf(m);
     expect(body).toContain('Maruti Suzuki Swift');
     expect(body).toContain('Hatchback');
-    expect(body).toContain('Foam Wash ⭐: *₹299*');
-    expect(body).toContain('Interior Clean: *₹199*');
+    expect(body).toContain('1️⃣ Foam Wash ⭐: *₹299*');
+    expect(body).toContain('2️⃣ Interior Clean: *₹199*');
     expect(body).not.toContain('₹399');
-    expect(body).toContain('Shine ⭐: 4 washes in a month, *₹999* (save ₹197)');
-    expect(body).toContain('7 am – 8 pm');
+    expect(body).toContain('3️⃣ Shine ⭐: 4 washes in a month, *₹999* (save ₹197)');
+    expect(body).toContain('Reply with a number');
     expect(as(m, 'buttons').buttons.map((b) => b.id)).toEqual(['loc|b1', 'home|b1', 'talk|b1']);
+    // Remembered, so a number can pick from it.
+    expect(choose('pr|b1|Maruti Suzuki|Swift').context).toBe('pr|b1|Maruti Suzuki|Swift');
+    expect(text('swift').context).toBe('pr|b1|Maruti Suzuki|Swift');
+  });
+
+  it('a number after the price list shows what is in that wash or plan', () => {
+    const seen = { ...ctx, person: { name: 'Ravi', returning: true, lang: null, context: 'pr|b1|Maruti Suzuki|Swift' } };
+    const wash = as(only(reply({ kind: 'text', text: '1' }, seen).messages), 'buttons');
+    expectValid([wash]);
+    expect(wash.text).toContain('1️⃣ *Foam Wash* ⭐');
+    expect(wash.text).toContain('Maruti Suzuki Swift · *₹299*');
+    expect(wash.text).toContain('Snow foam and a hand wash.');
+    expect(wash.text).toContain("✅ *What's included*\n• Snow foam\n• Hand dry");
+    expect(wash.text).toContain('Takes about 30 minutes');
+    expect(wash.buttons[0]).toEqual({ id: 'pr|b1|Maruti Suzuki|Swift', title: '📋 All prices' });
+    const plan = as(only(reply({ kind: 'text', text: '3' }, seen).messages), 'buttons');
+    expect(plan.text).toContain('*₹999* (save ₹197)');
+    expect(plan.text).toContain('4 washes in a month, a *Foam Wash* each time');
+    expect(plan.text).toContain('Every 4th wash is a *Interior Clean*');
+    expect(plan.text).toContain("That's *₹250* a wash.");
+    expect(bodyOf(only(reply({ kind: 'text', text: '9' }, seen).messages))).toContain('from *1* to *3*');
+    const telugu = { ...seen, person: { ...seen.person, lang: 'te' as const } };
+    expectValid(reply({ kind: 'text', text: '1' }, telugu).messages);
+    expect(bodyOf(only(reply({ kind: 'text', text: '1' }, telugu).messages))).toContain('ఇందులో ఉండేవి');
+    // Without a price list first, a number is just a hello.
+    expect(as(only(text('2').messages), 'buttons').buttons[0]!.id).toBe('svc|b1');
   });
 
   it('prices an SUV as an SUV', () => {

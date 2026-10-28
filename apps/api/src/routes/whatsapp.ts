@@ -14,6 +14,7 @@ import {
   markReadTyping,
   phoneFromWaId,
   sendChat,
+  setChatContext,
   setLanguage,
   setMarketing,
   verifyMetaSignature,
@@ -100,12 +101,22 @@ async function chatContext(env: Env, origin: string): Promise<ChatContext> {
         hours: b.hours,
         reviewUrl: b.reviewUrl,
         vehicleTypes: b.vehicleTypes,
-        services: b.services.map((s) => ({ id: s.id, name: s.name, popular: s.popular, prices: s.prices })),
+        services: b.services.map((s) => ({
+          id: s.id,
+          name: s.name,
+          popular: s.popular,
+          description: s.description,
+          checklist: s.checklist,
+          durationMin: s.durationMin,
+          prices: s.prices,
+        })),
         plans: (plans[i] ?? []).map((p) => ({
           name: p.name,
           washes: p.washes,
           months: p.months,
           popular: p.popular,
+          serviceName: p.serviceName,
+          upgrade: p.upgrade ? { every: p.upgrade.every, name: p.upgrade.name } : null,
           prices: p.prices.map((x) => ({ vehicleTypeId: x.vehicleTypeId, total: x.total, listTotal: x.listTotal })),
         })),
       }),
@@ -126,6 +137,7 @@ async function handleMessage(env: Env, m: WaMessage, profileName: string | null,
   const result = chatReply(input, { ...(await getContext()), person });
   if (result.marketing) await setMarketing(env, phone, result.marketing === 'start');
   if (result.lang) await setLanguage(env, phone, result.lang);
+  if (result.context) await setChatContext(env, phone, result.context);
   await sendChat(env, phone, result.messages);
 }
 

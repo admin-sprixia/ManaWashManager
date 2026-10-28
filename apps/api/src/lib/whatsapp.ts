@@ -227,12 +227,12 @@ export async function chatPerson(
   phone: string,
   businessId: string | null,
   profileName: string | null,
-): Promise<{ name: string | null; returning: boolean; lang: ChatLang | null }> {
+): Promise<{ name: string | null; returning: boolean; lang: ChatLang | null; context: string | null }> {
   const [contact, customer] = await Promise.all([
     d1(env)
-      .prepare('SELECT last_inbound_at AS seen, language FROM whatsapp_contacts WHERE phone = ?1')
+      .prepare('SELECT last_inbound_at AS seen, language, chat_context AS context FROM whatsapp_contacts WHERE phone = ?1')
       .bind(phone)
-      .first<{ seen: string | null; language: string | null }>(),
+      .first<{ seen: string | null; language: string | null; context: string | null }>(),
     businessId
       ? d1(env)
           .prepare(
@@ -244,7 +244,15 @@ export async function chatPerson(
       : null,
   ]);
   const lang = contact?.language === 'te' || contact?.language === 'en' ? contact.language : null;
-  return { name: customer?.name?.trim() || profileName, returning: !!customer || !!contact?.seen, lang };
+  return { name: customer?.name?.trim() || profileName, returning: !!customer || !!contact?.seen, lang, context: contact?.context ?? null };
+}
+
+/** The price list this number just saw, so its next number picks from it. */
+export async function setChatContext(env: Env, phone: string, context: string): Promise<void> {
+  await d1(env)
+    .prepare(`INSERT INTO whatsapp_contacts (phone, chat_context) VALUES (?1, ?2) ON CONFLICT (phone) DO UPDATE SET chat_context = excluded.chat_context`)
+    .bind(phone, context.slice(0, 200))
+    .run();
 }
 
 /** The language the assistant answers this number in from now on. */

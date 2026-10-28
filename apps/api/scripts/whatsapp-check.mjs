@@ -139,6 +139,9 @@ if (makeRows.length) {
 
 const typed = await text('swift');
 check('typing “swift” jumps to its prices', typed.map(bodyOf).join('\n').includes('Swift'), bodyOf(typed[0]).slice(0, 300));
+check('the price list is numbered', /1️⃣ .+: \*₹/.test(typed.map(bodyOf).join('\n')));
+const one = await text('1');
+check('replying 1 shows what that wash includes', bodyOf(one[0]).startsWith('1️⃣ *') && buttonsOf(one[0])[0]?.id.startsWith('pr|'), bodyOf(one[0]).slice(0, 300));
 
 const loc = await choose(`loc|${branch}`);
 const maps = loc.find((m) => m.interactive?.type === 'cta_url');

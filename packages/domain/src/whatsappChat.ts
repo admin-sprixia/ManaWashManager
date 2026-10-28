@@ -1,4 +1,4 @@
-import { clockMinutes, formatClock, hoursSummary, offDaysOf, WEEKDAY_LABELS, type OpeningHours } from './customerApp';
+import { clockMinutes, formatClock, offDaysOf, WEEKDAY_LABELS, type OpeningHours } from './customerApp';
 import type { VehicleCategory } from './types';
 import { bodyTypeDef, bodyTypeForName } from './vehicleCatalog';
 import { VEHICLE_MAKES, vehicleGuideRows, vehicleTypeKeysFor, type VehicleGuideRow, type VehicleModelEdit } from './vehicleMakes';
@@ -36,13 +36,25 @@ export interface ChatBranch {
   reviewUrl: string | null;
   vehicleTypes: { id: string; name: string; category: VehicleCategory; bodyKey: string | null }[];
   /** Hub services in menu order, prices in paise. */
-  services: { id: string; name: string; popular: boolean; prices: { vehicleTypeId: string; price: number }[] }[];
+  services: {
+    id: string;
+    name: string;
+    popular: boolean;
+    description?: string | null;
+    /** What's included, one short line each. */
+    checklist?: string[];
+    durationMin?: number | null;
+    prices: { vehicleTypeId: string; price: number }[];
+  }[];
   /** Wash plans sold at the shop, prices in paise. */
   plans: {
     name: string;
     washes: number;
     months: number;
     popular: boolean;
+    /** The wash each visit gets, and the better one every Nth visit. */
+    serviceName?: string | null;
+    upgrade?: { every: number; name: string } | null;
     prices: { vehicleTypeId: string; total: number; listTotal: number }[];
   }[];
 }
@@ -57,6 +69,8 @@ export interface ChatPerson {
   returning: boolean;
   /** The language they picked earlier, if any. */
   lang: ChatLang | null;
+  /** The price list they saw last ("pr|<branch>|<make>|<model>"), so a number picks from it. */
+  context?: string | null;
 }
 
 export interface ChatContext {
@@ -98,6 +112,8 @@ export interface ChatResult {
   marketing?: 'stop' | 'start';
   /** The language to answer this customer in from now on, when it changed. */
   lang?: ChatLang;
+  /** The price list just sent, to remember for this customer (see ChatPerson.context). */
+  context?: string;
 }
 
 const STOP_WORDS = new Set(['stop', 'unsubscribe', 'stop offers', 'no offers', 'opt out', 'optout']);
@@ -162,15 +178,6 @@ const clock = (t: Turn, value: string) => (te(t) ? teluguClock(value) : formatCl
 
 function hoursRange(t: Turn, h: OpeningHours): string | null {
   return h.opensAt && h.closesAt ? `${clock(t, h.opensAt)} – ${clock(t, h.closesAt)}` : null;
-}
-
-/** "7 am – 8 pm · closed Sundays", in the customer's language. */
-function weekHours(t: Turn, h: OpeningHours): string | null {
-  if (!te(t)) return hoursSummary(h);
-  const range = hoursRange(t, h);
-  if (!range) return null;
-  const off = offDaysOf(h).map((d) => TE_WEEKDAYS[d]);
-  return off.length ? `${range} · ${off.join(', ')} సెలవు` : `${range} · ప్రతి రోజు`;
 }
 
 /** "🕗 Open today: 7 am – 8 pm", or when it opens next if it's closed now. */
@@ -410,7 +417,7 @@ function modelList(t: Turn, b: ChatBranch, category: VehicleCategory, make: stri
   const from = page * PAGE_ROWS;
   const shown = models.slice(from, from + PAGE_ROWS);
   const rows: ChatRow[] = shown.map((r) => ({
-    id: id('pr', b.id, r.make, r.model),
+    id: pricesId(b, r.make, r.model),
     title: cut(r.model, WA_ROW_TITLE_MAX),
     description: bodyTypeDef(r.bodyKey)?.label,
   }));
@@ -437,16 +444,34 @@ function planSpan(t: Turn, washes: number, months: number): string {
   return `${washes} washes in ${months === 1 ? 'a month' : `${months} months`}`;
 }
 
-/** That model's services and plans at the branch, or why there are none. */
-function prices(t: Turn, b: ChatBranch, make: string, model: string): ChatMessage[] {
+/** "12" → 1️⃣2️⃣. */
+const keycap = (n: number) => [...String(n)].map((d) => `${d}\uFE0F\u20E3`).join('');
+
+type PriceItem =
+  | { kind: 'service'; name: string; popular: boolean; price: number; service: ChatBranch['services'][number] }
+  | { kind: 'plan'; name: string; popular: boolean; price: number; listPrice: number; plan: ChatBranch['plans'][number] };
+
+/** The model's vehicle type at the branch and what it can have there, numbered in this order. */
+function priceItems(t: Turn, b: ChatBranch, make: string, model: string) {
   const type = chatVehicleType(b, make, model, t.edits);
-  const services = type
-    ? b.services.flatMap((s) => {
-        const p = s.prices.find((x) => x.vehicleTypeId === type.id && x.price > 0);
-        return p ? [{ name: s.name, popular: s.popular, price: p.price }] : [];
-      })
-    : [];
-  if (!type || services.length === 0) {
+  if (!type) return null;
+  const services: PriceItem[] = b.services.flatMap((s) => {
+    const p = s.prices.find((x) => x.vehicleTypeId === type.id && x.price > 0);
+    return p ? [{ kind: 'service' as const, name: s.name, popular: s.popular, price: p.price, service: s }] : [];
+  });
+  const plans: PriceItem[] = b.plans.flatMap((p) => {
+    const price = p.prices.find((x) => x.vehicleTypeId === type.id && x.total > 0);
+    return price ? [{ kind: 'plan' as const, name: p.name, popular: p.popular, price: price.total, listPrice: price.listTotal, plan: p }] : [];
+  });
+  return { type, services, plans, items: [...services, ...plans] };
+}
+
+const pricesId = (b: ChatBranch, make: string, model: string) => id('pr', b.id, make, model);
+
+/** That model's services and plans at the branch, numbered, or why there are none. */
+function prices(t: Turn, b: ChatBranch, make: string, model: string): ChatMessage[] {
+  const found = priceItems(t, b, make, model);
+  if (!found || found.services.length === 0) {
     return [
       {
         type: 'buttons',
@@ -459,34 +484,76 @@ function prices(t: Turn, b: ChatBranch, make: string, model: string): ChatMessag
       },
     ];
   }
-  const plans = b.plans.flatMap((p) => {
-    const price = p.prices.find((x) => x.vehicleTypeId === type.id);
-    return price ? [{ ...p, price }] : [];
-  });
-  const hours = weekHours(t, b.hours);
+  const { type, services, plans } = found;
+  const line = (item: PriceItem, n: number) => {
+    const star = item.popular ? ' ⭐' : '';
+    if (item.kind === 'service') return `${keycap(n)} ${item.name}${star}: *${rupees(item.price)}*`;
+    const saving = item.listPrice - item.price;
+    const save = saving > 0 ? say(t, ` (save ${rupees(saving)})`, ` (${rupees(saving)} ఆదా)`) : '';
+    return `${keycap(n)} ${item.name}${star}: ${planSpan(t, item.plan.washes, item.plan.months)}, *${rupees(item.price)}*${save}`;
+  };
   const text = [
     `🚘 *${make} ${model}* · ${type.name}`,
     say(t, `Prices at ${branchLine(t, b)}`, `${branchLine(t, b)} ధరలు`),
     '',
-    ...services.map((s) => `• ${s.name}${s.popular ? ' ⭐' : ''}: *${rupees(s.price)}*`),
-    ...(plans.length
-      ? [
-          '',
-          say(t, '📅 *Wash plans*', '📅 *వాష్ ప్లాన్‌లు*'),
-          ...plans.map((p) => {
-            const saving = p.price.listTotal - p.price.total;
-            const save = saving > 0 ? say(t, ` (save ${rupees(saving)})`, ` (${rupees(saving)} ఆదా)`) : '';
-            return `• ${p.name}${p.popular ? ' ⭐' : ''}: ${planSpan(t, p.washes, p.months)}, *${rupees(p.price.total)}*${save}`;
-          }),
-        ]
-      : []),
-    ...(hours ? ['', `🕒 ${hours}`] : []),
+    say(t, '🧽 *Washes*', '🧽 *వాష్‌లు*'),
+    ...services.map((s, i) => line(s, i + 1)),
+    ...(plans.length ? ['', say(t, '📅 *Wash plans*', '📅 *వాష్ ప్లాన్‌లు*'), ...plans.map((p, i) => line(p, services.length + i + 1))] : []),
+    '',
+    say(t, "👉 Reply with a number (like *1*) to see what's included.", '👉 ఏమేమి ఉంటాయో చూడటానికి నంబర్ పంపండి (ఉదా: *1*).'),
   ].join('\n');
   if (text.length <= WA_BUTTONS_BODY_MAX) return [{ type: 'buttons', text, buttons: afterPrices(t, b) }];
   return [
     { type: 'text', text },
     { type: 'buttons', text: say(t, 'Anything else?', 'ఇంకా ఏమైనా?'), buttons: afterPrices(t, b) },
   ];
+}
+
+/** "That's ₹436 a wash." */
+const perWash = (t: Turn, total: number, washes: number) =>
+  washes > 1 ? say(t, `💡 That's *${rupees(Math.round(total / washes / 100) * 100)}* a wash.`, `💡 ఒక్కో వాష్ *${rupees(Math.round(total / washes / 100) * 100)}* మాత్రమే.`) : null;
+
+/** What's in item `n` of the model's price list. */
+function details(t: Turn, b: ChatBranch, make: string, model: string, n: number): ChatMessage[] {
+  const found = priceItems(t, b, make, model);
+  if (!found) return prices(t, b, make, model);
+  const back: ChatButton = { id: pricesId(b, make, model), title: say(t, '📋 All prices', '📋 అన్ని ధరలు') };
+  const item = found.items[n - 1];
+  if (!item) {
+    return [
+      {
+        type: 'buttons',
+        text: say(t, `Please pick a number from *1* to *${found.items.length}*. 🙏`, `దయచేసి *1* నుండి *${found.items.length}* లోపు నంబర్ పంపండి. 🙏`),
+        buttons: [back, directionsButton(t, b), talkButton(t, b)],
+      },
+    ];
+  }
+  const head = [`${keycap(n)} *${item.name}*${item.popular ? ' ⭐' : ''}`];
+  let body: string[];
+  if (item.kind === 'service') {
+    const s = item.service;
+    const checklist = s.checklist ?? [];
+    body = [
+      `🚘 ${make} ${model} · *${rupees(item.price)}*`,
+      ...(s.description ? ['', s.description] : []),
+      ...(checklist.length ? ['', say(t, "✅ *What's included*", '✅ *ఇందులో ఉండేవి*'), ...checklist.map((c) => `• ${c}`)] : []),
+      ...(s.durationMin ? ['', say(t, `⏱️ Takes about ${s.durationMin} minutes`, `⏱️ సుమారు ${s.durationMin} నిమిషాలు పడుతుంది`)] : []),
+    ];
+  } else {
+    const p = item.plan;
+    const saving = item.listPrice - item.price;
+    const each = p.serviceName ? say(t, `a *${p.serviceName}* each time`, `ప్రతిసారి *${p.serviceName}*`) : null;
+    body = [
+      `🚘 ${make} ${model} · *${rupees(item.price)}*${saving > 0 ? say(t, ` (save ${rupees(saving)})`, ` (${rupees(saving)} ఆదా)`) : ''}`,
+      '',
+      `📅 ${planSpan(t, p.washes, p.months)}${each ? `, ${each}` : ''}`,
+      ...(p.upgrade ? [say(t, `✨ Every ${p.upgrade.every}th wash is a *${p.upgrade.name}*`, `✨ ప్రతి ${p.upgrade.every}వ వాష్ *${p.upgrade.name}*`)] : []),
+      ...[perWash(t, item.price, p.washes)].filter((x): x is string => !!x),
+      '',
+      say(t, 'Buy it at the counter on your next visit.', 'మీ తదుపరి విజిట్‌లో కౌంటర్ వద్ద తీసుకోండి.'),
+    ];
+  }
+  return [{ type: 'buttons', text: cut([...head, ...body].join('\n'), WA_BUTTONS_BODY_MAX), buttons: [back, directionsButton(t, b), talkButton(t, b)] }];
 }
 
 // ─── Location, talk, rate ───────────────────────────────────────────
@@ -578,37 +645,44 @@ export function findModels(text: string, rows: readonly VehicleGuideRow[]): Vehi
   return rows.filter((r) => alnum(r.model).includes(q) || alnum(`${r.make}${r.model}`).includes(q));
 }
 
-function typedModel(t: Turn, b: ChatBranch, text: string): ChatMessage[] | null {
+function typedModel(t: Turn, b: ChatBranch, text: string): { messages: ChatMessage[]; context?: string } | null {
   const washed = [...modelsAt(b, 'car', t.edits), ...modelsAt(b, 'bike', t.edits)];
   const found = findModels(text, washed);
-  if (found.length === 1) return prices(t, b, found[0]!.make, found[0]!.model);
+  if (found.length === 1) {
+    const { make, model } = found[0]!;
+    return { messages: prices(t, b, make, model), context: pricesId(b, make, model) };
+  }
   if (found.length > 1 && found.length <= WA_MAX_LIST_ROWS) {
-    return [
-      {
-        type: 'list',
-        text: say(t, 'Which one is yours?', 'మీది ఏది?'),
-        button: say(t, 'Choose model', 'మోడల్ ఎంచుకోండి'),
-        title: say(t, 'Models', 'మోడల్స్'),
-        rows: found.map((r) => ({
-          id: id('pr', b.id, r.make, r.model),
-          title: cut(r.model, WA_ROW_TITLE_MAX),
-          description: cut(`${r.make} · ${bodyTypeDef(r.bodyKey)?.label ?? ''}`.replace(/ · $/, ''), WA_ROW_DESCRIPTION_MAX),
-        })),
-      },
-    ];
+    return {
+      messages: [
+        {
+          type: 'list',
+          text: say(t, 'Which one is yours?', 'మీది ఏది?'),
+          button: say(t, 'Choose model', 'మోడల్ ఎంచుకోండి'),
+          title: say(t, 'Models', 'మోడల్స్'),
+          rows: found.map((r) => ({
+            id: pricesId(b, r.make, r.model),
+            title: cut(r.model, WA_ROW_TITLE_MAX),
+            description: cut(`${r.make} · ${bodyTypeDef(r.bodyKey)?.label ?? ''}`.replace(/ · $/, ''), WA_ROW_DESCRIPTION_MAX),
+          })),
+        },
+      ],
+    };
   }
   if (found.length > WA_MAX_LIST_ROWS) {
-    return [
-      {
-        type: 'text',
-        text: say(
-          t,
-          `There are a lot of models matching “${cut(text.trim(), 30)}”. Pick from the list instead:`,
-          `“${cut(text.trim(), 30)}” కి చాలా మోడల్స్ ఉన్నాయి. జాబితా నుండి ఎంచుకోండి:`,
-        ),
-      },
-      ...servicesReply(t, b),
-    ];
+    return {
+      messages: [
+        {
+          type: 'text',
+          text: say(
+            t,
+            `There are a lot of models matching “${cut(text.trim(), 30)}”. Pick from the list instead:`,
+            `“${cut(text.trim(), 30)}” కి చాలా మోడల్స్ ఉన్నాయి. జాబితా నుండి ఎంచుకోండి:`,
+          ),
+        },
+        ...servicesReply(t, b),
+      ],
+    };
   }
   return null;
 }
@@ -637,11 +711,14 @@ export function chatReply(input: ChatInput, ctx: ChatContext): ChatResult {
     switchTo(input.id.endsWith('|te') ? 'te' : 'en');
   }
   const t: Turn = { ctx, lang, now: ctx.now ?? new Date(), edits: ctx.edits ?? [] };
-  const done = (messages: ChatMessage[], marketing?: ChatResult['marketing']): ChatResult => ({
+  const done = (messages: ChatMessage[], marketing?: ChatResult['marketing'], context?: string): ChatResult => ({
     messages,
     ...(marketing ? { marketing } : {}),
     ...(switched ? { lang: switched } : {}),
+    ...(context ? { context } : {}),
   });
+  /** A model's price list, remembered so a number can pick from it. */
+  const priceList = (b: ChatBranch, make: string, model: string) => done(prices(t, b, make, model), undefined, pricesId(b, make, model));
 
   if (ctx.branches.length === 0) {
     return done([
@@ -687,12 +764,19 @@ export function chatReply(input: ChatInput, ctx: ChatContext): ChatResult {
         'start',
       );
     }
+    // A number after a price list: what's in that service or plan.
+    const pick = /^\d{1,2}$/.test(text) ? Number(text) : null;
+    const seen = ctx.person?.context?.split('|');
+    if (pick && seen?.[0] === 'pr') {
+      const pb = branchOf(ctx, seen[1]) ?? only;
+      if (pb) return done(details(t, pb, seen[2] ?? '', seen[3] ?? '', pick));
+    }
     if (THANKS.test(text)) {
       return done([{ type: 'text', text: say(t, "You're welcome! 😊 Send *Hi* any time for our prices.", 'సంతోషం! 😊 మా ధరల కోసం ఎప్పుడైనా *Hi* పంపండి.') }]);
     }
     if (only && text && !switched) {
       const found = typedModel(t, only, text);
-      if (found) return done(found);
+      if (found) return done(found.messages, undefined, found.context);
     }
     return done(start(t));
   }
@@ -715,7 +799,7 @@ export function chatReply(input: ChatInput, ctx: ChatContext): ChatResult {
     case 'mo':
       return done([modelList(t, b, category, rest[1] ?? '', Number(rest[2]) || 0)]);
     case 'pr':
-      return done(prices(t, b, rest[0] ?? '', rest[1] ?? ''));
+      return priceList(b, rest[0] ?? '', rest[1] ?? '');
     case 'loc':
       return done(directionsReply(t, b));
     case 'talk':

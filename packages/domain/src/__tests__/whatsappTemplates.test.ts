@@ -29,7 +29,11 @@ describe('WhatsApp wash templates', () => {
       // Meta refuses a template that starts or ends with a blank.
       expect(t.body.trim().startsWith('{{')).toBe(false);
       expect(t.body.trim().endsWith('}}')).toBe(false);
-      for (const b of t.buttons) expect([...b].length).toBeLessThanOrEqual(25);
+      for (const b of t.buttons) {
+        expect([...b].length).toBeLessThanOrEqual(25);
+        // Meta refuses buttons with emojis, line breaks or formatting.
+        expect(b).toMatch(/^[\p{L}\p{M}\p{N} ]+$/u);
+      }
     }
   });
 

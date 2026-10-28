@@ -890,7 +890,9 @@ CREATE TABLE whatsapp_contacts (
   last_inbound_at TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
   -- The language they picked on WhatsApp (or wrote to us in); the assistant answers in it.
-  language TEXT CHECK (language IS NULL OR language IN ('en', 'te'))
+  language TEXT CHECK (language IS NULL OR language IN ('en', 'te')),
+  -- The price list they saw last ("pr|<branch>|<make>|<model>"), so a number picks from it.
+  chat_context TEXT CHECK (chat_context IS NULL OR length(chat_context) <= 200)
 );
 
 -- Every message in and out, by Meta's message id: incoming ones once each (Meta retries

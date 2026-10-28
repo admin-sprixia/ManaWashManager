@@ -1145,6 +1145,8 @@ model WhatsAppContact {
   createdAt          String  @map("created_at")
   /// "en" or "te": the language the assistant answers in.
   language           String?
+  /// The price list they saw last ("pr|<branch>|<make>|<model>"), so a number picks from it.
+  chatContext        String? @map("chat_context")
 
   @@map("whatsapp_contacts")
 }

@@ -18,7 +18,7 @@ export interface WaTemplateDefinition {
   body: string;
   /** One example per {{n}}, for Meta's review. */
   example: string[];
-  /** Quick-reply buttons; what each sends back is set per message. */
+  /** Quick-reply buttons (plain text: Meta refuses emojis or formatting); what each sends back is set per message. */
   buttons: string[];
 }
 
@@ -37,7 +37,7 @@ export const WA_TEMPLATES: WaTemplateDefinition[] = [
       'See you soon!',
     ].join('\n'),
     example: ['Ravi', 'Maruti Suzuki Swift (AP39AB1234)', 'Sri Mana Wash, Kovur', '₹499'],
-    buttons: ['📍 Get Directions'],
+    buttons: ['Get Directions'],
   },
   {
     name: 'wash_ready',
@@ -51,7 +51,7 @@ export const WA_TEMPLATES: WaTemplateDefinition[] = [
       'త్వరలో కలుద్దాం!',
     ].join('\n'),
     example: ['Ravi గారు', 'Maruti Suzuki Swift (AP39AB1234)', 'Sri Mana Wash, Kovur', '₹499'],
-    buttons: ['📍 దారి చూపించు'],
+    buttons: ['దారి చూపించు'],
   },
   {
     name: 'wash_bill',
@@ -69,7 +69,7 @@ export const WA_TEMPLATES: WaTemplateDefinition[] = [
       'We hope you love the shine. See you again soon!',
     ].join('\n'),
     example: ['Ravi', 'Sri Mana Wash, Kovur', 'Maruti Suzuki Swift (AP39AB1234)', 'Basic Wash, Interior Clean', '₹699 (you saved ₹50)', 'UPI', '28 Oct 2026, 6:30 pm'],
-    buttons: ['⭐ Rate us'],
+    buttons: ['Rate us'],
   },
   {
     name: 'wash_bill',
@@ -87,7 +87,7 @@ export const WA_TEMPLATES: WaTemplateDefinition[] = [
       'మీకు మెరుపు నచ్చుతుందని ఆశిస్తున్నాం. మళ్ళీ కలుద్దాం!',
     ].join('\n'),
     example: ['Ravi గారు', 'Sri Mana Wash, Kovur', 'Maruti Suzuki Swift (AP39AB1234)', 'Basic Wash, Interior Clean', '₹699 (₹50 ఆదా)', 'UPI', '28 Oct 2026, 6:30 pm'],
-    buttons: ['⭐ రేట్ చేయండి'],
+    buttons: ['రేట్ చేయండి'],
   },
 ];
 

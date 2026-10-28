@@ -59,7 +59,7 @@ export interface WashPlanRules {
   renewalReminderDays: number;
   /** An order never paid is closed after this many days (nothing is owed). */
   unpaidCloseDays: number;
-  /** Which branch price a place wash is charged at. */
+  /** Which branch price a place wash is charged at: always the community price (never below the hub). */
   priceMode: PlacePriceMode;
   /** GST included in every price, in basis points (1800 = 18%). */
   gstRateBp: number;
@@ -142,7 +142,8 @@ export function parseWashPlanRules(raw: Partial<Record<keyof WashPlanRules, stri
     refundRule: raw.refundRule === 'pro_rata' ? 'pro_rata' : 'single_price',
     renewalReminderDays: intIn(raw.renewalReminderDays, L.renewalReminderDays, d.renewalReminderDays),
     unpaidCloseDays: intIn(raw.unpaidCloseDays, L.unpaidCloseDays, d.unpaidCloseDays),
-    priceMode: raw.priceMode === 'hub' ? 'hub' : 'doorstep',
+    // Communities always pay the community price; an old "hub price" setting no longer applies.
+    priceMode: 'doorstep',
     gstRateBp: intIn(raw.gstRateBp, L.gstRateBp, d.gstRateBp),
     gstin: text(raw.gstin)?.toUpperCase() ?? null,
     legalName: text(raw.legalName),

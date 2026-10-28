@@ -199,8 +199,9 @@ const setup = {
   longitude: LNG,
   notes: 'Watchman opens the gate at 6',
   contactName: 'Secretary',
-  inspection: { water: 'yes', parking: 'basement', permission: 'yes', cars: 12, bikes: 4 },
-  slots: [{ days: [weekday], time: '07:00' }, { days: [(weekday + 3) % 7], time: '06:30' }],
+  inspection: { water: 'yes', power: 'yes', parking: 'basement', space: 'good', permission: 'yes', cars: 12, bikes: 4 },
+  // 3 to 5 choices of days and time residents want.
+  slots: [0, 1, 2, 3, 4].map((n) => ({ days: [(weekday + n) % 7], time: n % 2 ? '06:30' : '07:00' })),
 };
 r = await call(STF, 'POST', '/places', { ...setup, slots: [{ days: [], time: '07:00' }] });
 check('A proposed wash slot needs a day', r.status === 400, show(r));
@@ -223,10 +224,40 @@ r = await call(STF, 'POST', `/places/${P1}/photos`, photoForm('gate'));
 const gatePhoto = r.body?.id;
 check('Staff add a photo of the gate', r.status === 201 && !!gatePhoto, show(r));
 await call(STF, 'POST', `/places/${P1}/photos`, photoForm('parking'));
+await call(STF, 'POST', `/places/${P1}/photos`, photoForm('space'));
+await call(STF, 'POST', `/places/${P1}/photos`, photoForm('power'));
 r = await call(STF, 'PATCH', `/places/${P1}/setup`, { contactPhone: '9440000001' });
 check('…and the secretary’s number', r.status === 200, show(r));
 r = await call(STF, 'GET', `/places/${P1}`);
-check('The draft shows what the visit found and nothing missing', r.body?.place?.stage === 'draft' && r.body?.place?.setup?.missing?.length === 0 && r.body?.place?.photos?.length === 2 && r.body?.place?.setup?.slots?.length === 2, show(r));
+check('Water point photo is optional: the gate, parking and wash space are enough', r.status === 200 && !r.body?.place?.setup?.missing?.some((m) => /photo/i.test(m)), show(r));
+r = await call(STF, 'PATCH', `/places/${P1}/setup`, { name: null, inspection: { ...setup.inspection, power: undefined, space: undefined } });
+r = await call(STF, 'POST', `/places/${P1}/submit`);
+check('It can’t go for approval without the name, the power point answer and the space to wash', r.status === 400 && /Name/.test(r.body?.message ?? '') && /Power point,/.test(r.body?.message ?? '') && /Space to wash/.test(r.body?.message ?? ''), show(r));
+r = await call(STF, 'PATCH', `/places/${P1}/setup`, { name: setup.name, inspection: { ...setup.inspection, water: 'bring' } });
+r = await call(STF, 'GET', `/places/${P1}`);
+check('…and with those back, nothing is missing', r.status === 200 && r.body?.place?.setup?.missing?.length === 0, show(r));
+await call(STF, 'PATCH', `/places/${P1}/setup`, { inspection: setup.inspection });
+await call(STF, 'POST', `/places/${P1}/photos`, photoForm('water'));
+r = await call(STF, 'PATCH', `/places/${P1}/setup`, { slots: setup.slots.slice(0, 2) });
+r = await call(STF, 'POST', `/places/${P1}/submit`);
+check('…or with fewer than 3 choices of days and time', r.status === 400 && /3 days-and-time choices/.test(r.body?.message ?? ''), show(r));
+r = await call(STF, 'PATCH', `/places/${P1}/setup`, { slots: setup.slots.slice(0, 3) });
+r = await call(STF, 'GET', `/places/${P1}`);
+check('…3 choices are enough', r.body?.place?.setup?.missing?.length === 0, show(r));
+r = await call(STF, 'PATCH', `/places/${P1}/setup`, { slots: [...setup.slots, { days: [weekday], time: '08:00' }] });
+check('…and no more than 5', r.status === 400, show(r));
+r = await call(STF, 'PATCH', `/places/${P1}/setup`, { contactName: null });
+r = await call(STF, 'GET', `/places/${P1}`);
+check('Who to call needs a name as well as the number', r.body?.place?.setup?.missing?.includes('Who to call: their name'), show(r));
+r = await call(STF, 'PATCH', `/places/${P1}/setup`, { contactName: setup.contactName, securityPhone: '12345' });
+check('A security number, when given, has 10 digits', r.status === 400, show(r));
+r = await call(STF, 'PATCH', `/places/${P1}/setup`, { contactName: setup.contactName, securityName: 'Venkat', securityPhone: '9440000002' });
+r = await call(STF, 'GET', `/places/${P1}`);
+check('…and the security guard is kept (optional)', r.body?.place?.setup?.securityName === 'Venkat' && r.body.place.setup.securityPhone === '9440000002', show(r));
+r = await call(STF, 'PATCH', `/places/${P1}/setup`, { slots: setup.slots });
+check('…and with the 5 choices back it has nothing missing', r.status === 200, show(r));
+r = await call(STF, 'GET', `/places/${P1}`);
+check('The draft shows what the visit found and nothing missing', r.body?.place?.stage === 'draft' && r.body?.place?.setup?.missing?.length === 0 && r.body?.place?.photos?.length === 5 && r.body?.place?.setup?.slots?.length === 5, show(r));
 r = await call(STF, 'POST', `/places/${P1}/submit`);
 check('Staff send it for approval', r.status === 200, show(r));
 r = await call(STF, 'PATCH', `/places/${P1}/setup`, { notes: 'Changed my mind' });
@@ -244,6 +275,10 @@ check('The hub lists it as waiting for approval', r.status === 200 && r.body?.re
 r = await call(OWN, 'POST', `/places/${P1}/go-live`, { washDays: [], washTime: '07:00' });
 check('Going live needs a wash day', r.status === 400, show(r));
 r = await call(OWN, 'POST', `/places/${P1}/go-live`, { washDays: [weekday], washTime: '07:00', teamUserIds: [STAFF] });
+check('Going live needs the flats first (members pick theirs when they join)', r.status === 400 && /flats/i.test(r.body?.message ?? ''), show(r));
+r = await call(OWN, 'POST', `/places/${P1}/units`, { numbers: '101-104, G1' });
+check('Owner adds flats from a range', r.status === 200 && r.body?.added === 5 && r.body?.units?.length === 5, show(r));
+r = await call(OWN, 'POST', `/places/${P1}/go-live`, { washDays: [weekday], washTime: '07:00', teamUserIds: [STAFF] });
 check('The owner sets the day, time and team, and it goes live', r.status === 200, show(r));
 r = await call(STF, 'GET', `/places/${P1}`);
 check('…live, with its team', r.body?.place?.stage === 'live' && r.body?.place?.setup?.team?.[0]?.id === STAFF, show(r));
@@ -254,11 +289,10 @@ check('…but can add notes', r.status === 200, show(r));
 
 r = await call(OWN, 'POST', '/places', { type: 'colony', label: 'Green Meadows gate', latitude: LAT + 0.01, longitude: LNG });
 const P2 = r.body?.id;
+await call(OWN, 'POST', `/places/${P2}/units`, { numbers: '1-10' });
 r = await call(OWN, 'POST', `/places/${P2}/go-live`, { washDays: [weekday], washTime: '08:00', capacity: 1 });
 check('The owner can start a colony that takes one vehicle per wash day', r.status === 200, show(r));
 
-r = await call(OWN, 'POST', `/places/${P1}/units`, { numbers: '101-104, G1' });
-check('Owner adds flats from a range', r.status === 200 && r.body?.added === 5 && r.body?.units?.length === 5, show(r));
 r = await call(OWN, 'POST', `/places/${P1}/units`, { numbers: '103-105' });
 check('…adding again keeps what’s there (only 105 is new)', r.body?.added === 1, show(r));
 r = await call(OWN, 'POST', `/places/${P1}/units`, { numbers: 'a@b' });
@@ -681,6 +715,7 @@ r = await call(STF, 'POST', '/places', { type: 'street', label: 'Street 3 houses
 const streetPlace = r.body?.id;
 r = await call(null, 'POST', '/c/service-requests/mine', { ticket: r1.ticket });
 check('A draft there doesn’t invite anyone yet', !r.body?.requests?.[0]?.invitedPlaceId, show(r));
+await call(OWN, 'POST', `/places/${streetPlace}/units`, { numbers: '1-8' });
 r = await call(OWN, 'POST', `/places/${streetPlace}/go-live`, { washDays: [weekday], washTime: '07:00' });
 check('Going live there invites both', r.status === 200 && r.body?.invited === 2, show(r));
 r = await call(null, 'POST', '/c/service-requests/mine', { ticket: r1.ticket });

@@ -54,18 +54,18 @@ describe('list price', () => {
   });
 
   it('adds the doorstep extra, at least the minimum', () => {
-    expect(listPrice({ ...base, base: 70000, mode: 'doorstep' }).price).toBe(81000); // +15% = 80500, to the nearest ₹10
-    expect(listPrice({ ...base, base: 20000, mode: 'doorstep' }).price).toBe(25000); // 15% = 3000 < 5000 minimum
+    expect(listPrice({ ...base, base: 70000, mode: 'doorstep' }).price).toBe(81900); // +15% = 80500, to the nearest ₹10, then up to a price ending in 9
+    expect(listPrice({ ...base, base: 20000, mode: 'doorstep' }).price).toBe(25900); // 15% = 3000 < 5000 minimum, then ending in 9
   });
 
   it('uses a class-specific rule over the all-classes one', () => {
-    expect(listPrice({ ...base, base: 150000, classKey: 'farm', mode: 'doorstep' }).price).toBe(180000);
+    expect(listPrice({ ...base, base: 150000, classKey: 'farm', mode: 'doorstep' }).price).toBe(180900);
   });
 
   it('applies the zone after the delivery extra, then rounds', () => {
     const p = listPrice({ ...base, base: 50000, mode: 'doorstep', zonePercentBp: 1000 });
-    // 50000 + 7500 = 57500, +10% = 63250, rounded to ₹10 = 63000
-    expect(p.price).toBe(63000);
+    // 50000 + 7500 = 57500, +10% = 63250, rounded to ₹10 = 63000, ending in 9 = 63900
+    expect(p.price).toBe(63900);
     expect(p.steps.map((s) => s.label)).toEqual(['Base price', 'Community extra', 'Zone', 'Rounded']);
   });
 
@@ -187,7 +187,7 @@ describe('planBranchMenu', () => {
   it('prices each vehicle type for every way the branch and the service both allow', () => {
     const plan = planBranchMenu(input);
     expect(priceOf(plan, 'wash', 'vt_hatch', 'hub')).toBe(40000);
-    expect(priceOf(plan, 'wash', 'vt_hatch', 'doorstep')).toBe(46000);
+    expect(priceOf(plan, 'wash', 'vt_hatch', 'doorstep')).toBe(46900);
     expect(priceOf(plan, 'under', 'vt_hatch', 'hub')).toBe(50000);
     expect(priceOf(plan, 'under', 'vt_hatch', 'doorstep')).toBeUndefined();
     expect(priceOf(plan, 'under', 'vt_suv', 'hub')).toBeUndefined(); // no base price for L
@@ -212,7 +212,7 @@ describe('planBranchMenu', () => {
         ['doorstep', new Set(['car', 'farm'])],
       ]),
     });
-    expect(priceOf(withFarm, 'wash', 'vt_tractor', 'doorstep')).toBe(180000);
+    expect(priceOf(withFarm, 'wash', 'vt_tractor', 'doorstep')).toBe(180900);
     // A home wash is charged the hub price (plus a visit charge), even for a class only the team takes.
     expect(priceOf(withFarm, 'wash', 'vt_tractor', 'hub')).toBe(150000);
   });
@@ -266,8 +266,8 @@ describe('planBranchMenu', () => {
       ]),
     });
     const community = plan.prices.find((p) => p.catalogServiceId === 'wash' && p.vehicleTypeId === 'vt_hatch' && p.mode === 'doorstep');
-    expect(community).toMatchObject({ price: 50600, listPrice: 46000, source: 'override' });
-    expect(priceOf(plan, 'wash', 'vt_suv', 'doorstep')).toBe(80500);
+    expect(community).toMatchObject({ price: 50900, listPrice: 46900, source: 'override' });
+    expect(priceOf(plan, 'wash', 'vt_suv', 'doorstep')).toBe(80900);
   });
 
   it('files services under cars, bikes or both from their classes', () => {

@@ -56,7 +56,9 @@ CHANGELOG when it ships.
 
 ## Before going live
 
-- Apply migrations 0018–0033 to the remote database.
+- Create the production database from the baseline: `npm run db:migrate:remote` (builds it from
+  `migrations/0001_init.sql`). The old production `mana_db` (from early October) predates the
+  baseline: delete and recreate it the way staging was rebuilt on 2026-10-28.
 - Import the post offices remotely: `npm run data:post-offices -- --into remote --yes`.
 - Run the business setup remotely (`setup:business`).
 - Phone run-through: New Wash at a home (the visit is measured from the phone's location and

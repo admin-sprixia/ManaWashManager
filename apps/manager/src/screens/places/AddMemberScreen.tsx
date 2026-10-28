@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { MAX_VEHICLES_PER_JOIN, PARKING_NOTE_MAX, UNIT_TEXT_MAX, formatDay, formatInr, unitTitle } from '@mana/domain';
+import { MAX_VEHICLES_PER_JOIN, PARKING_NOTE_MAX, UNIT_TEXT_MAX, formatDay, formatInr, joinWords, unitTitle } from '@mana/domain';
 import {
   Button,
   ChoiceChips,
@@ -266,6 +266,12 @@ export function AddMemberScreen({ navigation, route }: Props) {
               </EdgePanel>
 
               <SectionLabel>Vehicles</SectionLabel>
+              {menu && joinWords(menu.join) ? (
+                <View style={styles.join}>
+                  <Text style={styles.joinText}>{joinWords(menu.join)!.now}</Text>
+                  {joinWords(menu.join)!.next ? <Text style={styles.joinNext}>{joinWords(menu.join)!.next}</Text> : null}
+                </View>
+              ) : null}
               {!menu ? (
                 <Text style={[styles.help, styles.pad]}>{menuData.error ?? 'Loading plans…'}</Text>
               ) : (
@@ -332,6 +338,9 @@ const styles = StyleSheet.create({
   gapTop: { marginTop: spacing.sm },
   pad: { paddingHorizontal: spacing.md, paddingTop: spacing.md, gap: spacing.md },
   help: { ...typography.body, fontSize: 14, color: colors.slateDeep },
+  join: { marginHorizontal: spacing.md, marginBottom: spacing.sm, padding: spacing.sm + 4, gap: 2, borderRadius: 14, backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#A7F3D0' },
+  joinText: { ...typography.label, fontSize: 13.5, lineHeight: 19, fontWeight: '700', color: '#065F46' },
+  joinNext: { ...typography.caption, fontSize: 12.5, lineHeight: 17, color: '#047857', letterSpacing: 0 },
   vehicleHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   vehicleTitle: { ...typography.bodyStrong, color: colors.waterInk },
   planLine: { ...typography.caption, color: colors.waterDeep, marginTop: -spacing.xs },

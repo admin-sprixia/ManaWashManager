@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Linking, RefreshControl, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { describeWashDays, formatClock, formatDay, MEMBER_CHECK_LABEL, WEEKDAY_SHORT, weekdayOf } from '@mana/domain';
+import { describeWashDays, formatClock, formatDay, joinWords, MEMBER_CHECK_LABEL, WEEKDAY_SHORT, weekdayOf } from '@mana/domain';
 import {
   Button,
   IconChevronRight,
@@ -262,6 +262,12 @@ export function PlaceScreen({ navigation, route }: Props) {
 
         {/* Get members */}
         <BoardSectionHeader title="Get members" />
+        {joinWords(detail.data?.join ?? null) ? (
+          <View style={styles.join}>
+            <Text style={styles.joinText}>{joinWords(detail.data!.join)!.now}</Text>
+            {joinWords(detail.data!.join)!.next ? <Text style={styles.joinNext}>{joinWords(detail.data!.join)!.next}</Text> : null}
+          </View>
+        ) : null}
         <TileRow>
           <ActionTile
             icon={<IconGrid size={19} color={TEAL} />}
@@ -376,6 +382,18 @@ export function PlaceScreen({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
+  join: {
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.sm,
+    padding: spacing.sm + 4,
+    gap: 2,
+    borderRadius: 14,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  joinText: { ...typography.label, fontSize: 13.5, lineHeight: 19, fontWeight: '700', color: '#065F46' },
+  joinNext: { ...typography.caption, fontSize: 12.5, lineHeight: 17, color: '#047857', letterSpacing: 0 },
   headerPad: { paddingHorizontal: spacing.md },
   loading: { marginTop: spacing.xl },
   scroll: { paddingTop: spacing.xs },

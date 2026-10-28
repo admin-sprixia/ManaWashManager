@@ -117,6 +117,8 @@ function priceChoice(menu: PlaceMenu, rules: WashPlanRules, vehicleTypeId: strin
     skipsPerMonth: rules.skipsPerMonth,
     pauseDaysPerMonth: rules.pauseDaysPerMonth,
   };
+  // The neighbours discount the price was worked out with, kept with the order.
+  const join = menu.join ? { joined: menu.join.joined, flats: menu.join.flats, discountBp: menu.join.discountBp } : null;
   if (choice.kind === 'plan') {
     const plan = menu.plans.find((p) => p.id === choice.planId);
     if (!plan) return placeFail('invalid', 'This plan isn’t available any more. Pick again.');
@@ -137,9 +139,11 @@ function priceChoice(menu: PlaceMenu, rules: WashPlanRules, vehicleTypeId: strin
           discountBp: plan.discountBp,
           upgrade,
           listTotal: price.listTotal,
+          fullTotal: price.fullTotal,
         },
         items: [{ name: plan.serviceName, price: price.perWash }],
         priceMode: menu.priceMode,
+        join,
         rules: ruleSnapshot,
       }),
       washesTotal: plan.washes,
@@ -163,7 +167,7 @@ function priceChoice(menu: PlaceMenu, rules: WashPlanRules, vehicleTypeId: strin
     kind: 'single',
     planId: null,
     title: items.map((i) => i.name).join(' + '),
-    snapshot: JSON.stringify({ vehicleType, plan: null, items, priceMode: menu.priceMode, rules: ruleSnapshot }),
+    snapshot: JSON.stringify({ vehicleType, plan: null, items, priceMode: menu.priceMode, join, rules: ruleSnapshot }),
     washesTotal: 1,
     months: 1,
     perWeek: SINGLE_PER_WEEK,

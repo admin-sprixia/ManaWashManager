@@ -1,12 +1,11 @@
 import {
   addDaysTo,
-  communityTiersProblem,
   doorstepRulesProblem,
   istDay,
   istInstant,
-  parseCommunityTiers,
+  joinDiscountProblem,
   parseDoorstepRules,
-  type CommunityTier,
+  parseJoinDiscountBp,
   type DoorstepVisitRules,
   type GeoPoint,
 } from '@mana/domain';
@@ -14,14 +13,17 @@ import { createPlatformDb, type D1Database, type DbClient } from '../client';
 import { insertRows, runStatements, SQL_NOW } from '../sql';
 
 const DOORSTEP_KEY = 'doorstep.rules';
-const TIERS_KEY = 'community.tiers';
+const JOIN_KEY = 'community.joinDiscountBp';
 
 /** How head office prices washes away from the shop (beyond the per-size prices). */
 export interface AwayPricing {
   /** What a home visit costs on top of the hub price. */
   doorstep: DoorstepVisitRules;
-  /** Bigger communities pay less: none until head office adds a step. */
-  communityTiers: CommunityTier[];
+  /**
+   * The neighbours discount when every flat of a community washes with us (basis points); it
+   * grows a tenth at a time with the share of flats that join, never below the hub price.
+   */
+  joinDiscountBp: number;
 }
 
 /** A branch with no head office charges nothing extra for a visit. */
@@ -52,7 +54,7 @@ export const awayPricingRepo = {
   async many(platform: DbClient, businessIds: string[]): Promise<Map<string, AwayPricing>> {
     const rows = businessIds.length
       ? await platform.businessSetting.findMany({
-          where: { businessId: { in: businessIds }, key: { in: [DOORSTEP_KEY, TIERS_KEY] } },
+          where: { businessId: { in: businessIds }, key: { in: [DOORSTEP_KEY, JOIN_KEY] } },
           select: { businessId: true, key: true, value: true },
         })
       : [];
@@ -60,7 +62,7 @@ export const awayPricingRepo = {
     return new Map(
       businessIds.map((id) => [
         id,
-        { doorstep: parseDoorstepRules(value(id, DOORSTEP_KEY)), communityTiers: parseCommunityTiers(value(id, TIERS_KEY)) },
+        { doorstep: parseDoorstepRules(value(id, DOORSTEP_KEY)), joinDiscountBp: parseJoinDiscountBp(value(id, JOIN_KEY)) },
       ]),
     );
   },
@@ -68,7 +70,7 @@ export const awayPricingRepo = {
   /** The rules a branch prices by: its head office's, or no extras for a branch on its own. */
   async forShop(d1: D1Database, shopId: string): Promise<AwayPricing> {
     const shop = await createPlatformDb(d1).shop.findUnique({ where: { id: shopId }, select: { businessId: true } });
-    if (!shop?.businessId) return { doorstep: NO_VISIT_CHARGE, communityTiers: [] };
+    if (!shop?.businessId) return { doorstep: NO_VISIT_CHARGE, joinDiscountBp: 0 };
     return awayPricingRepo.get(d1, shop.businessId);
   },
 
@@ -83,12 +85,11 @@ export const awayPricingRepo = {
     return { ok: true as const, rules: clean };
   },
 
-  async setCommunityTiers(d1: D1Database, businessId: string, tiers: CommunityTier[], phone: string | null) {
-    const problem = communityTiersProblem(tiers);
+  async setJoinDiscount(d1: D1Database, businessId: string, discountBp: number, phone: string | null) {
+    const problem = joinDiscountProblem(discountBp);
     if (problem) return { ok: false as const, message: problem };
-    const sorted = [...tiers].sort((a, b) => a.minCars - b.minCars);
-    await save(d1, businessId, TIERS_KEY, JSON.stringify(sorted), phone);
-    return { ok: true as const, tiers: sorted };
+    await save(d1, businessId, JOIN_KEY, String(discountBp), phone);
+    return { ok: true as const, joinDiscountBp: discountBp };
   },
 
   /** The branch's "Visit charge" service, made the first time it's needed. */

@@ -265,9 +265,15 @@ export const customerAppRepo = {
   },
 
   /** Platform client: every listed branch with its contact details, hours and price list. */
-  async branches(platform: DbClient) {
+  /**
+   * The branches in the customer app; or, with `business`, every active branch of the business
+   * whether it's in the app or not (the WhatsApp assistant on the business number).
+   */
+  async branches(platform: DbClient, business?: { id: string | null }) {
     const shops = await platform.shop.findMany({
-      where: { inCustomerApp: true, status: 'active' },
+      where: business
+        ? { kind: 'branch', status: 'active', ...(business.id ? { businessId: business.id } : {}) }
+        : { inCustomerApp: true, status: 'active' },
       orderBy: { createdAt: 'asc' },
       select: {
         id: true,

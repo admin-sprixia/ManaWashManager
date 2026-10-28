@@ -2,8 +2,9 @@ import { LOGIN_CODE_LENGTH, LOGIN_CODE_TTL_MINUTES } from '@mana/domain';
 import type { Env } from '../types';
 import { randomDigits } from './random';
 import { isDevMode, isStagingTestPhone, sha256Hex, usesTestCodes } from './recovery';
+import { graphSend, logOutgoing, waId, whatsappConfigured } from './whatsapp';
 
-const GRAPH_API = 'https://graph.facebook.com/v25.0';
+export { whatsappConfigured };
 
 export function generateLoginCode(): string {
   return randomDigits(LOGIN_CODE_LENGTH);
@@ -15,10 +16,6 @@ export function generateLoginCode(): string {
  */
 export function hashLoginCode(code: string, subject: string, secret: string): Promise<string> {
   return sha256Hex(`${secret}:${subject}:${code.trim()}`);
-}
-
-export function whatsappConfigured(env: Env): boolean {
-  return Boolean(env.WHATSAPP_API_TOKEN?.trim() && env.WHATSAPP_PHONE_NUMBER_ID?.trim());
 }
 
 /**
@@ -39,29 +36,22 @@ export function bypassWhatsAppOtp(env: Env, requestUrl: string, phone: string): 
  * OTPs). The template's body takes the code, and its copy-code button takes it again.
  */
 export async function sendLoginCodeOnWhatsApp(env: Env, phone: string, code: string): Promise<boolean> {
-  const res = await fetch(`${GRAPH_API}/${env.WHATSAPP_PHONE_NUMBER_ID!.trim()}/messages`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${env.WHATSAPP_API_TOKEN!.trim()}`,
-      'Content-Type': 'application/json',
+  const sent = await graphSend(env, {
+    recipient_type: 'individual',
+    to: waId(phone),
+    type: 'template',
+    template: {
+      name: env.WHATSAPP_OTP_TEMPLATE?.trim() || 'login_code',
+      language: { code: env.WHATSAPP_OTP_LANGUAGE?.trim() || 'en' },
+      components: [
+        { type: 'body', parameters: [{ type: 'text', text: code }] },
+        { type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: code }] },
+      ],
     },
-    body: JSON.stringify({
-      messaging_product: 'whatsapp',
-      recipient_type: 'individual',
-      to: `91${phone}`,
-      type: 'template',
-      template: {
-        name: env.WHATSAPP_OTP_TEMPLATE?.trim() || 'login_code',
-        language: { code: env.WHATSAPP_OTP_LANGUAGE?.trim() || 'en' },
-        components: [
-          { type: 'body', parameters: [{ type: 'text', text: code }] },
-          { type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: code }] },
-        ],
-      },
-    }),
   });
-  if (!res.ok) console.error(`WhatsApp code failed: ${res.status} ${await res.text().catch(() => '')}`);
-  return res.ok;
+  // The code itself never goes in the log.
+  await logOutgoing(env, { phone, kind: 'template', body: 'login_code', purpose: 'login_code', sent }).catch(() => {});
+  return sent.ok;
 }
 
 export function loginCodeExpiry(now: Date): Date {

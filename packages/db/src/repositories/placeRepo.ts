@@ -92,6 +92,9 @@ export interface PlaceSetupInput {
   notes: string | null;
   contactName: string | null;
   contactPhone: string | null;
+  /** The security guard at the gate, if there is one. */
+  securityName: string | null;
+  securityPhone: string | null;
   inspection: Inspection;
   slots: ProposedSlot[];
 }
@@ -125,9 +128,12 @@ const placeSelect = {
 } as const;
 
 const setupSelect = {
+  name: true,
   inspection: true,
   contactName: true,
   contactPhone: true,
+  securityName: true,
+  securityPhone: true,
   notes: true,
   proposedSlots: true,
   teamUserIds: true,
@@ -189,9 +195,12 @@ export function placeView(p: PlaceRow, now: Date) {
 export type PlaceView = ReturnType<typeof placeView>;
 
 type SetupRow = {
+  name: string | null;
   inspection: string | null;
   contactName: string | null;
   contactPhone: string | null;
+  securityName: string | null;
+  securityPhone: string | null;
   notes: string | null;
   proposedSlots: string | null;
   teamUserIds: string | null;
@@ -205,7 +214,7 @@ type SetupRow = {
 type Person = { id: string; name: string };
 
 /** The team's view of how a community was set up: the inspection, contact, team and review. */
-function setupView(p: SetupRow, people: Map<string, string>, photos: number) {
+function setupView(p: SetupRow, people: Map<string, string>, photos: readonly PlacePhotoKind[]) {
   const person = (id: string | null): Person | null => (id && people.has(id) ? { id, name: people.get(id)! } : null);
   const inspection = parseInspection(p.inspection);
   const slots = parseSlots(p.proposedSlots);
@@ -213,6 +222,8 @@ function setupView(p: SetupRow, people: Map<string, string>, photos: number) {
     inspection,
     contactName: p.contactName,
     contactPhone: p.contactPhone,
+    securityName: p.securityName,
+    securityPhone: p.securityPhone,
     notes: p.notes,
     slots,
     team: parseTeam(p.teamUserIds).flatMap((id) => (people.has(id) ? [{ id, name: people.get(id)! }] : [])),
@@ -221,7 +232,7 @@ function setupView(p: SetupRow, people: Map<string, string>, photos: number) {
     reviewedAt: p.reviewedAt?.toISOString() ?? null,
     reviewedBy: person(p.reviewedByUserId),
     createdBy: person(p.createdByUserId),
-    missing: missingForReview({ photos, inspection, slots, contactPhone: p.contactPhone }),
+    missing: missingForReview({ name: p.name, photos, inspection, slots, contactName: p.contactName, contactPhone: p.contactPhone }),
   };
 }
 
@@ -385,8 +396,9 @@ export const placeRepo = {
         await runStatements(d1, [
           {
             sql: `INSERT INTO places (id, shop_id, code, type, name, label, latitude, longitude, wash_days, wash_time,
-                    needs_approval, created_by_user_id, stage, inspection, contact_name, contact_phone, notes, proposed_slots)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'draft', ?, ?, ?, ?, ?)`,
+                    needs_approval, created_by_user_id, stage, inspection, contact_name, contact_phone, security_name, security_phone,
+                    notes, proposed_slots)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)`,
             params: [
               id,
               shopId,
@@ -402,6 +414,8 @@ export const placeRepo = {
               formatInspection(input.inspection),
               input.contactName,
               input.contactPhone,
+              input.securityName,
+              input.securityPhone,
               input.notes,
               formatSlots(input.slots),
             ],
@@ -424,7 +438,7 @@ export const placeRepo = {
     await runStatements(d1, [
       {
         sql: `UPDATE places SET type = ?, name = ?, label = ?, latitude = ?, longitude = ?, inspection = ?, contact_name = ?,
-                contact_phone = ?, notes = ?, proposed_slots = ?, wash_days = ?, wash_time = ?, updated_at = ${SQL_NOW}
+                contact_phone = ?, security_name = ?, security_phone = ?, notes = ?, proposed_slots = ?, wash_days = ?, wash_time = ?, updated_at = ${SQL_NOW}
               WHERE shop_id = ? AND id = ?`,
         params: [
           patch.type ?? place.type,
@@ -435,6 +449,8 @@ export const placeRepo = {
           patch.inspection ? formatInspection(patch.inspection) : place.inspection,
           patch.contactName !== undefined ? patch.contactName : place.contactName,
           patch.contactPhone !== undefined ? patch.contactPhone : place.contactPhone,
+          patch.securityName !== undefined ? patch.securityName : place.securityName,
+          patch.securityPhone !== undefined ? patch.securityPhone : place.securityPhone,
           patch.notes !== undefined ? patch.notes : place.notes,
           patch.slots ? formatSlots(patch.slots) : place.proposedSlots,
           draft && first ? formatWashDays(first.days) : place.washDays,
@@ -452,11 +468,13 @@ export const placeRepo = {
     const place = await db.place.findUnique({ where: { id }, select: { stage: true, ...setupSelect } });
     if (!place) return placeFail('not_found', 'Place not found.');
     if (place.stage !== 'draft') return placeFail('conflict', 'This community is already sent.');
-    const photos = await db.placePhoto.count({ where: { placeId: id } });
+    const photos = await db.placePhoto.findMany({ where: { placeId: id }, select: { kind: true } });
     const missing = missingForReview({
-      photos,
+      name: place.name,
+      photos: photos.map((x) => x.kind as PlacePhotoKind),
       inspection: parseInspection(place.inspection),
       slots: parseSlots(place.proposedSlots),
+      contactName: place.contactName,
       contactPhone: place.contactPhone,
     });
     if (missing.length) return placeFail('invalid', `Please add: ${missing.join(', ')}.`);
@@ -479,6 +497,9 @@ export const placeRepo = {
     if (!place) return placeFail('not_found', 'Place not found.');
     if (place.stage === 'live') return placeFail('conflict', 'This community is already live.');
     if (place.status === 'closed') return placeFail('not_allowed', 'This community is closed.');
+    // Members pick their flat (or house) when they join, so the list has to be there first.
+    const units = await db.placeUnit.count({ where: { placeId: id, archivedAt: null } });
+    if (!units) return placeFail('invalid', 'Add the flats (or houses) first, so members can pick theirs.');
     const team = await this.validTeam(db, input.teamUserIds);
     await runStatements(d1, [
       {
@@ -522,7 +543,7 @@ export const placeRepo = {
     const place = await db.place.findUnique({ where: { id }, select: { ...placeSelect, ...setupSelect } });
     if (!place) return null;
     const [people, photos] = await Promise.all([peopleOf(db), this.photos(db, id)]);
-    return { ...placeView(place, now), setup: setupView(place, people, photos.length), photos };
+    return { ...placeView(place, now), setup: setupView(place, people, photos.map((x) => x.kind)), photos };
   },
 
   // ---------- Community photos ----------
@@ -636,16 +657,17 @@ export const placeRepo = {
         select: { status: true, member: { select: { placeId: true } } },
       }),
       peopleOf(db),
-      db.placePhoto.groupBy({ by: ['placeId'], _count: { _all: true } }),
+      db.placePhoto.groupBy({ by: ['placeId', 'kind'], _count: { _all: true } }),
     ]);
     const count = (placeId: string, status: string) =>
       members.find((m) => m.placeId === placeId && m.status === status)?._count._all ?? 0;
     return places.map((p) => {
       const mine = orders.filter((o) => o.member.placeId === p.id);
-      const photoCount = photos.find((x) => x.placeId === p.id)?._count._all ?? 0;
+      const mineP = photos.filter((x) => x.placeId === p.id);
+      const photoCount = mineP.reduce((n, x) => n + x._count._all, 0);
       return {
         ...placeView(p, now),
-        setup: setupView(p, people, photoCount),
+        setup: setupView(p, people, mineP.map((x) => x.kind as PlacePhotoKind)),
         photos: photoCount,
         members: count(p.id, 'active'),
         pending: count(p.id, 'pending'),

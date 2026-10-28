@@ -33,7 +33,7 @@ interface Catalog {
       roundTo9: boolean;
       busy: { days: number[]; from: string; to: string; extraPaise: number }[];
     };
-    communityTiers: { minCars: number; discountBp: number }[];
+    joinDiscountBp: number;
   };
 }
 interface Plan {
@@ -232,14 +232,13 @@ if (visit.busy.length) {
   line('No busy-time extras yet (HQ › Base prices › Doorstep can add one, like +₹30 on Sunday mornings).');
 }
 line();
-line('### Bigger communities');
+line('### Neighbours discount');
 line();
-if (catalog.away.communityTiers.length) {
-  line('A community with more cars on its list pays less, on every wash and plan there:');
-  line();
-  for (const t of catalog.away.communityTiers) line(`- ${t.minCars}+ cars: ${t.discountBp / 100}% off`);
+if (catalog.away.joinDiscountBp) {
+  const max = catalog.away.joinDiscountBp / 100;
+  line(`The more of a community's flats wash with us, the less everyone there pays: ${max / 10}% off for every 10% of flats, up to ${max}% when every flat joins. A price never goes below the hub price.`);
 } else {
-  line('No volume discount yet (HQ › Base prices › Community can add steps, like 10+ cars → 10% off).');
+  line('Off: communities pay the community price however many flats join (HQ › Base prices › Community can turn it on).');
 }
 line();
 

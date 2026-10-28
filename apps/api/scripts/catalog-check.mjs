@@ -272,7 +272,7 @@ r = await call(OA, 'POST', '/branch/points', {
 const VAN = r.body?.id;
 check('Owner adds a doorstep team for cars and farm vehicles', r.status === 201 && !!VAN, show(r));
 prices = (await call(OA, 'GET', '/services/prices')).body ?? [];
-check('Doorstep prices appear with the extra (₹400 → ₹460)', priceOf(prices, fullA, vtA.Hatchback.id, 'doorstep')?.price === 46000, JSON.stringify(priceOf(prices, fullA, vtA.Hatchback.id, 'doorstep')));
+check('Community prices appear with the extra, ending in 9 (₹400 → ₹460 → ₹469)', priceOf(prices, fullA, vtA.Hatchback.id, 'doorstep')?.price === 46900, JSON.stringify(priceOf(prices, fullA, vtA.Hatchback.id, 'doorstep')));
 check('…the van takes what the branch washes, bikes too, with at least ₹50 extra (₹150 → ₹200+)', (priceOf(prices, fullA, vtA.Scooter.id, 'doorstep')?.price ?? 0) >= (priceOf(prices, fullA, vtA.Scooter.id)?.price ?? Infinity) + 5000, JSON.stringify(priceOf(prices, fullA, vtA.Scooter.id, 'doorstep')));
 check('A hub-only service gets no doorstep price', !priceOf(prices, underA, vtA.Hatchback.id, 'doorstep'));
 
@@ -281,7 +281,7 @@ let vts = (await call(OA, 'GET', '/services/vehicle-types')).body ?? [];
 const tractor = vts.find((v) => v.name === 'Tractor');
 check('Pricing farm vehicles adds a Tractor type to the branch with a farm doorstep team', !!tractor, vts.map((v) => v.name).join(', '));
 prices = (await call(OA, 'GET', '/services/prices')).body ?? [];
-check('…priced at the door (₹1,500 + 15% = ₹1,725, to the rupee)', priceOf(prices, fullA, tractor?.id, 'doorstep')?.price === 172500, JSON.stringify(priceOf(prices, fullA, tractor?.id, 'doorstep')));
+check('…priced at the door (₹1,500 + 15% = ₹1,725, ending in 9 = ₹1,729)', priceOf(prices, fullA, tractor?.id, 'doorstep')?.price === 172900, JSON.stringify(priceOf(prices, fullA, tractor?.id, 'doorstep')));
 check('…and the hub price, which home washes are charged (plus the visit charge)', priceOf(prices, fullA, tractor?.id, 'hub')?.price === 150000, JSON.stringify(priceOf(prices, fullA, tractor?.id, 'hub')));
 r = await call(OA, 'GET', '/services/network');
 check('…and the shop takes them too: every place washes what the branch washes', !r.body?.homeOnlyTypes?.includes(tractor?.id), show(r));
@@ -547,8 +547,8 @@ const start = (extra) =>
     ...extra,
   });
 r = await start({ mode: 'doorstep' });
-check('A doorstep wash is the hub price plus the visit charge (₹420 + ₹49)', r.status === 201 && r.body?.total === 46900 && r.body?.deliveryMode === 'doorstep', show(r));
-check('…with the visit charge on its own line', r.body?.jobServices?.some((l) => l.service?.name === 'Visit charge' && l.priceAtTime === 4900), JSON.stringify(r.body?.jobServices));
+check('A doorstep wash is the hub price plus the visit charge (₹420 + ₹99)', r.status === 201 && r.body?.total === 51900 && r.body?.deliveryMode === 'doorstep', show(r));
+check('…with the visit charge on its own line', r.body?.jobServices?.some((l) => l.service?.name === 'Visit charge' && l.priceAtTime === 9900), JSON.stringify(r.body?.jobServices));
 r = await start({});
 check('A wash with no mode is a hub wash at the hub price', r.status === 201 && r.body?.total === 42000 && r.body?.deliveryMode === 'hub', show(r));
 // New Wash picks the type from the company and model; both are kept on the vehicle.
@@ -618,7 +618,7 @@ const fullListed = listed?.services?.find((s) => s.name === 'Full Wash');
 const hatchListed = listed?.vehicleTypes?.find((v) => v.name === 'Hatchback');
 check('The customer app lists how the branch washes', listed?.modes?.join() === 'hub,doorstep', show(r));
 check('…with hub prices, the same at the door', fullListed?.prices?.some((p) => p.vehicleTypeId === hatchListed?.id && p.price === 42000) && fullListed?.doorstepPrices?.some((p) => p.vehicleTypeId === hatchListed?.id && p.price === 42000), JSON.stringify(fullListed));
-check('…plus the visit charge rules for a wash at home', listed?.visit?.visitFeePaise === 4900 && listed?.visit?.maxKm === 15, JSON.stringify(listed?.visit));
+check('…plus the visit charge rules for a wash at home', listed?.visit?.visitFeePaise === 9900 && listed?.visit?.maxKm === 15, JSON.stringify(listed?.visit));
 check('…and a tractor is on the shop’s list and at the door', fullListed?.prices?.some((p) => p.vehicleTypeId === tractor?.id) && fullListed?.doorstepPrices?.some((p) => p.vehicleTypeId === tractor?.id), JSON.stringify(fullListed));
 check('…and each vehicle type’s body type for its picture', hatchListed?.bodyKey === 'hatch', JSON.stringify(hatchListed));
 r = await call(null, 'POST', '/c/service-area/check', { location: { latitude: 15.7, longitude: 80.06 } });

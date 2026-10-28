@@ -33,6 +33,7 @@ import { placeRoutes } from './routes/places';
 import { customerPlaceRoutes } from './routes/customerPlaces';
 import { payRoutes } from './routes/pay';
 import { placeLinkRoutes } from './routes/placeLinks';
+import { whatsappRoutes } from './routes/whatsapp';
 import type { Env } from './types';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -131,7 +132,8 @@ const routes = app
   .route('/c', customerAppRoutes)
   .route('/c', customerPlaceRoutes)
   .route('/pay', payRoutes)
-  .route('/p', placeLinkRoutes);
+  .route('/p', placeLinkRoutes)
+  .route('/whatsapp', whatsappRoutes);
 
 // Hono RPC: both apps import this type (via hc<AppType>) to get a fully typed API client with
 // zero codegen — this is what "tRPC or Hono RPC" in the build plan resolved to. The customer app

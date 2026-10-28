@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { MAX_VEHICLES_PER_JOIN, PARKING_NOTE_MAX, formatInr } from '@mana/domain';
+import { MAX_VEHICLES_PER_JOIN, PARKING_NOTE_MAX, formatInr, joinWords } from '@mana/domain';
 import {
   BottomSheet,
   Button,
@@ -253,11 +253,10 @@ export function JoinPlaceScreen({ navigation, route }: Props) {
           )}
 
           <SectionLabel right={drafts.length > 1 ? `${drafts.length} vehicles` : undefined}>Vehicles to wash</SectionLabel>
-          {info.menu.volume ? (
+          {joinWords(info.menu.join) ? (
             <View style={styles.volume}>
-              <Text style={styles.volumeText}>
-                {info.menu.volume.discountBp / 100}% off every price here: {info.menu.volume.cars} vehicles at {info.place.name} already wash with us.
-              </Text>
+              <Text style={styles.volumeText}>{joinWords(info.menu.join)!.now}</Text>
+              {joinWords(info.menu.join)!.next ? <Text style={styles.volumeNext}>{joinWords(info.menu.join)!.next} Tell your neighbours.</Text> : null}
             </View>
           ) : null}
           <View style={styles.vehicles}>
@@ -379,6 +378,7 @@ const styles = StyleSheet.create({
   vehicles: { gap: 12 },
   volume: { padding: 12, borderRadius: 14, backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#A7F3D0' },
   volumeText: { fontSize: 13.5, lineHeight: 19, fontWeight: '700', color: '#065F46' },
+  volumeNext: { marginTop: 2, fontSize: 12.5, lineHeight: 17, color: '#047857' },
   add: {
     flexDirection: 'row',
     alignItems: 'center',

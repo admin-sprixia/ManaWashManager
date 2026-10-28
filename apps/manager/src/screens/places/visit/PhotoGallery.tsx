@@ -5,11 +5,13 @@ import { PLACE_PHOTO_KIND_LABEL, type PlacePhotoKind } from '@mana/domain';
 import { IconCamera, IconClose, colors, radius, spacing, typography } from '@mana/ui';
 import { PrivatePhoto, placePhotoPath, type PhotoItem } from '../communityParts';
 
-/** Each kind of photo has its own colour, so the gate, parking and water point are easy to tell apart. */
+/** Each kind of photo has its own colour, so the gate, parking, wash space, water and power points are easy to tell apart. */
 export const PHOTO_KIND_TONE: Record<PlacePhotoKind, { fg: string; bg: string }> = {
   gate: { fg: '#334155', bg: '#E2E8F0' },
   parking: { fg: '#0F766E', bg: '#CCFBF1' },
+  space: { fg: '#166534', bg: '#DCFCE7' },
   water: { fg: '#0369A1', bg: '#E0F2FE' },
+  power: { fg: '#A16207', bg: '#FEF9C3' },
   building: { fg: '#92400E', bg: '#FEF3C7' },
   other: { fg: colors.indigo, bg: colors.indigoPale },
 };

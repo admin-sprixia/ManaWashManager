@@ -3,9 +3,13 @@ import {
   soldAtCommunities,
   soldAtShop,
   type PlanSoldAt,
-  communityTierFor,
+  communityJoin,
+  communityPrice,
   fixedPlanPrice,
-  lessDiscount,
+  istDay,
+  istInstant,
+  normalizeUnit,
+  type CommunityJoin,
   parseChecklist,
   parseServiceKind,
   parseServiceModes,
@@ -136,8 +140,12 @@ function priceStatements(businessId: string, planId: string, prices: WashPlanPri
 /** A branch's price list as plans and one-time washes see it. */
 export interface PlaceMenu {
   priceMode: PlacePriceMode;
-  /** A bigger community's discount, already taken off every price here; null when none applies. */
-  volume: { cars: number; discountBp: number } | null;
+  /**
+   * For one community: how many of its flats wash with us and the neighbours discount that gives,
+   * already taken off every price here (never below the hub price). Null at the shop counter, or
+   * for the branch's prices with no community.
+   */
+  join: CommunityJoin | null;
   vehicleTypes: { id: string; name: string; category: 'car' | 'bike'; bodyKey: string | null }[];
   plans: {
     id: string;
@@ -153,9 +161,10 @@ export interface PlaceMenu {
     upgrade: { every: number; name: string; catalogServiceId: string } | null;
     /**
      * Per vehicle type: the one-wash price, the plan price, and what its washes would cost one
-     * by one (to show the saving). Types the plan can't serve are absent.
+     * by one (to show the saving); `fullTotal` is the plan price before the neighbours discount.
+     * Types the plan can't serve are absent.
      */
-    prices: { vehicleTypeId: string; perWash: number; total: number; listTotal: number }[];
+    prices: { vehicleTypeId: string; perWash: number; total: number; listTotal: number; fullTotal: number }[];
   }[];
   services: {
     id: string;
@@ -168,7 +177,8 @@ export interface PlaceMenu {
     /** False = staff sell it; the customer app doesn't offer it. */
     showInApp: boolean;
     checklist: string[];
-    prices: { vehicleTypeId: string; price: number }[];
+    /** `full` is the price before the neighbours discount (the same when there's none). */
+    prices: { vehicleTypeId: string; price: number; full: number }[];
   }[];
 }
 
@@ -386,15 +396,32 @@ export const planRepo = {
     ]);
   },
 
-  /** The volume discount a community is on, by its cars on the list now. */
-  async volumeDiscount(pdb: DbClient, shopId: string, businessId: string, placeId: string) {
-    const { communityTiers } = await awayPricingRepo.get(pdb, businessId);
-    if (!communityTiers.length) return null;
-    const cars = await pdb.memberVehicle.count({
-      where: { shopId, status: 'active', member: { placeId, status: 'active' } },
-    });
-    const tier = communityTierFor(communityTiers, cars);
-    return tier ? { cars, discountBp: tier.discountBp } : null;
+  /**
+   * How much of a community washes with us: flats with a plan running, or a one-time wash booked
+   * this month (IST), out of the flats on its list; and the neighbours discount that earns.
+   */
+  async joinOf(pdb: DbClient, shopId: string, businessId: string, placeId: string, now = new Date()): Promise<CommunityJoin> {
+    const monthStart = istInstant(`${istDay(now).slice(0, 8)}01`, '00:00');
+    const [{ joinDiscountBp }, flats, orders] = await Promise.all([
+      awayPricingRepo.get(pdb, businessId),
+      pdb.placeUnit.count({ where: { shopId, placeId, archivedAt: null } }),
+      pdb.placeOrder.findMany({
+        where: {
+          shopId,
+          member: { placeId, status: 'active' },
+          OR: [
+            { kind: 'plan', status: 'active' },
+            { kind: 'single', status: { in: ['active', 'ended'] }, createdAt: { gte: monthStart } },
+          ],
+        },
+        select: { member: { select: { id: true, unitId: true, unitText: true } } },
+      }),
+    ]);
+    // One home counts once, however many cars or washes it has.
+    const homes = new Set(
+      orders.map(({ member: m }) => (m.unitId ? `u:${m.unitId}` : m.unitText ? `t:${normalizeUnit(m.unitText)}` : `m:${m.id}`)),
+    );
+    return communityJoin(homes.size, flats, joinDiscountBp);
   },
 
   /**
@@ -406,12 +433,14 @@ export const planRepo = {
     shopId: string,
     businessId: string | null,
     priceMode: PlacePriceMode,
-    /** For one community: its cars decide its volume discount. */
+    /** For one community: the share of its flats that wash with us decides its neighbours discount. */
     placeId?: string,
     /** The plans and services for communities (as joining sees them), or for the shop counter. */
     where: 'community' | 'shop' = 'community',
   ): Promise<PlaceMenu> {
-    const [types, services, plans, shop, volume] = await Promise.all([
+    // Community prices are held to the hub price, so both are read; the shop counter needs only hub.
+    const atCommunity = priceMode === 'doorstep';
+    const [types, services, plans, shop, join] = await Promise.all([
       pdb.vehicleType.findMany({
         where: { shopId, active: true },
         orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
@@ -432,7 +461,10 @@ export const planRepo = {
           showInApp: true,
           checklist: true,
           catalogServiceId: true,
-          prices: { where: { mode: priceMode, price: { gt: 0 } }, select: { vehicleTypeId: true, price: true } },
+          prices: {
+            where: { mode: atCommunity ? { in: ['doorstep', 'hub'] } : priceMode, price: { gt: 0 } },
+            select: { vehicleTypeId: true, price: true, mode: true },
+          },
           comboItems: { select: { service: { select: { name: true, active: true } } } },
         },
       }),
@@ -442,9 +474,11 @@ export const planRepo = {
           )
         : Promise.resolve([]),
       pdb.shop.findUnique({ where: { id: shopId }, select: { priceZoneId: true } }),
-      businessId && placeId ? planRepo.volumeDiscount(pdb, shopId, businessId, placeId) : Promise.resolve(null),
+      atCommunity && businessId && placeId ? planRepo.joinOf(pdb, shopId, businessId, placeId) : Promise.resolve(null),
     ]);
-    const less = (paise: number) => (volume ? lessDiscount(paise, volume.discountBp) : paise);
+    const off = join?.discountBp ?? 0;
+    /** What a community pays for something whose community price is `full` and hub price `hub`. */
+    const pay = (full: number, hub: number | null) => (atCommunity ? communityPrice(full, hub, off) : full);
     const typeIds = new Set(types.map((t) => t.id));
     const bodyIds = [...new Set(types.map((t) => t.bodyTypeId).filter((id): id is string => !!id))];
     const [bodies, zone] = await Promise.all([
@@ -452,21 +486,34 @@ export const planRepo = {
       shop?.priceZoneId ? pdb.priceZone.findUnique({ where: { id: shop.priceZoneId }, select: { percentBp: true, active: true } }) : Promise.resolve(null),
     ]);
     const zoneBp = zone?.active ? zone.percentBp : 0;
-    const standardPerWash = businessId ? await standardPrices(pdb, businessId, plans, priceMode) : () => null;
+    const [standardPerWash, standardHubPerWash] = businessId
+      ? await Promise.all([
+          standardPrices(pdb, businessId, plans, priceMode),
+          atCommunity ? standardPrices(pdb, businessId, plans, 'hub') : null,
+        ])
+      : [() => null, null];
     const bodyOf = new Map(bodies.map((b) => [b.id, b]));
     const sizeOfType = new Map(types.map((t) => [t.id, (t.bodyTypeId && bodyOf.get(t.bodyTypeId)?.sizeId) || null]));
     // Only what's done there (Community, or Shop, ticked), priced the way it's paid.
     const offered = services
       .filter((s) => servicePlaces(parseServiceModes(s.modes), parseTeamPlaces(s.teamAt))[where === 'shop' ? 'shop' : 'community'])
-      .map((s) => ({
-        ...s,
-        prices: s.prices.filter((p) => typeIds.has(p.vehicleTypeId)).map((p) => ({ ...p, price: less(p.price) })),
-      }))
+      .map((s) => {
+        const hubOf = new Map(s.prices.filter((p) => p.mode === 'hub').map((p) => [p.vehicleTypeId, p.price]));
+        return {
+          ...s,
+          prices: s.prices
+            .filter((p) => p.mode === priceMode && typeIds.has(p.vehicleTypeId))
+            .map((p) => {
+              const hub = atCommunity ? (hubOf.get(p.vehicleTypeId) ?? null) : p.price;
+              return { vehicleTypeId: p.vehicleTypeId, price: pay(p.price, hub), full: p.price, hub };
+            }),
+        };
+      })
       .filter((s) => s.prices.length > 0);
     const byCatalog = new Map(offered.filter((s) => s.catalogServiceId).map((s) => [s.catalogServiceId!, s]));
     return {
       priceMode,
-      volume,
+      join,
       vehicleTypes: types.map((t) => ({
         id: t.id,
         name: t.name,
@@ -480,18 +527,31 @@ export const planRepo = {
         if (p.upgradeServiceId && !better) return [];
         const upgrade = better && p.upgradeEvery ? { every: p.upgradeEvery, name: better.name, catalogServiceId: p.upgradeServiceId! } : null;
         const ups = upgradeWashes(p.washes, upgrade);
-        const fixed = new Map(p.prices.filter((x) => x.mode === priceMode).map((x) => [x.sizeId, x.price]));
+        const fixedAt = (mode: PlacePriceMode) => new Map(p.prices.filter((x) => x.mode === mode).map((x) => [x.sizeId, x.price]));
+        const fixed = { community: fixedAt(priceMode), hub: fixedAt('hub') };
         /** What this plan's washes cost at head office's Standard book, for a size (null = can't tell). */
-        const standardTotal = (size: string | null) => {
-          if (!size) return null;
-          const per = standardPerWash(p.catalogServiceId, size);
-          const up = better ? standardPerWash(p.upgradeServiceId!, size) : null;
+        const standardTotal = (size: string | null, lookup: typeof standardPerWash | null) => {
+          if (!size || !lookup) return null;
+          const per = lookup(p.catalogServiceId, size);
+          const up = better ? lookup(p.upgradeServiceId!, size) : null;
           if (per == null || (better && up == null)) return null;
           return per * (p.washes - ups) + (up ?? 0) * ups;
         };
-        // No Standard price to compare against: as before, the zone and volume discount move it.
-        const fixedAtBranch = (own: number, branchTotal: number, standard: number | null) =>
-          standard ? scaledPlanPrice(own, branchTotal, standard) : less(fixedPlanPrice(own, zoneBp));
+        /**
+         * The plan price from per-wash prices: head office's fixed price for the size, following this
+         * branch's wash prices (book, own prices, zone) so it saves the same share as at a Standard
+         * branch; else the washes less the plan's discount. Always a saving against the same washes
+         * one by one (MIN_PLAN_SAVING_BP).
+         */
+        const planTotal = (listTotal: number, own: number | undefined, standard: number | null) =>
+          planPriceWithSaving(
+            own != null
+              ? standard
+                ? scaledPlanPrice(own, listTotal, standard)
+                : fixedPlanPrice(own, zoneBp)
+              : washPlanPrice(listTotal / p.washes, p.washes, p.discountBp),
+            listTotal,
+          );
         return [
           {
             id: p.id,
@@ -505,23 +565,25 @@ export const planRepo = {
             serviceName: service.name,
             upgrade,
             prices: service.prices.flatMap((pr) => {
-              const upPrice = better ? better.prices.find((b) => b.vehicleTypeId === pr.vehicleTypeId)?.price : null;
-              if (better && upPrice == null) return [];
-              const listTotal = pr.price * (p.washes - ups) + (upPrice ?? 0) * ups;
-              const size = sizeOfType.get(pr.vehicleTypeId);
-              const own = size ? fixed.get(size) : undefined;
+              const up = better ? better.prices.find((b) => b.vehicleTypeId === pr.vehicleTypeId) : null;
+              if (better && !up) return [];
+              const size = sizeOfType.get(pr.vehicleTypeId) ?? null;
+              const washes = (per: number, upPer: number) => per * (p.washes - ups) + upPer * ups;
+              // The plan at the community price, before the neighbours discount…
+              const fullTotal = planTotal(washes(pr.full, up?.full ?? 0), size ? fixed.community.get(size) : undefined, standardTotal(size, standardPerWash));
+              // …and the same plan at the hub price, which a community plan never goes below.
+              const hubTotal =
+                atCommunity && pr.hub != null && (!better || up?.hub != null)
+                  ? planTotal(washes(pr.hub, up?.hub ?? 0), size ? fixed.hub.get(size) : undefined, standardTotal(size, standardHubPerWash))
+                  : null;
               return [
                 {
                   vehicleTypeId: pr.vehicleTypeId,
                   perWash: pr.price,
-                  // Head office's fixed price follows this branch's wash prices (book, own prices, zone,
-                  // community discount), so the plan saves the same share here as at a Standard branch;
-                  // and it's always a saving against the same washes one by one (MIN_PLAN_SAVING_BP).
-                  total: planPriceWithSaving(
-                    own != null ? fixedAtBranch(own, listTotal, standardTotal(size ?? null)) : washPlanPrice(listTotal / p.washes, p.washes, p.discountBp),
-                    listTotal,
-                  ),
-                  listTotal,
+                  total: pay(fullTotal, hubTotal),
+                  // What the same washes cost one by one, at the prices paid here.
+                  listTotal: washes(pr.price, up?.price ?? 0),
+                  fullTotal,
                 },
               ];
             }),
@@ -539,7 +601,7 @@ export const planRepo = {
         /** False = staff sell it; the customer app doesn't offer it. */
         showInApp: s.showInApp,
         checklist: parseChecklist(s.checklist),
-        prices: s.prices,
+        prices: s.prices.map(({ vehicleTypeId, price, full }) => ({ vehicleTypeId, price, full })),
       })),
     };
   },

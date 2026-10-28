@@ -66,7 +66,7 @@ crons = ["30 21 * * *"]
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "mana_db_staging"
-database_id = "1379cc06-37c3-430f-87bc-2bc287eae180"
+database_id = "18cc6cd3-4a2f-4e41-a1b4-18471ff237b7"
 migrations_dir = "migrations"
 
 [[env.staging.r2_buckets]]

@@ -16,7 +16,7 @@ import {
   spacing,
   typography,
 } from '@mana/ui';
-import { MAX_SERVICE_PRICE_PAISE, lessDiscount, listPrice, visitCharge } from '@mana/domain';
+import { MAX_SERVICE_PRICE_PAISE, communityPrice, listPrice, visitCharge } from '@mana/domain';
 import { api } from '../../api/client';
 import { formatRupees, parseRupees } from '../../utils/format';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -152,7 +152,7 @@ export function PriceListScreen({ navigation }: Props) {
   const visitMin = visitCharge(0, calm, now).total;
   const visitMax = visitCharge(visit.maxKm, calm, now).total;
   const exHome = example?.places.doorstep && exHub != null ? exHub + visitMin : null;
-  const topTier = catalog.away.communityTiers[catalog.away.communityTiers.length - 1] ?? null;
+  const joinBp = catalog.away.joinDiscountBp;
   const exampleName = example && firstSize ? `${example.name} · ${firstSize.key}` : cls.name;
 
   const flow: { steps: FlowStep[]; joins: string[] } | null =
@@ -164,8 +164,8 @@ export function PriceListScreen({ navigation }: Props) {
               { label: 'Hub', value: rupees(exHub), tone: 'hub' },
               { label: 'Rule', value: shortRule(communityRule?.percentBp ?? 0), tone: 'community' },
               { label: 'Community', value: rupees(exCommunity), tone: 'community', strong: true },
-              ...(topTier
-                ? [{ label: `${topTier.minCars}+ cars`, value: rupees(lessDiscount(exCommunity, topTier.discountBp)), tone: 'community' as const }]
+              ...(joinBp
+                ? [{ label: 'Every flat', value: rupees(communityPrice(exCommunity, exHub, joinBp)), tone: 'community' as const }]
                 : []),
             ],
             joins: ['→', '=', '→'],
@@ -446,7 +446,7 @@ export function PriceListScreen({ navigation }: Props) {
               catalog={catalog}
               run={run}
               classId={classId}
-              example={exCommunity != null ? { name: exampleName, price: exCommunity } : null}
+              example={exCommunity != null && exHub != null ? { name: exampleName, price: exCommunity, hub: exHub } : null}
             />
             {grid}
           </>
@@ -483,7 +483,7 @@ export function PriceListScreen({ navigation }: Props) {
 }
 
 /** "−10%", "Same", "+15%". */
-const shortRule = (bp: number) => (bp ? `${bp > 0 ? '+' : '−'}${Math.abs(bp) / 100}%` : 'Same');
+const shortRule = (bp: number) => (bp > 0 ? `+${bp / 100}%` : 'Same');
 
 function Legend({ swatch, label }: { swatch: object[]; label: string }) {
   return (

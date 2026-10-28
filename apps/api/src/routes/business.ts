@@ -38,8 +38,7 @@ import {
   MAX_SERVICE_PRICE_PAISE,
   MIN_ADJUSTMENT_BP,
   VEHICLE_MAKE_MAX,
-  COMMUNITY_TIERS_MAX,
-  COMMUNITY_TIER_MAX_BP,
+  JOIN_DISCOUNT_MAX_BP,
   DOORSTEP_LIMITS,
   PRICE_BOOK_NAME_MAX,
   PRICE_ZONE_NAME_MAX,
@@ -180,8 +179,9 @@ const adjustmentSchema = z.object({
   ...adjustmentKey,
   // Only the community rule: shop prices are the hub prices themselves (Base prices › Hub).
   mode: modeSchema.refine((m) => m === 'doorstep', 'Shop prices are the hub prices: change them in Base prices.'),
-  percentBp: z.number().int().min(MIN_ADJUSTMENT_BP).max(MAX_ADJUSTMENT_BP),
-  fixedPaise: z.number().int().min(-MAX_ADJUSTMENT_FIXED_PAISE).max(MAX_ADJUSTMENT_FIXED_PAISE),
+  // A community never pays less than the shop: the rule only adds to the hub price.
+  percentBp: z.number().int().min(MIN_ADJUSTMENT_BP, 'A community can’t pay less than the hub').max(MAX_ADJUSTMENT_BP),
+  fixedPaise: z.number().int().min(0, 'A community can’t pay less than the hub').max(MAX_ADJUSTMENT_FIXED_PAISE),
   minExtraPaise: z.number().int().min(0).max(MAX_ADJUSTMENT_FIXED_PAISE),
 });
 const doorstepRulesSchema = z.object({
@@ -201,10 +201,13 @@ const doorstepRulesSchema = z.object({
     )
     .max(DOORSTEP_LIMITS.busyMax),
 });
-const communityTiersSchema = z.object({
-  tiers: z
-    .array(z.object({ minCars: z.number().int().min(2).max(1000), discountBp: z.number().int().min(100).max(COMMUNITY_TIER_MAX_BP) }))
-    .max(COMMUNITY_TIERS_MAX),
+const joinDiscountSchema = z.object({
+  discountBp: z
+    .number()
+    .int()
+    .min(0)
+    .max(JOIN_DISCOUNT_MAX_BP, `Up to ${JOIN_DISCOUNT_MAX_BP / 100}% when every flat joins`)
+    .refine((v) => v % 100 === 0, 'Whole percents only'),
 });
 const zoneSchema = z.object({
   name: nameSchema(PRICE_ZONE_NAME_MAX),
@@ -268,7 +271,6 @@ const planRulesSchema = z.object({
   refundRule: z.enum(['single_price', 'pro_rata']).optional(),
   renewalReminderDays: ruleInt('renewalReminderDays'),
   unpaidCloseDays: ruleInt('unpaidCloseDays'),
-  priceMode: z.enum(['doorstep', 'hub']).optional(),
   gstRateBp: ruleInt('gstRateBp'),
   gstin: z
     .string()
@@ -587,11 +589,14 @@ export const businessRoutes = new Hono<{ Bindings: Env }>()
     if (!saved.ok) return c.json({ error: 'invalid_rules' as const, message: saved.message }, 400);
     return c.json({ rules: saved.rules });
   })
-  /** Bigger communities pay less: from N cars, X% off the community price. */
-  .put('/community-tiers', zValidator('json', communityTiersSchema), async (c) => {
-    const saved = await awayPricingRepo.setCommunityTiers(c.env.DB, c.get('businessId'), c.req.valid('json').tiers, c.get('session').phone);
-    if (!saved.ok) return c.json({ error: 'invalid_tiers' as const, message: saved.message }, 400);
-    return c.json({ tiers: saved.tiers });
+  /**
+   * The neighbours discount: what a community saves when every flat washes with us. It grows a
+   * tenth at a time with the share of flats that join, and never takes a price below the hub.
+   */
+  .put('/community-discount', zValidator('json', joinDiscountSchema), async (c) => {
+    const saved = await awayPricingRepo.setJoinDiscount(c.env.DB, c.get('businessId'), c.req.valid('json').discountBp, c.get('session').phone);
+    if (!saved.ok) return c.json({ error: 'invalid_discount' as const, message: saved.message }, 400);
+    return c.json({ joinDiscountBp: saved.joinDiscountBp });
   })
 
   // ---------- Branches ----------

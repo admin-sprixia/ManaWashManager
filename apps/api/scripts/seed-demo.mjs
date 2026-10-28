@@ -1224,6 +1224,9 @@ const placesDemo = {};
   const mondayIndex = (wd) => (wd + 6) % 7;
   const washDays = [0, 2, 4].map((n) => (weekday(0) + n) % 7).filter((wd) => mondayIndex(wd) >= mondayIndex(weekday(0)));
 
+  /** Five choices of days and time residents want (the minimum a visit needs), starting from `days` at `time`. */
+  const fiveChoices = (days, time) =>
+    [0, 1, 2, 3, 4].map((n) => ({ days: n ? [(days[0] + n) % 7] : days, time: n % 2 ? '07:00' : time }));
   /** What a staff visit records: the place, what they saw, who to call, photos, days residents want. */
   async function inspect(token, place, photoKinds) {
     const created = await call(token, 'POST', '/places', place);
@@ -1247,18 +1250,16 @@ const placesDemo = {};
       notes: 'Watchman opens the basement gate at 6 am. Use the tap near the lift.',
       contactName: 'Srinivas (secretary)',
       contactPhone: '9440022001',
-      inspection: { water: 'yes', power: 'yes', parking: 'basement', space: 'good', permission: 'yes', cars: 22, bikes: 14, bestTime: 'early' },
-      slots: [
-        { days: washDays, time: '06:30' },
-        { days: washDays, time: '07:00' },
-      ],
+      inspection: { water: 'yes', power: 'yes', parking: 'basement', space: 'good', permission: 'yes', cars: 22, bikes: 14, bestTime: '06:30' },
+      slots: fiveChoices(washDays, '06:30'),
     },
-    ['gate', 'parking', 'water'],
+    ['gate', 'parking', 'space', 'water', 'power'],
   );
   await call(RAVI, 'POST', `/places/${towers.id}/submit`);
-  await call(OWN, 'POST', `/places/${towers.id}/go-live`, { washDays, washTime: '06:30', teamUserIds: [ravi.id, suresh.id] });
+  // The flats go in first: members pick theirs when they join.
   await call(OWN, 'POST', `/places/${towers.id}/units`, { block: 'A', numbers: '101-104, 201-204, 301-304' });
   await call(OWN, 'POST', `/places/${towers.id}/units`, { block: 'B', numbers: '101-104, 201-204' });
+  await call(OWN, 'POST', `/places/${towers.id}/go-live`, { washDays, washTime: '06:30', teamUserIds: [ravi.id, suresh.id] });
 
   const colonyDays = [weekday(1), weekday(3)].filter((d, i, all) => all.indexOf(d) === i);
   const colony = await inspect(
@@ -1272,12 +1273,13 @@ const placesDemo = {};
       notes: 'Cars park on both sides of the main road. Residents asked for early mornings.',
       contactName: 'Ramana (watchman)',
       contactPhone: '9440022002',
-      inspection: { water: 'bring', power: 'no', parking: 'street', space: 'tight', permission: 'yes', cars: 12, bikes: 20, bestTime: 'early' },
-      slots: [{ days: colonyDays, time: '07:00' }],
+      inspection: { water: 'bring', power: 'no', parking: 'street', space: 'tight', permission: 'yes', cars: 12, bikes: 20, bestTime: '06:30' },
+      slots: fiveChoices(colonyDays, '07:00'),
     },
-    ['gate', 'parking'],
+    ['gate', 'parking', 'space', 'water'],
   );
   await call(tokenOf(suresh), 'POST', `/places/${colony.id}/submit`);
+  await call(OWN, 'POST', `/places/${colony.id}/units`, { numbers: '1-24' });
   await call(OWN, 'POST', `/places/${colony.id}/go-live`, {
     washDays: colonyDays,
     washTime: '07:00',
@@ -1297,13 +1299,10 @@ const placesDemo = {};
       notes: '3 floors, 18 flats. Secretary wants a trial week first.',
       contactName: 'Lakshmi (secretary)',
       contactPhone: '9440022003',
-      inspection: { water: 'yes', power: 'yes', parking: 'open', space: 'good', permission: 'yes', cars: 14, bikes: 9, bestTime: 'early' },
-      slots: [
-        { days: [6, 0], time: '06:30' },
-        { days: [3], time: '06:00' },
-      ],
+      inspection: { water: 'yes', power: 'yes', parking: 'open', space: 'good', permission: 'yes', cars: 14, bikes: 9, bestTime: '06:30' },
+      slots: fiveChoices([6, 0], '06:30'),
     },
-    ['building', 'parking'],
+    ['building', 'gate', 'parking', 'space', 'water', 'power'],
   );
   await call(tokenOf(STAFF[2]), 'POST', `/places/${greenPark.id}/submit`);
 

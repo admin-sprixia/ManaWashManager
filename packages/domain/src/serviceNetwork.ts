@@ -1,3 +1,4 @@
+import { roundUpTo9 } from './doorstepPricing';
 import { MAX_SERVICE_PRICE_PAISE } from './pricing';
 import type { ServiceAppliesTo } from './types';
 import { categoryForClass, type VehicleClassKey } from './vehicleCatalog';
@@ -159,7 +160,8 @@ export function splitChecklist(text: string): string[] {
 /** Basis points: 10000 = 100%. Whole numbers keep money maths exact. */
 export const BP_PER_PERCENT = 100;
 export const MAX_ADJUSTMENT_BP = 200 * BP_PER_PERCENT;
-export const MIN_ADJUSTMENT_BP = -90 * BP_PER_PERCENT;
+/** The community rule only adds to the hub price: a community never pays less than the shop. */
+export const MIN_ADJUSTMENT_BP = 0;
 export const MAX_ADJUSTMENT_FIXED_PAISE = 10_000 * 100;
 
 /** Extra for delivering a service another way (doorstep: travel + water). */
@@ -273,14 +275,18 @@ export function listPrice(input: {
   let price = own ? input.doorstepBase! : input.base;
 
   const adj = own ? null : modeAdjustmentFor(input.adjustments, input.mode, input.classKey);
+  let raised = false;
   if (adj) {
     // A rule can be an extra ("15% more, at least ₹50") or a discount ("10% less"): the minimum
     // only applies to an extra.
     const raw = Math.round((input.base * adj.percentBp) / 10_000) + adj.fixedPaise;
-    const extra = raw > 0 || adj.minExtraPaise > 0 ? Math.max(adj.minExtraPaise, raw) : raw;
+    let extra = raw > 0 || adj.minExtraPaise > 0 ? Math.max(adj.minExtraPaise, raw) : raw;
+    // A community never pays less than the hub, even under an old "less than the hub" rule.
+    if (input.mode === 'doorstep' && extra < 0) extra = 0;
     if (extra !== 0) {
-      steps.push({ label: input.mode === 'doorstep' ? (extra < 0 ? 'Community discount' : 'Community extra') : 'Hub extra', amount: extra });
+      steps.push({ label: input.mode === 'doorstep' ? 'Community extra' : 'Hub extra', amount: extra });
       price += extra;
+      raised = input.mode === 'doorstep' && extra > 0;
     }
   }
 
@@ -290,7 +296,9 @@ export function listPrice(input: {
     price += extra;
   }
 
-  const rounded = clampPrice(roundPaise(price, input.roundToPaise));
+  let rounded = clampPrice(roundPaise(price, input.roundToPaise));
+  // The community markup lands on a price ending in 9 (₹548.90 → ₹549, ₹329.45 → ₹329 → ₹329).
+  if (raised) rounded = clampPrice(roundUpTo9(rounded));
   if (rounded !== price) steps.push({ label: 'Rounded', amount: rounded - price });
   return { price: rounded, steps };
 }

@@ -1,7 +1,8 @@
 import React from 'react';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import {
-  BEST_TIME_LABEL,
+  bestTimeLabel,
+  requiredPhotoKinds,
   formatDay,
   inspectionWarnings,
   PARKING_LABEL,
@@ -82,7 +83,7 @@ function siteChecks(i: Inspection): Check[] {
     { key: 'power', label: 'Power', icon: (c) => <IconSparkle size={16} color={c} />, ...(i.power ? { value: POWER_LABEL[i.power], tone: POWER_TONE[i.power] } : missing) },
     { key: 'space', label: 'Space to wash', icon: (c) => <IconGrid size={16} color={c} />, ...(i.space ? { value: SPACE_LABEL[i.space], tone: SPACE_TONE[i.space] } : missing) },
     { key: 'parking', label: 'Parking', icon: (c) => <IconCar size={16} color={c} />, ...(i.parking ? { value: PARKING_LABEL[i.parking], tone: 'sky' as Tone } : missing) },
-    { key: 'best', label: 'Best time', icon: (c) => <IconClock size={16} color={c} />, ...(i.bestTime ? { value: BEST_TIME_LABEL[i.bestTime], tone: 'info' as Tone } : missing) },
+    { key: 'best', label: 'Best time', icon: (c) => <IconClock size={16} color={c} />, ...(i.bestTime ? { value: bestTimeLabel(i.bestTime), tone: 'info' as Tone } : missing) },
   ];
 }
 
@@ -98,13 +99,44 @@ function Heading({ icon, title, count, color }: { icon: React.ReactNode; title: 
   );
 }
 
-/** The photos every visit should bring back: the gate, where cars park, and the water point. */
-const NEEDED_PHOTOS: readonly PlacePhotoKind[] = ['gate', 'parking', 'water'];
-
-/** Which of the needed photos the visit didn't take. */
-export function missingPhotoKinds(photos: readonly PhotoItem[]): PlacePhotoKind[] {
+/** Which of the needed photos (gate, parking, wash space) the visit didn't take: the same rule the server checks. */
+export function missingPhotoKinds(photos: readonly PhotoItem[], inspection: Inspection): PlacePhotoKind[] {
   const have = new Set(photos.map((p) => p.kind));
-  return NEEDED_PHOTOS.filter((k) => !have.has(k));
+  return requiredPhotoKinds(inspection).filter((k) => !have.has(k));
+}
+
+/** A person to call, with call and WhatsApp buttons. */
+function ContactRow({ name, role, phone }: { name: string; role?: string; phone: string }) {
+  return (
+    <View style={styles.contact}>
+      <View style={styles.contactAvatar}>
+        <IconPerson size={20} color="#BE185D" />
+      </View>
+      <View style={styles.contactCopy}>
+        <Text style={styles.contactName}>
+          {name}
+          {role && !name.toLowerCase().includes(role.toLowerCase()) ? ` · ${role}` : ''}
+        </Text>
+        <Text style={styles.contactPhone}>+91 {formatPhone(phone)}</Text>
+      </View>
+      <Pressable
+        onPress={() => void Linking.openURL(`tel:+91${phone}`).catch(() => undefined)}
+        style={({ pressed }) => [styles.round, { backgroundColor: '#FCE7F3' }, pressed && styles.pressed]}
+        accessibilityRole="button"
+        accessibilityLabel={`Call ${name}`}
+      >
+        <IconPhone size={17} color="#BE185D" />
+      </Pressable>
+      <Pressable
+        onPress={() => void openWhatsApp(phone, 'Hello, this is the Mana Wash team about the car wash at your community.')}
+        style={({ pressed }) => [styles.round, { backgroundColor: '#DCFCE7' }, pressed && styles.pressed]}
+        accessibilityRole="button"
+        accessibilityLabel={`WhatsApp ${name}`}
+      >
+        <IconWhatsApp size={17} />
+      </Pressable>
+    </View>
+  );
 }
 
 /**
@@ -127,7 +159,7 @@ export function VisitReport({
   const checks = siteChecks(setup.inspection);
   const answered = checks.filter((c) => c.tone !== 'none').length;
   const good = checks.filter((c) => c.tone === 'good' || c.tone === 'sky' || c.tone === 'info').length;
-  const noPhotos = missingPhotoKinds(photos);
+  const noPhotos = missingPhotoKinds(photos, setup.inspection);
   const issues = warnings.length + setup.missing.length + noPhotos.length;
   const { cars, bikes } = setup.inspection;
   const verdict = issues ? TONES.warn : TONES.good;
@@ -246,35 +278,8 @@ export function VisitReport({
 
       {/* Who to call */}
       <Heading icon={<IconPerson size={13} color="#BE185D" />} title="Who to call there" color="#BE185D" />
-      {setup.contactPhone ? (
-        <View style={styles.contact}>
-          <View style={styles.contactAvatar}>
-            <IconPerson size={20} color="#BE185D" />
-          </View>
-          <View style={styles.contactCopy}>
-            <Text style={styles.contactName}>{setup.contactName || 'Contact'}</Text>
-            <Text style={styles.contactPhone}>+91 {formatPhone(setup.contactPhone)}</Text>
-          </View>
-          <Pressable
-            onPress={() => void Linking.openURL(`tel:+91${setup.contactPhone}`).catch(() => undefined)}
-            style={({ pressed }) => [styles.round, { backgroundColor: '#FCE7F3' }, pressed && styles.pressed]}
-            accessibilityRole="button"
-            accessibilityLabel="Call"
-          >
-            <IconPhone size={17} color="#BE185D" />
-          </Pressable>
-          <Pressable
-            onPress={() => void openWhatsApp(setup.contactPhone!, 'Hello, this is the Mana Wash team about the car wash at your community.')}
-            style={({ pressed }) => [styles.round, { backgroundColor: '#DCFCE7' }, pressed && styles.pressed]}
-            accessibilityRole="button"
-            accessibilityLabel="WhatsApp"
-          >
-            <IconWhatsApp size={17} />
-          </Pressable>
-        </View>
-      ) : (
-        <Text style={styles.none}>No contact number yet.</Text>
-      )}
+      {setup.contactPhone ? <ContactRow name={setup.contactName || 'Contact'} phone={setup.contactPhone} /> : <Text style={styles.none}>No contact number yet.</Text>}
+      {setup.securityPhone ? <ContactRow name={setup.securityName || 'Security'} role="Security" phone={setup.securityPhone} /> : null}
 
       {/* Notes */}
       {setup.notes ? (

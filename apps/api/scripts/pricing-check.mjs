@@ -69,8 +69,8 @@ const cls = Object.fromEntries(cat.classes.map((c) => [c.key, c]));
 const size = (classKey, key) => cls[classKey].sizes.find((s) => s.key === key).id;
 const book = cat.priceBooks.find((b) => b.isDefault).id;
 check(
-  'HQ starts with the visit charge we decided: ₹49 visit, 3 km free, ₹10/km, up to 15 km, ending in 9',
-  cat.away?.doorstep?.visitFeePaise === 4900 &&
+  'HQ starts with the visit charge we decided: ₹99 visit, 3 km free, ₹10/km, up to 15 km, ending in 9',
+  cat.away?.doorstep?.visitFeePaise === 9900 &&
     cat.away.doorstep.freeKm === 3 &&
     cat.away.doorstep.perKmPaise === 1000 &&
     cat.away.doorstep.maxKm === 15 &&
@@ -78,7 +78,7 @@ check(
     cat.away.doorstep.busy.length === 0,
   JSON.stringify(cat.away),
 );
-check('…and no volume discount', Array.isArray(cat.away?.communityTiers) && cat.away.communityTiers.length === 0);
+check('…and a 10% neighbours discount when every flat of a community joins', cat.away?.joinDiscountBp === 1000, JSON.stringify(cat.away));
 
 const make = async (name, places) => (await call(OA, 'POST', '/business/services', { name, classIds: [cls.car.id], places })).body?.id;
 const BASIC = await make('Basic Wash', { shop: true, community: true, doorstep: true });
@@ -122,10 +122,14 @@ let prices = (await call(OA, 'GET', '/services/prices')).body ?? [];
 
 check('With no community rule, a community pays the hub price', priceOf(prices, svc['Basic Wash']?.id, hatch, 'doorstep') === 49900);
 r = await call(OA, 'PUT', '/business/adjustments', { mode: 'doorstep', classId: null, percentBp: -1000, fixedPaise: 0, minExtraPaise: 0 });
-check('HQ sets the community rule: 10% less than the hub', r.status === 200, show(r));
+check('A community rule can’t take prices below the hub', r.status === 400, show(r));
+r = await call(OA, 'PUT', '/business/adjustments', { mode: 'doorstep', classId: null, percentBp: 0, fixedPaise: -5000, minExtraPaise: 0 });
+check('…not even by a fixed amount', r.status === 400, show(r));
+r = await call(OA, 'PUT', '/business/adjustments', { mode: 'doorstep', classId: null, percentBp: 1000, fixedPaise: 0, minExtraPaise: 0 });
+check('HQ sets the community rule: 10% more than the hub', r.status === 200, show(r));
 prices = (await call(OA, 'GET', '/services/prices')).body ?? [];
-check('…so a ₹499 hub wash is ₹449 at a community (₹449.10 rounded)', priceOf(prices, svc['Basic Wash']?.id, hatch, 'doorstep') === 44900, JSON.stringify(prices.filter((p) => p.serviceId === svc['Basic Wash']?.id)));
-check('…and ₹599 is ₹539 (₹539.10 rounded)', priceOf(prices, svc['Basic Wash']?.id, sedan, 'doorstep') === 53900);
+check('…so a ₹499 hub wash is ₹549 at a community (₹548.90, ending in 9)', priceOf(prices, svc['Basic Wash']?.id, hatch, 'doorstep') === 54900, JSON.stringify(prices.filter((p) => p.serviceId === svc['Basic Wash']?.id)));
+check('…and ₹599 is ₹659 (₹658.90, ending in 9)', priceOf(prices, svc['Basic Wash']?.id, sedan, 'doorstep') === 65900);
 check('A shop-only service has no community price', priceOf(prices, svc['Shop Polish']?.id, hatch, 'doorstep') == null);
 check('A home-only service has a hub price, which home washes are charged', priceOf(prices, svc['Home Detail']?.id, hatch, 'hub') === 99900);
 
@@ -209,50 +213,64 @@ r = await start({ mode: 'doorstep', visitPoint: away(3.4582) });
 check('Without “ends in 9”: 4.5 km by road → ₹50 + 2 started km × ₹10 = ₹70 exactly', r.status === 201 && visitLine(r.body)?.priceAtTime === 7000, show(r));
 await call(OA, 'PUT', '/business/doorstep-rules', rules);
 
-// ─── Community volume discount ───────────────────────────────────────────────
+// ─── Neighbours discount ─────────────────────────────────────────────────────
 
-r = await call(OA, 'PUT', '/business/community-tiers', { tiers: [{ minCars: 5, discountBp: 1000 }, { minCars: 10, discountBp: 500 }] });
-check('More cars must get a bigger discount', r.status === 400 && r.body?.error === 'invalid_tiers', show(r));
-r = await call(OA, 'PUT', '/business/community-tiers', { tiers: [{ minCars: 50, discountBp: 1500 }] });
-check('A volume discount stops at 10%, however many cars', r.status === 400, show(r));
-r = await call(OA, 'PUT', '/business/community-tiers', { tiers: [{ minCars: 1, discountBp: 500 }] });
-check('A step starts at 2 cars or more', r.status === 400, show(r));
-r = await call(OB, 'PUT', '/business/community-tiers', { tiers: [] });
-check('Only HQ sets the volume discount', r.status === 403, show(r));
-r = await call(OA, 'PUT', '/business/community-tiers', { tiers: [{ minCars: 10, discountBp: 1000 }, { minCars: 5, discountBp: 500 }] });
-check('HQ sets 5+ cars → 5% off and 10+ → 10% off (kept in order)', r.status === 200 && r.body?.tiers?.[0]?.minCars === 5, show(r));
+r = await call(OA, 'PUT', '/business/community-discount', { discountBp: 2500 });
+check('The neighbours discount stops at 20%', r.status === 400, show(r));
+r = await call(OA, 'PUT', '/business/community-discount', { discountBp: 150 });
+check('…and is in whole percents', r.status === 400, show(r));
+r = await call(OB, 'PUT', '/business/community-discount', { discountBp: 500 });
+check('Only HQ sets the neighbours discount', r.status === 403, show(r));
+r = await call(OA, 'PUT', '/business/community-discount', { discountBp: 1000 });
+check('HQ sets 10% when every flat joins', r.status === 200 && r.body?.joinDiscountBp === 1000, show(r));
 
-r = await call(OA, 'POST', '/places', { type: 'colony', label: 'Pricing Colony gate', latitude: LAT + 0.01, longitude: LNG });
+r = await call(OA, 'POST', '/places', { type: 'building', label: 'Pricing Towers', latitude: LAT + 0.01, longitude: LNG });
 const PLACE = r.body?.id;
 check('The branch adds a community', r.status === 201 && !!PLACE, show(r));
+const flatIds = Array.from({ length: 10 }, (_, i) => `pu_${run}_${i}`);
+d1Run(flatIds.map((id, i) => `INSERT INTO place_units (id, shop_id, place_id, number) VALUES ('${id}', '${A}', '${PLACE}', '${101 + i}');`).join(''));
 const basicIn = (menu) => menu?.services?.find((s) => s.name === 'Basic Wash')?.prices?.find((p) => p.vehicleTypeId === hatch)?.price;
 const plain = (await call(OA, 'GET', '/places/menu')).body?.menu;
 let menu = (await call(OA, 'GET', `/places/menu?placeId=${PLACE}`)).body?.menu;
-check('A community with no cars yet has no volume discount', menu?.volume === null && basicIn(menu) === basicIn(plain), JSON.stringify(menu?.volume));
+check(
+  '10 flats, none washing with us yet: the community price (₹549), no discount',
+  menu?.join?.flats === 10 && menu.join.joined === 0 && menu.join.discountBp === 0 && basicIn(menu) === 54900 && basicIn(plain) === 54900,
+  JSON.stringify(menu?.join),
+);
+check('…and the next flat brings 1% off for everyone', menu?.join?.next?.flats === 1 && menu.join.next.discountBp === 100, JSON.stringify(menu?.join));
 
-const addCars = (n) => {
+/** `n` more flats join with a wash booked this month. */
+let joinedSoFar = 0;
+const flatsJoin = (n) => {
   let sql = '';
   for (let i = 0; i < n; i++) {
-    const id = `${run}_${rand(6)}_${i}`;
+    const id = `${run}_${rand(6)}_${joinedSoFar}`;
     sql +=
       `INSERT INTO customers (id, shop_id, phone, name) VALUES ('cu_${id}', '${A}', '97${rand(8)}', 'Member');` +
-      `INSERT INTO place_members (id, shop_id, place_id, customer_id, unit_text, status, joined_via) VALUES ('pm_${id}', '${A}', '${PLACE}', 'cu_${id}', 'H${i}', 'active', 'staff');` +
-      `INSERT INTO member_vehicles (id, shop_id, member_id, customer_id, vehicle_type_id) VALUES ('mv_${id}', '${A}', 'pm_${id}', 'cu_${id}', '${hatch}');`;
+      `INSERT INTO place_members (id, shop_id, place_id, customer_id, unit_id, status, joined_via) VALUES ('pm_${id}', '${A}', '${PLACE}', 'cu_${id}', '${flatIds[joinedSoFar]}', 'active', 'staff');` +
+      `INSERT INTO member_vehicles (id, shop_id, member_id, customer_id, vehicle_type_id) VALUES ('mv_${id}', '${A}', 'pm_${id}', 'cu_${id}', '${hatch}');` +
+      `INSERT INTO place_orders (id, shop_id, customer_id, member_id, member_vehicle_id, kind, title, snapshot, washes_total, single_price, total, status) VALUES ('po_${id}', '${A}', 'cu_${id}', 'pm_${id}', 'mv_${id}', 'single', 'Basic Wash', '{}', 1, 54900, 54900, 'active');`;
+    joinedSoFar += 1;
   }
   d1Run(sql);
 };
-addCars(6);
+flatsJoin(5);
 menu = (await call(OA, 'GET', `/places/menu?placeId=${PLACE}`)).body?.menu;
-const less = (paise, bp) => Math.round((paise * (10000 - bp)) / 10000 / 100) * 100;
-check('6 cars: 5% off every price there', menu?.volume?.cars === 6 && menu.volume.discountBp === 500 && basicIn(menu) === less(basicIn(plain), 500), `${JSON.stringify(menu?.volume)} ${basicIn(menu)} vs ${basicIn(plain)}`);
-addCars(5);
-menu = (await call(OA, 'GET', `/places/menu?placeId=${PLACE}`)).body?.menu;
-check('11 cars: 10% off', menu?.volume?.cars === 11 && menu.volume.discountBp === 1000 && basicIn(menu) === less(basicIn(plain), 1000), JSON.stringify(menu?.volume));
+check('5 of 10 flats: 5% off every price there (₹549 → ₹522)', menu?.join?.joined === 5 && menu.join.discountBp === 500 && basicIn(menu) === 52200, `${JSON.stringify(menu?.join)} ${basicIn(menu)}`);
 const planIn = (m) => m?.plans?.[0]?.prices?.find((p) => p.vehicleTypeId === hatch)?.total;
 if (planIn(plain) != null) check('…plans there are cheaper too', planIn(menu) < planIn(plain), `${planIn(menu)} vs ${planIn(plain)}`);
-r = await call(OA, 'PUT', '/business/community-tiers', { tiers: [] });
+flatsJoin(4);
 menu = (await call(OA, 'GET', `/places/menu?placeId=${PLACE}`)).body?.menu;
-check('Turning the volume discount off brings back the community price', r.status === 200 && menu?.volume === null && basicIn(menu) === basicIn(plain), JSON.stringify(menu?.volume));
+check('9 of 10: 9% off (₹500)', menu?.join?.discountBp === 900 && basicIn(menu) === 50000, `${JSON.stringify(menu?.join)} ${basicIn(menu)}`);
+flatsJoin(1);
+menu = (await call(OA, 'GET', `/places/menu?placeId=${PLACE}`)).body?.menu;
+check('Every flat: 10% off, but never below the hub price (₹494 → ₹499)', menu?.join?.discountBp === 1000 && basicIn(menu) === 49900, `${JSON.stringify(menu?.join)} ${basicIn(menu)}`);
+check('…and the price before the discount is kept too', menu?.services?.find((s) => s.name === 'Basic Wash')?.prices?.find((p) => p.vehicleTypeId === hatch)?.full === 54900);
+r = await call(OA, 'GET', `/places/${PLACE}`);
+check('The branch sees how many flats wash with us on the community', r.status === 200 && r.body?.join?.joined === 10 && r.body.join.flats === 10, show(r));
+r = await call(OA, 'PUT', '/business/community-discount', { discountBp: 0 });
+menu = (await call(OA, 'GET', `/places/menu?placeId=${PLACE}`)).body?.menu;
+check('Turning the neighbours discount off brings back the community price', r.status === 200 && menu?.join?.discountBp === 0 && basicIn(menu) === 54900, JSON.stringify(menu?.join));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

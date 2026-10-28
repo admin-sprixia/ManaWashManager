@@ -6,8 +6,7 @@
 // more than they hold) instead of the box, and another branch never sees any of it. Run against the local API:
 //   cd apps/api && npm run db:reset:local && npm run dev      (in one terminal)
 //   cd apps/api && npm run test:cash                          (in another)
-import { readFileSync } from 'node:fs';
-import { API, API_DIR, apiFetch, d1Rows, d1Run, signIn as signInWith } from './lib/target.mjs';
+import { API, apiFetch, d1Rows, d1Run, signIn as signInWith } from './lib/target.mjs';
 
 const PIN = '258025';
 
@@ -251,29 +250,6 @@ check('…and the day closes matching', r.status === 200 && r.body?.difference =
 
 d = await day(T.other);
 check('Another branch sees none of it', d?.doorstep?.collected === 0 && d?.doorstep?.held === 0 && d?.doorstep?.handovers?.length === 0 && d?.cashIn === 0, JSON.stringify(d?.doorstep));
-
-// ─── The migration's backfill ────────────────────────────────────────────────
-
-// Doorstep cash from before handovers was in that day's drawer: the migration records it as handed
-// in that IST day, so old closes keep their totals. 01:30 IST on the 2nd is still the 2nd.
-const OLD = `job_cash_old_${run}`;
-d1Run(
-  `INSERT INTO customers (id, shop_id, name, phone) VALUES ('${CUST}_o', '${OTHER}', 'Old', '98${rand(8)}');` +
-    `INSERT INTO vehicle_types (id, shop_id, name, category, sort_order) VALUES ('${VT}_o', '${OTHER}', 'Hatchback', 'car', 0);` +
-    `INSERT INTO vehicles (id, shop_id, customer_id, registration_number, vehicle_type_id) VALUES ('${VEH}_o', '${OTHER}', '${CUST}_o', 'AP39OL${rand(4)}', '${VT}_o');` +
-    `INSERT INTO jobs (id, shop_id, customer_id, vehicle_id, created_by_user_id, paid_by_user_id, status, subtotal, total, payment_method, payment_status, delivery_mode, completed_at) VALUES ('${OLD}', '${OTHER}', '${CUST}_o', '${VEH}_o', '${OTHER_OWNER}', '${OTHER_OWNER}', 'paid', 36000, 36000, 'cash', 'paid', 'doorstep', '2026-03-01T20:00:00.000+00:00');`,
-);
-const migration = readFileSync(`${API_DIR}/migrations/0022_cash_handovers.sql`, 'utf8');
-const backfill = migration.slice(migration.indexOf('INSERT INTO cash_handovers')).replace(
-  "AND paid_by_user_id IS NOT NULL",
-  `AND shop_id = '${OTHER}' AND paid_by_user_id IS NOT NULL`,
-);
-d1Run(backfill);
-const old = d1Rows(`SELECT date, due, received, created_at FROM cash_handovers WHERE shop_id = '${OTHER}'`);
-check('Old doorstep cash is recorded as handed in on its IST day', old.length === 1 && old[0].date === '2026-03-02' && old[0].due === 36000 && old[0].received === 36000, JSON.stringify(old));
-check('…stamped at the end of that IST day', old[0]?.created_at === '2026-03-02T18:29:59.000+00:00', JSON.stringify(old));
-r = await call(T.other, 'GET', '/cash/day?date=2026-03-02');
-check('…so that old day’s drawer still counts it and nobody holds it', r.status === 200 && r.body?.doorstep?.handedIn === 36000 && r.body?.doorstep?.held === 0, show(r));
 
 // ─── Clean up ────────────────────────────────────────────────────────────────
 

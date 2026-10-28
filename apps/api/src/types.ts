@@ -33,6 +33,16 @@ export interface Env {
   WHATSAPP_OTP_TEMPLATE?: string;
   WHATSAPP_OTP_LANGUAGE?: string;
   /**
+   * Meta's webhook (routes/whatsapp.ts): the app secret it signs every delivery with (App
+   * settings → Basic), and the verify token typed into the webhook form when subscribing.
+   */
+  WHATSAPP_APP_SECRET?: string;
+  WHATSAPP_VERIFY_TOKEN?: string;
+  /** The business whose branches the number answers for (prices, hours). Unset: every active branch. */
+  WHATSAPP_BUSINESS_ID?: string;
+  /** Tests only (needs DEV_MODE): send Graph API calls to a stand-in server. */
+  WHATSAPP_API_BASE?: string;
+  /**
    * Dev-only, and only honoured for requests to localhost: every WhatsApp code is
    * DEV_RECOVERY_CODE (default 000000), reusable, and no message is sent when WhatsApp isn't
    * configured (or when WHATSAPP_OTP_BYPASS is on).

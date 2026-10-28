@@ -9,7 +9,7 @@
 //   - Columns: snake_case via @map, with `_id` for foreign keys and `_at` for timestamps.
 //   - Money: stored as an Int in paise (1 rupee = 100 paise) to avoid float rounding.
 //
-// Multi-shop: every model except Shop, PlatformSetting, SignupCode, RateLimit, BillingEvent,
+// Multi-shop: every model except Shop, PlatformSetting, SignupCode, RateLimit, WhatsApp*, BillingEvent,
 // CustomerAccount and the business-level service network models (bottom of this file) has `shopId`. Queries never set it by
 // hand — the shop-scoped client (src/client.ts) adds it to every read and write. Its
 // `@default("")` only exists so create inputs don't demand it; the database has no default, so
@@ -1135,6 +1135,37 @@ model RateLimit {
   @@map("rate_limits")
 }
 
+/// WhatsApp on the business number: everyone who messaged it or was sent something. Platform-level.
+/// Written straight through D1 (apps/api/src/lib/whatsappStore.ts).
+model WhatsAppContact {
+  phone              String  @id
+  profileName        String? @map("profile_name")
+  marketingStoppedAt String? @map("marketing_stopped_at")
+  lastInboundAt      String? @map("last_inbound_at")
+  createdAt          String  @map("created_at")
+
+  @@map("whatsapp_contacts")
+}
+
+/// Every WhatsApp message in and out, by Meta's message id. Platform-level.
+model WhatsAppMessage {
+  id        String  @id
+  direction String
+  phone     String
+  kind      String
+  body      String?
+  purpose   String  @default("chat")
+  status    String
+  error     String?
+  shopId    String? @map("shop_id")
+  jobId     String? @map("job_id")
+  createdAt String  @map("created_at")
+  updatedAt String  @map("updated_at")
+
+  @@index([phone, createdAt])
+  @@map("whatsapp_messages")
+}
+
 // ─── Service network (business-level, not shop-scoped) ───────────────────────
 // A business owns one catalog; each branch's services and service_prices are generated from it
 // (src/repositories/catalogRepo.ts). These models carry businessId instead of shopId and are in
@@ -1441,6 +1472,8 @@ model Place {
   inspection       String?
   contactName      String?   @map("contact_name")
   contactPhone     String?   @map("contact_phone")
+  securityName     String?   @map("security_name")
+  securityPhone    String?   @map("security_phone")
   notes            String?
   /// JSON: [{"days":[3,5,0],"time":"06:30"}], best first.
   proposedSlots    String?   @map("proposed_slots")
@@ -1466,7 +1499,7 @@ model PlacePhoto {
   shopId          String   @default("") @map("shop_id")
   placeId         String   @map("place_id")
   photoKey        String   @map("photo_key")
-  kind            String // gate | parking | water | building | other
+  kind            String // gate | parking | space | water | power | building | other
   createdByUserId String?  @map("created_by_user_id")
   createdAt       DateTime @default(now()) @map("created_at")
 

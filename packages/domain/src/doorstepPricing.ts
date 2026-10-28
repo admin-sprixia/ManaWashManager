@@ -1,13 +1,15 @@
 /**
  * Prices away from the shop. Three ways a car is washed, three ways to price it:
  *
- *   Hub        the base price: the customer comes to the shop.
- *   Community  the community price: the team washes many cars at one place on a wash day, so its
- *              travel is shared and each car pays less (a set price, or the hub price less a %),
- *              and a bigger community can earn a volume discount.
+ *   Hub        the base price: the customer comes to the shop. The lowest of the three.
+ *   Community  the hub price plus head office's community markup (10% by default, ending in 9),
+ *              less a neighbours discount that grows with the share of the community's flats that
+ *              wash with us; never below the hub price, whatever the discount.
  *   Doorstep   the hub price plus one visit charge per visit to a home: a visit fee, then a charge
  *              per km beyond the free distance from the branch, up to the furthest the team goes,
  *              plus any busy-time extra. Two cars at one home share the visit charge.
+ *
+ * So a wash always costs Hub ≤ Community ≤ Doorstep: going out costs the team travel and time.
  */
 
 /** A busy-time extra on doorstep visits: on these days (0 = Sunday), between these times. */
@@ -34,7 +36,7 @@ export interface DoorstepVisitRules {
 }
 
 export const DEFAULT_DOORSTEP_RULES: DoorstepVisitRules = {
-  visitFeePaise: 4900,
+  visitFeePaise: 9900,
   freeKm: 3,
   perKmPaise: 1000,
   maxKm: 15,
@@ -138,55 +140,98 @@ export function visitCharge(km: number, rules: DoorstepVisitRules, at: Date): Vi
   return { km: d, tooFar: false, steps, total };
 }
 
-// ─── Community volume discount ───────────────────────────────────────────────
+// ─── Community neighbours discount ───────────────────────────────────────────
 
-/** From this many cars at one community, this much off (in basis points: 1000 = 10%). */
-export interface CommunityTier {
-  minCars: number;
-  discountBp: number;
-}
+/**
+ * Head office's community markup on the hub price, by default (10%: ₹499 → ₹549). The markup is
+ * the community rule on the price list (Prices › Community); it can't take a price below the hub.
+ */
+export const COMMUNITY_MARKUP_DEFAULT_BP = 1000;
 
-export const COMMUNITY_TIERS_MAX = 6;
-/** However many cars a community has, its volume discount stops at 10%. */
-export const COMMUNITY_TIER_MAX_BP = 1000;
+/** The neighbours discount when every flat washes with us, by default (10%). */
+export const JOIN_DISCOUNT_DEFAULT_BP = 1000;
+/** The most head office can give when every flat joins. */
+export const JOIN_DISCOUNT_MAX_BP = 2000;
+/** The discount grows in steps of this share of the flats: every 10% of flats, a tenth of the discount. */
+export const JOIN_STEPS = 10;
 
-export function communityTiersProblem(tiers: CommunityTier[]): string | null {
-  if (tiers.length > COMMUNITY_TIERS_MAX) return `Up to ${COMMUNITY_TIERS_MAX} steps.`;
-  const seen = new Set<number>();
-  for (const t of tiers) {
-    if (!Number.isInteger(t.minCars) || t.minCars < 2 || t.minCars > 1000) return 'Each step starts at 2 cars or more.';
-    if (seen.has(t.minCars)) return 'Two steps start at the same number of cars.';
-    seen.add(t.minCars);
-    if (!Number.isInteger(t.discountBp) || t.discountBp < 100 || t.discountBp > COMMUNITY_TIER_MAX_BP) {
-      return `Each discount is 1% to ${COMMUNITY_TIER_MAX_BP / 100}%.`;
-    }
-  }
-  const sorted = [...tiers].sort((a, b) => a.minCars - b.minCars);
-  for (let i = 1; i < sorted.length; i++) {
-    if (sorted[i]!.discountBp <= sorted[i - 1]!.discountBp) return 'More cars should get a bigger discount.';
+/** Why a neighbours discount can't be saved, or null when it can. */
+export function joinDiscountProblem(bp: number): string | null {
+  if (!Number.isInteger(bp) || bp < 0 || bp > JOIN_DISCOUNT_MAX_BP || bp % 100 !== 0) {
+    return `The discount is 0% to ${JOIN_DISCOUNT_MAX_BP / 100}%, in whole percents.`;
   }
   return null;
 }
 
-export function parseCommunityTiers(value: string | null | undefined): CommunityTier[] {
-  if (!value) return [];
-  try {
-    const list = JSON.parse(value) as CommunityTier[];
-    if (!Array.isArray(list) || communityTiersProblem(list)) return [];
-    return [...list].sort((a, b) => a.minCars - b.minCars);
-  } catch {
-    return [];
-  }
+/** The stored setting, or the default when missing or broken. */
+export function parseJoinDiscountBp(value: string | null | undefined): number {
+  if (value == null || value === '') return JOIN_DISCOUNT_DEFAULT_BP;
+  const n = Number(value);
+  return joinDiscountProblem(n) ? JOIN_DISCOUNT_DEFAULT_BP : n;
 }
 
-/** The step a community with `cars` cars is on, or null below the first step. */
-export function communityTierFor(tiers: readonly CommunityTier[], cars: number): CommunityTier | null {
-  let found: CommunityTier | null = null;
-  for (const t of [...tiers].sort((a, b) => a.minCars - b.minCars)) if (cars >= t.minCars) found = t;
-  return found;
+/** How much of a community washes with us, and what that's worth to every flat there. */
+export interface CommunityJoin {
+  /** Flats with a plan running, or a wash booked this month. */
+  joined: number;
+  /** Flats on the community's list. */
+  flats: number;
+  /** Off every community price there now (basis points). */
+  discountBp: number;
+  /** Off when every flat joins. */
+  maxBp: number;
+  /** Flats still to join for the next step, with what it brings; null at the top or with no flats. */
+  next: { flats: number; discountBp: number } | null;
+}
+
+/**
+ * The neighbours discount: every tenth of the flats that joins takes a tenth of `maxBp` off every
+ * flat's price (10 flats, 7 joined, 10% at most → 7% off). A community with no flats on its list
+ * gets none.
+ */
+export function communityJoin(joined: number, flats: number, maxBp: number): CommunityJoin {
+  const total = Math.max(0, Math.floor(flats));
+  const have = Math.min(total, Math.max(0, Math.floor(joined)));
+  if (!total || maxBp <= 0) return { joined: have, flats: total, discountBp: 0, maxBp: Math.max(0, maxBp), next: null };
+  const step = Math.floor((have * JOIN_STEPS) / total);
+  const at = (s: number) => Math.round((maxBp * s) / JOIN_STEPS);
+  let next: CommunityJoin['next'] = null;
+  if (step < JOIN_STEPS) {
+    // The fewest flats that reach a higher step (a small community can jump more than one).
+    const need = Math.ceil(((step + 1) * total) / JOIN_STEPS);
+    next = { flats: need - have, discountBp: at(Math.floor((need * JOIN_STEPS) / total)) };
+  }
+  return { joined: have, flats: total, discountBp: at(step), maxBp, next };
 }
 
 /** A price less a discount, to the rupee. */
 export function lessDiscount(paise: number, discountBp: number): number {
   return Math.round((paise * (10_000 - discountBp)) / 10_000 / 100) * 100;
+}
+
+/**
+ * What a community pays: the community price less the neighbours discount, but never less than
+ * the hub price for the same wash (null = not sold at the shop, so nothing to hold it to).
+ */
+export function communityPrice(community: number, hub: number | null, discountBp: number): number {
+  const less = discountBp > 0 ? lessDiscount(community, discountBp) : community;
+  return hub != null ? Math.max(Math.min(hub, community), less) : less;
+}
+
+/**
+ * The neighbours discount in words, for customers and staff: "7 of 10 flats wash with us: 7% off
+ * every price here." and "1 more flat → 8% off for everyone." Null with no flats on the list.
+ */
+export function joinWords(join: CommunityJoin | null): { now: string; next: string | null } | null {
+  if (!join || !join.flats || !join.maxBp) return null;
+  const pct = (bp: number) => `${bp / 100}%`;
+  const flats = (n: number) => `${n} flat${n === 1 ? '' : 's'}`;
+  const share = `${join.joined} of ${flats(join.flats)} wash with us`;
+  const now = join.discountBp
+    ? `${share}: ${pct(join.discountBp)} off every price here.`
+    : join.joined
+      ? `${share}. More neighbours joining means a lower price for everyone.`
+      : `Be the first of ${flats(join.flats)} here. Every 10% of flats that join takes ${pct(join.maxBp / 10)} off for everyone.`;
+  const next = join.next ? `${join.next.flats} more ${join.next.flats === 1 ? 'flat' : 'flats'} → ${pct(join.next.discountBp)} off for everyone.` : null;
+  return { now, next };
 }

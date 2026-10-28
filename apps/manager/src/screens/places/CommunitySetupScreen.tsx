@@ -2,10 +2,13 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
-  BEST_TIME_LABEL,
+  bestTimeLabel,
   CONTACT_NAME_MAX,
+  describeSlot,
+  inspectionWarnings,
   MAX_PLACE_PHOTOS,
   MAX_PROPOSED_SLOTS,
+  MIN_PROPOSED_SLOTS,
   missingForReview,
   normalizePhone,
   PARKING_LABEL,
@@ -14,11 +17,13 @@ import {
   PLACE_LABEL_MIN,
   PLACE_NAME_MAX,
   PLACE_NOTES_MAX,
+  PLACE_PHOTO_KIND_HINT,
   PLACE_PHOTO_KIND_LABEL,
   PLACE_PHOTO_KINDS,
   PLACE_TYPE_LABEL,
   PLACE_TYPES,
   POWER_LABEL,
+  requiredPhotoKinds,
   SPACE_LABEL,
   WATER_LABEL,
   type Inspection,
@@ -30,14 +35,24 @@ import {
   Button,
   ChoiceChips,
   IconAlert,
+  IconCalendar,
+  IconCamera,
+  IconCar,
+  IconCheck,
+  IconChevronLeft,
+  IconChevronRight,
   IconEdit,
+  IconMapPin,
+  IconPhone,
   IconPlus,
+  IconShield,
   Notice,
   PhoneField,
   ScreenContainer,
   ScreenHeader,
   TextField,
   colors,
+  formatPhone,
   radius,
   showAlert,
   showToast,
@@ -47,15 +62,15 @@ import {
 import { api, apiErrorMessage, uploadPlacePhoto } from '../../api/client';
 import { useAuth } from '../../api/auth';
 import { NetworkError } from '../../api/network';
-import { ScreenHero } from '../../components/ScreenChrome';
 import { SheetNotice } from '../../components/SheetBits';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { pickPhotos } from '../../utils/photoPicker';
 import type { Point } from '../../utils/location';
 import { LocationPicker, PhotoStrip, SlotEditor } from './communityParts';
-import { Checklist, FormSection, StickyActions, WarningList } from './kit';
+import { WarningList } from './kit';
 import { choiceLabel } from './review/options';
-import { TEAL, TEAL_MIST } from './panel/parts';
+import { TimeField } from './review/TimeField';
+import { TEAL, TEAL_MIST, TEAL_PALE } from './panel/parts';
 import { failure, useApiData, type PlaceDetail } from './shared';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CommunitySetup'>;
@@ -63,16 +78,28 @@ type Props = NativeStackScreenProps<RootStackParamList, 'CommunitySetup'>;
 const options = <T extends string>(labels: Readonly<Record<T, string>>) =>
   (Object.keys(labels) as T[]).map((value) => ({ value, label: labels[value] }));
 const TYPE_OPTIONS = PLACE_TYPES.map((value) => ({ value, label: PLACE_TYPE_LABEL[value] }));
-const KIND_OPTIONS = PLACE_PHOTO_KINDS.map((value) => ({ value, label: PLACE_PHOTO_KIND_LABEL[value] }));
 const NEW_SLOT: ProposedSlot = { days: [6], time: '07:00' };
 const countText = (n: number | undefined) => (n == null ? '' : String(n));
 const textCount = (t: string) => (t.trim() ? Math.min(999, Number(t.replace(/\D/g, '')) || 0) : undefined);
 
+type StepKey = 'place' | 'photos' | 'site' | 'vehicles' | 'contact' | 'choices' | 'review';
+
+/** The visit, one step at a time: what the step is, its short name on the track, and what to do. */
+const STEPS: readonly { key: StepKey; title: string; short: string; what: string; Icon: typeof IconMapPin }[] = [
+  { key: 'place', title: 'The place', short: 'Place', Icon: IconMapPin, what: 'Name the community and pin its main gate. Stand at the gate when you pin it.' },
+  { key: 'photos', title: 'Photos', short: 'Photos', Icon: IconCamera, what: 'Take one photo on each tab. Every tab says exactly what the photo must show.' },
+  { key: 'site', title: 'Site check', short: 'Site', Icon: IconShield, what: 'Answer what you saw: the society’s answer, water, power, parking and space to wash.' },
+  { key: 'vehicles', title: 'Vehicles & time', short: 'Vehicles', Icon: IconCar, what: 'Roughly how many cars and bikes are parked here, and when residents want the wash.' },
+  { key: 'contact', title: 'Who to call', short: 'Contact', Icon: IconPhone, what: 'The secretary, or whoever looks after the community. Add the security guard if there is one.' },
+  { key: 'choices', title: 'Days residents want', short: 'Days', Icon: IconCalendar, what: `Ask a few residents and add ${MIN_PROPOSED_SLOTS} to ${MAX_PROPOSED_SLOTS} choices of days and time, best first.` },
+  { key: 'review', title: 'Check & send', short: 'Send', Icon: IconCheck, what: 'Look over every step, add a note for the team if you like, then send it to the owner.' },
+];
+
 /**
- * Setting a community up after visiting it: where the gate is, photos, what the visit found
- * (water, parking, the society's yes), who to call, and the days and times residents asked for.
- * Saved as a draft, then sent to the owner for approval. Once live, the team can still add notes
- * and photos; the rest is the owner's.
+ * Setting a community up after visiting it, one clear step at a time: the place and its gate,
+ * a photo on each tab, the site check, vehicles and time, who to call, the days residents want,
+ * then a last look and send. Each Next saves the draft, so nothing is lost on site. Once live,
+ * the team can still add photos and notes; everything else is the owner's.
  */
 export function CommunitySetupScreen({ navigation, route }: Props) {
   const { isOwner } = useAuth();
@@ -84,6 +111,7 @@ export function CommunitySetupScreen({ navigation, route }: Props) {
   const place = placeId ? (detail.data?.place ?? null) : null;
   const { load } = detail;
   const openedWith = useRef(placeId);
+  const scroll = useRef<ScrollView>(null);
 
   // A new draft was just saved: load it so photos can be added.
   useEffect(() => {
@@ -97,13 +125,16 @@ export function CommunitySetupScreen({ navigation, route }: Props) {
   const [inspection, setInspection] = useState<Inspection>({});
   const [contactName, setContactName] = useState('');
   const [contactPhone, setContactPhone] = useState('');
+  const [securityName, setSecurityName] = useState('');
+  const [securityPhone, setSecurityPhone] = useState('');
   const [slots, setSlots] = useState<ProposedSlot[]>([NEW_SLOT]);
   const [notes, setNotes] = useState('');
   const [photoKind, setPhotoKind] = useState<PlacePhotoKind>('gate');
   const [uploading, setUploading] = useState(false);
-  const [busy, setBusy] = useState<'save' | 'send' | null>(null);
+  const [busy, setBusy] = useState<'save' | 'next' | 'send' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filledFrom, setFilledFrom] = useState<string | null>(null);
+  const [stepIndex, setStepIndex] = useState(0);
 
   // Fill the form once from what's saved (not on every reload, so typing isn't lost).
   useEffect(() => {
@@ -116,6 +147,8 @@ export function CommunitySetupScreen({ navigation, route }: Props) {
     setInspection(place.setup.inspection);
     setContactName(place.setup.contactName ?? '');
     setContactPhone(place.setup.contactPhone ?? '');
+    setSecurityName(place.setup.securityName ?? '');
+    setSecurityPhone(place.setup.securityPhone ?? '');
     setSlots(place.setup.slots.length ? place.setup.slots : place.stage === 'live' ? [] : [NEW_SLOT]);
     setNotes(place.setup.notes ?? '');
   }, [place, filledFrom]);
@@ -124,18 +157,66 @@ export function CommunitySetupScreen({ navigation, route }: Props) {
   /** What this person may change: everything, only notes and photos, or nothing (with the owner). */
   const access = isOwner ? 'all' : stage === 'draft' ? 'all' : stage === 'live' ? 'notes' : 'none';
   const canEdit = access === 'all';
-  const photos = place?.photos ?? [];
+  const photos = useMemo(() => place?.photos ?? [], [place?.photos]);
+  const photoKinds = useMemo(() => photos.map((x) => x.kind), [photos]);
+  /**
+   * The photos the owner needs (gate, parking, wash space, and the water and power points unless
+   * there are none); the next one missing is the tab the camera opens on.
+   */
+  const requiredPhotos = requiredPhotoKinds(inspection);
+  const neededPhotos = requiredPhotos.filter((k) => !photoKinds.includes(k));
+  const nextNeeded = neededPhotos[0];
+  useEffect(() => {
+    if (nextNeeded) setPhotoKind(nextNeeded);
+  }, [nextNeeded]);
   const missing = useMemo(
-    () => missingForReview({ photos: photos.length, inspection, slots, contactPhone: contactPhone.length === 10 ? contactPhone : null }),
-    [photos.length, inspection, slots, contactPhone],
+    () =>
+      missingForReview({
+        name: name.trim() || null,
+        photos: photoKinds,
+        inspection,
+        slots,
+        contactName: contactName.trim() || null,
+        contactPhone: contactPhone.length === 10 ? contactPhone : null,
+      }),
+    [name, photoKinds, inspection, slots, contactName, contactPhone],
   );
 
   const set = <K extends keyof Inspection>(key: K, value: Inspection[K]) => setInspection((i) => ({ ...i, [key]: value }));
 
+  // What each step still needs, in words: empty when the step is done.
+  const needs: Record<StepKey, string[]> = {
+    place: [
+      !name.trim() ? 'the name' : null,
+      label.trim().length < PLACE_LABEL_MIN ? 'the label people know it by' : null,
+      !point ? 'the gate pin' : null,
+    ].filter((x): x is string => x != null),
+    photos: neededPhotos.map((k) => `${PLACE_PHOTO_KIND_LABEL[k].toLowerCase()} photo`),
+    site: [
+      inspection.permission == null ? 'the society’s answer' : null,
+      inspection.water == null ? 'water' : null,
+      inspection.power == null ? 'power point' : null,
+      inspection.parking == null ? 'parking' : null,
+      inspection.space == null ? 'space to wash' : null,
+    ].filter((x): x is string => x != null),
+    vehicles: inspection.cars == null && inspection.bikes == null ? ['how many cars or bikes'] : [],
+    contact: [!contactName.trim() ? 'their name' : null, contactPhone.length !== 10 ? 'their number' : null].filter((x): x is string => x != null),
+    choices: slots.length < MIN_PROPOSED_SLOTS ? [`${MIN_PROPOSED_SLOTS - slots.length} more choice${MIN_PROPOSED_SLOTS - slots.length === 1 ? '' : 's'}`] : [],
+    review: missing,
+  };
+  const done = (k: StepKey) => needs[k].length === 0;
+
+  // The team on a live community can only add photos and notes; the rest is the owner's.
+  const steps = access === 'notes' ? STEPS.filter((s) => s.key === 'photos' || s.key === 'review') : STEPS;
+  const step = steps[Math.min(stepIndex, steps.length - 1)]!;
+  const last = stepIndex >= steps.length - 1;
+
   const values = () => {
+    if (!name.trim()) throw new Error('Add the community’s name, like “Lakshmi Towers”.');
     if (label.trim().length < PLACE_LABEL_MIN) throw new Error('Add a short label people know it by, like “Lakshmi Towers, Vedayapalem”.');
     if (!point) throw new Error('Pin the gate: stand there and tap “Use my current location”.');
     if (contactPhone && contactPhone.length !== 10) throw new Error('The contact’s number needs 10 digits.');
+    if (securityPhone && securityPhone.length !== 10) throw new Error('The security guard’s number needs 10 digits.');
     return {
       type,
       name: name.trim() || null,
@@ -145,6 +226,8 @@ export function CommunitySetupScreen({ navigation, route }: Props) {
       inspection,
       contactName: contactName.trim() || null,
       contactPhone: contactPhone || null,
+      securityName: securityName.trim() || null,
+      securityPhone: securityPhone || null,
       slots,
       notes: notes.trim() || null,
     };
@@ -176,16 +259,36 @@ export function CommunitySetupScreen({ navigation, route }: Props) {
     }
   };
 
-  const onSave = async () => {
+  const go = (index: number) => {
+    setError(null);
+    setStepIndex(Math.max(0, Math.min(steps.length - 1, index)));
+    scroll.current?.scrollTo({ y: 0, animated: false });
+  };
+
+  /** Next: the step must be done; the draft is saved on the way (the first Next creates it). */
+  const onNext = async () => {
+    // A draft moves on only when the step is done; a sent or live community can be looked through freely.
+    if (canEdit && stage === 'draft' && !done(step.key) && step.key !== 'review') {
+      setError(`Still needed on this step: ${needs[step.key].join(', ')}.`);
+      return;
+    }
+    if (canEdit) {
+      setBusy('next');
+      const id = await save();
+      setBusy(null);
+      if (!id) return;
+      if (!placeId) showToast('Draft saved. Now the photos.', 'success');
+    }
+    go(stepIndex + 1);
+  };
+
+  const onSaveOnly = async () => {
     setBusy('save');
     const id = await save();
     setBusy(null);
     if (!id) return;
-    if (!placeId) showToast('Draft saved. Now add photos of the gate and parking.', 'success');
-    else {
-      showToast('Saved', 'success');
-      navigation.goBack();
-    }
+    showToast('Saved', 'success');
+    if (access === 'notes' || stage !== 'draft') navigation.goBack();
   };
 
   const onSend = async () => {
@@ -206,7 +309,7 @@ export function CommunitySetupScreen({ navigation, route }: Props) {
 
   const addPhoto = async () => {
     if (!placeId) return;
-    const picked = await pickPhotos(`${PLACE_PHOTO_KIND_LABEL[photoKind]} photo`, 'A clear photo helps the owner decide without visiting.');
+    const picked = await pickPhotos(`${PLACE_PHOTO_KIND_LABEL[photoKind]} photo`, PLACE_PHOTO_KIND_HINT[photoKind]);
     const asset = picked?.assets?.[0];
     if (!asset?.uri) return;
     setUploading(true);
@@ -237,18 +340,6 @@ export function CommunitySetupScreen({ navigation, route }: Props) {
   };
 
   const title = !placeId ? 'New community' : stage === 'live' ? 'Inspection & photos' : 'Community draft';
-  const placeDone = label.trim().length >= PLACE_LABEL_MIN && point != null;
-  const foundDone =
-    inspection.permission != null && inspection.water != null && inspection.parking != null && (inspection.cars != null || inspection.bikes != null);
-  const checklist = [
-    { label: 'Name & gate pin', done: placeDone },
-    { label: 'Photos', done: photos.length > 0 },
-    { label: 'Society’s answer', done: inspection.permission != null },
-    { label: 'Water & parking', done: inspection.water != null && inspection.parking != null },
-    { label: 'Vehicle count', done: inspection.cars != null || inspection.bikes != null },
-    { label: 'Contact number', done: contactPhone.length === 10 },
-    { label: 'Days residents want', done: slots.length > 0 },
-  ];
 
   if (placeId && !place) {
     return (
@@ -268,242 +359,441 @@ export function CommunitySetupScreen({ navigation, route }: Props) {
     );
   }
 
+  // ─── Each step's fields ────────────────────────────────────────────────────
+
+  const summaries: Record<Exclude<StepKey, 'review'>, { label: string; value: string; ok: boolean }[]> = {
+    place: [
+      { label: 'Kind', value: PLACE_TYPE_LABEL[type], ok: true },
+      { label: 'Name', value: name.trim() || 'Not added', ok: !!name.trim() },
+      { label: 'Label', value: label.trim() || 'Not added', ok: label.trim().length >= PLACE_LABEL_MIN },
+      { label: 'Gate', value: point ? 'Pinned on the map' : 'Not pinned', ok: !!point },
+    ],
+    photos: requiredPhotos.map((k) => {
+      const n = photoKinds.filter((x) => x === k).length;
+      return { label: PLACE_PHOTO_KIND_LABEL[k], value: n ? `${n} taken` : 'Needed', ok: n > 0 };
+    }),
+    site: [
+      { label: 'Society', value: inspection.permission ? PERMISSION_LABEL[inspection.permission] : 'Not answered', ok: inspection.permission != null },
+      { label: 'Water', value: inspection.water ? WATER_LABEL[inspection.water] : 'Not answered', ok: inspection.water != null },
+      { label: 'Power', value: inspection.power ? POWER_LABEL[inspection.power] : 'Not answered', ok: inspection.power != null },
+      { label: 'Parking', value: inspection.parking ? PARKING_LABEL[inspection.parking] : 'Not answered', ok: inspection.parking != null },
+      { label: 'Space', value: inspection.space ? SPACE_LABEL[inspection.space] : 'Not answered', ok: inspection.space != null },
+    ],
+    vehicles: [
+      {
+        label: 'Parked',
+        value: inspection.cars == null && inspection.bikes == null ? 'Not counted' : `${inspection.cars ?? 0} cars, ${inspection.bikes ?? 0} bikes`,
+        ok: inspection.cars != null || inspection.bikes != null,
+      },
+      { label: 'Best time', value: inspection.bestTime ? bestTimeLabel(inspection.bestTime) : 'Not set', ok: true },
+    ],
+    contact: [
+      {
+        label: 'Call',
+        value:
+          contactName.trim() || contactPhone
+            ? `${contactName.trim() || 'No name'}${contactPhone.length === 10 ? ` · +91 ${formatPhone(contactPhone)}` : ''}`
+            : 'Not added',
+        ok: done('contact'),
+      },
+      ...(securityPhone || securityName.trim()
+        ? [{ label: 'Security', value: `${securityName.trim() || 'Security'}${securityPhone.length === 10 ? ` · +91 ${formatPhone(securityPhone)}` : ''}`, ok: true }]
+        : []),
+    ],
+    choices: slots.length ? slots.map((s, i) => ({ label: choiceLabel(i), value: describeSlot(s), ok: true })) : [{ label: 'Choices', value: 'None yet', ok: false }],
+  };
+
+  const fields: Record<StepKey, React.ReactNode> = {
+    place: (
+      <>
+        <ChoiceChips label="What kind of place is it?" options={TYPE_OPTIONS} value={type} onChange={setType} required />
+        <TextField label="Name" value={name} onChangeText={setName} maxLength={PLACE_NAME_MAX} placeholder="Lakshmi Towers" autoCapitalize="words" hint="What residents call it." />
+        <TextField
+          label="Label people know it by"
+          value={label}
+          onChangeText={setLabel}
+          maxLength={PLACE_LABEL_MAX}
+          placeholder="Lakshmi Towers, Vedayapalem"
+          hint="The name and a landmark or area. Shown in the customer app and on the poster."
+          autoCapitalize="words"
+        />
+        <LocationPicker value={point} onChange={setPoint} />
+      </>
+    ),
+    photos: placeId ? (
+      <>
+        <View style={styles.tabs}>
+          {PLACE_PHOTO_KINDS.map((k) => {
+            const count = photoKinds.filter((x) => x === k).length;
+            const needed = requiredPhotos.includes(k);
+            const on = photoKind === k;
+            return (
+              <Pressable
+                key={k}
+                onPress={() => setPhotoKind(k)}
+                style={[styles.tab, count ? styles.tabHave : needed ? styles.tabNeed : styles.tabOptional, on && styles.tabOn]}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: on }}
+                accessibilityLabel={`${PLACE_PHOTO_KIND_LABEL[k]}: ${count ? `${count} taken` : needed ? 'needed' : 'optional'}`}
+              >
+                {count ? <IconCheck size={12} color={TEAL} /> : null}
+                <Text style={[styles.tabText, { color: count ? TEAL : needed ? colors.amberDeep : colors.slateDeep }]}>
+                  {PLACE_PHOTO_KIND_LABEL[k]}
+                  {count > 1 ? ` · ${count}` : !count && needed ? ' · needed' : !count ? ' · optional' : ''}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <View style={styles.shotCard}>
+          <View style={styles.shotHead}>
+            <IconCamera size={16} color={TEAL} />
+            <Text style={styles.shotTitle}>{PLACE_PHOTO_KIND_LABEL[photoKind]} photo</Text>
+          </View>
+          <Text style={styles.shotHint}>{PLACE_PHOTO_KIND_HINT[photoKind]}</Text>
+          <PhotoStrip
+            placeId={placeId}
+            photos={photos.filter((x) => x.kind === photoKind)}
+            adding={uploading}
+            addLabel={`Add ${PLACE_PHOTO_KIND_LABEL[photoKind].toLowerCase()} photo`}
+            onAdd={access !== 'none' && photos.length < MAX_PLACE_PHOTOS ? () => void addPhoto() : undefined}
+            onRemove={access !== 'none' ? removePhoto : undefined}
+          />
+        </View>
+        <Text style={styles.small}>
+          {neededPhotos.length
+            ? `Still to take: ${neededPhotos.map((k) => PLACE_PHOTO_KIND_LABEL[k].toLowerCase()).join(', ')}.`
+            : 'All the photos the owner needs are here.'}{' '}
+          {photos.length}/{MAX_PLACE_PHOTOS} photos. The gate photo is shown to customers.
+        </Text>
+      </>
+    ) : (
+      <Text style={styles.small}>Go back to step 1 and tap Next to save the draft; then the photos open here.</Text>
+    ),
+    site: (
+      <>
+        <ChoiceChips label="1. Did the society agree?" options={options(PERMISSION_LABEL)} value={inspection.permission ?? null} onChange={(v) => set('permission', v)} required />
+        <ChoiceChips label="2. Water" options={options(WATER_LABEL)} value={inspection.water ?? null} onChange={(v) => set('water', v)} required />
+        <ChoiceChips label="3. Power point for the machine" options={options(POWER_LABEL)} value={inspection.power ?? null} onChange={(v) => set('power', v)} required />
+        <ChoiceChips label="4. Parking" options={options(PARKING_LABEL)} value={inspection.parking ?? null} onChange={(v) => set('parking', v)} required />
+        <ChoiceChips label="5. Space to wash" options={options(SPACE_LABEL)} value={inspection.space ?? null} onChange={(v) => set('space', v)} required />
+        <WarningList items={inspectionWarnings(inspection)} />
+      </>
+    ),
+    vehicles: (
+      <>
+        <View style={styles.row}>
+          <View style={styles.flex}>
+            <TextField label="Cars parked" value={countText(inspection.cars)} onChangeText={(t) => set('cars', textCount(t))} keyboardType="number-pad" placeholder="0" maxLength={3} />
+          </View>
+          <View style={styles.flex}>
+            <TextField label="Bikes parked" value={countText(inspection.bikes)} onChangeText={(t) => set('bikes', textCount(t))} keyboardType="number-pad" placeholder="0" maxLength={3} />
+          </View>
+        </View>
+        <Text style={styles.small}>A rough count is fine. It tells the owner if the community is worth it, and how big the team should be.</Text>
+        <TimeField
+          label="Best time to wash"
+          value={inspection.bestTime ?? '06:30'}
+          onChange={(t) => set('bestTime', t)}
+          hint={inspection.bestTime ? 'When most residents want their car washed.' : 'Not set yet: pick the time most residents want.'}
+        />
+      </>
+    ),
+    contact: (
+      <>
+        <Text style={styles.groupTitle}>Who looks after the community</Text>
+        <TextField label="Name" value={contactName} onChangeText={setContactName} maxLength={CONTACT_NAME_MAX} placeholder="Ramesh (secretary)" autoCapitalize="words" />
+        <PhoneField label="Number" digits={contactPhone} onChangeDigits={setContactPhone} normalize={normalizePhone} />
+        <View style={styles.divider} />
+        <Text style={styles.groupTitle}>Security at the gate (optional)</Text>
+        <TextField label="Security name" optional value={securityName} onChangeText={setSecurityName} maxLength={CONTACT_NAME_MAX} placeholder="Venkat (night guard)" autoCapitalize="words" />
+        <PhoneField label="Security number (optional)" digits={securityPhone} onChangeDigits={setSecurityPhone} normalize={normalizePhone} />
+      </>
+    ),
+    choices: (
+      <>
+        {slots.map((s, i) => (
+          <SlotEditor
+            key={i}
+            title={choiceLabel(i)}
+            slot={s}
+            onChange={(next) => setSlots((all) => all.map((x, j) => (j === i ? next : x)))}
+            onRemove={slots.length > 1 ? () => setSlots((all) => all.filter((_, j) => j !== i)) : undefined}
+          />
+        ))}
+        {slots.length < MAX_PROPOSED_SLOTS ? (
+          <Pressable onPress={() => setSlots((all) => [...all, NEW_SLOT])} style={({ pressed }) => [styles.addSlot, pressed && styles.pressed]} accessibilityRole="button">
+            <IconPlus size={16} color={TEAL} />
+            <Text style={styles.addSlotText}>{slots.length ? `Add ${choiceLabel(slots.length)}` : 'Add a choice'}</Text>
+          </Pressable>
+        ) : null}
+        <Text style={styles.small}>
+          {slots.length}/{MAX_PROPOSED_SLOTS} choices · at least {MIN_PROPOSED_SLOTS}. The owner picks the final days.
+        </Text>
+      </>
+    ),
+    review: (
+      <>
+        {steps
+          .filter((s) => s.key !== 'review')
+          .map((s) => {
+            const rows = summaries[s.key as Exclude<StepKey, 'review'>];
+            const ok = done(s.key);
+            return (
+              <View key={s.key} style={[styles.reviewCard, !ok && styles.reviewCardNeed]}>
+                <View style={styles.reviewHead}>
+                  <View style={[styles.reviewDot, ok ? styles.reviewDotOk : styles.reviewDotNeed]}>
+                    {ok ? <IconCheck size={12} color={colors.white} /> : <IconAlert size={12} color={colors.white} />}
+                  </View>
+                  <Text style={styles.reviewTitle}>{s.title}</Text>
+                  <Pressable onPress={() => go(steps.indexOf(s))} hitSlop={10} style={styles.reviewEdit} accessibilityRole="button" accessibilityLabel={`Change ${s.title}`}>
+                    <IconEdit size={13} color={TEAL} />
+                    <Text style={styles.reviewEditText}>{ok ? 'Change' : 'Finish'}</Text>
+                  </Pressable>
+                </View>
+                {rows.map((r) => (
+                  <View key={r.label} style={styles.reviewRow}>
+                    <Text style={styles.reviewLabel}>{r.label}</Text>
+                    <Text style={[styles.reviewValue, !r.ok && { color: colors.amberDeep }]} numberOfLines={2}>
+                      {r.value}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            );
+          })}
+        {access !== 'none' ? (
+          <TextField
+            label="Note for the team"
+            optional
+            value={notes}
+            onChangeText={setNotes}
+            maxLength={PLACE_NOTES_MAX}
+            multiline
+            placeholder="Enter by the back gate before 7. Watchman keeps the tap key."
+          />
+        ) : notes ? (
+          <Text style={styles.small}>Note: {notes}</Text>
+        ) : null}
+      </>
+    ),
+  };
+
+  // ─── The page ──────────────────────────────────────────────────────────────
+
+  const Icon = step.Icon;
+  const doneCount = steps.filter((s) => s.key !== 'review' && done(s.key)).length;
+  const lead =
+    access === 'none'
+      ? 'It’s with the owner for approval. You can look, but not change it.'
+      : access === 'notes'
+        ? 'Add photos and notes. The owner changes the rest.'
+        : step.what;
+
   return (
     <ScreenContainer noPadding>
       <View style={styles.headerPad}>
-        <ScreenHeader title={title} onBack={() => navigation.goBack()} />
+        <ScreenHeader
+          title={title}
+          onBack={() => navigation.goBack()}
+          right={
+            canEdit && placeId && stage === 'draft' ? (
+              <Pressable onPress={() => void onSaveOnly()} disabled={busy != null} hitSlop={10} accessibilityRole="button">
+                <Text style={styles.saveLink}>{busy === 'save' ? 'Saving…' : 'Save'}</Text>
+              </Pressable>
+            ) : undefined
+          }
+        />
       </View>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-          <ScreenHero
-            tone="teal"
-            eyebrow={!placeId ? 'After visiting' : stage === 'live' ? 'Live community' : stage === 'review' ? 'With the owner' : 'Draft'}
-            title={name.trim() || label.trim() || 'A new community'}
-            meta={
-              access === 'notes'
-                ? 'You can add notes and photos. The owner changes the rest.'
-                : access === 'none'
-                  ? 'It’s with the owner for approval. They can send it back if something needs changing.'
-                  : 'Fill in what you saw at the gate. Save any time, then send it to the owner.'
-            }
-            chips={[
-              { label: 'Photos', value: `${photos.length}/${MAX_PLACE_PHOTOS}` },
-              { label: 'Ready', value: `${checklist.filter((c) => c.done).length}/${checklist.length}` },
-              { label: 'Choices', value: slots.length },
-            ]}
-          />
 
+      {/* The step track: every step, the one you're on, and the ones that are done. */}
+      <View style={styles.track}>
+        <View style={styles.trackRow}>
+          {steps.map((s, i) => {
+            const on = i === stepIndex;
+            const ok = s.key === 'review' ? missing.length === 0 : done(s.key);
+            const reachable = !!placeId || i === 0;
+            return (
+              <React.Fragment key={s.key}>
+                {i > 0 ? <View style={[styles.trackLine, i <= stepIndex && styles.trackLineOn]} /> : null}
+                <Pressable
+                  onPress={() => reachable && go(i)}
+                  disabled={!reachable}
+                  hitSlop={6}
+                  style={[styles.trackDot, ok && styles.trackDotOk, on && styles.trackDotOn]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Step ${i + 1}: ${s.title}${ok ? ', done' : ''}`}
+                >
+                  {ok && !on ? <IconCheck size={13} color={colors.white} /> : <Text style={[styles.trackNum, on && styles.trackNumOn]}>{i + 1}</Text>}
+                </Pressable>
+              </React.Fragment>
+            );
+          })}
+        </View>
+        <View style={styles.trackLabelRow}>
+          <Text style={styles.trackStep}>
+            Step {stepIndex + 1} of {steps.length} · {step.short}
+          </Text>
+          <Text style={styles.trackDone}>
+            {doneCount}/{steps.length - 1} done
+          </Text>
+        </View>
+      </View>
+
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView ref={scroll} contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           {place?.setup.reviewNote && stage === 'draft' ? (
-            <View style={styles.pad}>
+            <View style={styles.ownerNote}>
               <WarningList items={[`Owner’s note: ${place.setup.reviewNote}`]} />
             </View>
           ) : null}
 
-          {canEdit && stage !== 'live' ? (
-            <View style={styles.checkCard}>
-              <Checklist items={checklist} />
+          <View style={styles.stepHead}>
+            <View style={styles.stepIcon}>
+              <Icon size={22} color={TEAL} />
             </View>
-          ) : null}
+            <View style={styles.flex}>
+              <Text style={styles.stepTitle}>{step.title}</Text>
+              <Text style={styles.stepWhat}>{lead}</Text>
+            </View>
+          </View>
 
-          <FormSection step={1} done={placeDone} title="The place" caption="What it’s called and where the gate is.">
-            {canEdit ? (
-              <>
-                <ChoiceChips label="Kind" options={TYPE_OPTIONS} value={type} onChange={setType} />
-                <TextField label="Name" optional value={name} onChangeText={setName} maxLength={PLACE_NAME_MAX} placeholder="Lakshmi Towers" autoCapitalize="words" />
-                <TextField
-                  label="Label people know it by"
-                  value={label}
-                  onChangeText={setLabel}
-                  maxLength={PLACE_LABEL_MAX}
-                  placeholder="Lakshmi Towers, Vedayapalem"
-                  hint="Shown in the customer app and on the poster."
-                  autoCapitalize="words"
-                />
-                <LocationPicker value={point} onChange={setPoint} />
-              </>
-            ) : (
-              <Text style={styles.readOnly}>
-                {PLACE_TYPE_LABEL[type]} · {name || label}
-              </Text>
-            )}
-          </FormSection>
-
-          <FormSection
-            step={2}
-            done={photos.length > 0}
-            title="Photos"
-            caption="The gate, where cars park, the water point. The first one is shown to customers."
-            right={<Text style={styles.count}>{`${photos.length}/${MAX_PLACE_PHOTOS}`}</Text>}
-          >
-            {placeId ? (
-              <>
-                {access !== 'none' ? <ChoiceChips label="Next photo shows" options={KIND_OPTIONS} value={photoKind} onChange={setPhotoKind} /> : null}
-                <PhotoStrip
-                  placeId={placeId}
-                  photos={photos}
-                  adding={uploading}
-                  onAdd={access !== 'none' && photos.length < MAX_PLACE_PHOTOS ? () => void addPhoto() : undefined}
-                  onRemove={access !== 'none' ? removePhoto : undefined}
-                />
-              </>
-            ) : (
-              <TipBandInline>Save the draft first, then add photos of the gate, parking and water point.</TipBandInline>
-            )}
-          </FormSection>
-
-          {canEdit ? (
-            <>
-              <FormSection step={3} done={foundDone} title="What you found" caption="Answer what you can. The owner reads this before approving.">
-
-                <ChoiceChips label="Did the society agree?" options={options(PERMISSION_LABEL)} value={inspection.permission ?? null} onChange={(v) => set('permission', v)} />
-                <ChoiceChips label="Water" options={options(WATER_LABEL)} value={inspection.water ?? null} onChange={(v) => set('water', v)} />
-                <ChoiceChips label="Power point for the machine" options={options(POWER_LABEL)} value={inspection.power ?? null} onChange={(v) => set('power', v)} />
-                <ChoiceChips label="Parking" options={options(PARKING_LABEL)} value={inspection.parking ?? null} onChange={(v) => set('parking', v)} />
-                <ChoiceChips label="Space to wash" options={options(SPACE_LABEL)} value={inspection.space ?? null} onChange={(v) => set('space', v)} />
-                <View style={styles.row}>
-                  <View style={styles.flex}>
-                    <TextField
-                      label="About how many cars"
-                      value={countText(inspection.cars)}
-                      onChangeText={(t) => set('cars', textCount(t))}
-                      keyboardType="number-pad"
-                      placeholder="0"
-                      maxLength={3}
-                    />
+          <View style={styles.card}>
+            {canEdit || step.key === 'photos' || step.key === 'review'
+              ? fields[step.key]
+              : summaries[step.key as Exclude<StepKey, 'review'>].map((r) => (
+                  <View key={r.label} style={styles.reviewRow}>
+                    <Text style={styles.reviewLabel}>{r.label}</Text>
+                    <Text style={styles.reviewValue}>{r.value}</Text>
                   </View>
-                  <View style={styles.flex}>
-                    <TextField
-                      label="Bikes"
-                      value={countText(inspection.bikes)}
-                      onChangeText={(t) => set('bikes', textCount(t))}
-                      keyboardType="number-pad"
-                      placeholder="0"
-                      maxLength={3}
-                    />
-                  </View>
-                </View>
-                <ChoiceChips label="Best time to wash" options={options(BEST_TIME_LABEL)} value={inspection.bestTime ?? null} onChange={(v) => set('bestTime', v)} />
-              </FormSection>
-
-              <FormSection step={4} done={contactPhone.length === 10} title="Who to call there" caption="The secretary or watchman, for gate access and water.">
-                <TextField label="Secretary or watchman" optional value={contactName} onChangeText={setContactName} maxLength={CONTACT_NAME_MAX} placeholder="Ramesh (secretary)" autoCapitalize="words" />
-                <PhoneField label="Their number" digits={contactPhone} onChangeDigits={setContactPhone} normalize={normalizePhone} />
-              </FormSection>
-
-              <FormSection
-                step={5}
-                done={slots.length > 0}
-                title="Days residents want"
-                caption={`Ask a few residents. Add up to ${MAX_PROPOSED_SLOTS} choices, best first; the owner picks the final days.`}
-                right={<Text style={styles.count}>{`${slots.length}/${MAX_PROPOSED_SLOTS}`}</Text>}
-              >
-                {slots.map((s, i) => (
-                  <SlotEditor
-                    key={i}
-                    title={choiceLabel(i)}
-                    slot={s}
-                    onChange={(next) => setSlots((all) => all.map((x, j) => (j === i ? next : x)))}
-                    onRemove={slots.length > 1 ? () => setSlots((all) => all.filter((_, j) => j !== i)) : undefined}
-                  />
                 ))}
-                {slots.length < MAX_PROPOSED_SLOTS ? (
-                  <Pressable
-                    onPress={() => setSlots((all) => [...all, NEW_SLOT])}
-                    style={({ pressed }) => [styles.addSlot, pressed && styles.pressed]}
-                    accessibilityRole="button"
-                  >
-                    <IconPlus size={16} color={TEAL} />
-                    <Text style={styles.addSlotText}>{slots.length ? `Add ${choiceLabel(slots.length)}` : 'Add a choice'}</Text>
-                  </Pressable>
-                ) : null}
-              </FormSection>
-            </>
-          ) : null}
+          </View>
 
-          {access !== 'none' ? (
-            <>
-              <FormSection icon={<IconEdit size={13} color={TEAL} />} title="Notes" caption="Anything that helps the team on wash day.">
-                <TextField
-                  label="Anything the team should know"
-                  optional
-                  value={notes}
-                  onChangeText={setNotes}
-                  maxLength={PLACE_NOTES_MAX}
-                  multiline
-                  placeholder="Enter by the back gate before 7. Watchman keeps the tap key."
-                />
-              </FormSection>
-            </>
+          {step.key !== 'review' && canEdit && needs[step.key].length ? (
+            <Text style={styles.stillNeeded}>To finish this step: {needs[step.key].join(', ')}.</Text>
           ) : null}
-          <View style={styles.bottomPad} />
         </ScrollView>
 
-        {access !== 'none' ? (
-          <StickyActions
-            note={
-              error ? (
-                <SheetNotice tone="danger" icon={<IconAlert size={15} color={colors.danger} />}>
-                  {error}
-                </SheetNotice>
-              ) : stage === 'draft' && placeId && missing.length ? (
-                <Text style={styles.missing} numberOfLines={2}>
-                  To send it, add: {missing.join(', ')}
-                </Text>
-              ) : undefined
-            }
-          >
-            {stage === 'draft' && placeId ? (
-              <View style={styles.actionRow}>
-                <View style={styles.flex}>
-                  <Button label="Save draft" variant="secondary" loading={busy === 'save'} disabled={busy != null} onPress={() => void onSave()} />
-                </View>
-                <View style={styles.flexWide}>
-                  <Button label="Send for approval" loading={busy === 'send'} disabled={missing.length > 0 || busy != null} onPress={() => void onSend()} />
-                </View>
-              </View>
-            ) : (
-              <Button label={placeId ? 'Save' : 'Save draft'} size="lg" loading={busy === 'save'} disabled={busy != null} onPress={() => void onSave()} />
-            )}
-          </StickyActions>
-        ) : null}
+        <View style={styles.bottom}>
+          {error ? (
+            <SheetNotice tone="danger" icon={<IconAlert size={15} color={colors.danger} />}>
+              {error}
+            </SheetNotice>
+          ) : last && stage === 'draft' && canEdit && missing.length ? (
+            <Text style={styles.missing} numberOfLines={3}>
+              To send it, add: {missing.join(', ')}
+            </Text>
+          ) : null}
+          <View style={styles.actionRow}>
+            {stepIndex > 0 ? (
+              <Pressable onPress={() => go(stepIndex - 1)} style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="Back a step">
+                <IconChevronLeft size={18} color={colors.slateDeep} />
+                <Text style={styles.backText}>Back</Text>
+              </Pressable>
+            ) : null}
+            <View style={styles.flex}>
+              {!last ? (
+                <Button
+                  label={canEdit ? (placeId ? 'Save & next' : 'Save draft & next') : 'Next'}
+                  size="lg"
+                  icon={<IconChevronRight size={18} color={colors.white} />}
+                  loading={busy === 'next'}
+                  disabled={busy != null}
+                  onPress={() => void onNext()}
+                />
+              ) : access === 'none' ? (
+                <Button label="Close" size="lg" variant="secondary" onPress={() => navigation.goBack()} />
+              ) : stage === 'draft' && canEdit ? (
+                <Button label="Send to the owner" size="lg" loading={busy === 'send'} disabled={missing.length > 0 || busy != null} onPress={() => void onSend()} />
+              ) : (
+                <Button label="Save changes" size="lg" loading={busy === 'save'} disabled={busy != null} onPress={() => void onSaveOnly()} />
+              )}
+            </View>
+          </View>
+        </View>
       </KeyboardAvoidingView>
     </ScreenContainer>
-  );
-}
-
-/** A soft hint inside a section, before there's anything to show. */
-function TipBandInline({ children }: { children: string }) {
-  return (
-    <View style={styles.inlineTip}>
-      <Text style={styles.inlineTipText}>{children}</Text>
-    </View>
   );
 }
 
 /** Stands in for the detail request on a new community (nothing to load yet). */
 const EMPTY = { ok: false, status: 204, json: () => Promise.resolve({}) };
 
+const DOT = 28;
+
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  flexWide: { flex: 1.4 },
   row: { flexDirection: 'row', gap: spacing.md },
-  actionRow: { flexDirection: 'row', gap: spacing.sm },
   headerPad: { paddingHorizontal: spacing.md },
   loading: { marginTop: spacing.xl },
-  scroll: { paddingTop: spacing.xs },
   pad: { paddingHorizontal: spacing.md, paddingTop: spacing.md, gap: spacing.md },
-  checkCard: {
+  pressed: { opacity: 0.75 },
+  saveLink: { ...typography.label, fontSize: 15, fontWeight: '800', color: TEAL },
+
+  track: { paddingHorizontal: spacing.md, paddingTop: spacing.xs, paddingBottom: spacing.sm, gap: spacing.xs + 2 },
+  trackRow: { flexDirection: 'row', alignItems: 'center' },
+  trackLine: { flex: 1, height: 2, backgroundColor: colors.border, marginHorizontal: 2 },
+  trackLineOn: { backgroundColor: TEAL_PALE },
+  trackDot: {
+    width: DOT,
+    height: DOT,
+    borderRadius: DOT / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.white,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+  },
+  trackDotOk: { backgroundColor: TEAL, borderColor: TEAL },
+  trackDotOn: { width: DOT + 6, height: DOT + 6, borderRadius: (DOT + 6) / 2, backgroundColor: TEAL_MIST, borderColor: TEAL, borderWidth: 2.5 },
+  trackNum: { ...typography.caption, fontSize: 12.5, fontWeight: '800', color: colors.slateDeep, letterSpacing: 0 },
+  trackNumOn: { color: TEAL, fontSize: 14 },
+  trackLabelRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  trackStep: { ...typography.caption, fontSize: 12.5, fontWeight: '800', color: TEAL, letterSpacing: 0 },
+  trackDone: { ...typography.caption, fontSize: 12.5, color: colors.slate, letterSpacing: 0 },
+
+  scroll: { paddingBottom: spacing.xl },
+  ownerNote: { paddingHorizontal: spacing.md, paddingTop: spacing.sm },
+  stepHead: { flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start', paddingHorizontal: spacing.md, paddingTop: spacing.md },
+  stepIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 16,
+    backgroundColor: TEAL_MIST,
+    borderWidth: 1,
+    borderColor: TEAL_PALE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepTitle: { ...typography.heading, fontSize: 21, color: colors.ink, letterSpacing: -0.3 },
+  stepWhat: { ...typography.body, fontSize: 14.5, lineHeight: 20, color: colors.slateDeep, marginTop: 2 },
+  card: {
     marginTop: spacing.md,
     marginHorizontal: spacing.md,
     padding: spacing.md,
+    gap: spacing.md,
     backgroundColor: colors.white,
     borderRadius: 20,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
   },
-  count: { ...typography.label, fontSize: 13, fontWeight: '800', color: TEAL },
-  readOnly: { ...typography.bodyStrong, color: colors.waterInk },
-  missing: { ...typography.caption, fontSize: 12.5, color: colors.amberDeep, fontWeight: '700', letterSpacing: 0, textAlign: 'center' },
+  stillNeeded: { ...typography.label, fontSize: 13, color: colors.amberDeep, paddingHorizontal: spacing.md + 4, marginTop: spacing.sm },
+  small: { ...typography.caption, fontSize: 13, lineHeight: 18, color: colors.slateDeep, letterSpacing: 0 },
+  groupTitle: { ...typography.bodyStrong, fontSize: 15, fontWeight: '800', color: colors.ink },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
+
+  tabs: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  tab: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, height: 34, borderRadius: 17, borderWidth: 1 },
+  tabHave: { backgroundColor: TEAL_MIST, borderColor: '#99F6E4' },
+  tabNeed: { backgroundColor: '#FFFBEB', borderColor: '#FDE68A' },
+  tabOptional: { backgroundColor: colors.white, borderColor: colors.border },
+  tabOn: { borderWidth: 2, borderColor: TEAL },
+  tabText: { ...typography.caption, fontSize: 12.5, fontWeight: '800', letterSpacing: 0 },
+  shotCard: { gap: spacing.sm, padding: spacing.sm + 4, borderRadius: radius.lg, backgroundColor: colors.surface },
+  shotHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  shotTitle: { ...typography.bodyStrong, fontSize: 15, fontWeight: '800', color: colors.ink },
+  shotHint: { ...typography.body, fontSize: 14, lineHeight: 19, color: colors.slateDeep },
+
   addSlot: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -517,8 +807,41 @@ const styles = StyleSheet.create({
     backgroundColor: TEAL_MIST,
   },
   addSlotText: { ...typography.label, color: TEAL, fontWeight: '800' },
-  pressed: { opacity: 0.75 },
-  inlineTip: { backgroundColor: TEAL_MIST, borderRadius: radius.md, padding: spacing.sm + 4 },
-  inlineTipText: { ...typography.caption, fontSize: 13, color: TEAL, fontWeight: '600', letterSpacing: 0, lineHeight: 18 },
-  bottomPad: { height: spacing.lg },
+
+  reviewCard: { gap: 6, padding: spacing.sm + 4, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white },
+  reviewCardNeed: { borderColor: '#FDE68A', backgroundColor: '#FFFDF5' },
+  reviewHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: 2 },
+  reviewDot: { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  reviewDotOk: { backgroundColor: TEAL },
+  reviewDotNeed: { backgroundColor: colors.amberDeep },
+  reviewTitle: { flex: 1, ...typography.bodyStrong, fontSize: 15, fontWeight: '800', color: colors.ink },
+  reviewEdit: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  reviewEditText: { ...typography.label, fontSize: 13, fontWeight: '800', color: TEAL },
+  reviewRow: { flexDirection: 'row', gap: spacing.sm },
+  reviewLabel: { width: 84, ...typography.caption, fontSize: 13, color: colors.slate, letterSpacing: 0 },
+  reviewValue: { flex: 1, ...typography.label, fontSize: 13.5, color: colors.waterInk },
+
+  bottom: {
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
+    gap: spacing.sm,
+    backgroundColor: colors.white,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  missing: { ...typography.caption, fontSize: 12.5, color: colors.amberDeep, fontWeight: '700', letterSpacing: 0, textAlign: 'center' },
+  actionRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center' },
+  backBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    height: 52,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+  },
+  backText: { ...typography.label, fontSize: 15, fontWeight: '800', color: colors.slateDeep },
 });

@@ -235,9 +235,9 @@ SELECT 'biz_mana', 'pb_biz_mana_default', column1, 'vs_biz_mana_' || column2, co
   ('cs_bike_tyre', 'twoWheeler_S', 5000), ('cs_bike_tyre', 'twoWheeler_M', 5000),
   ('cs_bike_seat', 'twoWheeler_S', 8000), ('cs_bike_seat', 'twoWheeler_M', 8000));
 
--- Doorstep washes cost 15% more (travel and water), at least ₹50.
+-- Community washes cost 10% more than the hub (the team's travel), ending in 9: ₹499 → ₹549.
 INSERT INTO mode_adjustments (id, business_id, mode, class_id, percent_bp, fixed_paise, min_extra_paise)
-VALUES ('ma_biz_mana_doorstep_all', 'biz_mana', 'doorstep', NULL, 1500, 0, 5000);
+VALUES ('ma_biz_mana_doorstep_all', 'biz_mana', 'doorstep', NULL, 1000, 0, 0);
 
 -- Community plans (buildings, colonies, streets): priced from the community (doorstep) price of
 -- their catalog service, washes × price less the discount. Weekly is once a week outside, Regular

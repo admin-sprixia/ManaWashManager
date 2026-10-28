@@ -21,6 +21,7 @@ import {
   colors,
   showAlert,
   spacing,
+  showToast,
   typography,
 } from '@mana/ui';
 import { api } from '../../api/client';
@@ -181,7 +182,7 @@ export function PlaceFormScreen({ navigation, route }: Props) {
   const setup = place.setup;
   const warnings = inspectionWarnings(setup.inspection).length;
   const toCheck =
-    warnings + (setup.missing.length ? 1 : 0) + (missingPhotoKinds(place.photos).length ? 1 : 0);
+    warnings + (setup.missing.length ? 1 : 0) + (missingPhotoKinds(place.photos, place.setup.inspection).length ? 1 : 0);
   const teamNames = ctx.users
     .filter((u) => settings.teamIds.includes(u.id))
     .map((u) => u.name.split(' ')[0]!);
@@ -194,6 +195,12 @@ export function PlaceFormScreen({ navigation, route }: Props) {
   };
 
   const save = async () => {
+    // Members pick their flat (or house) when they join, so a community can't go live without them.
+    if (!settings.live && !ctx.units.length) {
+      open('flats');
+      showToast(`Add the ${place.type === 'building' ? 'flats' : 'houses'} first, so members can pick theirs.`, 'error');
+      return;
+    }
     if (!settings.days.length) open('schedule');
     else if (settings.capacityError) open('joining');
     else if (!settings.live && !settings.checksDone) open('approve');

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { MAX_PROPOSED_SLOTS, sortWeekdays, type ProposedSlot } from '@mana/domain';
+import { MAX_PROPOSED_SLOTS, MIN_PROPOSED_SLOTS, sortWeekdays, type ProposedSlot } from '@mana/domain';
 import { IconCalendar, IconCheck, IconClose, IconPlus, colors, radius, showAlert, spacing, typography } from '@mana/ui';
 import { api } from '../../../api/client';
 import { MultiSelectField } from '../../../components/SelectField';
@@ -32,8 +32,9 @@ function ScheduleBody({ ctx }: { ctx: ReviewContext }) {
         <View style={styles.suggest}>
           <View style={styles.suggestHead}>
             <Text style={styles.label}>Residents asked for</Text>
-            <Text style={styles.count}>
+            <Text style={[styles.count, slots.length < MIN_PROPOSED_SLOTS && { color: colors.amberDeep }]}>
               {slots.length}/{MAX_PROPOSED_SLOTS}
+              {slots.length < MIN_PROPOSED_SLOTS ? ` · ${MIN_PROPOSED_SLOTS} needed` : ''}
             </Text>
           </View>
           {slots.map((s, i) => {

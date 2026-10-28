@@ -3,7 +3,6 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { catalogRepo, createPlatformDb, createShopDb, paymentRepo, placeOrderRepo, placeRepo, planRepo, businessRules } from '@mana/db';
 import {
-  BEST_TIME_LABEL,
   CONTACT_NAME_MAX,
   INSPECTION_COUNT_MAX,
   PARKING_LABEL,
@@ -76,7 +75,8 @@ const inspectionSchema = z.object({
   permission: answer(PERMISSION_LABEL),
   cars: vehicleCount,
   bikes: vehicleCount,
-  bestTime: answer(BEST_TIME_LABEL),
+  // When residents want their wash, as a clock time ("06:30").
+  bestTime: z.string().refine(isClockTime, 'Pick the best time to wash').optional(),
 });
 const setupFields = {
   type: placeFields.type,
@@ -87,6 +87,8 @@ const setupFields = {
   notes: z.string().trim().max(PLACE_NOTES_MAX).nullish(),
   contactName: z.string().trim().max(CONTACT_NAME_MAX).nullish(),
   contactPhone: phoneSchema.nullish().or(z.literal('').transform(() => null)),
+  securityName: z.string().trim().max(CONTACT_NAME_MAX).nullish(),
+  securityPhone: phoneSchema.nullish().or(z.literal('').transform(() => null)),
   inspection: inspectionSchema.default({}),
   slots: slotsSchema.default([]),
 };
@@ -100,6 +102,8 @@ const updateSetupSchema = z.object({
   notes: setupFields.notes,
   contactName: setupFields.contactName,
   contactPhone: setupFields.contactPhone,
+  securityName: setupFields.securityName,
+  securityPhone: setupFields.securityPhone,
   inspection: inspectionSchema.optional(),
   slots: slotsSchema.optional(),
 });
@@ -187,6 +191,8 @@ export const placeRoutes = new Hono<{ Bindings: Env }>()
         notes: body.notes || null,
         contactName: body.contactName || null,
         contactPhone: body.contactPhone || null,
+        securityName: body.securityName || null,
+        securityPhone: body.securityPhone || null,
       },
       session.sub,
     );
@@ -226,15 +232,22 @@ export const placeRoutes = new Hono<{ Bindings: Env }>()
     const pdb = createPlatformDb(c.env.DB);
     const businessId = await catalogRepo.businessForShop(c.env.DB, shopId);
     const rules = await businessRules(pdb, businessId);
-    // For one community, its prices include its volume discount (if it has enough cars).
+    // For one community, its prices include its neighbours discount (by the share of its flats that join).
     const { placeId } = c.req.valid('query');
     return c.json({ menu: await planRepo.menu(pdb, shopId, businessId, rules.priceMode, placeId), rules });
   })
   .get('/:id', zValidator('param', placeParam), async (c) => {
     const id = c.req.valid('param').id;
-    const place = await placeRepo.detail(c.env.DB, c.get('session').shopId, id, new Date());
+    const shopId = c.get('session').shopId;
+    const place = await placeRepo.detail(c.env.DB, shopId, id, new Date());
     if (!place) return c.json({ error: 'not_found' as const, message: 'Place not found.' }, 404);
-    return c.json({ place, units: await placeRepo.units(c.get('db'), id) });
+    // How much of the community washes with us, and the neighbours discount that earns.
+    const businessId = await catalogRepo.businessForShop(c.env.DB, shopId);
+    const [units, join] = await Promise.all([
+      placeRepo.units(c.get('db'), id),
+      businessId ? planRepo.joinOf(createPlatformDb(c.env.DB), shopId, businessId, id) : Promise.resolve(null),
+    ]);
+    return c.json({ place, units, join });
   })
   /**
    * What the inspection found. Drafts are open to the whole team; once live, only the owner
@@ -262,6 +275,8 @@ export const placeRoutes = new Hono<{ Bindings: Env }>()
         notes: body.notes === undefined ? undefined : body.notes || null,
         contactName: body.contactName === undefined ? undefined : body.contactName || null,
         contactPhone: body.contactPhone === undefined ? undefined : body.contactPhone || null,
+        securityName: body.securityName === undefined ? undefined : body.securityName || null,
+        securityPhone: body.securityPhone === undefined ? undefined : body.securityPhone || null,
       });
       return c.json({ ok: true as const });
     } catch (e) {

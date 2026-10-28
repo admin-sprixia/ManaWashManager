@@ -9,6 +9,8 @@ import { SheetHead, SheetLabel } from '../../../components/SheetBits';
 const REASONS = [
   'Get the society’s permission in writing',
   'Add a photo of the water point',
+  'Add a photo of the power point',
+  'Add a photo of the wash space',
   'Add a photo of the parking',
   'Add a photo of the gate',
   'Check the secretary’s number',

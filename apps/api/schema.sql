@@ -13,7 +13,7 @@
 -- exact shape Prisma writes ("2026-10-02T09:02:18.357+00:00"), defaults included, so text
 -- comparisons and ordering stay correct whichever side wrote the row.
 --
--- Multi-shop: every table except shops, platform_settings, signup_codes, rate_limits,
+-- Multi-shop: every table except shops, platform_settings, signup_codes, rate_limits, whatsapp_*,
 -- billing_events, customer_accounts and the business-level service network tables (which carry a
 -- business_id instead) has a shop_id. Each parent table
 -- has UNIQUE (shop_id, id), and every link to it is a composite foreign key on (shop_id, x_id),
@@ -879,6 +879,37 @@ CREATE TABLE rate_limits (
   count INTEGER NOT NULL
 );
 
+-- WhatsApp on the business number (Cloud API), platform-level.
+--
+-- Everyone who has messaged the number or been sent something, by 10-digit phone. A customer
+-- who sends STOP gets no more offers or reminders (bills and pickup messages still go).
+CREATE TABLE whatsapp_contacts (
+  phone TEXT PRIMARY KEY CHECK (length(phone) = 10),
+  profile_name TEXT CHECK (profile_name IS NULL OR length(profile_name) <= 120),
+  marketing_stopped_at TEXT,
+  last_inbound_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now'))
+);
+
+-- Every message in and out, by Meta's message id: incoming ones once each (Meta retries
+-- webhooks), outgoing ones with their delivery status as Meta reports it.
+CREATE TABLE whatsapp_messages (
+  id TEXT PRIMARY KEY,
+  direction TEXT NOT NULL CHECK (direction IN ('in', 'out')),
+  phone TEXT NOT NULL CHECK (length(phone) = 10),
+  kind TEXT NOT NULL,
+  body TEXT,
+  purpose TEXT NOT NULL DEFAULT 'chat',
+  status TEXT NOT NULL CHECK (status IN ('received', 'sent', 'delivered', 'read', 'failed')),
+  error TEXT,
+  shop_id TEXT,
+  job_id TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now'))
+);
+CREATE INDEX idx_whatsapp_messages_phone ON whatsapp_messages(phone, created_at);
+CREATE INDEX idx_whatsapp_messages_job ON whatsapp_messages(job_id) WHERE job_id IS NOT NULL;
+
 -- ─── Service network ────────────────────────────────────────────────────────
 -- A business owns one catalog (vehicle classes and sizes, body types, services, base prices by
 -- size, pricing rules); its branches run service points (a hub, doorstep teams). Each branch's
@@ -1190,17 +1221,20 @@ CREATE TABLE places (
   submitted_at TEXT,
   reviewed_by_user_id TEXT,
   reviewed_at TEXT,
+  -- Who to call there besides the contact: the security guard at the gate (optional).
+  security_name TEXT CHECK (security_name IS NULL OR length(security_name) BETWEEN 1 AND 60),
+  security_phone TEXT CHECK (security_phone IS NULL OR length(security_phone) = 10),
   UNIQUE (shop_id, id),
   FOREIGN KEY (shop_id, created_by_user_id) REFERENCES users(shop_id, id)
 );
 
--- The gate, parking, water point and building, from the inspection or later visits.
+-- The gate, parking, wash space, water and power points and building, from the inspection or later visits.
 CREATE TABLE place_photos (
   id TEXT PRIMARY KEY,
   shop_id TEXT NOT NULL REFERENCES shops(id),
   place_id TEXT NOT NULL,
   photo_key TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('gate', 'parking', 'water', 'building', 'other')),
+  kind TEXT NOT NULL CHECK (kind IN ('gate', 'parking', 'space', 'water', 'power', 'building', 'other')),
   created_by_user_id TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
   UNIQUE (shop_id, id),

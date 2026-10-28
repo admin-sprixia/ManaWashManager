@@ -201,7 +201,7 @@ const doorstepJob = (serviceId) =>
 r = await doorstepJob(branch['Community Care']?.id);
 check('A doorstep wash refuses a service done only at communities', r.status === 400 && r.body?.error === 'not_at_homes', show(r));
 r = await doorstepJob(branch['Home Detail']?.id);
-check('…and sells one done at homes: its price plus the visit charge (₹500 + ₹49)', r.status === 201 && r.body?.total === 54900, show(r));
+check('…and sells one done at homes: its price plus the visit charge (₹500 + ₹99)', r.status === 201 && r.body?.total === 59900, show(r));
 
 // ─── Customer app and community menus ────────────────────────────────────────
 

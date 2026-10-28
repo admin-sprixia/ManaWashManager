@@ -11,14 +11,27 @@ import { isClockTime, sortWeekdays, WEEKDAY_SHORT } from './places';
 export type PlaceStage = 'draft' | 'review' | 'live';
 export const PLACE_STAGES: readonly PlaceStage[] = ['draft', 'review', 'live'];
 
-export type PlacePhotoKind = 'gate' | 'parking' | 'water' | 'building' | 'other';
-export const PLACE_PHOTO_KINDS: readonly PlacePhotoKind[] = ['gate', 'parking', 'water', 'building', 'other'];
+export type PlacePhotoKind = 'gate' | 'parking' | 'space' | 'water' | 'power' | 'building' | 'other';
+/** In the order the inspector takes them, walking in from the gate. */
+export const PLACE_PHOTO_KINDS: readonly PlacePhotoKind[] = ['gate', 'parking', 'space', 'water', 'power', 'building', 'other'];
 export const PLACE_PHOTO_KIND_LABEL: Readonly<Record<PlacePhotoKind, string>> = {
   gate: 'Gate',
   parking: 'Parking',
+  space: 'Wash space',
   water: 'Water point',
+  power: 'Power point',
   building: 'Building',
   other: 'Other',
+};
+/** What each photo must show, so the inspector takes exactly the one the owner needs. */
+export const PLACE_PHOTO_KIND_HINT: Readonly<Record<PlacePhotoKind, string>> = {
+  gate: 'Stand outside the main gate, with the name board in the photo.',
+  parking: 'Where the cars are parked, the way the team will find them on wash day.',
+  space: 'The open spot where the team will wash, with room around a car.',
+  water: 'The tap or tank the team can use.',
+  power: 'The socket for the pressure washer, close enough to the wash space.',
+  building: 'The building from outside.',
+  other: 'Anything else the owner should see.',
 };
 export const MAX_PLACE_PHOTOS = 12;
 
@@ -38,7 +51,8 @@ export type PowerAnswer = 'yes' | 'no';
 export type ParkingKind = 'basement' | 'open' | 'street' | 'mixed';
 export type SpaceAnswer = 'good' | 'tight' | 'no';
 export type PermissionAnswer = 'yes' | 'pending' | 'no';
-export type BestTime = 'early' | 'morning' | 'evening';
+/** When residents want their wash: a clock time, "HH:MM" (24-hour, IST). */
+export type BestTime = string;
 
 /** What the visit found. Every answer is optional while it's a draft. */
 export interface Inspection {
@@ -57,7 +71,23 @@ export const POWER_LABEL: Readonly<Record<PowerAnswer, string>> = { yes: 'Power 
 export const PARKING_LABEL: Readonly<Record<ParkingKind, string>> = { basement: 'Basement', open: 'Open parking', street: 'On the street', mixed: 'Mixed' };
 export const SPACE_LABEL: Readonly<Record<SpaceAnswer, string>> = { good: 'Room to wash', tight: 'Tight', no: 'No room' };
 export const PERMISSION_LABEL: Readonly<Record<PermissionAnswer, string>> = { yes: 'Society agreed', pending: 'Asking the society', no: 'Society said no' };
-export const BEST_TIME_LABEL: Readonly<Record<BestTime, string>> = { early: 'Before 7 am', morning: '7 to 10 am', evening: 'Evening' };
+/** Visits saved before best time was a clock time picked one of these; read as a time. */
+const OLD_BEST_TIME: Readonly<Record<string, string>> = { early: '06:00', morning: '08:00', evening: '17:00' };
+const CLOCK = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+/** A best time as stored: "HH:MM", or an old answer turned into one; undefined when it's neither. */
+export function parseBestTime(value: unknown): BestTime | undefined {
+  if (typeof value !== 'string') return undefined;
+  if (CLOCK.test(value)) return value;
+  return OLD_BEST_TIME[value];
+}
+
+/** "6:30 AM" for "06:30". */
+export function bestTimeLabel(time: BestTime): string {
+  const [h, m] = time.split(':').map(Number) as [number, number];
+  const hour = h % 12 || 12;
+  return `${hour}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+}
 
 const pick = <T extends string>(value: unknown, allowed: Readonly<Record<T, string>>): T | undefined =>
   typeof value === 'string' && value in allowed ? (value as T) : undefined;
@@ -76,7 +106,7 @@ export function cleanInspection(raw: unknown): Inspection {
     permission: pick(r.permission, PERMISSION_LABEL),
     cars: count(r.cars),
     bikes: count(r.bikes),
-    bestTime: pick(r.bestTime, BEST_TIME_LABEL),
+    bestTime: parseBestTime(r.bestTime),
   };
   for (const key of Object.keys(out) as (keyof Inspection)[]) if (out[key] === undefined) delete out[key];
   return out;
@@ -162,22 +192,49 @@ export function formatTeam(ids: readonly string[]): string | null {
 
 // ─── Ready to send for review? ───────────────────────────────────────────────
 
+/**
+ * The photos every visit must have before it goes to the owner: the gate, parking and wash space.
+ * The water point, power point, building and anything else are welcome but optional.
+ */
+export const REQUIRED_PLACE_PHOTOS: readonly PlacePhotoKind[] = ['gate', 'parking', 'space'];
+
+/** The photos this visit needs before it goes to the owner (the same for every visit, whatever it found). */
+export function requiredPhotoKinds(_inspection?: Inspection): PlacePhotoKind[] {
+  return [...REQUIRED_PLACE_PHOTOS];
+}
+
+/** At least this many day-and-time choices residents asked for (and at most MAX_PROPOSED_SLOTS). */
+export const MIN_PROPOSED_SLOTS = 3;
+
 export interface DraftCheck {
-  photos: number;
+  /** What residents call it, like "Lakshmi Towers". */
+  name: string | null;
+  /** The kinds of photo taken so far. */
+  photos: readonly PlacePhotoKind[];
   inspection: Inspection;
   slots: readonly ProposedSlot[];
+  /** The secretary (or whoever to call): name and number are both needed; security is optional. */
+  contactName: string | null;
   contactPhone: string | null;
 }
 
 /** What's still missing before a draft can go to the owner; empty when it's ready. */
 export function missingForReview(d: DraftCheck): string[] {
   return [
-    d.photos === 0 ? 'At least one photo' : null,
+    !d.name?.trim() ? 'Name' : null,
+    ...requiredPhotoKinds(d.inspection)
+      .filter((k) => !d.photos.includes(k))
+      .map((k) => `${PLACE_PHOTO_KIND_LABEL[k]} photo`),
     d.inspection.permission == null ? 'Did the society agree?' : null,
     d.inspection.water == null ? 'Water' : null,
+    d.inspection.power == null ? 'Power point' : null,
     d.inspection.parking == null ? 'Parking' : null,
+    d.inspection.space == null ? 'Space to wash' : null,
     d.inspection.cars == null && d.inspection.bikes == null ? 'About how many vehicles' : null,
-    d.contactPhone == null ? 'Secretary or watchman’s number' : null,
-    d.slots.length === 0 ? 'Days and time residents want' : null,
+    !d.contactName?.trim() ? 'Who to call: their name' : null,
+    d.contactPhone == null ? 'Who to call: their number' : null,
+    d.slots.length < MIN_PROPOSED_SLOTS
+      ? `${MIN_PROPOSED_SLOTS} days-and-time choices residents want (${d.slots.length} so far)`
+      : null,
   ].filter((m): m is string => m != null);
 }

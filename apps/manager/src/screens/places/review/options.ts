@@ -78,7 +78,7 @@ export function scheduleLine(days: readonly string[], time: string): string {
 export const OWNER_CHECKS = [
   { key: 'contact', label: 'Spoke to the secretary or watchman', caption: 'They know the team is coming and when.' },
   { key: 'permission', label: 'The society has agreed', caption: 'In writing, or from someone who can say yes.' },
-  { key: 'water', label: 'Water and parking will work', caption: 'Checked the photos of the water point and parking.' },
+  { key: 'water', label: 'Water, power, parking and space will work', caption: 'Checked the photos of each on their tabs.' },
   { key: 'team', label: 'The team can make the days and time', caption: 'No clash with their other wash days.' },
 ] as const;
 

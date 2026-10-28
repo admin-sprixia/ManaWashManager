@@ -21,6 +21,8 @@ const PLATFORM_MODELS = new Set([
   'PlatformSetting',
   'SignupCode',
   'RateLimit',
+  'WhatsAppContact',
+  'WhatsAppMessage',
   'BillingEvent',
   'CustomerAccount',
   'Business',

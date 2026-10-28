@@ -27,7 +27,7 @@ function VisitBody({ ctx }: { ctx: ReviewContext }) {
 }
 
 const issues = (c: ReviewContext) =>
-  inspectionWarnings(c.place.setup.inspection).length + c.place.setup.missing.length + missingPhotoKinds(c.place.photos).length;
+  inspectionWarnings(c.place.setup.inspection).length + c.place.setup.missing.length + missingPhotoKinds(c.place.photos, c.place.setup.inspection).length;
 
 /** What the visit found, for the owner to read before deciding. Reviews only. */
 export const visitTab: ReviewTab = {
@@ -36,11 +36,12 @@ export const visitTab: ReviewTab = {
   title: 'What the visit found',
   icon: (c) => <IconImage size={17} color={c} />,
   show: (c) => !c.settings.live,
-  state: (c) => (issues(c) ? 'attention' : 'done'),
+  // The gate, parking and wash space photos are required; water, power and the rest are optional.
+  state: (c) => (missingPhotoKinds(c.place.photos, c.place.setup.inspection).length ? 'needed' : issues(c) ? 'attention' : 'done'),
   summary: (c) => {
     const setup = c.place.setup;
     const warnings = inspectionWarnings(setup.inspection).length;
-    const noPhotos = missingPhotoKinds(c.place.photos).length;
+    const noPhotos = missingPhotoKinds(c.place.photos, c.place.setup.inspection).length;
     return [
       warnings ? plural(warnings, 'warning') : 'No warnings',
       plural(c.place.photos.length, 'photo'),

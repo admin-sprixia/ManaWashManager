@@ -38,7 +38,8 @@ describe('rules', () => {
     const stored = Object.fromEntries(
       serializeWashPlanRules({ partsCount: 6, priceMode: 'hub', gstin: null }).map(([k, v]) => [k.replace('places.', ''), v]),
     );
-    expect(parseWashPlanRules(stored)).toMatchObject({ partsCount: 6, priceMode: 'hub', gstin: null });
+    // Communities always pay the community price: an old "hub" setting reads as the community price.
+    expect(parseWashPlanRules(stored)).toMatchObject({ partsCount: 6, priceMode: 'doorstep', gstin: null });
   });
 });
 

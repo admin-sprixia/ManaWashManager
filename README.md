@@ -118,6 +118,18 @@ wipe the live database.
    **Copy code** button, and wait for approval. A different name or language goes in
    `WHATSAPP_OTP_TEMPLATE` / `WHATSAPP_OTP_LANGUAGE`. Meta charges a small per-message fee for
    authentication messages. Until this is set up, nobody can sign in on a new phone.
+   **WhatsApp assistant** — the same number answers customers: prices for their model, hours and
+   location (`src/routes/whatsapp.ts`, replies built in `@mana/domain`'s `whatsappChat.ts`).
+   ```bash
+   npx wrangler secret put WHATSAPP_APP_SECRET      # Meta app → App settings → Basic → App secret
+   npx wrangler secret put WHATSAPP_VERIFY_TOKEN    # any long random text: openssl rand -hex 24
+   npx wrangler secret put WHATSAPP_BUSINESS_ID     # the business whose branches it answers for
+   ```
+   Then in the Meta app → WhatsApp → Configuration (or Production setup → Configure Webhooks):
+   Callback URL `https://<api host>/whatsapp/webhook`, Verify token = `WHATSAPP_VERIFY_TOKEN`,
+   **Verify and save**, subscribe the **messages** field, switch on **Subscribe webhooks** for the
+   number, and **Publish** the app (Meta sends real customers' messages only to a published app).
+   Test locally with `npm run test:whatsapp` (its header shows the `wrangler dev` flags).
 4. **Create the tables** — `npm run db:migrate:remote` applies every file in `migrations/`.
    The live database starts empty: no demo shop, no demo accounts. Then load India Post's
    pincode list (about 165,000 offices, used to open branches):

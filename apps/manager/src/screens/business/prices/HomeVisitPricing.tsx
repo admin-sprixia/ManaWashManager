@@ -20,6 +20,7 @@ import {
 import {
   WEEKDAY_SHORT,
   addDaysTo,
+  listPrice,
   doorstepRulesProblem,
   istInstant,
   visitCharge,
@@ -74,6 +75,21 @@ export function HomeVisitPricing({
   };
   const edit = () => setEditingRules(true);
 
+  // Hub ≤ Community ≤ Doorstep: one car at home near the branch should cost more than at a
+  // community. Checked on a ₹499 hub wash with the all-vehicles community rule.
+  const SAMPLE_HUB = 49900;
+  const communityRule = catalog.adjustments.find((a) => a.mode === 'doorstep' && a.classId == null);
+  const sampleCommunity = listPrice({
+    base: SAMPLE_HUB,
+    mode: 'doorstep',
+    classKey: '',
+    adjustments: communityRule ? [{ ...communityRule, classKey: null }] : [],
+    zonePercentBp: 0,
+    roundToPaise: catalog.policy.roundToPaise,
+  }).price;
+  const sampleHome = SAMPLE_HUB + rules.visitFeePaise;
+  const homeTooCheap = sampleHome < sampleCommunity;
+
   return (
     <>
       {!catalog.homeWash ? (
@@ -85,6 +101,13 @@ export function HomeVisitPricing({
         subtitle="Added once to every home visit, on top of the hub price. Two cars at one home pay it once."
         onEdit={edit}
       >
+        {homeTooCheap ? (
+          <Text style={styles.warn}>
+            A home visit near the branch costs less than a community wash: {formatRupees(SAMPLE_HUB)} + {formatRupees(rules.visitFeePaise)} ={' '}
+            {formatRupees(sampleHome)} at home, {formatRupees(sampleCommunity)} at a community. Raise the visit fee to at least{' '}
+            {formatRupees(sampleCommunity - SAMPLE_HUB)}.
+          </Text>
+        ) : null}
         <View style={partStyles.tileRow}>
           <StatTile
             tone="home"
@@ -604,6 +627,15 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   pressed: { opacity: 0.7 },
   note: { ...typography.body, color: colors.slateDeep, fontSize: 13.5, lineHeight: 19, paddingHorizontal: spacing.md },
+  warn: {
+    ...typography.label,
+    fontSize: 13,
+    lineHeight: 18,
+    color: colors.amberDeep,
+    backgroundColor: colors.amberPale,
+    borderRadius: 10,
+    padding: spacing.sm + 2,
+  },
   error: { ...typography.label, color: colors.danger },
   muted: { color: colors.slate },
   nine: { fontSize: 18, fontWeight: '900', color: colors.white },

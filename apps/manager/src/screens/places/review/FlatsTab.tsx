@@ -16,7 +16,8 @@ export const flatsTab: ReviewTab = {
   title: 'Flats and blocks',
   icon: (c) => <IconGrid size={17} color={c} />,
   show: () => true,
-  state: (c) => (c.units.length ? 'done' : 'optional'),
+  // Required: members pick their flat (or house) when they join.
+  state: (c) => (c.units.length ? 'done' : 'needed'),
   summary: (c) => unitsSummary(c.units, noun(c)),
   Body: FlatsBody,
 };

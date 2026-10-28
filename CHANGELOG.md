@@ -10,6 +10,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- **WhatsApp assistant on the business number.** Anyone who messages the shop's WhatsApp number
+  gets Car / Bike / Location & hours buttons, then picks the company and the model from WhatsApp
+  lists (or just types it: "swift", "activa"), and sees only that model's hub prices and wash
+  plans, with hours. Location sends the map pin, address and phone; "Talk to us" gives the team's
+  number. STOP turns offers and reminders off and START turns them back on. Every message in
+  and out is logged with its delivery status. Meta's webhook is
+  `/whatsapp/webhook`, refused without Meta's signature. New settings: `WHATSAPP_APP_SECRET`,
+  `WHATSAPP_VERIFY_TOKEN` and `WHATSAPP_BUSINESS_ID` (README → WhatsApp assistant).
+
+- **New community, step by step.** The visit form is now 7 clear steps with a track at the top
+  (Place → Photos → Site check → Vehicles & time → Who to call → Days residents want → Check &
+  send). Each step says in one line what to do, shows what it still needs, and saves the draft on
+  Next; the last step shows every answer with Change buttons before sending to the owner.
+- **Stricter community visits.** A visit can go to the owner only with its name, label and gate
+  pin; every answer (society, water, power point, parking, space to wash, vehicle count); a photo on
+  each required tab — gate, parking and wash space (water point and power point photos are optional);
+  who to call there, name and number (the security guard's name and number
+  can be added too, optional); and 3 to 5 choices of days and time residents want. Notes stay
+  optional. Each photo tab says exactly
+  what it must show, and the camera opens on the next one missing. The owner can't make a community live
+  until its flats (or houses) are added. "Best time to wash" is now a time, not a choice of three
+  (older answers read as 6:00 AM, 8:00 AM or 5:00 PM).
 - **Branch menu.** More › Menu shows the hub, community and doorstep menus (only the ones the
   branch runs) — plans first, then services in Express, Basic, Shine order — for every vehicle,
   cars or bikes, a size, or a company and model, with only what the branch washes. It shares as a
@@ -17,6 +39,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- **One baseline migration before launch.** The 39 development migrations are now one file,
+  `migrations/0001_init.sql`, which builds exactly the same database (proved with `db:check`
+  and a table-by-table comparison). New schema changes start at `0002_…`. `schema.sql` was
+  missing the community photo kinds and the security contact columns; fixed.
+- **Staging rebuilt from scratch.** The staging Worker, its D1 database and both R2 buckets were
+  deleted (after a full backup) and created again: the database from the baseline, a new
+  `JWT_SECRET`, the India Post pincode list, and the business set up again.
+- **Communities pay more than the hub, and less as neighbours join.** Prices now always run
+  Hub ≤ Community ≤ Doorstep. A community pays the hub price plus HQ's community rule (10% by
+  default, ending in 9: ₹499 → ₹549); the rule can no longer go below the hub. The volume discount
+  by number of cars is replaced by a neighbours discount: every 10% of a community's flats that
+  wash with us (a plan running, or a wash booked this month) takes 1% off every price and plan
+  there, up to 10% when every flat joins (HQ can set 0–20%), and never below the hub price. The
+  price is fixed when a plan is bought and worked out again at each renewal. Staff and residents
+  see "7 of 10 flats wash with us: 7% off · 1 more flat → 8% off" on the join screens and the
+  community page. HQ's community screen sets the rule (Same, +5% … +20%) and the discount. A home
+  visit's default fee is now ₹99 (was ₹49), and HQ is warned when the visit fee would make a home
+  wash cheaper than a community one. Existing HQs move to the new rules (a "less than the hub" rule
+  becomes +10%) and every branch is re-priced.
 - **Plans save the same everywhere.** HQ's plan prices are set against its Standard price book;
   a branch whose washes cost differently (another book, its own prices, a zone, the community
   discount) now gets its plans moved by the same amount, so a plan saves the same share at every

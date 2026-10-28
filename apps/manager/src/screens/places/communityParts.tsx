@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE, type Region } from 'react-native-maps';
 import { PLACE_PHOTO_KIND_LABEL, type PlacePhotoKind, type ProposedSlot } from '@mana/domain';
@@ -15,7 +15,7 @@ import {
 } from '@mana/ui';
 import { privateImage } from '../../api/client';
 import { MultiSelectField } from '../../components/SelectField';
-import { currentLocation, LocationError, mapsEnabled, type Point } from '../../utils/location';
+import { mapsEnabled, trackLocation, type Point } from '../../utils/location';
 import { mapsLink, parsePoint, pointText } from '../../utils/geo';
 import { DAY_SELECT_OPTIONS, daysSummary } from './review/options';
 import { TimeField } from './review/TimeField';
@@ -44,7 +44,13 @@ export function LocationPicker({
   what?: string;
 }) {
   const [busy, setBusy] = useState(false);
+  /** Still getting a sharper fix after the first one, and how close the last one was (metres). */
+  const [sharpening, setSharpening] = useState(false);
+  const [accuracy, setAccuracy] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const stopRef = useRef<(() => void) | null>(null);
+  // Stop sharpening when the screen goes away.
+  useEffect(() => () => stopRef.current?.(), []);
   const [typing, setTyping] = useState(!mapsEnabled && !value);
   const [text, setText] = useState(value ? pointText(value) : '');
   const [region, setRegion] = useState<Region>(() => {
@@ -56,18 +62,40 @@ export function LocationPicker({
     if (value) setText(pointText(value));
   }, [value]);
 
+  /** The quick fix pins at once; the pin then moves closer as the GPS sharpens. */
   const locate = async () => {
+    stopRef.current?.();
     setBusy(true);
     setError(null);
-    try {
-      const p = await currentLocation(`To pin ${what} where you are standing.`);
-      onChange(p);
-      setRegion({ ...p, latitudeDelta: 0.003, longitudeDelta: 0.003 });
-    } catch (e) {
-      setError(e instanceof LocationError ? e.message : 'Couldn’t find your location.');
-    } finally {
-      setBusy(false);
-    }
+    setAccuracy(null);
+    let first = true;
+    stopRef.current = await trackLocation(
+      `To pin ${what} where you are standing.`,
+      (fix) => {
+        const p = { latitude: fix.latitude, longitude: fix.longitude };
+        onChange(p);
+        setAccuracy(fix.accuracy);
+        if (first) {
+          first = false;
+          setBusy(false);
+          setSharpening(true);
+          setRegion({ ...p, latitudeDelta: 0.003, longitudeDelta: 0.003 });
+        }
+      },
+      (message) => {
+        setBusy(false);
+        setSharpening(false);
+        if (message) setError(message);
+      },
+    );
+  };
+  /** The person put the pin where they want it: keep it there. */
+  const place = (p: Point) => {
+    stopRef.current?.();
+    stopRef.current = null;
+    setSharpening(false);
+    setAccuracy(null);
+    onChange(p);
   };
 
   return (
@@ -80,11 +108,11 @@ export function LocationPicker({
             style={StyleSheet.absoluteFill}
             region={region}
             onRegionChangeComplete={setRegion}
-            onPress={(e) => onChange(e.nativeEvent.coordinate)}
+            onPress={(e) => place(e.nativeEvent.coordinate)}
             showsUserLocation
             toolbarEnabled={false}
           >
-            {value ? <Marker coordinate={value} draggable onDragEnd={(e) => onChange(e.nativeEvent.coordinate)} pinColor={colors.tealDeep} /> : null}
+            {value ? <Marker coordinate={value} draggable onDragEnd={(e) => place(e.nativeEvent.coordinate)} pinColor={colors.tealDeep} /> : null}
           </MapView>
         </View>
       ) : null}
@@ -95,6 +123,16 @@ export function LocationPicker({
         loading={busy}
         onPress={() => void locate()}
       />
+      {sharpening ? (
+        <View style={styles.sharpRow}>
+          <ActivityIndicator size="small" color={colors.tealDeep} />
+          <Text style={styles.sharpText}>
+            Pinned{accuracy != null ? ` to within about ${Math.round(accuracy)} m` : ''}. Getting a sharper fix… you can carry on.
+          </Text>
+        </View>
+      ) : accuracy != null && value ? (
+        <Text style={styles.help}>Pinned to within about {Math.round(accuracy)} m.</Text>
+      ) : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {value ? (
         <View style={styles.pointRow}>
@@ -116,7 +154,7 @@ export function LocationPicker({
           onChangeText={(t) => {
             setText(t);
             const p = parsePoint(t);
-            if (p) onChange(p);
+            if (p) place(p);
           }}
           placeholder="14.43920, 79.97450"
           keyboardType="numbers-and-punctuation"
@@ -162,12 +200,15 @@ export function PhotoStrip({
   onAdd,
   onRemove,
   adding,
+  addLabel = 'Add photo',
 }: {
   placeId: string;
   photos: readonly PhotoItem[];
   onAdd?: () => void;
   onRemove?: (photo: PhotoItem) => void;
   adding?: boolean;
+  /** The add tile's words, like "Add gate photo". */
+  addLabel?: string;
 }) {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
@@ -185,9 +226,9 @@ export function PhotoStrip({
         </View>
       ))}
       {onAdd ? (
-        <Pressable onPress={onAdd} disabled={adding} style={({ pressed }) => [styles.addPhoto, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="Add a photo">
+        <Pressable onPress={onAdd} disabled={adding} style={({ pressed }) => [styles.addPhoto, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel={addLabel}>
           {adding ? <ActivityIndicator color={colors.teal} /> : <IconCamera size={26} color={colors.tealDeep} />}
-          <Text style={styles.addText}>{adding ? 'Uploading…' : 'Add photo'}</Text>
+          <Text style={styles.addText}>{adding ? 'Uploading…' : addLabel}</Text>
         </Pressable>
       ) : null}
     </ScrollView>
@@ -245,6 +286,8 @@ const TEAL = colors.tealDeep;
 const TEAL_MIST = '#F0FDFA';
 
 const styles = StyleSheet.create({
+  sharpRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  sharpText: { flex: 1, ...typography.caption, fontSize: 13, color: colors.tealDeep, fontWeight: '700', letterSpacing: 0 },
   group: { gap: spacing.sm },
   mapWrap: { height: 230, borderRadius: 18, overflow: 'hidden', borderWidth: 1, borderColor: colors.border },
   pointRow: {

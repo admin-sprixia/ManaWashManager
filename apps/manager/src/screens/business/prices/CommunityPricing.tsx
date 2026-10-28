@@ -1,12 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import {
   BottomSheet,
   Button,
   ChoiceChips,
-  IconClose,
-  IconPlus,
-  IconUsers,
   TextField,
   colors,
   showAlert,
@@ -14,14 +11,7 @@ import {
   spacing,
   typography,
 } from '@mana/ui';
-import {
-  BP_PER_PERCENT,
-  COMMUNITY_TIER_MAX_BP,
-  COMMUNITY_TIERS_MAX,
-  communityTiersProblem,
-  lessDiscount,
-  type CommunityTier,
-} from '@mana/domain';
+import { BP_PER_PERCENT, JOIN_DISCOUNT_MAX_BP, communityPrice } from '@mana/domain';
 import { api } from '../../../api/client';
 import { formatRupees } from '../../../utils/format';
 import { bpToText, textToBp, type Catalog, type useCatalog } from '../shared';
@@ -46,9 +36,9 @@ export function describeCommunityRule(rule: Pick<Adjustment, 'percentBp' | 'fixe
 }
 
 /**
- * Communities: many cars at one place on a wash day share the team's travel, so each pays less.
- * A size's own community price wins; otherwise the hub price with the rule. Bigger communities
- * can earn a volume discount on top.
+ * Communities: the team goes out to them, so a community pays the hub price plus the community
+ * rule (10% by default, ending in 9); never less than the hub. The neighbours discount then takes
+ * up to a set % off as more of a community's flats wash with us, still never below the hub price.
  */
 export function CommunityPricing({
   catalog,
@@ -59,16 +49,16 @@ export function CommunityPricing({
   catalog: Catalog;
   run: Run;
   classId: string;
-  /** A community price to show the volume discount on, like Basic Wash · S at ₹449. */
-  example: { name: string; price: number } | null;
+  /** A wash to show the neighbours discount on, like Basic Wash · S: its hub and community prices. */
+  example: { name: string; price: number; hub: number } | null;
 }) {
   const cls = catalog.classes.find((c) => c.id === classId);
   const own = catalog.adjustments.find((a) => a.mode === 'doorstep' && a.classId === classId) ?? null;
   const all = catalog.adjustments.find((a) => a.mode === 'doorstep' && a.classId == null) ?? null;
   const rule = own ?? all;
-  const tiers = catalog.away.communityTiers;
+  const maxBp = catalog.away.joinDiscountBp;
   const [editingRule, setEditingRule] = useState(false);
-  const [editingTiers, setEditingTiers] = useState(false);
+  const [editingDiscount, setEditingDiscount] = useState(false);
   const [busyPct, setBusyPct] = useState<number | null>(null);
   const currentBp = rule?.percentBp ?? 0;
   const plain = !rule || (!rule.fixedPaise && !rule.minExtraPaise);
@@ -111,15 +101,11 @@ export function CommunityPricing({
     if (message) showAlert('Couldn’t save the rule', message);
   };
 
-  // The ladder: below the first step, then each step, with the example price.
-  const ladder = [
-    { label: tiers[0] ? `1–${tiers[0].minCars - 1} cars` : 'Any number of cars', off: 0 },
-    ...tiers.map((t, i) => ({
-      label: tiers[i + 1] ? `${t.minCars}–${tiers[i + 1]!.minCars - 1} cars` : `${t.minCars}+ cars`,
-      off: t.discountBp,
-    })),
-  ];
-  const maxOff = Math.max(1, ...ladder.map((l) => l.off));
+  // The neighbours discount as a community fills up: 10 flats is the easy way to read it.
+  const ladder = [0, 2, 5, 8, 10].map((joined) => ({
+    label: joined === 0 ? 'No flats yet' : joined === 10 ? 'Every flat' : `${joined} of 10 flats`,
+    off: Math.round((maxBp * joined) / 10),
+  }));
 
   return (
     <>
@@ -146,41 +132,42 @@ export function CommunityPricing({
       </Panel>
 
       <Panel
-        title="Bigger communities pay less"
+        title="Neighbours discount"
         subtitle={
-          tiers.length
-            ? `Up to ${COMMUNITY_TIER_MAX_BP / BP_PER_PERCENT}% off, counted from the cars on a community’s list.`
-            : `Off. Add steps so communities with more cars pay less (up to ${COMMUNITY_TIER_MAX_BP / BP_PER_PERCENT}%).`
+          maxBp
+            ? `Up to ${pct(maxBp)} off when every flat joins: ${pct(maxBp / 10)} for every 10% of flats. Never below the hub price.`
+            : 'Off. Turn it on so communities pay less as more neighbours join.'
         }
-        onEdit={() => setEditingTiers(true)}
-        editLabel={tiers.length ? 'Edit' : 'Add'}
+        onEdit={() => setEditingDiscount(true)}
+        editLabel="Edit"
       >
-        {tiers.length ? (
+        {maxBp ? (
           <View style={styles.ladder}>
-            {ladder.map((l) => (
-              <View key={l.label} style={styles.ladderRow}>
-                <View style={styles.ladderLabelCol}>
-                  <Text style={styles.ladderLabel}>{l.label}</Text>
-                  <Text style={styles.ladderOff}>{l.off ? `${pct(l.off)} off` : 'Community price'}</Text>
+            {ladder.map((l) => {
+              const price = example ? communityPrice(example.price, example.hub, l.off) : null;
+              const atHub = example != null && price === example.hub && l.off > 0;
+              return (
+                <View key={l.label} style={styles.ladderRow}>
+                  <View style={styles.ladderLabelCol}>
+                    <Text style={styles.ladderLabel}>{l.label}</Text>
+                    <Text style={styles.ladderOff}>{l.off ? `${pct(l.off)} off` : 'Community price'}</Text>
+                  </View>
+                  <View style={styles.ladderTrack}>
+                    <View style={[styles.ladderBar, { width: `${Math.max(8, (l.off / maxBp) * 100)}%`, opacity: l.off ? 1 : 0.35 }]} />
+                  </View>
+                  <View style={styles.ladderPriceCol}>
+                    <Text style={styles.ladderPrice}>{price != null ? formatRupees(price) : ''}</Text>
+                    {atHub ? <Text style={styles.ladderHub}>hub price</Text> : null}
+                  </View>
                 </View>
-                <View style={styles.ladderTrack}>
-                  <View style={[styles.ladderBar, { width: `${Math.max(8, (l.off / maxOff) * 100)}%`, opacity: l.off ? 1 : 0.35 }]} />
-                </View>
-                <Text style={styles.ladderPrice}>{example ? formatRupees(l.off ? lessDiscount(example.price, l.off) : example.price) : ''}</Text>
-              </View>
-            ))}
-            {example ? <Text style={partStyles.note}>Prices are for {example.name}. Every wash and plan at that community gets the same %.</Text> : null}
+              );
+            })}
+            <Text style={partStyles.note}>
+              {example ? `Prices are for ${example.name} (hub ${formatRupees(example.hub)}). ` : ''}A flat counts when it has a plan running or a
+              wash booked this month. Every wash and plan there gets the same %, worked out again at each renewal.
+            </Text>
           </View>
-        ) : (
-          <Pressable
-            onPress={() => setEditingTiers(true)}
-            style={({ pressed }) => [styles.emptyLadder, pressed && styles.pressed]}
-            accessibilityRole="button"
-          >
-            <IconUsers size={20} color={TONE.community.main} />
-            <Text style={styles.emptyLadderText}>Like 10+ cars → 5% off, 25+ cars → 10% off</Text>
-          </Pressable>
-        )}
+        ) : null}
       </Panel>
 
       <RuleSheet
@@ -195,16 +182,16 @@ export function CommunityPricing({
           return message;
         }}
       />
-      <TiersSheet
-        visible={editingTiers}
-        tiers={tiers}
-        onClose={() => setEditingTiers(false)}
+      <DiscountSheet
+        visible={editingDiscount}
+        discountBp={maxBp}
+        onClose={() => setEditingDiscount(false)}
         onSave={async (next) => {
           const message = await run(
-            () => api.business['community-tiers'].$put({ json: { tiers: next } }),
-            next.length ? 'Volume discount saved' : 'Volume discount off',
+            () => api.business['community-discount'].$put({ json: { discountBp: next } }),
+            next ? 'Neighbours discount saved' : 'Neighbours discount off',
           );
-          if (!message) setEditingTiers(false);
+          if (!message) setEditingDiscount(false);
           return message;
         }}
       />
@@ -212,16 +199,16 @@ export function CommunityPricing({
   );
 }
 
+// A community never pays less than the hub: the rule only adds to it.
 const QUICK_RULES = [
   { bp: 0, label: 'Same as hub' },
-  { bp: -500, label: '5% less' },
-  { bp: -1000, label: '10% less' },
-  { bp: -1500, label: '15% less' },
-  { bp: -2000, label: '20% less' },
+  { bp: 500, label: '5% more' },
+  { bp: 1000, label: '10% more' },
+  { bp: 1500, label: '15% more' },
+  { bp: 2000, label: '20% more' },
 ];
 
 const DIRECTIONS = [
-  { value: 'less', label: 'Less than hub' },
   { value: 'same', label: 'Same as hub' },
   { value: 'more', label: 'More than hub' },
 ] as const;
@@ -241,7 +228,7 @@ function RuleSheet({
   onClose: () => void;
   onSave: (next: { percentBp: number; classOnly: boolean }) => Promise<string | null>;
 }) {
-  const [direction, setDirection] = useState<'less' | 'same' | 'more'>('less');
+  const [direction, setDirection] = useState<'same' | 'more'>('more');
   const [percent, setPercent] = useState('10');
   const [scope, setScope] = useState<'all' | 'class'>('all');
   const [error, setError] = useState<string | null>(null);
@@ -250,8 +237,8 @@ function RuleSheet({
   useEffect(() => {
     if (!visible) return;
     const bp = rule?.percentBp ?? 0;
-    setDirection(bp < 0 ? 'less' : bp > 0 ? 'more' : 'same');
-    setPercent(bp ? bpToText(Math.abs(bp)) : '10');
+    setDirection(bp > 0 || !rule ? 'more' : 'same');
+    setPercent(bp > 0 ? bpToText(bp) : '10');
     setScope(classOnly ? 'class' : 'all');
     setError(null);
   }, [visible, rule, classOnly]);
@@ -261,9 +248,8 @@ function RuleSheet({
     if (direction !== 'same') {
       const parsed = textToBp(percent);
       if (parsed == null || parsed <= 0) return setError('Enter a percentage, like 10.');
-      if (direction === 'less' && parsed > 90 * BP_PER_PERCENT) return setError('Up to 90% less.');
-      if (direction === 'more' && parsed > 200 * BP_PER_PERCENT) return setError('Up to 200% more.');
-      bp = direction === 'less' ? -parsed : parsed;
+      if (parsed > 200 * BP_PER_PERCENT) return setError('Up to 200% more.');
+      bp = parsed;
     }
     setSaving(true);
     const message = await onSave({ percentBp: bp, classOnly: scope === 'class' });
@@ -272,14 +258,14 @@ function RuleSheet({
   };
 
   const example = 50000;
-  const exampleAfter = Math.round((example * (10_000 + (direction === 'same' ? 0 : (direction === 'less' ? -1 : 1) * (textToBp(percent) ?? 0)))) / 10_000);
+  const exampleAfter = Math.round((example * (10_000 + (direction === 'same' ? 0 : (textToBp(percent) ?? 0)))) / 10_000);
 
   return (
     <BottomSheet
       visible={visible}
       onClose={onClose}
       title="Community rule"
-      subtitle="Every community price is the hub price with this rule"
+      subtitle="Every community price is the hub price plus this, ending in 9. Never less than the hub."
       footer={<Button label="Save" size="lg" loading={saving} onPress={() => void submit()} />}
     >
       <View style={styles.form}>
@@ -291,7 +277,7 @@ function RuleSheet({
             onChangeText={setPercent}
             keyboardType="decimal-pad"
             maxLength={5}
-            hint={`A ${formatRupees(example)} hub wash → ${formatRupees(Math.max(0, exampleAfter))} at a community (before rounding)`}
+            hint={`A ${formatRupees(example)} hub wash → ${formatRupees(Math.max(0, exampleAfter))} at a community (before it ends in 9)`}
           />
         ) : null}
         <ChoiceChips
@@ -309,57 +295,33 @@ function RuleSheet({
   );
 }
 
-interface TierDraft {
-  key: number;
-  cars: string;
-  percent: string;
-}
+const DISCOUNT_CHOICES = [0, 500, 1000, 1500, 2000].filter((bp) => bp <= JOIN_DISCOUNT_MAX_BP);
 
-function TiersSheet({
+function DiscountSheet({
   visible,
-  tiers,
+  discountBp,
   onClose,
   onSave,
 }: {
   visible: boolean;
-  tiers: CommunityTier[];
+  discountBp: number;
   onClose: () => void;
-  onSave: (tiers: CommunityTier[]) => Promise<string | null>;
+  onSave: (discountBp: number) => Promise<string | null>;
 }) {
-  const [rows, setRows] = useState<TierDraft[]>([]);
+  const [value, setValue] = useState(String(discountBp));
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
-    setRows(
-      tiers.length
-        ? tiers.map((t, i) => ({ key: i, cars: String(t.minCars), percent: bpToText(t.discountBp) }))
-        : [
-            { key: 0, cars: '5', percent: '5' },
-            { key: 1, cars: '10', percent: '10' },
-          ],
-    );
+    setValue(String(discountBp));
     setError(null);
-  }, [visible, tiers]);
+  }, [visible, discountBp]);
 
-  const update = (key: number, patch: Partial<TierDraft>) => {
-    setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
-    setError(null);
-  };
-
-  const submit = async (list: TierDraft[]) => {
-    const parsed: CommunityTier[] = [];
-    for (const r of list) {
-      const cars = Number(r.cars);
-      const bp = textToBp(r.percent);
-      if (!Number.isInteger(cars) || bp == null) return setError('Enter whole cars and a percentage on each step.');
-      parsed.push({ minCars: cars, discountBp: bp });
-    }
-    const problem = communityTiersProblem(parsed);
-    if (problem) return setError(problem);
+  const bp = Number(value);
+  const submit = async () => {
     setSaving(true);
-    const message = await onSave(parsed);
+    const message = await onSave(bp);
     setSaving(false);
     if (message) setError(message);
   };
@@ -368,75 +330,21 @@ function TiersSheet({
     <BottomSheet
       visible={visible}
       onClose={onClose}
-      title="Volume discount"
-      subtitle="From this many cars at one community, this much off"
-      footer={
-        <View style={styles.footer}>
-          <Button label="Save" size="lg" loading={saving} onPress={() => void submit(rows)} />
-          {tiers.length ? <Button label="Turn off" variant="ghost" disabled={saving} onPress={() => void submit([])} /> : null}
-        </View>
-      }
+      title="Neighbours discount"
+      subtitle="Off every community price when every flat washes with us"
+      footer={<Button label="Save" size="lg" loading={saving} onPress={() => void submit()} />}
     >
       <View style={styles.form}>
-        {rows.map((r) => (
-          <View key={r.key} style={styles.tierRow}>
-            <View style={styles.tierBox}>
-              <TextInput
-                style={styles.tierInput}
-                value={r.cars}
-                onChangeText={(t) => update(r.key, { cars: t.replace(/\D/g, '') })}
-                keyboardType="number-pad"
-                maxLength={4}
-                accessibilityLabel="From this many cars"
-              />
-              <Text style={styles.tierUnit}>+ cars</Text>
-            </View>
-            <Text style={styles.tierArrow}>→</Text>
-            <View style={styles.tierBox}>
-              <TextInput
-                style={styles.tierInput}
-                value={r.percent}
-                onChangeText={(t) => update(r.key, { percent: t })}
-                keyboardType="decimal-pad"
-                maxLength={4}
-                accessibilityLabel="Percent off"
-              />
-              <Text style={styles.tierUnit}>% off</Text>
-            </View>
-            <Pressable
-              onPress={() => setRows((prev) => prev.filter((x) => x.key !== r.key))}
-              hitSlop={8}
-              style={({ pressed }) => [styles.remove, pressed && styles.pressed]}
-              accessibilityRole="button"
-              accessibilityLabel="Remove this step"
-            >
-              <IconClose size={16} color={colors.slateDeep} />
-            </Pressable>
-          </View>
-        ))}
-        {rows.length < COMMUNITY_TIERS_MAX ? (
-          <Pressable
-            onPress={() => {
-              const last = rows[rows.length - 1];
-              setRows((prev) => [
-                ...prev,
-                {
-                  key: Math.max(-1, ...prev.map((x) => x.key)) + 1,
-                  cars: last ? String(Number(last.cars || '0') + 10) : '5',
-                  percent: last ? String(Number(last.percent || '0') + 5) : '5',
-                },
-              ]);
-            }}
-            style={({ pressed }) => [styles.addStep, pressed && styles.pressed]}
-            accessibilityRole="button"
-          >
-            <IconPlus size={16} color={colors.indigo} />
-            <Text style={styles.addStepText}>Add a step</Text>
-          </Pressable>
-        ) : null}
+        <ChoiceChips
+          label="When every flat joins"
+          options={DISCOUNT_CHOICES.map((c) => ({ value: String(c), label: c ? `${pct(c)} off` : 'Off' }))}
+          value={value}
+          onChange={setValue}
+        />
         <Text style={styles.hint}>
-          More cars should get a bigger discount, up to {COMMUNITY_TIER_MAX_BP / BP_PER_PERCENT}% however many cars there are. It comes off
-          the community price, plans included.
+          {bp
+            ? `It grows with the community: every 10% of its flats that join takes ${pct(bp / 10)} off for everyone there. 7 of 10 flats → ${pct((bp * 7) / 10)} off. A price never goes below the hub price, whatever the discount.`
+            : 'Communities pay the community price, however many flats join.'}
         </Text>
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </View>
@@ -445,7 +353,6 @@ function TiersSheet({
 }
 
 const styles = StyleSheet.create({
-  pressed: { opacity: 0.7 },
   note: { ...typography.body, color: colors.slateDeep, fontSize: 13.5, lineHeight: 19, paddingHorizontal: spacing.md },
   error: { ...typography.label, color: colors.danger },
   hint: { ...typography.caption, color: colors.slate, letterSpacing: 0, lineHeight: 17 },
@@ -472,44 +379,9 @@ const styles = StyleSheet.create({
   ladderOff: { ...typography.caption, fontSize: 12, color: TONE.community.ink, fontWeight: '700', letterSpacing: 0 },
   ladderTrack: { flex: 1, height: 10, borderRadius: 5, backgroundColor: TONE.community.pale, overflow: 'hidden' },
   ladderBar: { height: 10, borderRadius: 5, backgroundColor: TONE.community.main },
-  ladderPrice: { width: 64, textAlign: 'right', ...typography.bodyStrong, fontSize: 15, fontWeight: '800', color: colors.waterInk },
-  emptyLadder: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    padding: spacing.sm + 4,
-    borderRadius: radius.lg,
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
-    borderColor: TONE.community.line,
-    backgroundColor: TONE.community.pale,
-  },
-  emptyLadderText: { flex: 1, ...typography.label, fontSize: 13.5, color: TONE.community.ink, fontWeight: '700' },
+  ladderPriceCol: { width: 70, alignItems: 'flex-end' },
+  ladderPrice: { textAlign: 'right', ...typography.bodyStrong, fontSize: 15, fontWeight: '800', color: colors.waterInk },
+  ladderHub: { ...typography.caption, fontSize: 11, color: colors.slate, letterSpacing: 0 },
 
   form: { gap: spacing.md },
-  footer: { gap: spacing.xs },
-  tierRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  tierBox: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.sm + 4,
-  },
-  tierInput: { flex: 1, paddingVertical: spacing.sm + 2, fontSize: 17, fontWeight: '800', color: colors.waterInk },
-  tierUnit: { fontSize: 13.5, fontWeight: '700', color: colors.slateDeep },
-  tierArrow: { fontSize: 16, color: colors.slate, fontWeight: '800' },
-  remove: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surface,
-  },
-  addStep: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingVertical: spacing.xs },
-  addStepText: { ...typography.label, color: colors.indigo, fontWeight: '800' },
 });

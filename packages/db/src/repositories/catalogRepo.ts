@@ -396,16 +396,45 @@ export const catalogRepo = {
   },
 
   /**
-   * The coming-soon services on each branch's menu (shown to customers without a price), with
-   * the vehicles they're for, in menu order.
+   * The coming-soon services on each branch's menu, with the vehicles they're for and the list
+   * prices waiting for them (the branch's price book, else the default one), in menu order.
+   * WhatsApp shows them without a price; printed posters, which outlive the launch, with it.
    */
   async comingSoon(
     d1: D1Database,
     businessId: string,
-  ): Promise<{ shopId: string; name: string; description: string | null; kind: ServiceKind; categories: VehicleCategory[] }[]> {
-    const rows = await queryRows<{ shop_id: string; id: string; name: string; description: string | null; kind: string; class_keys: string | null }>(
+  ): Promise<
+    {
+      shopId: string;
+      name: string;
+      description: string | null;
+      kind: ServiceKind;
+      categories: VehicleCategory[];
+      checklist: string[];
+      /** Paise, per vehicle class and size ("car" "L"). */
+      prices: { classKey: string; sizeKey: string; price: number }[];
+    }[]
+  > {
+    const rows = await queryRows<{
+      shop_id: string;
+      id: string;
+      name: string;
+      description: string | null;
+      kind: string;
+      checklist: string | null;
+      class_keys: string | null;
+      prices: string | null;
+    }>(
       d1,
-      `SELECT m.shop_id, c.id, c.name, c.description, c.kind,
+      `SELECT m.shop_id, c.id, c.name, c.description, c.kind, c.checklist,
+              (SELECT group_concat(v.key || ':' || z.key || ':' || e.price)
+                 FROM price_book_entries e
+                 JOIN vehicle_sizes z ON z.id = e.size_id
+                 JOIN vehicle_classes v ON v.id = z.class_id
+                WHERE e.service_id = c.id AND e.price > 0
+                  AND e.price_book_id = COALESCE(
+                        (SELECT s.price_book_id FROM shops s WHERE s.id = m.shop_id),
+                        (SELECT b.id FROM price_books b WHERE b.business_id = c.business_id AND b.is_default = 1))) AS prices,
               (SELECT group_concat(v.key) FROM catalog_service_classes sc JOIN vehicle_classes v ON v.id = sc.class_id
                 WHERE sc.service_id = c.id) AS class_keys
          FROM catalog_services c
@@ -420,6 +449,14 @@ export const catalogRepo = {
       description: r.description,
       kind: parseServiceKind(r.kind),
       categories: [...new Set((r.class_keys ?? '').split(',').filter(Boolean).map((k) => categoryForClass(k)))],
+      checklist: parseChecklist(r.checklist),
+      prices: (r.prices ?? '')
+        .split(',')
+        .filter(Boolean)
+        .map((p) => {
+          const [classKey = '', sizeKey = '', price = '0'] = p.split(':');
+          return { classKey, sizeKey, price: Number(price) };
+        }),
     }));
   },
 

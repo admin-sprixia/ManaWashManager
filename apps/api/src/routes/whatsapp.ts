@@ -276,15 +276,19 @@ export const whatsappRoutes = new Hono<{ Bindings: Env }>()
   })
   /** The same products with their card text, for scripts/build-catalog-cards.mjs. */
   .get('/catalog.json', async (c) => {
-    const ctx = await chatContext(c.env, new URL(c.req.url).origin);
+    const businessId = c.env.WHATSAPP_BUSINESS_ID?.trim() || null;
+    const [ctx, soonServices] = await Promise.all([
+      chatContext(c.env, new URL(c.req.url).origin),
+      businessId ? catalogRepo.comingSoon(c.env.DB, businessId) : [],
+    ]);
     const branch = ctx.branches[0];
     const products = branch ? catalogProducts(branch) : [];
     return c.json({
       businessName: ctx.businessName,
       city: branch?.city ?? null,
       products: products.map((p) => ({ id: p.id, kind: p.kind, title: p.title, section: p.section.label, card: p.card })),
-      /** Shown on the posters as coming soon, without a price. */
-      comingSoon: branch?.comingSoon ?? [],
+      /** Not on sale yet, with the prices waiting for them: printed posters show them as normal. */
+      comingSoon: soonServices.filter((c) => c.shopId === branch?.id).map(({ shopId: _shop, ...c }) => c),
     });
   })
   /** A product's card picture (uploaded by scripts/build-catalog-cards.mjs). */

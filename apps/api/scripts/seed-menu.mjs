@@ -122,7 +122,7 @@ const SERVICES = [
   // stay in the catalog, ready for the day they start (set comingSoon to false and run again).
   {
     name: 'Anti-Rust Protection',
-    description: 'An underbody wash and anti-rust coating under the car, done at the shop.',
+    description: 'Underbody wash and anti-rust coating.',
     kind: 'protection',
     comingSoon: true,
     checklist: ['Underbody wash', 'Anti-rust coating under the car'],

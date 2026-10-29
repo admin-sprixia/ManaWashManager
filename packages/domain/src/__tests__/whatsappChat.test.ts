@@ -392,7 +392,7 @@ const soonHub: ChatBranch = {
   ...hub,
   services: hub.services.filter((s) => s.id !== 'rust' && s.id !== 'care'),
   comingSoon: [
-    { name: 'Anti-Rust Protection', description: 'An underbody wash and anti-rust coating under the car, done at the shop.', categories: ['car'] },
+    { name: 'Anti-Rust Protection', description: 'Underbody wash and anti-rust coating.', categories: ['car'] },
     {
       name: 'Premium Care',
       description: 'Our specialized, ceramic-infused deep-cleaning lather, designed to condition the clear coat and maximize gloss.',
@@ -425,7 +425,7 @@ describe('WhatsApp assistant: coming soon', () => {
         '💡 3 & 12-month plans save more: reply *PLANS*',
         '',
         '🔜 *Coming soon*',
-        '• *Anti-Rust Protection*: an underbody wash and anti-rust coating under the car, done at the shop',
+        '• *Anti-Rust Protection*: underbody wash and anti-rust coating',
         '• *Premium Care*: our specialized, ceramic-infused deep-cleaning lather, designed to condition the clear coat and maximize gloss',
         '',
         "👉 Reply a number to see what's included",
@@ -460,7 +460,7 @@ describe('WhatsApp assistant: coming soon', () => {
       { action: 'data_exchange', screen: 'MODEL', data: { step: 'model', company: 'Maruti Suzuki', model: 'Swift' }, flow_token: chatFlowToken('b1', 'car', 'en') },
       soonCtx,
     ).data.prices as string;
-    expect(md).toContain('## 🔜 Coming soon\n• **Anti-Rust Protection**: an underbody wash');
+    expect(md).toContain('## 🔜 Coming soon\n• **Anti-Rust Protection**: underbody wash');
   });
 });
 

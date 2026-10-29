@@ -65,13 +65,32 @@ const [csv, info] = await Promise.all([
   fetch(`${API}/whatsapp/catalog.json`).then((r) => r.json()),
 ]);
 const cards = new Map(info.products.map((p) => [p.id, p]));
-/** Services on the way: shown as coming soon, without a price. */
-const comingSoon = (category) => (info.comingSoon ?? []).filter((c) => c.categories.includes(category));
+
 const products = parseCsv(csv).map((r) => {
   const [service, section] = r.id.split('--');
   const kind = r.custom_label_1 === 'Wash plans' ? 'plan' : r.custom_label_1 === 'Add-ons' ? 'addon' : 'service';
   return { id: r.id, service, section, label: r.custom_label_0, kind, price: Math.round(Number(r.price.split(' ')[0])), card: cards.get(r.id) };
 });
+// Services not on sale yet (WhatsApp says "coming soon") are printed like any other: a poster
+// stays up long after they start. Their waiting list prices, per class size, become sections.
+const SOON_SECTIONS = { 'car:S': 'small', 'car:M': 'mid', 'car:L': 'large', 'twoWheeler:M': 'bike' };
+const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+for (const c of info.comingSoon ?? []) {
+  for (const p of c.prices) {
+    const section = SOON_SECTIONS[`${p.classKey}:${p.sizeKey}`];
+    if (!section) continue;
+    const id = `${slug(c.name)}--${section}`;
+    products.push({
+      id,
+      service: slug(c.name),
+      section,
+      label: section,
+      kind: c.kind === 'addon' ? 'addon' : 'service',
+      price: Math.round(p.price / 100),
+      card: { id, title: c.name, card: { subtitle: c.description, lines: c.checklist ?? [], footer: null, popular: false } },
+    });
+  }
+}
 const price = (service, section) => products.find((p) => p.service === service && p.section === section)?.price ?? null;
 const cardOf = (service, section) => products.find((p) => p.service === service && p.section === section)?.card ?? null;
 const rupees = (n) => (n == null ? '—' : `₹${n.toLocaleString('en-IN')}`);
@@ -86,10 +105,6 @@ const subtitleOf = (service, section) =>
     .join(' ') || null;
 
 // ─── Shared drawing ──────────────────────────────────────────────────────────
-/** A gold-outlined "COMING SOON" pill centred on (cx, cy). */
-const soonPill = (cx, cy) =>
-  `<rect x="${cx - 78}" y="${cy - 17}" width="156" height="34" rx="17" fill="none" stroke="url(#gold)" stroke-width="1.6"/>` +
-  `<text x="${cx}" y="${cy + 6}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="14" letter-spacing="2.5" fill="#F0CF8E">COMING SOON</text>`;
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 function inline(file, x, y, width, prefix) {
@@ -346,18 +361,9 @@ ${REVIEW_URL ? qrTile(REVIEW_URL, (W - qs) / 2, 110, qs) : qrPlaceholder((W - qs
   for (const s of servicesIn('small', 'addon')) {
     const sub = (subtitleOf(s, 'small') ?? '').replace(/\.$/, '');
     body += `<rect x="60" y="${y}" width="${W - 120}" height="62" rx="14" fill="none" stroke="url(#gold)" stroke-width="1.6"/>`;
-    body += `<text x="86" y="${y + 31}" font-family="${SERIF}" font-size="28" fill="#FFFFFF">${esc(titleOf(s, 'small'))} <tspan font-family="${SANS}" font-size="13" font-weight="700" letter-spacing="2" fill="#F0CF8E">ADD-ON · ANY CAR</tspan></text>`;
-    body += `<text x="86" y="${y + 51}" font-family="${SANS}" font-size="14" fill="#C4CCF0">Add to Express, Basic or Premium Wash  ·  ${esc(sub.charAt(0).toLowerCase() + sub.slice(1))}</text>`;
+    body += `<text x="86" y="${y + 31}" font-family="${SERIF}" font-size="28" fill="#FFFFFF">${esc(titleOf(s, 'small'))} <tspan font-family="${SANS}" font-size="13" font-weight="700" letter-spacing="2" fill="#F0CF8E">ADD TO EXPRESS, BASIC OR PREMIUM WASH</tspan></text>`;
+    body += `<text x="86" y="${y + 51}" font-family="${SANS}" font-size="14" fill="#C4CCF0">${esc(sub)}</text>`;
     body += `<text x="${W - 60 - colW / 2}" y="${y + 42}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="30" fill="#F8E2B0">+${rupees(price(s, 'small'))}</text>`;
-    y += 70;
-  }
-  // Coming soon: the name and what it is, a gold "Coming soon" where the price will be.
-  for (const c of comingSoon('car')) {
-    const about = (c.description ?? '').replace(/\.$/, '');
-    body += `<rect x="60" y="${y}" width="${W - 120}" height="62" rx="14" fill="none" stroke="#9BAEF5" stroke-opacity="0.45" stroke-width="1.2" stroke-dasharray="6 5"/>`;
-    body += `<text x="86" y="${y + 31}" font-family="${SERIF}" font-size="28" fill="#FFFFFF">${esc(c.name)}</text>`;
-    body += `<text x="86" y="${y + 51}" font-family="${SANS}" font-size="14" fill="#C4CCF0">${esc(about.length > 118 ? `${about.slice(0, 117)}…` : about)}</text>`;
-    body += soonPill(W - 60 - colW / 2, y + 31);
     y += 70;
   }
   // Bikes, then the plans and WhatsApp boxes.
@@ -385,12 +391,6 @@ ${REVIEW_URL ? qrTile(REVIEW_URL, (W - qs) / 2, 110, qs) : qrPlaceholder((W - qs
     body += `<rect x="${bikeX}" y="${by}" width="${bikeW}" height="42" rx="12" fill="none" stroke="url(#gold)" stroke-width="1.4"/>`;
     body += `<text x="${bikeX + 26}" y="${by + 29}" font-family="${SERIF}" font-size="23" fill="#FFFFFF">${esc(titleOf(s, 'bike'))} <tspan font-family="${SANS}" font-size="12" font-weight="700" letter-spacing="1.5" fill="#F0CF8E">ADD-ON</tspan></text>`;
     body += `<text x="${bikeX + bNameW + bColW / 2}" y="${by + 30}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="25" fill="#F8E2B0">+${rupees(price(s, 'bike'))}</text>`;
-    by += 48;
-  }
-  for (const c of comingSoon('bike')) {
-    body += `<rect x="${bikeX}" y="${by}" width="${bikeW}" height="42" rx="12" fill="none" stroke="#9BAEF5" stroke-opacity="0.45" stroke-width="1.2" stroke-dasharray="6 5"/>`;
-    body += `<text x="${bikeX + 26}" y="${by + 29}" font-family="${SERIF}" font-size="23" fill="#FFFFFF">${esc(c.name)}</text>`;
-    body += soonPill(bikeX + bNameW + bColW / 2, by + 21);
     by += 48;
   }
   const boxX = bikeX + bikeW + 30;

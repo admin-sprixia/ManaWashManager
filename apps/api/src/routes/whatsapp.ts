@@ -140,16 +140,35 @@ async function chatContext(env: Env, origin: string): Promise<ChatContext> {
         hours: b.hours,
         reviewUrl: b.reviewUrl,
         vehicleTypes: b.vehicleTypes,
-        services: b.services.map((s) => ({
-          id: s.id,
-          name: s.name,
-          popular: s.popular,
-          kind: s.kind,
-          description: s.description,
-          checklist: s.checklist,
-          durationMin: s.durationMin,
-          prices: s.prices,
-        })),
+        services: [
+          ...b.services.map((s) => ({
+            id: s.id,
+            name: s.name,
+            popular: s.popular,
+            kind: s.kind,
+            description: s.description,
+            checklist: s.checklist,
+            durationMin: s.durationMin,
+            prices: s.prices,
+          })),
+          // Not on sale yet: listed in their place, marked coming soon, at the price waiting for them.
+          ...soon
+            .filter((c) => c.shopId === b.id)
+            .map((c) => ({
+              id: `soon:${c.name}`,
+              name: c.name,
+              popular: false,
+              kind: c.kind,
+              comingSoon: true,
+              description: c.description,
+              checklist: c.checklist,
+              durationMin: c.durationMin,
+              prices: b.vehicleTypes.flatMap((v) => {
+                const price = c.bodyPrices.find((p) => p.bodyKey === v.bodyKey)?.price;
+                return price ? [{ vehicleTypeId: v.id, price }] : [];
+              }),
+            })),
+        ],
         plans: (plans[i] ?? []).map((p) => ({
           name: p.name,
           washes: p.washes,
@@ -159,9 +178,6 @@ async function chatContext(env: Env, origin: string): Promise<ChatContext> {
           upgrade: p.upgrade ? { every: p.upgrade.every, name: p.upgrade.name } : null,
           prices: p.prices.map((x) => ({ vehicleTypeId: x.vehicleTypeId, total: x.total, listTotal: x.listTotal })),
         })),
-        comingSoon: soon
-          .filter((c) => c.shopId === b.id)
-          .map((c) => ({ name: c.name, description: c.description, categories: c.categories })),
       }),
     ),
   };

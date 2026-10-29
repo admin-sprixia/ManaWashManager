@@ -48,6 +48,8 @@ export interface ChatBranch {
     popular: boolean;
     /** Add-ons are listed apart, as "+₹249 with wash 1, 2 or 3". */
     kind?: ServiceKind;
+    /** Not on sale yet: listed in its place with "(🔜 Coming soon)", never sold. */
+    comingSoon?: boolean;
     description?: string | null;
     /** What's included, one short line each. */
     checklist?: string[];
@@ -65,8 +67,6 @@ export interface ChatBranch {
     upgrade?: { every: number; name: string } | null;
     prices: { vehicleTypeId: string; total: number; listTotal: number }[];
   }[];
-  /** Services on the way (Premium Care…): shown as coming soon, without a price, not numbered. */
-  comingSoon?: { name: string; description: string | null; categories: VehicleCategory[] }[];
 }
 
 export type ChatLang = 'en' | 'te';
@@ -250,8 +250,9 @@ export function chatVehicleType(
   return null;
 }
 
+/** The branch sells something for this vehicle type (coming-soon services don't count). */
 const priced = (branch: ChatBranch, typeId: string) =>
-  branch.services.some((s) => s.prices.some((p) => p.vehicleTypeId === typeId && p.price > 0));
+  branch.services.some((s) => !s.comingSoon && s.prices.some((p) => p.vehicleTypeId === typeId && p.price > 0));
 
 /** The listed models this branch washes and has prices for, in one category. */
 function modelsAt(branch: ChatBranch, category: VehicleCategory, edits: readonly VehicleModelEdit[]): VehicleGuideRow[] {
@@ -667,7 +668,7 @@ function afterPrices(t: Turn, b: ChatBranch, category: VehicleCategory): ChatBut
 
 /** The washes an add-on goes with: their numbers on the list ("1, 2 or 3") and names. */
 function addonWashes(t: Turn, services: ServiceItem[]): { numbers: string; names: string } | null {
-  const washes = services.flatMap((s, i) => (s.service.kind === 'protection' ? [] : [{ n: i + 1, name: s.name }]));
+  const washes = services.flatMap((s, i) => (s.service.kind === 'protection' || s.service.comingSoon ? [] : [{ n: i + 1, name: s.name }]));
   if (!washes.length) return null;
   const or = say(t, 'or', 'లేదా');
   return { numbers: joinAnd(washes.map((w) => String(w.n)), or), names: joinAnd(washes.map((w) => w.name), or) };
@@ -707,23 +708,17 @@ function noPrices(t: Turn, b: ChatBranch, label: string, category: VehicleCatego
 const washLine = (t: Turn) =>
   say(t, 'We use a high-lubricity, pH-neutral daily maintenance wash.', 'మేము హై-లూబ్రిసిటీ, pH-న్యూట్రల్ డైలీ మెయింటెనెన్స్ వాష్ వాడుతాం.');
 
-/** The branch's coming-soon services for this kind of vehicle. */
-const comingSoonFor = (b: ChatBranch, category: VehicleCategory) => (b.comingSoon ?? []).filter((c) => c.categories.includes(category));
-
-/** "Premium Care: our specialized, ceramic-infused…", a coming-soon service on one line. */
-const soonLine = (c: NonNullable<ChatBranch['comingSoon']>[number]) => {
-  const about = c.description?.trim().replace(/\.$/, '');
-  return about ? `• *${c.name}*: ${about.charAt(0).toLowerCase()}${about.slice(1)}` : `• *${c.name}*`;
-};
+/** "(🔜 Coming soon)" after a service that isn't on sale yet. */
+const soonTag = (t: Turn, s: Pick<Service, 'comingSoon'>) => (s.comingSoon ? say(t, ' (🔜 Coming soon)', ' (🔜 త్వరలో)') : '');
 
 /** The price list: washes, the add-on, monthly plans, numbered; longer plans on PLANS; what's coming. */
 function prices(t: Turn, b: ChatBranch, x: Target): ChatMessage[] {
   const { services, addons, monthly, longer } = priceItems(b, x.type);
   const buttons = afterPrices(t, b, categoryOf(x));
-  if (!services.length) return noPrices(t, b, labelOf(t, x), categoryOf(x));
+  if (!services.some((s) => !s.service.comingSoon)) return noPrices(t, b, labelOf(t, x), categoryOf(x));
   let n = 0;
   const lines = [...priceHead(t, b, x), '', say(t, '🧽 *Washes*', '🧽 *వాష్‌లు*'), `_${washLine(t)}_`];
-  for (const s of services) lines.push(`${keycap(++n)} ${s.name}${star(s)}: *${rupees(s.price)}*`);
+  for (const s of services) lines.push(`${keycap(++n)} ${s.name}${star(s)}: *${rupees(s.price)}*${soonTag(t, s.service)}`);
   if (addons.length) {
     const withWash = addonWashes(t, services);
     const what = addons.length === 1 ? say(t, '✨ *Add-on*', '✨ *అదనంగా*') : say(t, '✨ *Add-ons*', '✨ *అదనంగా*');
@@ -732,7 +727,7 @@ function prices(t: Turn, b: ChatBranch, x: Target): ChatMessage[] {
       withWash ? say(t, `${what} (with wash ${withWash.numbers})`, `${what} (${withWash.numbers} వాష్‌తో)`) : say(t, `${what} (with any wash)`, `${what} (ఏ వాష్‌తోనైనా)`),
     );
     for (const a of addons) {
-      lines.push(`${keycap(++n)} ${a.name}: *+${rupees(a.price)}*`);
+      lines.push(`${keycap(++n)} ${a.name}: *+${rupees(a.price)}*${soonTag(t, a.service)}`);
       if (a.service.description) lines.push(`_${a.service.description.replace(/\.$/, '')}_`);
     }
   }
@@ -753,8 +748,6 @@ function prices(t: Turn, b: ChatBranch, x: Target): ChatMessage[] {
   } else if (longer.length) {
     lines.push('', say(t, '📅 *Wash plans*: reply *PLANS* to see them', '📅 *వాష్ ప్లాన్‌లు*: చూడటానికి *PLANS* అని పంపండి'));
   }
-  const soon = comingSoonFor(b, categoryOf(x));
-  if (soon.length) lines.push('', say(t, '🔜 *Coming soon*', '🔜 *త్వరలో*'), ...soon.map(soonLine));
   lines.push('', say(t, "👉 Reply a number to see what's included", '👉 ఏమేమి ఉంటాయో చూడటానికి నంబర్ పంపండి'));
   return withButtons(t, lines.join('\n'), buttons);
 }
@@ -806,7 +799,7 @@ function itemDetails(t: Turn, b: ChatBranch, x: Target, item: ServiceItem | Plan
   const checklist = s.checklist ?? [];
   return [
     head,
-    `${who} · *${addon ? '+' : ''}${rupees(item.price)}*`,
+    `${who} · *${addon ? '+' : ''}${rupees(item.price)}*${soonTag(t, s)}`,
     ...(s.description ? ['', s.description] : []),
     ...(s.kind === 'wash' || s.kind == null ? ['', `🧴 ${washLine(t)}`] : []),
     ...(checklist.length ? ['', say(t, "✅ *What's included*", '✅ *ఇందులో ఉండేవి*'), ...checklist.map((c) => `• ${c}`)] : []),
@@ -818,7 +811,11 @@ function itemDetails(t: Turn, b: ChatBranch, x: Target, item: ServiceItem | Plan
             : say(t, `⏱️ Takes about ${s.durationMin} minutes`, `⏱️ సుమారు ${s.durationMin} నిమిషాలు పడుతుంది`),
         ]
       : []),
-    ...(addon ? ['', addonAsk(t, b, x)] : []),
+    ...(s.comingSoon
+      ? ['', say(t, "🔜 *Coming soon.* It isn't available yet: ask us at the counter, and we'll tell you when it starts.", '🔜 *త్వరలో.* ఇది ఇంకా అందుబాటులో లేదు: కౌంటర్ వద్ద అడగండి, ప్రారంభమైనప్పుడు చెబుతాం.')]
+      : addon
+        ? ['', addonAsk(t, b, x)]
+        : []),
   ].join('\n');
 }
 
@@ -960,7 +957,7 @@ function rateReply(t: Turn, b: ChatBranch): ChatMessage[] {
 }
 
 /** A coming-soon service asked about by name: what it is, and that it isn't here yet. */
-function soonReply(t: Turn, b: ChatBranch, c: NonNullable<ChatBranch['comingSoon']>[number]): ChatMessage[] {
+function soonReply(t: Turn, b: ChatBranch, c: Service): ChatMessage[] {
   return [
     {
       type: 'buttons',
@@ -1077,7 +1074,7 @@ function flowOpener(t: Turn, b: ChatBranch, category: VehicleCategory): ChatMess
 function flowPrices(t: Turn, b: ChatBranch, make: string, model: string): string {
   const x = modelTarget(t, b, make, model);
   const found = x && priceItems(b, x.type);
-  if (!x || !found?.services.length) {
+  if (!x || !found?.services.some((s) => !s.service.comingSoon)) {
     return say(t, `# ${make} ${model}\nSorry, we don't have prices for this one at ${placeName(t, b)} yet.`, `# ${make} ${model}\nక్షమించండి, దీనికి ఇంకా ధరలు లేవు.`);
   }
   const { services, addons, monthly, longer } = found;
@@ -1088,20 +1085,18 @@ function flowPrices(t: Turn, b: ChatBranch, make: string, model: string): string
     x.size ? say(t, `A ${x.size.name.toLowerCase()} · ${where}`, `${x.size.te.name} · ${where}`) : `${x.type.name} · ${where}`,
     '',
     say(t, '## 🧽 Washes', '## 🧽 వాష్‌లు'),
-    ...services.map((s) => `${++n}. **${s.name}**${star(s)} — ${rupees(s.price)}`),
+    ...services.map((s) => `${++n}. **${s.name}**${star(s)} — ${rupees(s.price)}${soonTag(t, s.service)}`),
   ];
   if (addons.length) {
     const withWash = addonWashes(t, services);
     lines.push('', withWash ? say(t, `## ✨ Add-on (with wash ${withWash.numbers})`, `## ✨ అదనంగా (${withWash.numbers} వాష్‌తో)`) : say(t, '## ✨ Add-on (with any wash)', '## ✨ అదనంగా (ఏ వాష్‌తోనైనా)'));
-    for (const a of addons) lines.push(`${++n}. **${a.name}** — +${rupees(a.price)}${a.service.description ? ` · ${a.service.description.replace(/\.$/, '')}` : ''}`);
+    for (const a of addons) lines.push(`${++n}. **${a.name}** — +${rupees(a.price)}${soonTag(t, a.service)}${a.service.description ? ` · ${a.service.description.replace(/\.$/, '')}` : ''}`);
   }
   if (monthly.length) {
     lines.push('', say(t, '## 📅 Monthly plans', '## 📅 నెల ప్లాన్‌లు'));
     for (const p of monthly) lines.push(`${++n}. **${p.name}**${star(p)} — ${rupees(p.price)} · ${planSpan(t, p.plan.washes, p.plan.months)}${saveNote(t, p)}`);
   }
   if (longer.length) lines.push('', longerHint(t, longer).replace(/\*/g, '**'));
-  const soon = comingSoonFor(b, categoryOf(x));
-  if (soon.length) lines.push('', say(t, '## 🔜 Coming soon', '## 🔜 త్వరలో'), ...soon.map((c) => soonLine(c).replace(/\*/g, '**')));
   lines.push('', say(t, "Tap below to get this in chat, then reply with a number to see what's included.", 'దీన్ని చాట్‌లో పొందండి, తర్వాత వివరాల కోసం నంబర్ పంపండి.'));
   return lines.join('\n');
 }
@@ -1284,7 +1279,7 @@ export function chatReply(input: ChatInput, ctx: ChatContext): ChatResult {
       ]);
     }
     // Asking about something that's coming soon ("premium care?"): say so, and when.
-    const soonAsked = (only ?? ctx.branches[0]!).comingSoon?.find((c) => alnum(c.name).length >= 4 && alnum(text).includes(alnum(c.name)));
+    const soonAsked = (only ?? ctx.branches[0]!).services.find((c) => c.comingSoon && alnum(c.name).length >= 4 && alnum(text).includes(alnum(c.name)));
     if (soonAsked) return done(soonReply(t, only ?? ctx.branches[0]!, soonAsked));
     if (THANKS.test(text)) {
       return done([{ type: 'text', text: say(t, "You're welcome! 😊 Send *Hi* any time for our prices.", 'సంతోషం! 😊 మా ధరల కోసం ఎప్పుడైనా *Hi* పంపండి.') }]);

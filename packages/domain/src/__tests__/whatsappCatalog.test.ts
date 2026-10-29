@@ -88,6 +88,11 @@ describe('WhatsApp catalog', () => {
     expect(p.card).toEqual({ subtitle: 'Gentle shampoo, microfiber hand-dry, extra paint care.', lines: ['Add to Basic Wash'], footer: 'Adds 15 min', popular: false });
   });
 
+  it('leaves out what isn’t on sale yet', () => {
+    const soon = { ...branch, services: [...branch.services, { ...branch.services[0]!, id: 'care', name: 'Premium Care', kind: 'addon' as const, comingSoon: true }] };
+    expect(catalogProducts(soon).some((p) => p.title === 'Premium Care')).toBe(false);
+  });
+
   it('writes a CSV feed Commerce Manager can read', () => {
     const csv = catalogFeed(branch, { brand: 'Sri Mana Wash', link: 'https://srimanawash.com/', imageUrl: (id) => `https://x/${id}.jpg` });
     const [head, first] = csv.split('\n');

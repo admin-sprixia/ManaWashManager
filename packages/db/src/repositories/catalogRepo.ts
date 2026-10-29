@@ -411,8 +411,11 @@ export const catalogRepo = {
       kind: ServiceKind;
       categories: VehicleCategory[];
       checklist: string[];
+      durationMin: number | null;
       /** Paise, per vehicle class and size ("car" "L"). */
       prices: { classKey: string; sizeKey: string; price: number }[];
+      /** The same prices per body type ("suvLarge"), for a branch's vehicle types. */
+      bodyPrices: { bodyKey: string; price: number }[];
     }[]
   > {
     const rows = await queryRows<{
@@ -422,11 +425,13 @@ export const catalogRepo = {
       description: string | null;
       kind: string;
       checklist: string | null;
+      duration_minutes: number | null;
       class_keys: string | null;
       prices: string | null;
+      body_prices: string | null;
     }>(
       d1,
-      `SELECT m.shop_id, c.id, c.name, c.description, c.kind, c.checklist,
+      `SELECT m.shop_id, c.id, c.name, c.description, c.kind, c.checklist, c.duration_minutes,
               (SELECT group_concat(v.key || ':' || z.key || ':' || e.price)
                  FROM price_book_entries e
                  JOIN vehicle_sizes z ON z.id = e.size_id
@@ -435,6 +440,13 @@ export const catalogRepo = {
                   AND e.price_book_id = COALESCE(
                         (SELECT s.price_book_id FROM shops s WHERE s.id = m.shop_id),
                         (SELECT b.id FROM price_books b WHERE b.business_id = c.business_id AND b.is_default = 1))) AS prices,
+              (SELECT group_concat(bt.key || ':' || e.price)
+                 FROM price_book_entries e
+                 JOIN body_types bt ON bt.size_id = e.size_id AND bt.business_id = c.business_id AND bt.active = 1
+                WHERE e.service_id = c.id AND e.price > 0
+                  AND e.price_book_id = COALESCE(
+                        (SELECT s.price_book_id FROM shops s WHERE s.id = m.shop_id),
+                        (SELECT b.id FROM price_books b WHERE b.business_id = c.business_id AND b.is_default = 1))) AS body_prices,
               (SELECT group_concat(v.key) FROM catalog_service_classes sc JOIN vehicle_classes v ON v.id = sc.class_id
                 WHERE sc.service_id = c.id) AS class_keys
          FROM catalog_services c
@@ -450,12 +462,20 @@ export const catalogRepo = {
       kind: parseServiceKind(r.kind),
       categories: [...new Set((r.class_keys ?? '').split(',').filter(Boolean).map((k) => categoryForClass(k)))],
       checklist: parseChecklist(r.checklist),
+      durationMin: r.duration_minutes,
       prices: (r.prices ?? '')
         .split(',')
         .filter(Boolean)
         .map((p) => {
           const [classKey = '', sizeKey = '', price = '0'] = p.split(':');
           return { classKey, sizeKey, price: Number(price) };
+        }),
+      bodyPrices: (r.body_prices ?? '')
+        .split(',')
+        .filter(Boolean)
+        .map((p) => {
+          const [bodyKey = '', price = '0'] = p.split(':');
+          return { bodyKey, price: Number(price) };
         }),
     }));
   },

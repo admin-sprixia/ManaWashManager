@@ -387,23 +387,21 @@ describe('WhatsApp assistant: a size’s prices', () => {
   });
 });
 
-/** The hub as it opens: Anti-Rust and Premium Care aren't sold yet, only shown as coming soon. */
+/** The hub as it opens: Anti-Rust and Premium Care are listed, but coming soon (not sold yet). */
 const soonHub: ChatBranch = {
   ...hub,
-  services: hub.services.filter((s) => s.id !== 'rust' && s.id !== 'care'),
-  comingSoon: [
-    { name: 'Anti-Rust Protection', description: 'Underbody wash and anti-rust coating.', categories: ['car'] },
-    {
-      name: 'Premium Care',
-      description: 'Our specialized, ceramic-infused deep-cleaning lather, designed to condition the clear coat and maximize gloss.',
-      categories: ['car', 'bike'],
-    },
-  ],
+  services: hub.services.map((s) =>
+    s.id === 'rust'
+      ? { ...s, description: 'Underbody wash and anti-rust coating.', comingSoon: true }
+      : s.id === 'care'
+        ? { ...s, description: 'Our specialized, ceramic-infused deep-cleaning lather, designed to condition the clear coat and maximize gloss.', comingSoon: true }
+        : s,
+  ),
 };
 const soonCtx: ChatContext = { ...ctx, branches: [soonHub] };
 
 describe('WhatsApp assistant: coming soon', () => {
-  it('lists what’s coming at the end, without a price or a number', () => {
+  it('keeps them in their place and number, marked coming soon', () => {
     const m = as(only(reply({ kind: 'choice', id: 'sz|b1|large' }, soonCtx).messages), 'buttons');
     expectValid([m]);
     expect(m.text).toBe(
@@ -417,26 +415,39 @@ describe('WhatsApp assistant: coming soon', () => {
         '1️⃣ Express Wash: *₹419*',
         '2️⃣ Basic Wash ⭐: *₹799*',
         '3️⃣ Premium Wash: *₹1,399*',
+        '4️⃣ Anti-Rust Protection: *₹4,500* (🔜 Coming soon)',
+        '',
+        '✨ *Add-on* (with wash 1, 2 or 3)',
+        '5️⃣ Premium Care: *+₹249* (🔜 Coming soon)',
+        '_Our specialized, ceramic-infused deep-cleaning lather, designed to condition the clear coat and maximize gloss_',
         '',
         '📅 *Monthly plans* (4 washes)',
-        '4️⃣ Express Plan: *₹1,549* (save ₹127)',
-        '5️⃣ Basic Plan ⭐: *₹2,949* (save ₹247)',
-        '6️⃣ Shine Plan: *₹3,499* (save ₹297)',
+        '6️⃣ Express Plan: *₹1,549* (save ₹127)',
+        '7️⃣ Basic Plan ⭐: *₹2,949* (save ₹247)',
+        '8️⃣ Shine Plan: *₹3,499* (save ₹297)',
         '💡 3 & 12-month plans save more: reply *PLANS*',
-        '',
-        '🔜 *Coming soon*',
-        '• *Anti-Rust Protection*: underbody wash and anti-rust coating',
-        '• *Premium Care*: our specialized, ceramic-infused deep-cleaning lather, designed to condition the clear coat and maximize gloss',
         '',
         "👉 Reply a number to see what's included",
       ].join('\n'),
     );
-    // Bikes only hear about what's coming for bikes.
-    const bike = bodyOf(only(reply({ kind: 'choice', id: 'cat|b1|bike' }, soonCtx).messages));
-    expect(bike).toContain('🔜 *Coming soon*\n• *Premium Care*:');
-    expect(bike).not.toContain('Anti-Rust');
-    // Telugu fits too.
-    expectValid(reply({ kind: 'choice', id: 'sz|b1|large' }, { ...soonCtx, person: { name: null, returning: false, lang: 'te' } }).messages);
+    expect(bodyOf(only(reply({ kind: 'choice', id: 'cat|b1|bike' }, soonCtx).messages))).toContain('2️⃣ Premium Care: *+₹99* (🔜 Coming soon)');
+    const te = reply({ kind: 'choice', id: 'sz|b1|large' }, { ...soonCtx, person: { name: null, returning: false, lang: 'te' } }).messages;
+    expectValid(te);
+    expect(bodyOf(te[0]!)).toContain('5️⃣ Premium Care: *+₹249* (🔜 త్వరలో)');
+  });
+
+  it('its number says what it is and that it isn’t available yet', () => {
+    const seen = { ...soonCtx, person: { name: 'Ravi', returning: true, lang: null, context: 'sz|b1|large' } };
+    const m = as(only(reply({ kind: 'text', text: '5' }, seen).messages), 'buttons');
+    expectValid([m]);
+    expect(m.text.startsWith('5️⃣ *Premium Care*\n🚙 Large / 7-seater · *+₹249* (🔜 Coming soon)\n\nOur specialized, ceramic-infused deep-cleaning lather, designed to condition the clear coat and maximize gloss.')).toBe(true);
+    expect(m.text.endsWith("🔜 *Coming soon.* It isn't available yet: ask us at the counter, and we'll tell you when it starts.")).toBe(true);
+    expect(m.text).not.toContain('Add it to');
+  });
+
+  it('a branch that only has coming-soon services for a vehicle has no prices for it', () => {
+    const onlySoon = { ...ctx, branches: [{ ...soonHub, services: soonHub.services.filter((s) => s.comingSoon) }] };
+    expect(as(only(reply({ kind: 'choice', id: 'svc|b1' }, onlySoon).messages), 'buttons').text).toContain('updating our price list');
   });
 
   it('asking about it by name says it’s coming, not a question for the team', () => {
@@ -455,12 +466,13 @@ describe('WhatsApp assistant: coming soon', () => {
     expect(m.buttons.map((b) => b.id)).toEqual(['cat|b1|car', 'cat|b1|bike', 'loc|b1']);
   });
 
-  it('the Flow shows it too', () => {
+  it('the Flow marks it too', () => {
     const md = chatFlowReply(
       { action: 'data_exchange', screen: 'MODEL', data: { step: 'model', company: 'Maruti Suzuki', model: 'Swift' }, flow_token: chatFlowToken('b1', 'car', 'en') },
       soonCtx,
     ).data.prices as string;
-    expect(md).toContain('## 🔜 Coming soon\n• **Anti-Rust Protection**: underbody wash');
+    expect(md).toContain('4. **Anti-Rust Protection** — ₹4,500 (🔜 Coming soon)');
+    expect(md).toContain('5. **Premium Care** — +₹249 (🔜 Coming soon) · Our specialized');
   });
 });
 

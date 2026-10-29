@@ -83,19 +83,20 @@ export function catalogProducts(branch: ChatBranch): CatalogProduct[] {
   const out: CatalogProduct[] = [];
   for (const section of CATALOG_SECTIONS) {
     const types = section.bodyKeys.flatMap((k) => branch.vehicleTypes.filter((t) => t.category === section.category && typeKey(t) === k));
-    const priced = (typeId: string) => branch.services.some((s) => s.prices.some((p) => p.vehicleTypeId === typeId && p.price > 0));
+    const priced = (typeId: string) => branch.services.some((s) => !s.comingSoon && s.prices.some((p) => p.vehicleTypeId === typeId && p.price > 0));
     const type = types.find((t) => priced(t.id));
     if (!type) continue;
     const vehicles = `${section.examples} and similar`;
     // What an add-on goes with: "Express, Basic or Premium Wash".
     const washes = branch.services
-      .filter((s) => s.kind !== 'addon' && s.kind !== 'protection' && s.prices.some((p) => p.vehicleTypeId === type.id && p.price > 0))
+      .filter((s) => !s.comingSoon && s.kind !== 'addon' && s.kind !== 'protection' && s.prices.some((p) => p.vehicleTypeId === type.id && p.price > 0))
       .map((s) => s.name.replace(/^Bike /, ''));
     const withWashes = washes.every((w) => / Wash$/.test(w))
       ? orList(washes.map((w, i) => (i === washes.length - 1 ? w : w.replace(/ Wash$/, ''))))
       : orList(washes);
-    // Add-ons after the washes they go with.
-    const ordered = [...branch.services.filter((s) => s.kind !== 'addon'), ...branch.services.filter((s) => s.kind === 'addon')];
+    // Add-ons after the washes they go with; nothing that isn't on sale yet.
+    const live = branch.services.filter((s) => !s.comingSoon);
+    const ordered = [...live.filter((s) => s.kind !== 'addon'), ...live.filter((s) => s.kind === 'addon')];
     for (const s of ordered) {
       const price = s.prices.find((p) => p.vehicleTypeId === type.id && p.price > 0)?.price;
       if (!price) continue;

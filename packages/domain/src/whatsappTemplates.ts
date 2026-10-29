@@ -223,11 +223,14 @@ export const WA_TEMPLATES: WaTemplateDefinition[] = [
   {
     name: 'plan_ending',
     language: 'en',
-    category: 'UTILITY',
+    // Meta files plan reminders as marketing.
+    category: 'MARKETING',
     body: [
       'Hi {{1}}, your {{2}} for {{3}} ends on {{4}}, and {{5}} washes are still left. 🚿',
       '',
       "Come in before then so you don't miss them. We're open {{6}}.",
+      '',
+      'See you soon!',
     ].join('\n'),
     example: ['Ravi', 'Basic Plan', 'Maruti Suzuki Swift (AP39AB1234)', '8 Nov 2026', '2', '7 am – 8 pm, closed Mondays'],
     buttons: ['Get Directions'],
@@ -235,7 +238,7 @@ export const WA_TEMPLATES: WaTemplateDefinition[] = [
   {
     name: 'plan_ending',
     language: 'te',
-    category: 'UTILITY',
+    category: 'MARKETING',
     body: [
       'నమస్కారం {{1}}, మీ {{2}} ({{3}}) {{4}} న ముగుస్తుంది, ఇంకా {{5}} వాష్‌లు మిగిలి ఉన్నాయి. 🚿',
       '',

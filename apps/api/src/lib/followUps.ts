@@ -139,7 +139,8 @@ export async function runFollowUps(env: Env, now = new Date(), opts: { onlyPhone
       return false;
     }
     const contact = contactOf.get(phone);
-    if (input.kind !== 'plan_ending' && contact?.stopped) {
+    // Meta counts every one of these as marketing, so STOP stops them all.
+    if (contact?.stopped) {
       report.skipped++;
       return false;
     }

@@ -29,6 +29,8 @@ describe('WhatsApp wash templates', () => {
       // Meta refuses a template that starts or ends with a blank.
       expect(t.body.trim().startsWith('{{')).toBe(false);
       expect(t.body.trim().endsWith('}}')).toBe(false);
+      // …and a blank followed only by punctuation counts as ending with it.
+      expect(t.body.trim()).not.toMatch(/\}\}[\s.!?,]*$/);
       for (const b of t.buttons) {
         expect([...b].length).toBeLessThanOrEqual(25);
         // Meta refuses buttons with emojis, line breaks or formatting.
@@ -94,7 +96,8 @@ describe('WhatsApp wash templates', () => {
     expect(f.params[1]).toBe('మీ స్నేహితుడు');
     const p = followUpMessage({ ...base, kind: 'plan_ending', plan: 'Basic Plan', vehicle: 'Swift', registrationNumber: 'AP39AB1234', endsOn: '8 Nov 2026', washesLeft: 2, hours: '7 am – 8 pm' }, 'en');
     expect(p.buttonPayloads).toEqual(['loc|b1']);
-    expect(WA_TEMPLATES.filter((t) => t.category === 'MARKETING').every((t) => t.buttons.length === 2)).toBe(true);
+    // Every offer has See prices and Stop offers; the plan-ending notice has Get Directions.
+    expect(WA_TEMPLATES.filter((t) => t.category === 'MARKETING' && t.name !== 'plan_ending').every((t) => t.buttons.length === 2)).toBe(true);
   });
 
   it('writes dates in India time', () => {

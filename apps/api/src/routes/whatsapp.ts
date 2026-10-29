@@ -141,6 +141,7 @@ async function chatContext(env: Env, origin: string): Promise<ChatContext> {
           id: s.id,
           name: s.name,
           popular: s.popular,
+          kind: s.kind,
           description: s.description,
           checklist: s.checklist,
           durationMin: s.durationMin,

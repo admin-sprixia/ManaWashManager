@@ -48,7 +48,8 @@ describe('vehicle makes', () => {
     expect(vehicleTypeKeysFor('Honda', 'Activa')?.[0]).toBe('scooter');
     expect(vehicleTypeKeysFor('Honda', 'City')?.[0]).toBe('sedan');
     expect(vehicleTypeKeysFor('Royal Enfield', 'Classic 350')?.[0]).toBe('cruiser');
-    expect(vehicleTypeKeysFor('BMW', '3 Series')?.slice(0, 2)).toEqual(['luxury', 'sedan']);
+    expect(vehicleTypeKeysFor('BMW', '3 Series')?.[0]).toBe('sedan');
+    expect(vehicleTypeKeysFor('BMW', 'X5')?.[0]).toBe('suvLarge');
     expect(vehicleTypeKeysFor('Harley-Davidson', 'Fat Boy')?.[0]).toBe('premiumBike');
     expect(vehicleTypeKeysFor('Suzuki', 'Hayabusa')?.[0]).toBe('premiumBike');
     expect(vehicleTypeKeysFor('Harley-Davidson', 'X440')?.[0]).toBe('cruiser');

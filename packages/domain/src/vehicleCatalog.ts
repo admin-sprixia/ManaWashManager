@@ -59,8 +59,9 @@ export const BODY_TYPES: readonly BodyTypeDef[] = [
   { key: 'suvLarge', label: 'SUV', hint: 'Creta, XUV700, Fortuner', group: 'Cars', classKey: 'car', size: 'L', match: /suv|xuv/ },
   { key: 'muv', label: 'MUV / 7-seater', hint: 'Innova, Ertiga, Carens', group: 'Cars', classKey: 'car', size: 'L', match: /muv|mpv|7[- ]?seat|innova|ertiga/ },
   { key: 'jeep', label: 'Jeep / Off-roader', hint: 'Thar, Gurkha, Jimny', group: 'Cars', classKey: 'car', size: 'L', match: /jeep|thar|off[- ]?road|4x4|gypsy/ },
-  { key: 'luxury', label: 'Luxury car', hint: 'Mercedes, BMW, Audi', group: 'Cars', classKey: 'car', size: 'XL', match: /luxury|premium|merc|bmw|audi/ },
-  { key: 'sports', label: 'Sports car', hint: 'Coupe, supercar', group: 'Cars', classKey: 'car', size: 'XL', match: /sports? car|coupe|supercar/ },
+  // Cars are priced by size, imported brands included: a "Luxury car" pays the big-car price.
+  { key: 'luxury', label: 'Luxury car', hint: 'Mercedes, BMW, Audi', group: 'Cars', classKey: 'car', size: 'L', match: /luxury|premium|merc|bmw|audi/ },
+  { key: 'sports', label: 'Sports car', hint: 'Coupe, supercar', group: 'Cars', classKey: 'car', size: 'M', match: /sports? car|coupe|supercar/ },
   { key: 'pickup', label: 'Pickup', hint: 'Bolero Pickup, Hilux', group: 'Cars', classKey: 'commercial', size: 'M', match: /pick[- ]?up/ },
 
   // Vans & buses

@@ -47,7 +47,7 @@ export type BodyStyle =
 export interface VehicleMake {
   name: string;
   category: VehicleCategory;
-  /** Luxury marques, whose cars go to a branch's "Luxury car" type when it has one. */
+  /** Luxury marques. Their cars are still priced by body size, like every other car. */
   luxury?: boolean;
   models: readonly string[];
   bodies: Readonly<Partial<Record<BodyStyle, readonly string[]>>>;
@@ -1659,7 +1659,7 @@ export const BODY_STYLE_FALLBACKS: Readonly<Record<BodyStyle, readonly string[]>
   suvLarge: ['suvLarge', 'suvMini', 'muv'],
   muv: ['muv', 'suvLarge', 'suvMini'],
   jeep: ['jeep', 'suvLarge', 'suvMini'],
-  sports: ['sports', 'luxury', 'sedan'],
+  sports: ['sports', 'sedan', 'luxury'],
   pickup: ['pickup', 'miniTruck', 'suvLarge'],
   van: ['van', 'shareVan', 'muv', 'suvLarge'],
   shareVan: ['shareVan', 'van', 'tempoTraveller'],
@@ -1685,16 +1685,6 @@ export const BODY_STYLE_FALLBACKS: Readonly<Record<BodyStyle, readonly string[]>
   tractor: ['tractor', 'earthmover'],
   earthmover: ['earthmover', 'tractor'],
 };
-
-const PASSENGER_CAR: ReadonlySet<BodyStyle> = new Set([
-  'hatch',
-  'sedan',
-  'suvMini',
-  'suvLarge',
-  'muv',
-  'jeep',
-  'sports',
-]);
 
 const sortByName = (a: string, b: string) => a.localeCompare(b, 'en', { sensitivity: 'base' });
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -1754,7 +1744,8 @@ function keysForBody(bodyKey: string): string[] {
 
 /**
  * The vehicle types that suit a listed make and model, best first (photo catalogue keys), or null
- * for a make or model we don't list. Luxury marques' cars try "luxury" before their body style.
+ * for a make or model we don't list. Cars are priced by size, so imported brands go by their body
+ * too: a BMW 3 Series is a sedan, an X5 a big SUV.
  */
 export function vehicleTypeKeysFor(make: string, model: string, edits: readonly VehicleModelEdit[] = []): string[] | null {
   const key = vehicleModelKey(make, model);
@@ -1764,10 +1755,7 @@ export function vehicleTypeKeysFor(make: string, model: string, edits: readonly 
     if (!same(m.name, make)) continue;
     for (const [body, models] of Object.entries(m.bodies) as [BodyStyle, readonly string[]][]) {
       if (!models.some((x) => same(x, model))) continue;
-      const keys = BODY_STYLE_FALLBACKS[body];
-      return m.luxury && PASSENGER_CAR.has(body) && body !== 'sports'
-        ? ['luxury', ...keys]
-        : [...keys];
+      return [...BODY_STYLE_FALLBACKS[body]];
     }
   }
   return null;
@@ -1778,7 +1766,7 @@ export interface VehicleGuideRow {
   make: string;
   model: string;
   category: VehicleCategory;
-  /** The body type it's priced as (a catalog body type key): luxury marques' cars are "luxury". */
+  /** The body type it's priced as (a catalog body type key). */
   bodyKey: string;
   luxury: boolean;
   /** Head office's change: a model it added, or moved to another kind; none = as listed. */
@@ -1823,9 +1811,8 @@ function listedModels(): VehicleGuideRow[] {
   const rows: VehicleGuideRow[] = [];
   for (const m of VEHICLE_MAKES) {
     for (const [body, models] of Object.entries(m.bodies) as [BodyStyle, readonly string[]][]) {
-      const bodyKey = m.luxury && PASSENGER_CAR.has(body) && body !== 'sports' ? 'luxury' : body;
       for (const model of models) {
-        rows.push({ make: m.name, model, category: m.category, bodyKey, luxury: !!m.luxury });
+        rows.push({ make: m.name, model, category: m.category, bodyKey: body, luxury: !!m.luxury });
       }
     }
   }

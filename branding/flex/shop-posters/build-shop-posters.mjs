@@ -2,7 +2,8 @@
 // prices always match the app and WhatsApp. English only (the logo's శ్రీ aside):
 //   counter card (A5, two sides)  · UPI to pay, and "Rate us on Google"
 //   plans poster (2 × 3 ft)       · the monthly wash plans per car size
-//   price board  (4 × 3 ft)       · every wash × kind of vehicle
+//   price board  (4 × 3 ft)       · every wash × car size (Small, Mid-size, Large), the Premium
+//                                   Care add-on, and two-wheelers
 //   waiting poster (A3)           · "We'll WhatsApp you when it's ready"
 //   valuables notice (A3)         · take cash, phones, gold and documents out
 //   highway board (6 × 3 ft)      · the shop's direction sign
@@ -66,7 +67,8 @@ const [csv, info] = await Promise.all([
 const cards = new Map(info.products.map((p) => [p.id, p]));
 const products = parseCsv(csv).map((r) => {
   const [service, section] = r.id.split('--');
-  return { id: r.id, service, section, label: r.custom_label_0, kind: r.custom_label_1 === 'Wash plans' ? 'plan' : 'service', price: Math.round(Number(r.price.split(' ')[0])), card: cards.get(r.id) };
+  const kind = r.custom_label_1 === 'Wash plans' ? 'plan' : r.custom_label_1 === 'Add-ons' ? 'addon' : 'service';
+  return { id: r.id, service, section, label: r.custom_label_0, kind, price: Math.round(Number(r.price.split(' ')[0])), card: cards.get(r.id) };
 });
 const price = (service, section) => products.find((p) => p.service === service && p.section === section)?.price ?? null;
 const cardOf = (service, section) => products.find((p) => p.service === service && p.section === section)?.card ?? null;
@@ -246,12 +248,11 @@ ${REVIEW_URL ? qrTile(REVIEW_URL, (W - qs) / 2, 110, qs) : qrPlaceholder((W - qs
   const W = 610;
   const H = 915;
   const CARS = [
-    ['hatch', 'Hatchback'],
-    ['sedan', 'Sedan'],
-    ['suv', 'SUV / MUV'],
-    ['luxury', 'Luxury'],
+    ['small', 'Small car'],
+    ['mid', 'Mid-size'],
+    ['large', 'Large / 7-seater'],
   ];
-  const monthly = servicesIn('hatch', 'plan').filter((s) => !/-\d+-months?$/.test(s));
+  const monthly = servicesIn('small', 'plan').filter((s) => !/-\d+-months?$/.test(s));
   const logo = inline('sri-mana-wash-horizontal-on-dark.svg', (W - 260) / 2, 40, 260, 'pl');
   let y = 40 + logo.height + 40;
   let body = `${frame(W, H)}${logo.svg}
@@ -260,7 +261,7 @@ ${REVIEW_URL ? qrTile(REVIEW_URL, (W - qs) / 2, 110, qs) : qrPlaceholder((W - qs
 <text x="${W / 2}" y="${y + 96}" text-anchor="middle" font-family="${SERIF}" font-style="italic" font-size="42" fill="url(#gold)">Pay once, save more.</text>`;
   y += 150;
   for (const plan of monthly) {
-    const c = cardOf(plan, 'hatch');
+    const c = cardOf(plan, 'small');
     const popular = c?.card?.popular;
     const lines = (c?.card?.lines ?? []).filter((l) => !l.startsWith('Just '));
     const upgrade = lines.find((l) => l.startsWith('Every '));
@@ -269,7 +270,7 @@ ${REVIEW_URL ? qrTile(REVIEW_URL, (W - qs) / 2, 110, qs) : qrPlaceholder((W - qs
     const extra = upgrade ? 20 : 0;
     const cardH = 150 + extra;
     body += `<rect x="40" y="${y}" width="${W - 80}" height="${cardH}" rx="16" fill="url(#panel)" stroke="${popular ? 'url(#gold)' : '#9BAEF5'}" stroke-opacity="${popular ? 1 : 0.35}" stroke-width="${popular ? 2 : 1}"/>`;
-    body += `<text x="64" y="${y + 40}" font-family="${SERIF}" font-size="31" fill="#FFFFFF">${esc(titleOf(plan, 'hatch'))}</text>`;
+    body += `<text x="64" y="${y + 40}" font-family="${SERIF}" font-size="31" fill="#FFFFFF">${esc(titleOf(plan, 'small'))}</text>`;
     if (popular) body += `<rect x="${W - 64 - 108}" y="${y + 18}" width="108" height="28" rx="14" fill="url(#gold)"/><text x="${W - 64 - 54}" y="${y + 37}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="11.5" letter-spacing="2.4" fill="#1B2878">★ POPULAR</text>`;
     body += `<text x="64" y="${y + 63}" font-family="${SANS}" font-size="14" fill="#C4CCF0">${esc(basics.join('  ·  '))}</text>`;
     if (upgrade) body += `<text x="64" y="${y + 83}" font-family="${SANS}" font-size="14" fill="#F0CF8E">${esc(upgrade)}</text>`;
@@ -299,43 +300,52 @@ ${REVIEW_URL ? qrTile(REVIEW_URL, (W - qs) / 2, 110, qs) : qrPlaceholder((W - qs
 {
   const W = 1220;
   const H = 915;
+  // Priced by size, whatever the brand: an imported car pays what its size pays.
   const CARS = [
-    ['hatch', 'Hatchback'],
-    ['sedan', 'Sedan /|Compact SUV'],
-    ['suv', 'SUV /|7-Seater'],
-    ['luxury', 'Luxury car'],
+    ['small', 'Small car', 'Swift, i20, Baleno, Kwid'],
+    ['mid', 'Mid-size', 'Dzire, City, Nexon, Brezza'],
+    ['large', 'Large / 7-seater', 'Creta, XUV700, Innova'],
   ];
   const BIKES = [
     ['bike', 'Scooter / Bike'],
-    ['premium-bike', 'Premium bike'],
+    ['big-bike', 'Big bike'],
   ];
   const logo = inline('sri-mana-wash-horizontal-on-dark.svg', 60, 46, 330, 'pb');
   let body = `${frame(W, H, 1.4)}${logo.svg}
 <text x="${W - 60}" y="86" text-anchor="end" font-family="${SERIF}" font-size="60" fill="#FFFFFF">Price list</text>
+<text x="${W - 60}" y="124" text-anchor="end" font-family="${SANS}" font-weight="600" font-size="14" letter-spacing="3" fill="#9BAEF5">PRICED BY SIZE, WHATEVER THE BRAND</text>
 <rect x="60" y="150" width="${W - 120}" height="1.2" fill="url(#goldLine)"/>`;
   // Cars.
   const nameW = 400;
   const colW = (W - 120 - nameW) / CARS.length;
   let y = 186;
-  CARS.forEach(([, label], i) => {
+  CARS.forEach(([, label, examples], i) => {
     const cx = 60 + nameW + colW * i + colW / 2;
     body += ringIcon('car', cx, y - 4, 18);
-    label.toUpperCase().split('|').forEach((part, j) => {
-      body += `<text x="${cx}" y="${y + 36 + j * 20}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="16" letter-spacing="1.2" fill="#C4CCF0">${esc(part)}</text>`;
-    });
+    body += `<text x="${cx}" y="${y + 36}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="16" letter-spacing="1.2" fill="#C4CCF0">${esc(label.toUpperCase())}</text>`;
+    body += `<text x="${cx}" y="${y + 56}" text-anchor="middle" font-family="${SANS}" font-size="13" fill="#9BAEF5">${esc(examples)}</text>`;
   });
-  y += 70;
-  for (const s of servicesIn('hatch', 'service')) {
-    const c = cardOf(s, 'hatch');
-    const sub = subtitleOf(s, 'hatch');
-    body += `<rect x="60" y="${y}" width="${W - 120}" height="72" rx="14" fill="url(#panel)"${c?.card?.popular ? ' stroke="url(#gold)" stroke-width="1.8"' : ''}/>`;
-    body += `<text x="86" y="${y + (sub ? 36 : 46)}" font-family="${SERIF}" font-size="31" fill="#FFFFFF">${esc(titleOf(s, 'hatch'))}${c?.card?.popular ? ' <tspan font-family="' + SANS + '" font-size="14" font-weight="700" fill="#F0CF8E">★ POPULAR</tspan>' : ''}</text>`;
-    if (sub) body += `<text x="86" y="${y + 58}" font-family="${SANS}" font-size="14" fill="#9BAEF5">${esc(sub)}</text>`;
+  y += 72;
+  for (const s of servicesIn('small', 'service')) {
+    const c = cardOf(s, 'small');
+    const sub = subtitleOf(s, 'small');
+    body += `<rect x="60" y="${y}" width="${W - 120}" height="66" rx="14" fill="url(#panel)"${c?.card?.popular ? ' stroke="url(#gold)" stroke-width="1.8"' : ''}/>`;
+    body += `<text x="86" y="${y + (sub ? 33 : 43)}" font-family="${SERIF}" font-size="30" fill="#FFFFFF">${esc(titleOf(s, 'small'))}${c?.card?.popular ? ' <tspan font-family="' + SANS + '" font-size="14" font-weight="700" fill="#F0CF8E">★ POPULAR</tspan>' : ''}</text>`;
+    if (sub) body += `<text x="86" y="${y + 54}" font-family="${SANS}" font-size="14" fill="#9BAEF5">${esc(sub)}</text>`;
     CARS.forEach(([section], i) => {
       const cx = 60 + nameW + colW * i + colW / 2;
-      body += `<text x="${cx}" y="${y + 48}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="34" fill="#FFFFFF">${rupees(price(s, section))}</text>`;
+      body += `<text x="${cx}" y="${y + 45}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="33" fill="#FFFFFF">${rupees(price(s, section))}</text>`;
     });
-    y += 82;
+    y += 74;
+  }
+  // The add-on: one price for every car, so one gold-edged strip across the columns.
+  for (const s of servicesIn('small', 'addon')) {
+    const sub = (subtitleOf(s, 'small') ?? '').replace(/\.$/, '');
+    body += `<rect x="60" y="${y}" width="${W - 120}" height="54" rx="14" fill="none" stroke="url(#gold)" stroke-width="1.6"/>`;
+    body += `<text x="86" y="${y + 35}" font-family="${SERIF}" font-size="26" fill="#FFFFFF">${esc(titleOf(s, 'small'))} <tspan font-family="${SANS}" font-size="13" font-weight="700" letter-spacing="2" fill="#F0CF8E">ADD TO ANY WASH</tspan></text>`;
+    body += `<text x="${60 + nameW - 20}" y="${y + 33}" font-family="${SANS}" font-size="15" fill="#C4CCF0">${esc(sub)}</text>`;
+    body += `<text x="${W - 60 - colW / 2}" y="${y + 37}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="28" fill="#F8E2B0">+${rupees(price(s, 'small'))}</text>`;
+    y += 62;
   }
   // Bikes, then the plans and WhatsApp boxes.
   y += 14;
@@ -360,7 +370,7 @@ ${REVIEW_URL ? qrTile(REVIEW_URL, (W - qs) / 2, 110, qs) : qrPlaceholder((W - qs
   }
   const boxX = bikeX + bikeW + 30;
   const boxW = W - 60 - boxX;
-  const planFrom = Math.min(...servicesIn('hatch', 'plan').map((s) => price(s, 'hatch')).filter((n) => n != null));
+  const planFrom = Math.min(...servicesIn('small', 'plan').map((s) => price(s, 'small')).filter((n) => n != null));
   body += `<rect x="${boxX}" y="${y}" width="${boxW}" height="${Math.max(by - y - 8, 200)}" rx="16" fill="none" stroke="url(#gold)" stroke-width="2"/>`;
   body += ringIcon('calendar', boxX + 46, y + 40, 22);
   body += `<text x="${boxX + 82}" y="${y + 38}" font-family="${SERIF}" font-size="27" fill="#FFFFFF">Monthly plans</text>`;

@@ -1,7 +1,7 @@
 // The WhatsApp assistant end to end: Meta's webhook check, signed deliveries (unsigned ones
-// refused), the banner, a customer saying hi, Services & Prices → Car →
-// company → model and that model's prices, typing a model, directions, Telugu (remembered for the
-// number), STOP/START, a repeated delivery answered once, delivery reports, and the Ready and
+// refused), the banner, a customer saying hi, Car prices → a size and its numbered prices, a
+// number for what's included, PLANS, Not sure? → company → model, typing a model, directions,
+// Telugu (typed, and remembered for the number), STOP/START, a repeated delivery answered once, delivery reports, and the Ready and
 // bill templates a wash sends by itself (once each), and the inbox (a question waits for the team,
 // a teammate replies, the assistant stays quiet, Mark done), and the 10:00 follow-ups. Adds a throwaway owner to a branch of the
 // business for that last part.
@@ -118,10 +118,11 @@ if (multi) {
 } else {
   check('“Hi” gets one welcome message', hi.length === 1, JSON.stringify(hi).slice(0, 300));
   check(
-    'the welcome has the banner, a greeting by name and Services / Directions / Telugu',
+    'the welcome has the banner, a greeting by name, the Telugu line and Car / Bike prices / Directions',
     welcome?.interactive?.header?.image?.link?.includes('/whatsapp/banner.jpg') &&
       bodyOf(welcome).includes('Ravi! 👋') &&
-      firstButtons.map((b) => b.id.split('|')[0]).join() === 'svc,loc,lang',
+      bodyOf(welcome).includes('"తెలుగు" అని టైప్ చేయండి') &&
+      firstButtons.map((b) => b.id.split('|').slice(0, 1).concat(b.id.split('|').slice(2)).join(':')).join() === 'cat:car,cat:bike,loc',
     JSON.stringify(welcome).slice(0, 400),
   );
   branch = firstButtons[0]?.id.split('|')[1];
@@ -132,10 +133,45 @@ check('the customer is recorded with their WhatsApp name', contact?.profile_name
 check('a second Hi welcomes them back', bodyOf((await text('hello'))[0]).includes('Welcome back, Ravi'));
 
 const services = await choose(`svc|${branch}`);
-check('Services & Prices asks which vehicle (or lists companies)', services.length === 1 && (buttonsOf(services[0]).length > 0 || rowsOf(services[0]).length > 0));
+check('a reminder’s See prices button asks Car or Bike', services.length === 1 && buttonsOf(services[0]).map((b) => b.title).join() === '🚗 Car prices,🏍️ Bike prices');
 
-// The plain company list (what Car shows when no Flow is published).
-const makes = await choose(`mk|${branch}|car|0`);
+const sizes = await choose(`cat|${branch}|car`);
+const sizeRows = rowsOf(sizes[0]);
+check(
+  'Car prices lists Small / Mid-size / Large with models, and Not sure?',
+  sizeRows.map((r) => r.id.split('|')[2]).join() === 'small,mid,large,car' && sizeRows[2]?.description?.includes('Innova'),
+  JSON.stringify(sizes[0]).slice(0, 400),
+);
+const large = await choose(`sz|${branch}|large`, 'list_reply');
+const largeBody = large.map(bodyOf).join('\n');
+// Premium Care comes from the menu seed's default price book; a branch on another book has none.
+const catalogJson = await (await apiFetch(`${API}/whatsapp/catalog.json`)).json();
+const hasCare = catalogJson.products.some((p) => p.title === 'Premium Care');
+if (!hasCare) console.log('NOTE  this branch has no Premium Care (another price book?): its checks are skipped');
+check(
+  'Large shows numbered washes, Premium Care, monthly plans and PLANS',
+  /1️⃣ .+: \*₹/.test(largeBody) && (!hasCare || /Premium Care: \*\+₹\d/.test(largeBody)) && largeBody.includes('📅 *Monthly plans*') && largeBody.includes('reply *PLANS*'),
+  largeBody.slice(0, 600),
+);
+check('…with Other size / Directions / Talk to us', buttonsOf(large.at(-1)).map((b) => b.id.split('|')[0]).join() === 'cat,loc,talk');
+console.log(`\n--- What the customer sees ---\n${largeBody}\n------------------------------\n`);
+const careNo = largeBody.match(/(\d)️⃣ Premium Care/)?.[1];
+const care = await text(careNo ?? '1');
+check(
+  hasCare ? 'its number shows what Premium Care adds' : 'a number shows what that wash includes',
+  (hasCare ? bodyOf(care[0]).includes('*Premium Care*') && bodyOf(care[0]).includes('· *+₹') : bodyOf(care[0]).startsWith('1️⃣ *')) &&
+    buttonsOf(care[0])[0]?.title === '📋 Large car prices',
+  bodyOf(care[0]).slice(0, 300),
+);
+const plans = await text('PLANS');
+const plansBody = plans.map(bodyOf).join('\n');
+check('PLANS lists the 1, 3 and 12-month plans for Large', plansBody.startsWith('📅 *Wash plans* · 🚙 Large / 7-seater') && plansBody.includes('13 washes in 3 months'), plansBody.slice(0, 400));
+console.log(`\n--- PLANS ---\n${plansBody}\n-------------\n`);
+const planTwo = await text('2');
+check('a number after PLANS shows that plan', bodyOf(planTwo[0]).startsWith('2️⃣ *') && buttonsOf(planTwo[0])[0]?.id.startsWith('pl|'), bodyOf(planTwo[0]).slice(0, 300));
+
+// Not sure? → the plain company list (what it shows when no Flow is published).
+const makes = await choose(`mk|${branch}|car|0`, 'list_reply');
 const makeRows = rowsOf(makes[0]);
 check('Car lists companies (up to 10 rows)', makeRows.length > 0 && makeRows.length <= 10, JSON.stringify(makes[0]).slice(0, 300));
 if (makeRows.length) {
@@ -145,14 +181,16 @@ if (makeRows.length) {
   if (modelRows.length) {
     const prices = await choose(modelRows[0].id, 'list_reply');
     const body = prices.map(bodyOf).join('\n');
-    check(`${modelRows[0].title}: prices in rupees`, body.includes(modelRows[0].title.replace('…', '')) && body.includes('₹'), body.slice(0, 400));
-    check('prices come with Location / Another vehicle / Talk to us', buttonsOf(prices.at(-1)).length === 3);
-    console.log(`\n--- What the customer sees ---\n${body}\n------------------------------\n`);
+    check(`${modelRows[0].title}: says its size, with prices in rupees`, body.includes(modelRows[0].title.replace('…', '')) && / is an? \*/.test(body) && body.includes('₹'), body.slice(0, 400));
+    check('prices come with Other size / Directions / Talk to us', buttonsOf(prices.at(-1)).length === 3);
   }
 }
 
 const typed = await text('swift');
-check('typing “swift” jumps to its prices', typed.map(bodyOf).join('\n').includes('Swift'), bodyOf(typed[0]).slice(0, 300));
+check('typing “swift” says it’s a Small car, with its prices', typed.map(bodyOf).join('\n').includes('*Maruti Suzuki Swift* is a *Small car*'), bodyOf(typed[0]).slice(0, 300));
+const x5 = await text('bmw x5');
+check('a BMW X5 is priced as a Large car', bodyOf(x5[0]).includes('*BMW X5* is a *Large / 7-seater*'), bodyOf(x5[0]).slice(0, 300));
+await text('swift');
 check('the price list is numbered', /1️⃣ .+: \*₹/.test(typed.map(bodyOf).join('\n')));
 const one = await text('1');
 check('replying 1 shows what that wash includes', bodyOf(one[0]).startsWith('1️⃣ *') && buttonsOf(one[0])[0]?.id.startsWith('pr|'), bodyOf(one[0]).slice(0, 300));
@@ -162,11 +200,15 @@ const maps = loc.find((m) => m.interactive?.type === 'cta_url');
 check('Get Directions sends a Google Maps button', maps?.interactive?.action?.parameters?.url?.startsWith('https://www.google.com/maps/'), JSON.stringify(loc).slice(0, 400));
 
 // ─── Telugu ──────────────────────────────────────────────────────────────────
-const telugu = await choose(`lang|${branch}|te`);
-check('తెలుగు answers in Telugu', bodyOf(telugu[0]).includes('గారు') && buttonsOf(telugu[0]).some((b) => b.title === '🌐 English'), bodyOf(telugu[0]).slice(0, 200));
+// (A real customer never sends this many in an hour: start the reply limit afresh.)
+d1Run(`DELETE FROM rate_limits WHERE key = 'wa:${phone}'`);
+const telugu = await text('తెలుగు');
+check('typing తెలుగు answers in Telugu', bodyOf(telugu[0]).includes('గారు') && buttonsOf(telugu[0]).some((b) => b.title === '🚗 కార్ ధరలు'), bodyOf(telugu[0]).slice(0, 200));
 check('the language is remembered for the number', contactRow()?.language === 'te');
 check('the next Hi comes in Telugu', bodyOf((await text('Hi'))[0]).includes('మళ్ళీ స్వాగతం'));
-await choose(`lang|${branch}|en`);
+const teSize = await choose(`sz|${branch}|mid`, 'list_reply');
+check('sizes come in Telugu too', bodyOf(teSize[0]).includes('మీడియం కార్'), bodyOf(teSize[0]).slice(0, 200));
+await text('English');
 check('English switches back', contactRow()?.language === 'en');
 
 // ─── STOP / START ────────────────────────────────────────────────────────────
@@ -244,8 +286,8 @@ check('a late “delivered” never undoes “read”', d1Rows(`SELECT status FR
   check('picking a model shows its prices', priced.reply?.screen === 'PRICES' && priced.reply.data.prices.includes('₹'), JSON.stringify(priced).slice(0, 300));
   const done = await say({ type: 'interactive', interactive: { type: 'nfm_reply', nfm_reply: { name: 'flow', response_json: JSON.stringify({ company: companies[0]?.id, model: firstModel, flow_token: token }) } } });
   check('finishing the Flow sends the numbered price list in the chat', /1️⃣/.test(done.map(bodyOf).join('\n')), bodyOf(done[0]).slice(0, 200));
-  const opener = await choose(`cat|${branch}|car`);
-  check('Car opens the Flow', opener[0]?.interactive?.type === 'flow' && opener[0].interactive.action.parameters.flow_token === token, JSON.stringify(opener).slice(0, 300));
+  const opener = await choose(`find|${branch}|car`, 'list_reply');
+  check('Not sure? opens the Flow', opener[0]?.interactive?.type === 'flow' && opener[0].interactive.action.parameters.flow_token === token, JSON.stringify(opener).slice(0, 300));
 }
 
 // ─── Ready and the bill go out by themselves ─────────────────────────────────

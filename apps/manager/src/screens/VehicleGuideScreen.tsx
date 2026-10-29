@@ -401,7 +401,6 @@ const GuideRow = memo(function GuideRow({
         </Text>
         <Text style={styles.kind} numberOfLines={1}>
           {kindName}
-          {item.luxury && item.bodyKey === 'luxury' ? ' · luxury brand' : ''}
           {off ? ' · we don’t wash these' : ''}
         </Text>
       </View>

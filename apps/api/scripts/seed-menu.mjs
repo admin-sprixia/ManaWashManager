@@ -7,10 +7,11 @@
 //   cd apps/api && npm run dev            (in one terminal)
 //   cd apps/api && npm run db:seed:menu   (in another)
 //
-// Luxury cars (XL: Mercedes, BMW, Audi…) aren't on the printed menu; they pay 35% more than a
-// big SUV / MUV (premium liquids), rounded to a price ending in 9. Premium bikes (XL) pay about
-// 50% more than a sports bike. Autos, vans, pickups, trucks, tractors and JCBs get the main
-// washes too, for branches that take them.
+// Cars are priced by size only: Small (hatchbacks), Mid-size (sedans, compact SUVs) and Large
+// (big SUVs, MUVs, 7-seaters). Imported brands go by their size too (a BMW 3 Series is mid-size,
+// an X5 large); a "Luxury car" type pays the Large price. Premium Care is an add-on any car can
+// have with any wash. Premium bikes (XL) pay about double a regular bike. Autos, vans, pickups,
+// trucks, tractors and JCBs get the main washes too, for branches that take them.
 import { API, apiFetch, signIn } from './lib/target.mjs';
 
 /** Who signs in to load it: a business admin (HQ) of the business. Defaults to the demo shop's owner. */
@@ -32,16 +33,12 @@ async function call(token, method, path, body) {
   return json;
 }
 
-const LUXURY = 1.35;
-/** Nearest rupee price ending in 9. */
-const end9 = (rupees) => Math.round((rupees - 9) / 10) * 10 + 9;
-const luxury = (rupees) => end9(rupees * LUXURY);
-
 /**
- * Car prices in rupees: [hatchback S, sedan & compact SUV M, big SUV & MUV L] at the hub and at
- * a community. A single number is the same for every size. XL is worked out unless given.
+ * Car prices in rupees: [small S, mid-size M, large L] at the hub and at a community. A single
+ * number is the same for every size. The car class's XL (no body type uses it any more) is
+ * priced like L, so nothing old can ever charge more than a big car.
  */
-const car = (hub, community, { xl = true } = {}) => {
+const car = (hub, community) => {
   const three = (v) => (Array.isArray(v) ? v : [v, v, v]);
   const [h, c] = [three(hub), three(community)];
   return {
@@ -49,7 +46,7 @@ const car = (hub, community, { xl = true } = {}) => {
       S: [h[0], c[0]],
       M: [h[1], c[1]],
       L: [h[2], c[2]],
-      XL: xl === true ? [luxury(h[2]), luxury(c[2])] : xl === false ? [h[2], c[2]] : xl,
+      XL: [h[2], c[2]],
     },
   };
 };
@@ -67,6 +64,8 @@ const bike = (hub, community, { scooters = true } = {}) => ({
 });
 const BIKE_SIZES = { scooter: 'S', eScooter: 'S', moped: 'M', bike: 'M', sportsBike: 'M', cruiser: 'M', premiumBike: 'XL' };
 const BIKE_SIZE_NAMES = { S: 'Regular · scooter', M: 'Regular', L: 'Large (not used)', XL: 'Premium' };
+/** Car sizes as customers see them (WhatsApp, posters); no car body type is XL any more. */
+const CAR_SIZE_NAMES = { S: 'Small', M: 'Mid-size', L: 'Large / 7-seater', XL: 'Extra large (not used)' };
 
 /**
  * The main washes for vehicles the printed menu doesn't list (only offered at branches whose
@@ -126,6 +125,14 @@ const SERVICES = [
     checklist: ['Underbody wash', 'Anti-rust coating under the car'],
     prices: car(4500, 4050),
   },
+  {
+    name: 'Premium Care',
+    description: 'Gentle shampoo, microfiber hand-dry, extra paint care.',
+    kind: 'addon',
+    durationMin: 15,
+    checklist: ['pH-neutral gentle shampoo', 'Microfiber hand-dry', 'Extra care on paint & trim'],
+    prices: car(249, 249),
+  },
   // Bikes: Express / Basic / Premium like the cars. A bike wash goes for about ₹150 locally, so
   // Basic stays at that; community is a little less, like the cars. Premium bikes (Harley,
   // Ducati, Hayabusa, big BMW…) pay about double: careful hand work and premium liquids.
@@ -183,8 +190,8 @@ const classOf = (key) => catalog.classes.find((c) => c.key === key) ?? (() => { 
 const sizeId = (classKey, size) => classOf(classKey).sizes.find((s) => s.key === size)?.id;
 const book = catalog.priceBooks.find((b) => b.isDefault);
 
-/** The menu's columns: hatchback S; sedan & compact SUV M; big SUV & MUV L; luxury XL. */
-const MENU_SIZES = { hatch: 'S', sedan: 'M', suvMini: 'M', van: 'M', suvLarge: 'L', muv: 'L', jeep: 'L', luxury: 'XL', sports: 'XL' };
+/** The menu's columns: small S; mid-size M (sports cars too); large L (a "Luxury car" type too). */
+const MENU_SIZES = { hatch: 'S', sedan: 'M', suvMini: 'M', sports: 'M', van: 'M', suvLarge: 'L', muv: 'L', jeep: 'L', luxury: 'L' };
 console.log('Vehicle sizes as on the menu');
 for (const [key, size] of Object.entries(MENU_SIZES)) {
   const body = catalog.bodyTypes.find((b) => b.key === key);
@@ -202,9 +209,11 @@ for (const [key, size] of Object.entries(BIKE_SIZES)) {
     console.log(`  ${body.name} → ${BIKE_SIZE_NAMES[size]}`);
   }
 }
-for (const z of classOf(BIKE).sizes) {
-  const name = BIKE_SIZE_NAMES[z.key];
-  if (name && z.name !== name) await call(owner, 'PATCH', `/business/sizes/${z.id}`, { name });
+for (const [classKey, names] of [[BIKE, BIKE_SIZE_NAMES], [CAR, CAR_SIZE_NAMES]]) {
+  for (const z of classOf(classKey).sizes) {
+    const name = names[z.key];
+    if (name && z.name !== name) await call(owner, 'PATCH', `/business/sizes/${z.id}`, { name });
+  }
 }
 
 /** A branch set up for the first time washes cars and two-wheelers (more from its page later). */
@@ -222,6 +231,8 @@ await call(owner, 'PUT', '/business/adjustments', { mode: 'doorstep', classId: n
 
 console.log('Services');
 const keep = [];
+/** Services new to the catalog this run: switched on at branches that already have a menu. */
+const added = [];
 for (const s of SERVICES) {
   const classIds = Object.keys(s.prices).map((key) => classOf(key).id);
   // The sizes it's for: the ones the menu prices (bikes have no "Large").
@@ -247,6 +258,7 @@ for (const s of SERVICES) {
     await call(owner, 'PATCH', `/business/services/${id}`, { ...rest, ...(s.description ? { description } : {}), active: true });
   } else {
     id = (await call(owner, 'POST', '/business/services', fields)).id;
+    added.push(id);
   }
   keep.push(id);
   // Sizes of a priced class that aren't listed stop being offered (no chain care for scooters).
@@ -277,11 +289,11 @@ await call(owner, 'PUT', '/business/services/order', { ids: order });
 
 console.log('Plans');
 const serviceId = (name) => catalog.services.find((s) => s.name === name)?.id ?? (() => { throw new Error(`No service ${name}`); })();
-/** Plan prices per size; an XL not given is the luxury mark-up on L. */
+/** Plan prices per size; the car class's XL is priced like L (see `car`). */
 const planPrices = (classKey, hub, community, times = 1) => {
   const [h, c] = [[...hub], [...community]];
-  if (h.length === 3) h.push(luxury(h[2]));
-  if (c.length === 3) c.push(luxury(c[2]));
+  if (h.length === 3) h.push(h[2]);
+  if (c.length === 3) c.push(c[2]);
   return ['S', 'M', 'L', 'XL'].flatMap((size, i) => [
     { sizeId: sizeId(classKey, size), mode: 'hub', price: h[i] * times * 100 },
     { sizeId: sizeId(classKey, size), mode: 'doorstep', price: c[i] * times * 100 },
@@ -349,13 +361,23 @@ for (const p of existingPlans.filter((x) => x.active && !keptPlans.includes(x.id
 }
 
 // A first setup: branches selling nothing yet start with the whole menu. Branches HQ has already
-// picked services for are left exactly as they are.
+// picked services for keep their picks, plus any service new to the menu (Premium Care).
 console.log('Branch menus');
 catalog = await call(owner, 'GET', '/business/catalog');
-for (const b of catalog.branches.filter((x) => x.menu.length === 0 && x.status !== 'closed')) {
-  await call(owner, 'PUT', `/business/branches/${b.id}/menu`, { serviceIds: keep });
-  await call(owner, 'PUT', `/business/branches/${b.id}/vehicles`, { bodyTypeIds: startingVehicles });
-  console.log(`  ${b.name}: every service switched on; washes cars and two-wheelers`);
+for (const b of catalog.branches.filter((x) => x.status !== 'closed')) {
+  if (b.menu.length === 0) {
+    await call(owner, 'PUT', `/business/branches/${b.id}/menu`, { serviceIds: keep });
+    await call(owner, 'PUT', `/business/branches/${b.id}/vehicles`, { bodyTypeIds: startingVehicles });
+    console.log(`  ${b.name}: every service switched on; washes cars and two-wheelers`);
+    continue;
+  }
+  // Premium Care is new on every branch: switch it on wherever the menu lacks it.
+  const missing = keep.filter((id) => !b.menu.includes(id) && (added.includes(id) || id === serviceId('Premium Care')));
+  if (missing.length) {
+    await call(owner, 'PUT', `/business/branches/${b.id}/menu`, { serviceIds: [...b.menu, ...missing] });
+    const names = missing.map((id) => catalog.services.find((x) => x.id === id)?.name ?? id).join(', ');
+    console.log(`  ${b.name}: switched on ${names}`);
+  }
 }
 
 console.log('Rebuilding every branch menu');

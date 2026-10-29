@@ -1,11 +1,13 @@
+import { PRICE_SIZES, type PriceSizeKey } from './priceSizes';
 import type { ChatBranch } from './whatsappChat';
 import { bodyTypeForName } from './vehicleCatalog';
 
 /**
- * The WhatsApp catalog of the business number: every hub wash and wash plan, once per kind of
- * vehicle, at the shop price (community prices aren't listed). Commerce Manager reads it as a
- * product feed (GET /whatsapp/catalog.csv), so it follows the menu by itself; each item's picture
- * is a styled card with its details (scripts/build-catalog-cards.mjs), not a photo.
+ * The WhatsApp catalog of the business number: every hub wash, add-on and wash plan, once per
+ * size (the same sizes the assistant prices by: Small, Mid-size and Large cars; scooters, bikes
+ * and big bikes), at the shop price (community prices aren't listed). Commerce Manager reads it
+ * as a product feed (GET /whatsapp/catalog.csv), so it follows the menu by itself; each item's
+ * picture is a styled card with its details (scripts/build-catalog-cards.mjs), not a photo.
  */
 
 export interface CatalogSection {
@@ -14,24 +16,33 @@ export interface CatalogSection {
   label: string;
   category: 'car' | 'bike';
   /** Catalog body types in this section; the first one the branch has prices for sets them. */
-  bodyKeys: string[];
+  bodyKeys: readonly string[];
+  /** "Creta, XUV700, Innova, Fortuner, BMW X5". */
+  examples: string;
 }
 
-export const CATALOG_SECTIONS: CatalogSection[] = [
-  { key: 'hatch', label: 'Hatchbacks', category: 'car', bodyKeys: ['hatch'] },
-  { key: 'sedan', label: 'Sedans & Compact SUVs', category: 'car', bodyKeys: ['sedan', 'suvMini'] },
-  { key: 'suv', label: 'SUVs & 7-Seaters', category: 'car', bodyKeys: ['suvLarge', 'muv', 'jeep'] },
-  { key: 'luxury', label: 'Luxury Cars', category: 'car', bodyKeys: ['luxury', 'sports'] },
-  { key: 'scooter', label: 'Scooters', category: 'bike', bodyKeys: ['scooter', 'eScooter'] },
-  { key: 'bike', label: 'Bikes', category: 'bike', bodyKeys: ['bike', 'sportsBike', 'cruiser', 'moped'] },
-  { key: 'premium-bike', label: 'Premium Bikes', category: 'bike', bodyKeys: ['premiumBike'] },
-];
+const SECTION_LABELS: Record<PriceSizeKey, string> = {
+  small: 'Small Cars',
+  mid: 'Mid-size Cars',
+  large: 'Large Cars & 7-Seaters',
+  scooter: 'Scooters',
+  bike: 'Bikes',
+  bigBike: 'Big Bikes',
+};
+
+export const CATALOG_SECTIONS: CatalogSection[] = PRICE_SIZES.map((s) => ({
+  key: s.key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`),
+  label: SECTION_LABELS[s.key],
+  category: s.category,
+  bodyKeys: s.bodyKeys,
+  examples: [s.examples, ...(s.alsoExample ? [s.alsoExample] : [])].join(', '),
+}));
 
 export interface CatalogProduct {
   /** Stable while the service or plan keeps its name: "basic-wash--sedan". */
   id: string;
   section: CatalogSection;
-  kind: 'service' | 'plan';
+  kind: 'service' | 'addon' | 'plan';
   title: string;
   /** Plain text, a line per detail. */
   description: string;
@@ -76,25 +87,31 @@ export function catalogProducts(branch: ChatBranch): CatalogProduct[] {
     const priced = (typeId: string) => branch.services.some((s) => s.prices.some((p) => p.vehicleTypeId === typeId && p.price > 0));
     const type = types.find((t) => priced(t.id));
     if (!type) continue;
-    const vehicles = types.map((t) => t.name).filter((n, i, all) => all.indexOf(n) === i).join(', ');
+    const vehicles = `${section.examples} and similar`;
     for (const s of branch.services) {
       const price = s.prices.find((p) => p.vehicleTypeId === type.id && p.price > 0)?.price;
       if (!price) continue;
+      const addon = s.kind === 'addon';
       const checklist = (s.checklist ?? []).filter((c) => !/communit/i.test(c));
       const about = withoutCommunity(s.description);
       out.push({
         id: `${slug(s.name)}--${section.key}`,
         section,
-        kind: 'service',
+        kind: addon ? 'addon' : 'service',
         title: s.name,
         description: [
-          `For ${vehicles}.`,
+          addon ? `Add-on, with any wash. For ${vehicles}.` : `For ${vehicles}.`,
           ...(about ? [about] : []),
           ...(checklist.length ? ['', "What's included:", ...checklist.map((c) => `✓ ${c}`)] : []),
-          ...(s.durationMin ? ['', `Takes about ${s.durationMin} minutes.`] : []),
+          ...(s.durationMin ? ['', addon ? `Adds about ${s.durationMin} minutes.` : `Takes about ${s.durationMin} minutes.`] : []),
         ].join('\n'),
         price,
-        card: { subtitle: about, lines: checklist, footer: s.durationMin ? `About ${s.durationMin} min` : null, popular: s.popular },
+        card: {
+          subtitle: about,
+          lines: checklist,
+          footer: s.durationMin ? `${addon ? 'Adds' : 'About'} ${s.durationMin} min` : null,
+          popular: s.popular,
+        },
       });
     }
     for (const p of branch.plans) {
@@ -146,7 +163,7 @@ export function catalogFeed(
       o.imageUrl(p.id),
       o.brand,
       p.section.label,
-      p.kind === 'plan' ? 'Wash plans' : 'Washes',
+      p.kind === 'plan' ? 'Wash plans' : p.kind === 'addon' ? 'Add-ons' : 'Washes',
     ].map(cell),
   );
   return [head.join(','), ...rows.map((r) => r.join(','))].join('\n') + '\n';

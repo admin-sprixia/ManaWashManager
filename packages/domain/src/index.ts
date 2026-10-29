@@ -15,6 +15,7 @@ export * from './serviceRequests';
 export * from './customerApp';
 export * from './vehicleMakes';
 export * from './vehicleCatalog';
+export * from './priceSizes';
 export * from './serviceNetwork';
 export * from './places';
 export * from './communities';

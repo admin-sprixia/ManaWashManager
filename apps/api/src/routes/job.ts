@@ -59,6 +59,7 @@ import { occurredAt } from '../lib/clientTime';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { formatIstDateOnly, startOfIstDay } from '../lib/istDate';
 import { reportQuerySchema, resolveReportWindow, windowMeta } from '../lib/reportWindow';
+import { billPdf } from '../lib/washBill';
 import { executionCtx, queueWashMessage } from '../lib/washMessages';
 import type { Env } from '../types';
 
@@ -1044,6 +1045,16 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
         createdBy: job.createdBy.name,
         paidBy: job.paidBy?.name ?? null,
       })),
+    });
+  })
+  // The paid wash's bill as a PDF (services, totals, before and after photos), to open or share.
+  .get('/:id/bill', async (c) => {
+    const pdf = await billPdf(c.env, c.get('session').shopId, c.req.param('id'));
+    if (!pdf) return c.json({ error: 'not_paid' as const, message: 'The bill is ready once the wash is paid.' }, 404);
+    return c.body(new Uint8Array(pdf.bytes), 200, {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="${pdf.fileName}"`,
+      'Cache-Control': 'private, no-store',
     });
   })
   // Job Detail: the job plus its full audit trail (who did what, when, and why).

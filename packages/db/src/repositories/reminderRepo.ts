@@ -98,7 +98,8 @@ export const reminderRepo = {
       vehicleId: string;
       lastVisitAt: Date;
       action: ReminderAction;
-      userId: string;
+      /** Who did it; null when the morning WhatsApp follow-up sent it by itself. */
+      userId: string | null;
       now: Date;
       snoozeUntil?: Date;
     },

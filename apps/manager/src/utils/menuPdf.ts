@@ -8,7 +8,7 @@ import { CUSTOMER_APP_LINK } from '../config/app';
 import { formatRupees } from './format';
 import { bytesToBase64 } from './shareReportPdf';
 import { visitChargeLine, type LaneMenu, type MenuItem, type MenuVehicleType } from './branchMenu';
-import type { DoorstepVisitRules } from '@mana/domain';
+import { RUPEE_GLYPH, type DoorstepVisitRules } from '@mana/domain';
 
 /**
  * The branch menu as a printable A4 PDF, on the logo's night indigo: stars, a faint mark behind
@@ -57,17 +57,7 @@ const LANE_LINE: Record<Lane, string> = {
   doorstep: 'At your doorstep',
 };
 
-/** Helvetica Neue's ₹, outlined at a 100-unit em: regular and bold. */
-const RUPEE = {
-  reg: {
-    d: 'M36.2 -48.6Q35.8 -45.1 34.35 -42.3Q32.9 -39.5 30.7 -37.35Q28.5 -35.2 25.7 -33.75Q22.9 -32.3 19.9 -31.5L43.8 0H32.4L14.7 -23.5Q11.8 -27.4 9.45 -29.15Q7.1 -30.9 4.5 -30.9V-38.2H10.4Q13.5 -38.2 16.35 -38.65Q19.2 -39.1 21.5 -40.25Q23.8 -41.4 25.35 -43.4Q26.9 -45.4 27.2 -48.6H2.7L5.7 -54.5H26.8Q25.9 -58.6 22.9 -61.1Q19.9 -63.6 14.8 -63.8H2.7L5.7 -69.7H49.6L46.6 -63.8H32Q35.4 -60 36.1 -54.5H49.6L46.6 -48.6Z',
-    w: 52,
-  },
-  bold: {
-    d: 'M41.2 -45.6Q39.6 -39.5 35.2 -36.25Q30.8 -33 25.4 -31.5L49.3 0H32.9L16.1 -22.5Q13.2 -26.4 10.85 -28.15Q8.5 -29.9 5.9 -29.9H5V-38.2H10.9Q13.6 -38.2 16.15 -38.45Q18.7 -38.7 20.85 -39.45Q23 -40.2 24.65 -41.65Q26.3 -43.1 27.1 -45.6H3.2L6.2 -54.5H27.3Q26.4 -57.9 23.6 -59.4Q20.8 -60.9 16 -61.1H3.2L6.2 -70H51L48 -61.1H39.6Q41.2 -58.1 41.7 -54.5H51L48 -45.6Z',
-    w: 55.3,
-  },
-} as const;
+const RUPEE = RUPEE_GLYPH;
 
 const PDF_REPLACEMENTS: Record<string, string> = {
   '→': '->',

@@ -35,8 +35,9 @@ binding = "BACKUPS"
 bucket_name = "mana-backups"
 
 # Nightly at 03:00 IST (21:30 UTC): database backup, photo retention, error-log pruning.
+# 10:00 IST (04:30 UTC): WhatsApp follow-ups (reminders, offers, plan endings; src/lib/followUps.ts).
 [triggers]
-crons = ["30 21 * * *"]
+crons = ["30 21 * * *", "30 4 * * *"]
 
 # Non-secret config only goes in [vars]. Secrets are set with `wrangler secret put <NAME>`
 # and never committed here — see the build plan's Naming conventions section:
@@ -70,7 +71,7 @@ WHATSAPP_OTP_BYPASS = "true"
 enabled = true
 
 [env.staging.triggers]
-crons = ["30 21 * * *"]
+crons = ["30 21 * * *", "30 4 * * *"]
 
 [[env.staging.d1_databases]]
 binding = "DB"

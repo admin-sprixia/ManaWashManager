@@ -33,6 +33,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   (`wash_ready`, `wash_bill`; `npm run whatsapp:templates` submits them and shows their status).
   The manager app's "Send on WhatsApp" ready prompt and Thank-you buttons are gone; marking a wash
   Ready says the customer will get a WhatsApp.
+- **WhatsApp inbox.** A question the assistant can't answer, a photo or a voice note gets "our team
+  will reply here shortly" and waits in a new inbox (the WhatsApp button on the board, with a count;
+  owners and managers). A teammate replies from the app through the business number; the assistant
+  then stays quiet with that customer for two hours. Mark done takes a chat off the list. WhatsApp
+  allows replies only within 24 hours of the customer's last message, so later the app offers a
+  call instead. Migration `0004_whatsapp_inbox.sql`.
+- **PDF bill on WhatsApp, with before and after photos.** A paid wash's bill (services, discount,
+  total, payment, PAID stamp, two before and two after photos) goes as a PDF with the thank-you
+  (`wash_invoice` template); the text bill is the fallback. Owners open or share the same PDF from
+  the wash's page (Bill).
+- **Automatic follow-ups at 10:00 every morning** (not on the branch's day off): a "time for a
+  wash" reminder 10 days after a visit, a comeback offer with a fresh coupon after 30 days, referral
+  rewards, and a heads-up three days before a plan ends with washes left. Offers carry a Stop offers
+  button and honour STOP; one message per customer a morning, 120 at most. The Reminders screen's
+  buttons now send from the business number instead of opening a phone's WhatsApp.
 - **Numbered prices on WhatsApp.** A model's price list numbers every wash and plan; replying with
   a number shows what's in it (checklist, time, or the plan's washes, upgrade and cost per wash).
   Migration `0003_whatsapp_chat_context.sql` remembers the list each number saw last.

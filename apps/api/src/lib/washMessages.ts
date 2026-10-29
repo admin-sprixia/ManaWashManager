@@ -1,7 +1,8 @@
 import { createPlatformDb, createShopDb, jobRepo } from '@mana/db';
 import { rateChoiceId, washTemplateMessage, type ChatLang, type PaymentMethod, type WashTemplateKind } from '@mana/domain';
 import type { Env } from '../types';
-import { graphSend, logOutgoing, waId, whatsappConfigured } from './whatsapp';
+import { billPdf } from './washBill';
+import { graphSend, logOutgoing, uploadMedia, waId, whatsappConfigured } from './whatsapp';
 
 /**
  * The messages the business number sends by itself, from the approved templates: "ready for
@@ -71,25 +72,37 @@ export async function sendWashMessage(env: Env, shopId: string, jobId: string, k
       // Get Directions on Ready; Rate us on the bill (answered by the assistant).
       buttonPayload: kind === 'ready' ? `loc|${shopId}` : rateChoiceId(shopId),
     };
-    // A Telugu template Meta hasn't approved yet falls back to English.
-    for (const l of lang === 'te' ? (['te', 'en'] as const) : (['en'] as const)) {
-      const m = washTemplateMessage(kind, input, l);
-      const sent = await graphSend(env, {
-        recipient_type: 'individual',
-        to: waId(phone),
-        type: 'template',
-        template: {
-          name: m.name,
-          language: { code: m.language },
-          components: [
-            { type: 'body', parameters: m.params.map((text) => ({ type: 'text', text })) },
-            { type: 'button', sub_type: 'quick_reply', index: '0', parameters: [{ type: 'payload', payload: m.buttonPayload }] },
-          ],
-        },
-      });
-      await logOutgoing(env, { phone, kind: 'template', body: m.preview, purpose: purposeOf(kind), sent, shopId, jobId });
-      if (sent.ok) return;
+    const languages = lang === 'te' ? (['te', 'en'] as const) : (['en'] as const);
+    /** One template in one language; a Telugu one Meta hasn't approved yet falls back to English. */
+    const send = async (which: WashTemplateKind, document: { id: string; filename: string } | null) => {
+      for (const l of languages) {
+        const m = washTemplateMessage(which, input, l);
+        const sent = await graphSend(env, {
+          recipient_type: 'individual',
+          to: waId(phone),
+          type: 'template',
+          template: {
+            name: m.name,
+            language: { code: m.language },
+            components: [
+              ...(document ? [{ type: 'header', parameters: [{ type: 'document', document }] }] : []),
+              { type: 'body', parameters: m.params.map((text) => ({ type: 'text', text })) },
+              { type: 'button', sub_type: 'quick_reply', index: '0', parameters: [{ type: 'payload', payload: m.buttonPayload }] },
+            ],
+          },
+        });
+        await logOutgoing(env, { phone, kind: document ? 'document' : 'template', body: m.preview, purpose: purposeOf(kind), sent, shopId, jobId });
+        if (sent.ok) return true;
+      }
+      return false;
+    };
+    // The bill goes with its PDF (photos and all) when it can; otherwise as text.
+    if (kind === 'bill') {
+      const pdf = await billPdf(env, shopId, jobId).catch(() => null);
+      const media = pdf ? await uploadMedia(env, pdf.bytes, 'application/pdf', pdf.fileName) : null;
+      if (pdf && media?.ok && (await send('invoice', { id: media.id, filename: pdf.fileName }))) return;
     }
+    await send(kind, null);
   } catch (err) {
     console.error(`WhatsApp ${kind} message for job ${jobId} failed`, err);
   }

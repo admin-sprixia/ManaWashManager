@@ -151,6 +151,10 @@ wipe the live database.
    Then set `WHATSAPP_FLOW_ID` (a var) and deploy. WhatsApp sends Flows only once the business has
    passed Meta's business verification; until `WHATSAPP_FLOW_ID` is set, Car / Bike use plain lists.
    Company logos come from the app's; run `node scripts/build-flow-logos.mjs` after adding one.
+   **Follow-ups** run at 10:00 IST (the second cron in `wrangler.toml`; `src/lib/followUps.ts`) from
+   the `wash_reminder`, `comeback_offer`, `referral_reward` and `plan_ending` templates. The PDF bill
+   uses `wash_invoice` (a document template: `WHATSAPP_APP_ID` in `.dev.vars` lets the script upload
+   its sample). Until a template is approved, its messages simply aren't sent.
    Test locally with `npm run test:whatsapp` (its header shows the `wrangler dev` flags).
 4. **Create the tables** — `npm run db:migrate:remote` applies every file in `migrations/`.
    The live database starts empty: no demo shop, no demo accounts. Then load India Post's

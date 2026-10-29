@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { WA_TEMPLATES, washMessageDate, washTemplateMessage, type WashMessageInput } from '../index';
+import { followUpMessage, WA_TEMPLATES, washMessageDate, washTemplateMessage, type WashMessageInput } from '../index';
 
 const wash: WashMessageInput = {
   customerName: 'Ravi Kumar',
@@ -19,7 +19,7 @@ const wash: WashMessageInput = {
 
 describe('WhatsApp wash templates', () => {
   it('has every template in English and Telugu, with an example per blank', () => {
-    for (const name of ['wash_ready', 'wash_bill']) {
+    for (const name of ['wash_ready', 'wash_bill', 'wash_invoice', 'wash_reminder', 'comeback_offer', 'referral_reward', 'plan_ending']) {
       expect(WA_TEMPLATES.filter((t) => t.name === name).map((t) => t.language).sort()).toEqual(['en', 'te']);
     }
     for (const t of WA_TEMPLATES) {
@@ -72,6 +72,29 @@ describe('WhatsApp wash templates', () => {
       expect(p).not.toMatch(/[\n\t]| {2}/);
     }
     expect(odd.params[0]).toBe('there');
+  });
+
+  it('the invoice is the bill with the PDF attached: same words, a document on top', () => {
+    const bill = washTemplateMessage('bill', wash, 'en');
+    const invoice = washTemplateMessage('invoice', wash, 'en');
+    expect(invoice.name).toBe('wash_invoice');
+    expect(invoice.params).toEqual(bill.params);
+    expect(invoice.preview).toContain('Your bill is attached');
+    expect(WA_TEMPLATES.filter((t) => t.name === 'wash_invoice').every((t) => t.header === 'DOCUMENT')).toBe(true);
+  });
+
+  it('fills in the follow-ups, with Stop offers on every offer', () => {
+    const base = { customerName: 'Ravi Kumar', place: 'Sri Mana Wash, Kovur', branchId: 'b1' };
+    const r = followUpMessage({ ...base, kind: 'reminder', vehicle: 'Maruti Suzuki Swift', registrationNumber: 'AP39AB1234', days: 12 }, 'en');
+    expect(r.preview).toContain("Hi Ravi, it's been 12 days since your Maruti Suzuki Swift (AP39AB1234) was washed at Sri Mana Wash, Kovur.");
+    expect(r.buttonPayloads).toEqual(['svc|b1', 'STOP']);
+    const c = followUpMessage({ ...base, kind: 'comeback', vehicle: 'Swift', registrationNumber: 'WALK-IN-1', percent: 8, code: 'MANA-1234-ABCDEF', validTill: '19 Nov 2026' }, 'en');
+    expect(c.params).toEqual(['Ravi', 'Swift', 'Sri Mana Wash, Kovur', '8', 'MANA-1234-ABCDEF', '19 Nov 2026']);
+    const f = followUpMessage({ ...base, kind: 'referral', friend: null, percent: 10, code: 'X', validTill: '1 Dec 2026' }, 'te');
+    expect(f.params[1]).toBe('మీ స్నేహితుడు');
+    const p = followUpMessage({ ...base, kind: 'plan_ending', plan: 'Basic Plan', vehicle: 'Swift', registrationNumber: 'AP39AB1234', endsOn: '8 Nov 2026', washesLeft: 2, hours: '7 am – 8 pm' }, 'en');
+    expect(p.buttonPayloads).toEqual(['loc|b1']);
+    expect(WA_TEMPLATES.filter((t) => t.category === 'MARKETING').every((t) => t.buttons.length === 2)).toBe(true);
   });
 
   it('writes dates in India time', () => {

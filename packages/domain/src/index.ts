@@ -27,3 +27,4 @@ export * from './whatsappChat';
 export * from './whatsappTemplates';
 export * from './whatsappFlow';
 export * from './whatsappCatalog';
+export * from './brand';

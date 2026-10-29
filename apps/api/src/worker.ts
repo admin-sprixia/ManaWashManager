@@ -3,6 +3,10 @@ import { app } from './index';
 import { withDevDbDelay } from './lib/devDbDelay';
 import { withServerTiming } from './lib/serverTiming';
 import { runNightly } from './scheduled';
+import { runFollowUps } from './lib/followUps';
+
+/** wrangler.toml's second cron: 04:30 UTC = 10:00 IST. */
+const FOLLOW_UPS_CRON = '30 4 * * *';
 import type { Env } from './types';
 
 export default {
@@ -34,7 +38,8 @@ export default {
     }
   },
   // Cron trigger (see wrangler.toml): nightly backup, photo retention, error-log pruning.
-  scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(runNightly(env));
+  scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext) {
+    // 10:00 IST: the WhatsApp follow-ups; 03:00 IST: backups and clean-up.
+    ctx.waitUntil(event.cron === FOLLOW_UPS_CRON ? runFollowUps(env).then(() => undefined) : runNightly(env));
   },
 } satisfies ExportedHandler<Env>;

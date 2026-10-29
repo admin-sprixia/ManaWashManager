@@ -8,6 +8,8 @@ import banner from '../assets/whatsapp-banner.jpg';
 import makeLogos from '../assets/make-logos.json';
 import { reportError } from '../lib/alerts';
 import { countHit } from '../lib/rateLimit';
+import { runFollowUps } from '../lib/followUps';
+import { isDevMode } from '../lib/recovery';
 import { decryptFlowRequest, type EncryptedFlowRequest } from '../lib/whatsappFlowCrypto';
 import {
   chatPerson,
@@ -234,6 +236,12 @@ export const whatsappRoutes = new Hono<{ Bindings: Env }>()
   .get('/banner.jpg', (c) => {
     c.header('Cache-Control', 'public, max-age=86400');
     return c.body(banner, 200, { 'Content-Type': 'image/jpeg' });
+  })
+  /** Local dev only: run the morning follow-ups for one number and wait (scripts/whatsapp-check.mjs). */
+  .post('/dev/follow-ups', async (c) => {
+    if (!isDevMode(c.env, c.req.url)) return c.json({ error: 'not_found' as const }, 404);
+    const phone = c.req.query('phone') ?? '';
+    return c.json(await runFollowUps(c.env, new Date(), { onlyPhone: phone }));
   })
   /** Meta checks the callback URL once when the webhook is saved. */
   .get('/webhook', (c) => {

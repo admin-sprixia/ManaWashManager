@@ -34,12 +34,6 @@ import { Band, BandRow, ScreenHero, SectionTitle, TipBand } from '../components/
 import { api, apiErrorMessage } from '../api/client';
 import { useAuth } from '../api/auth';
 import { formatRelativeDate } from '../utils/format';
-import {
-  buildComebackMessage,
-  buildReferralRewardMessage,
-  buildReminderMessage,
-} from '../utils/messages';
-import { openWhatsApp } from '../utils/whatsapp';
 import { cardDaysLeft, cardExpiringSoon, daysLabel, liveCards } from '../utils/rewards';
 import type { RewardCard } from '../offline/types';
 import type { RootStackParamList } from '../navigation/RootNavigator';
@@ -162,33 +156,20 @@ export function RemindersScreen({ navigation }: RemindersScreenProps) {
     if (!res.ok) throw new Error(await apiErrorMessage(res));
   };
 
+  /** The reminder (or its active offer again), sent now on WhatsApp from the business number. */
   const remind = async (item: ReminderItem) => {
-    const message = item.coupon
-      ? buildComebackMessage({
-          customerName: item.customer.name,
-          registrationNumber: item.registrationNumber,
-          vehicleType: item.vehicleType,
-          code: item.coupon.code,
-          percent: item.coupon.percent,
-          expiresAt: item.coupon.expiresAt,
-        })
-      : buildReminderMessage({
-          customerName: item.customer.name,
-          registrationNumber: item.registrationNumber,
-          vehicleType: item.vehicleType,
-          daysSince: item.daysSince,
-          lastServices: item.lastServices,
-          reward: headlineCard(item.rewards),
-        });
-    if (!(await openWhatsApp(item.customer.phone, message))) return;
-    animate();
-    patchItem(item.vehicleId, { remindedAt: new Date().toISOString() });
-    record(item, 'reminded').catch(() =>
-      showToast(
-        'Message sent, but the reminder couldn’t be saved. Check your connection.',
-        'error',
-      ),
-    );
+    setBusy(item.vehicleId);
+    try {
+      const res = await api.reminders[':vehicleId'].whatsapp.$post({ param: { vehicleId: item.vehicleId } });
+      if (!res.ok) throw new Error(await apiErrorMessage(res));
+      animate();
+      patchItem(item.vehicleId, { remindedAt: new Date().toISOString() });
+      showToast(item.coupon ? 'Offer sent on WhatsApp' : 'Reminder sent on WhatsApp', 'success');
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Couldn’t send. Check your connection.', 'error');
+    } finally {
+      setBusy(null);
+    }
   };
 
   const hide = async (item: ReminderItem, action: 'snooze' | 'dismiss') => {
@@ -220,20 +201,11 @@ export function RemindersScreen({ navigation }: RemindersScreenProps) {
         param: { vehicleId: item.vehicleId },
       });
       if (!res.ok) throw new Error(await apiErrorMessage(res));
-      const coupon = (await res.json()) as CouponSummary;
+      const coupon = (await res.json()) as CouponSummary & { whatsappError: string | null };
       animate();
       patchItem(item.vehicleId, { coupon, remindedAt: new Date().toISOString() });
-      await openWhatsApp(
-        item.customer.phone,
-        buildComebackMessage({
-          customerName: item.customer.name,
-          registrationNumber: item.registrationNumber,
-          vehicleType: item.vehicleType,
-          code: coupon.code,
-          percent: coupon.percent,
-          expiresAt: coupon.expiresAt,
-        }),
-      );
+      if (coupon.whatsappError) showToast(`Offer created, but not sent: ${coupon.whatsappError}`, 'error');
+      else showToast(`${coupon.percent}% offer sent on WhatsApp`, 'success');
       void load();
     } catch (e) {
       showToast(
@@ -245,40 +217,26 @@ export function RemindersScreen({ navigation }: RemindersScreenProps) {
     }
   };
 
+  /** A referral reward, sent now on WhatsApp from the business number. */
   const sendReward = async (coupon: CouponRow) => {
-    const opened = await openWhatsApp(
-      coupon.customer.phone,
-      buildReferralRewardMessage({
-        customerName: coupon.customer.name,
-        referredName: coupon.referredName,
-        code: coupon.code,
-        percent: coupon.percent,
-        expiresAt: coupon.expiresAt,
-      }),
-    );
-    if (!opened || coupon.notifiedAt) return;
-    const notifiedAt = new Date().toISOString();
-    animate();
-    setData((d) =>
-      d
-        ? {
-            ...d,
-            actionable: Math.max(0, d.actionable - 1),
-            coupons: {
-              ...d.coupons,
-              active: d.coupons.active.map((c) => (c.id === coupon.id ? { ...c, notifiedAt } : c)),
-            },
-          }
-        : d,
-    );
-    api.reminders.coupons[':couponId'].sent
-      .$post({ param: { couponId: coupon.id } })
-      .then((res) => {
-        if (!res.ok) throw new Error();
-      })
-      .catch(() =>
-        showToast('Message sent, but it couldn’t be marked as sent. Check your connection.', 'error'),
+    try {
+      const res = await api.reminders.coupons[':couponId'].whatsapp.$post({ param: { couponId: coupon.id } });
+      if (!res.ok) throw new Error(await apiErrorMessage(res));
+      const { notifiedAt } = await res.json();
+      animate();
+      setData((d) =>
+        d
+          ? {
+              ...d,
+              actionable: coupon.notifiedAt ? d.actionable : Math.max(0, d.actionable - 1),
+              coupons: { ...d.coupons, active: d.coupons.active.map((c) => (c.id === coupon.id ? { ...c, notifiedAt } : c)) },
+            }
+          : d,
       );
+      showToast('Reward sent on WhatsApp', 'success');
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Couldn’t send. Check your connection.', 'error');
+    }
   };
 
   const onRefresh = async () => {
@@ -362,8 +320,8 @@ export function RemindersScreen({ navigation }: RemindersScreenProps) {
             </View>
           ) : (
             <TipBand>
-              Tap Remind to open WhatsApp with the message ready. Snooze hides a car for 3 days; Dismiss
-              hides it until its next visit.
+              These go out by themselves on WhatsApp every morning at 10 (not on the weekly holiday). Remind sends
+              one now. Snooze hides a car for 3 days; Dismiss hides it until its next visit.
             </TipBand>
           )}
 

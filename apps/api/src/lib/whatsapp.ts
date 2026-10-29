@@ -49,6 +49,29 @@ export async function graphSend(env: Env, payload: Record<string, unknown>): Pro
   }
 }
 
+/** Uploads a file (the PDF bill) to WhatsApp for a message to use; its media id, or the error. */
+export async function uploadMedia(env: Env, bytes: Uint8Array, type: string, fileName: string): Promise<SendResult> {
+  try {
+    // (Typed loosely: the team app also type-checks this file, with React Native's FormData.)
+    const form = new FormData() as unknown as { append(name: string, value: unknown, fileName?: string): void };
+    form.append('messaging_product', 'whatsapp');
+    form.append('type', type);
+    const FileBlob = Blob as unknown as new (parts: unknown[], options: { type: string }) => unknown;
+    form.append('file', new FileBlob([bytes], { type }), fileName);
+    const res = await fetch(`${graphBase(env)}/${env.WHATSAPP_PHONE_NUMBER_ID!.trim()}/media`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${env.WHATSAPP_API_TOKEN!.trim()}` },
+      body: form as unknown as string,
+    });
+    const text = await res.text();
+    if (!res.ok) return { ok: false, error: graphError(text) ?? `HTTP ${res.status}` };
+    const id = (JSON.parse(text) as { id?: string }).id;
+    return id ? { ok: true, id } : { ok: false, error: 'No media id in the reply' };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Network error' };
+  }
+}
+
 function graphError(body: string): string | null {
   try {
     const e = (JSON.parse(body) as { error?: { message?: string; code?: number } }).error;

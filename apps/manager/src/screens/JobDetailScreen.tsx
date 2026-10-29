@@ -43,7 +43,10 @@ import { PaymentSheet } from '../components/PaymentSheet';
 import { ReasonSheet } from '../components/ReasonSheet';
 import { PeoplePickerSheet } from '../components/PeoplePickerSheet';
 import { JobPhotos, type JobPhoto } from '../components/JobPhotos';
+import ReactNativeBlobUtil from 'react-native-blob-util';
+import Share from 'react-native-share';
 import { api, API_BASE_URL, apiErrorMessage } from '../api/client';
+import { bytesToBase64 } from '../utils/shareReportPdf';
 import { NetworkError } from '../api/network';
 import { useAuth } from '../api/auth';
 import { useSync } from '../offline/SyncProvider';
@@ -153,6 +156,7 @@ export function JobDetailScreen({ navigation, route }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [sheet, setSheet] = useState<'pay' | 'void' | 'correct' | 'start' | 'washers' | 'sellers' | null>(null);
+  const [sharingBill, setSharingBill] = useState(false);
 
   // Each answer is applied in one go: the old architecture would redraw the page per update.
   const load = useCallback(async () => {
@@ -277,6 +281,26 @@ export function JobDetailScreen({ navigation, route }: Props) {
   };
 
   const call = () => void Linking.openURL(`tel:${job.customer.phone}`).catch(() => undefined);
+
+  /** The same PDF bill the customer gets on WhatsApp, to open, print or forward. */
+  const shareBill = async () => {
+    setSharingBill(true);
+    try {
+      const res = await api.jobs[':id'].bill.$get({ param: { id: job.id } });
+      if (!res.ok) {
+        showToast(await apiErrorMessage(res, 'Couldn’t make the bill.'), 'error');
+        return;
+      }
+      const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? `Bill-${job.id.slice(-4)}.pdf`;
+      const path = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/${name}`;
+      await ReactNativeBlobUtil.fs.writeFile(path, bytesToBase64(new Uint8Array(await res.arrayBuffer())), 'base64');
+      await Share.open({ url: `file://${path}`, type: 'application/pdf', filename: name, title: 'Share bill', failOnCancel: false });
+    } catch {
+      showToast('You’re offline. The bill needs a connection.', 'error');
+    } finally {
+      setSharingBill(false);
+    }
+  };
   const whatsapp = () => void openWhatsApp(job.customer.phone, `Hi ${job.customer.name?.trim() ?? ''}, `);
 
   const model = vehicleModelLine(job.vehicle);
@@ -444,6 +468,14 @@ export function JobDetailScreen({ navigation, route }: Props) {
                 .filter(Boolean)
                 .join(' · ')}
               onPress={allowCorrect ? () => setSheet('correct') : undefined}
+            />
+          ) : null}
+          {job.status === 'paid' && !job.syncState ? (
+            <FactRow
+              label="Bill"
+              value={sharingBill ? 'Preparing…' : 'Open or share the PDF'}
+              note="Services, total and the before & after photos. The customer gets it on WhatsApp."
+              onPress={sharingBill ? undefined : () => void shareBill()}
             />
           ) : null}
           {(job.gifts ?? []).map((g) => (

@@ -3,7 +3,7 @@
 // company → model and that model's prices, typing a model, directions, Telugu (remembered for the
 // number), STOP/START, a repeated delivery answered once, delivery reports, and the Ready and
 // bill templates a wash sends by itself (once each), and the inbox (a question waits for the team,
-// a teammate replies, the assistant stays quiet, Mark done). Adds a throwaway owner to a branch of the
+// a teammate replies, the assistant stays quiet, Mark done), and the 10:00 follow-ups. Adds a throwaway owner to a branch of the
 // business for that last part.
 // A stand-in Graph API on :8798 records what the server sends back. Only writes the whatsapp_*
 // tables and rate_limits, so it can run against your local data. Run the API with:
@@ -35,12 +35,19 @@ function check(name, ok, detail = '') {
 
 // ─── Stand-in Graph API ──────────────────────────────────────────────────────
 const sent = [];
+const uploads = [];
 let n = 0;
 const graph = createServer(async (req, res) => {
-  let raw = '';
-  for await (const chunk of req) raw += chunk;
-  const body = raw ? JSON.parse(raw) : {};
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  const raw = Buffer.concat(chunks);
   res.writeHead(200, { 'content-type': 'application/json' });
+  // A file upload (the PDF bill): keep it, answer with a media id.
+  if ((req.headers['content-type'] ?? '').startsWith('multipart/form-data')) {
+    uploads.push(raw);
+    return res.end(JSON.stringify({ id: `media.standin.${uploads.length}` }));
+  }
+  const body = raw.length ? JSON.parse(raw.toString()) : {};
   if (body.status === 'read') return res.end(JSON.stringify({ success: true }));
   sent.push(body);
   res.end(JSON.stringify({ messages: [{ id: `wamid.standin.${Date.now().toString(36)}.${++n}` }] }));
@@ -280,16 +287,22 @@ check('a late “delivered” never undoes “read”', d1Rows(`SELECT status FR
   );
   const paid = await call('POST', `/jobs/${jobId}/pay`, { paymentMethod: 'upi' });
   check('the wash is paid', paid.status === 200, JSON.stringify(paid.body).slice(0, 200));
-  const bill = templates('wash_bill');
-  const billParams = bill[0]?.template?.components?.[0]?.parameters?.map((x) => x.text) ?? [];
+  const bill = templates('wash_invoice');
+  const header = bill[0]?.template?.components?.[0];
+  const billParams = bill[0]?.template?.components?.[1]?.parameters?.map((x) => x.text) ?? [];
   check(
-    'Paid sends the wash_bill template with the amount, UPI and Rate us',
-    bill.length === 1 && billParams[4]?.startsWith('₹') && billParams[5] === 'UPI' &&
-      bill[0].template.components[1]?.parameters?.[0]?.payload === `rate|${priced.shop_id}`,
+    'Paid sends the wash_invoice template with the PDF bill, the amount, UPI and Rate us',
+    bill.length === 1 && header?.type === 'header' && header.parameters?.[0]?.document?.id?.startsWith('media.standin') &&
+      header.parameters[0].document.filename?.endsWith('.pdf') && billParams[4]?.startsWith('₹') && billParams[5] === 'UPI' &&
+      bill[0].template.components[2]?.parameters?.[0]?.payload === `rate|${priced.shop_id}`,
     JSON.stringify(bill).slice(0, 400),
   );
+  const pdf = uploads.at(-1)?.toString('latin1') ?? '';
+  check('the uploaded bill is a real PDF', pdf.includes('%PDF-') && pdf.includes('application/pdf'));
   await call('POST', `/jobs/${jobId}/pay`, { paymentMethod: 'upi' });
-  check('paying again (a retry) sends no second bill', templates('wash_bill').length === 1);
+  check('paying again (a retry) sends no second bill', templates('wash_invoice').length === 1 && templates('wash_bill').length === 0);
+  const appBill = await apiFetch(`${API}/jobs/${jobId}/bill`, { headers: { authorization: `Bearer ${token}` } });
+  check('the app can open the same bill as a PDF', appBill.status === 200 && appBill.headers.get('content-type') === 'application/pdf' && (await appBill.arrayBuffer()).byteLength > 1000);
   const logged = d1Rows(`SELECT purpose FROM whatsapp_messages WHERE job_id = '${jobId}' ORDER BY created_at`).map((r) => r.purpose).join(',');
   check('both are logged with the wash', logged.startsWith('ready,bill'), logged);
 
@@ -323,6 +336,44 @@ check('a late “delivered” never undoes “read”', d1Rows(`SELECT status FR
   d1Run(`UPDATE whatsapp_contacts SET last_inbound_at = '2020-01-01T00:00:00.000+00:00' WHERE phone = '${phone}'`);
   const late = await call('POST', `/whatsapp/inbox/${phone}/reply`, { text: 'hello?' });
   check('after 24 hours a reply is refused (WhatsApp’s rule)', late.status === 409 && late.body?.error === 'window_closed');
+
+  // ─── The 10:00 follow-ups ──────────────────────────────────────────────────
+  const offToday = d1Rows(`SELECT weekly_off_days AS off FROM shops WHERE id = '${priced.shop_id}'`)[0]?.off ?? '';
+  const istDay = new Date(Date.now() + 330 * 60_000).getUTCDay();
+  if (String(offToday).split(',').includes(String(istDay))) {
+    console.log('(skipping the follow-up checks: today is this branch’s day off)');
+  } else {
+    // The morning run for this number only, waiting for it (the cron itself runs every branch in the background).
+    const morning = () => apiFetch(`${API}/whatsapp/dev/follow-ups?phone=${phone}`, { method: 'POST' });
+    const backdate = (days) => {
+      const at = new Date(Date.now() - days * 86_400_000).toISOString().replace('Z', '+00:00');
+      d1Run(`UPDATE jobs SET created_at = '${at}' WHERE vehicle_id = (SELECT vehicle_id FROM jobs WHERE id = '${jobId}')`);
+    };
+    const followUps = (name) => sent.filter((m) => m.type === 'template' && m.to === `91${phone}` && m.template?.name === name);
+    backdate(12);
+    await morning();
+    const reminder = followUps('wash_reminder');
+    const rParams = reminder[0]?.template?.components?.[0]?.parameters?.map((x) => x.text) ?? [];
+    check(
+      '12 days after a wash, the morning run sends “time for a wash” with See prices and Stop offers',
+      reminder.length === 1 && rParams[1] === '12' && reminder[0].template.components[2]?.parameters?.[0]?.payload === 'STOP',
+      JSON.stringify(reminder).slice(0, 300),
+    );
+    await morning();
+    check('…only once for that visit', followUps('wash_reminder').length === 1);
+    backdate(35);
+    await morning();
+    const comeback = followUps('comeback_offer');
+    const code = comeback[0]?.template?.components?.[0]?.parameters?.[4]?.text;
+    check('35 days on, a comeback offer goes out with a fresh coupon code', comeback.length === 1 && /^MANA-/.test(code ?? ''), JSON.stringify(comeback).slice(0, 300));
+    check('…and the coupon is recorded as sent', d1Rows(`SELECT notified_at IS NOT NULL AS sent FROM coupons WHERE code = '${code}'`)[0]?.sent === 1);
+    // Stop offers: nothing more after STOP.
+    d1Run(`UPDATE coupons SET status = 'cancelled' WHERE code = '${code}'`);
+    d1Run(`UPDATE vehicle_reminders SET reminded_at = NULL WHERE vehicle_id = (SELECT vehicle_id FROM jobs WHERE id = '${jobId}')`);
+    await choose('STOP');
+    await morning();
+    check('after Stop offers, no more offers', followUps('comeback_offer').length === 1 && followUps('wash_reminder').length === 1);
+  }
 }
 
 graph.close();

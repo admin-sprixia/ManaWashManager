@@ -34,6 +34,6 @@
 <path d="M520 580 H1080 V525 L1240 610 L1080 695 V640 H520 Z" fill="url(#gold)"/>
 <text x="810" y="632" text-anchor="middle" font-family="Avenir Next" font-weight="700" font-size="68" fill="#1B2878">200 m</text>
 <text x="1380" y="602" text-anchor="start" font-family="Avenir Next" font-weight="700" font-size="44" fill="#FFFFFF">7 AM – 8 PM</text>
-<text x="1380" y="656" text-anchor="start" font-family="Avenir Next" font-size="34" letter-spacing="4" fill="#C4CCF0">EVERY DAY</text>
+<text x="1380" y="656" text-anchor="start" font-family="Avenir Next" font-size="34" letter-spacing="4" fill="#C4CCF0">CLOSED MONDAYS</text>
 <path d="M0 795 C 457.5 733.4, 768.6 861, 1207.8 803.8 S 1647 751, 1830 795" fill="none" stroke="url(#rib)" stroke-width="3.3000000000000003"/><path d="M0 834.6 C 512.4000000000001 777.4, 823.5 891.8, 1281 843.4 S 1683.6000000000001 790.6, 1830 839" fill="none" stroke="url(#rib)" stroke-width="2.2" opacity="0.7"/>
 </svg>

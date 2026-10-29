@@ -140,7 +140,7 @@ ${feature(330, qrY + QR + 250, 'bill', 'Bills in your chat', 'no paper, nothing 
 <path d="M0 ${H - 92} C 150 ${H - 120}, 260 ${H - 62}, 400 ${H - 86} S 560 ${H - 110}, ${W} ${H - 90}" fill="none" stroke="url(#rib)" stroke-width="1.6"/>
 <path d="M0 ${H - 74} C 170 ${H - 98}, 280 ${H - 46}, 420 ${H - 68} S 570 ${H - 92}, ${W} ${H - 72}" fill="none" stroke="url(#rib)" stroke-width="1" opacity="0.7"/>
 <text x="${W / 2}" y="${H - 54}" text-anchor="middle" font-family="${SANS}" font-weight="600" font-size="13" letter-spacing="3" fill="#C4CCF0">NEAR HIGHWAY · SAI BABA TEMPLE · KOVUR</text>
-<text x="${W / 2}" y="${H - 34}" text-anchor="middle" font-family="${SANS}" font-size="12" letter-spacing="3" fill="#9BAEF5">OPEN DAILY 7 AM – 8 PM</text>
+<text x="${W / 2}" y="${H - 34}" text-anchor="middle" font-family="${SANS}" font-size="12" letter-spacing="3" fill="#9BAEF5">7 AM – 8 PM · CLOSED MONDAYS</text>
 </svg>
 `;
 

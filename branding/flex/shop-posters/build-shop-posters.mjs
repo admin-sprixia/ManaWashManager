@@ -35,7 +35,7 @@ const HIGHWAY = { distance: process.env.HIGHWAY_DISTANCE ?? '200 m', arrow: proc
 const NUMBER = '91547 52999';
 const CHAT_URL = 'https://wa.me/919154752999?text=Hi';
 const ADDRESS = 'Near Highway · Sai Baba Temple · Kovur';
-const HOURS = 'Open daily 7 AM – 8 PM';
+const HOURS = '7 AM – 8 PM · Closed Mondays';
 const SANS = 'Avenir Next';
 const SERIF = 'Didot';
 
@@ -466,7 +466,7 @@ ${name.svg}
 ${arrow}
 <text x="${right ? ax + 290 : ax + 430}" y="${arrowY + 22}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="68" fill="#1B2878">${esc(HIGHWAY.distance)}</text>
 <text x="${right ? ax + 860 : ax - 140}" y="${arrowY - 8}" text-anchor="${right ? 'start' : 'end'}" font-family="${SANS}" font-weight="700" font-size="44" fill="#FFFFFF">7 AM – 8 PM</text>
-<text x="${right ? ax + 860 : ax - 140}" y="${arrowY + 46}" text-anchor="${right ? 'start' : 'end'}" font-family="${SANS}" font-size="34" letter-spacing="4" fill="#C4CCF0">EVERY DAY</text>
+<text x="${right ? ax + 860 : ax - 140}" y="${arrowY + 46}" text-anchor="${right ? 'start' : 'end'}" font-family="${SANS}" font-size="34" letter-spacing="4" fill="#C4CCF0">CLOSED MONDAYS</text>
 ${ribbon(W, H - 120, 2.2)}`;
   await write('highway-board-6x3ft', W, H, body, 'Sri Mana Wash highway direction board (6 ft × 3 ft)');
 }

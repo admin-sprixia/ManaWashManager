@@ -16,6 +16,7 @@ import {
   markReadTyping,
   phoneFromWaId,
   sendChat,
+  setAwaiting,
   setChatContext,
   setLanguage,
   setMarketing,
@@ -55,6 +56,11 @@ interface WaMessage {
   };
   /** A quick-reply button on a template (the bill's "Rate us"). */
   button?: { payload?: string; text?: string };
+  /** A photo's or video's caption, lifted from image/video/document. */
+  caption?: string;
+  image?: { caption?: string };
+  video?: { caption?: string };
+  document?: { caption?: string; filename?: string };
 }
 interface WaStatus {
   id: string;
@@ -76,8 +82,22 @@ interface WaWebhook {
   }[];
 }
 
-/** What the customer sent, as the assistant reads it. */
-function inputOf(m: WaMessage): { input: ChatInput; body: string | null } {
+/** Kinds of message that carry something for a person to look at. */
+const MEDIA = new Set(['image', 'audio', 'video', 'document', 'sticker', 'location', 'contacts']);
+const MEDIA_LABEL: Record<string, string> = {
+  image: '📷 Photo',
+  audio: '🎤 Voice note',
+  video: '🎥 Video',
+  document: '📄 Document',
+  sticker: 'Sticker',
+  location: '📍 Location',
+  contacts: '👤 Contact',
+};
+
+/** What the customer sent, as the assistant reads it; null for what needs no answer (a reaction). */
+function inputOf(m: WaMessage): { input: ChatInput; body: string | null } | null {
+  if (MEDIA.has(m.type)) return { input: { kind: 'media' }, body: `${MEDIA_LABEL[m.type] ?? m.type}${m.caption ? `: ${m.caption}` : ''}` };
+  if (m.type === 'reaction' || m.type === 'unsupported' || m.type === 'system') return null;
   const choice = m.interactive?.button_reply ?? m.interactive?.list_reply;
   if (choice?.id) return { input: { kind: 'choice', id: choice.id }, body: choice.id };
   const flowChoice = m.interactive?.nfm_reply?.response_json ? chatFlowChoice(m.interactive.nfm_reply.response_json) : null;
@@ -141,17 +161,22 @@ async function chatContext(env: Env, origin: string): Promise<ChatContext> {
 async function handleMessage(env: Env, m: WaMessage, profileName: string | null, getContext: () => Promise<ChatContext>) {
   const phone = phoneFromWaId(m.from);
   if (!phone) return; // Indian numbers only.
-  const { input, body } = inputOf(m);
+  const read = inputOf({ ...m, caption: m.image?.caption ?? m.video?.caption ?? m.document?.caption ?? m.document?.filename });
+  if (!read) return;
+  const { input, body } = read;
   // Who they are is read before their message is logged, so a first "Hi" isn't a returning one.
   const person = await chatPerson(env, phone, env.WHATSAPP_BUSINESS_ID?.trim() || null, profileName);
   if (!(await logIncoming(env, { id: m.id, phone, kind: m.type, body, profileName }))) return;
   const { count } = await countHit(env, `wa:${phone}`, WINDOW_SECONDS);
   if (count > REPLIES_PER_WINDOW) return;
-  await markReadTyping(env, m.id);
   const result = chatReply(input, { ...(await getContext()), person });
+  // Blue ticks and "typing…" only when the assistant is about to answer.
+  if (result.messages.length) await markReadTyping(env, m.id);
   if (result.marketing) await setMarketing(env, phone, result.marketing === 'start');
   if (result.lang) await setLanguage(env, phone, result.lang);
   if (result.context) await setChatContext(env, phone, result.context);
+  if (result.forTeam) await setAwaiting(env, phone);
+  if (!result.messages.length) return;
   await sendChat(env, phone, result.messages);
 }
 

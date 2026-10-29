@@ -41,6 +41,7 @@ import { CommunitiesPanel, type CommunitiesPanelHandle } from './places/Communit
 import { useAuth } from '../api/auth';
 import { useBoardJobs } from '../offline/useBoardJobs';
 import { useReminderCount } from '../offline/useReminderCount';
+import { useInboxCount } from '../offline/useInboxCount';
 import { useJobActions } from '../offline/useJobActions';
 import { useShop } from '../offline/ShopProvider';
 import type { BoardJob } from '../offline/types';
@@ -70,6 +71,9 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
   const { jobs, loading, error, refresh } = useBoardJobs();
   const actions = useJobActions();
   const reminderCount = useReminderCount();
+  // The WhatsApp inbox is for owners and managers.
+  const canInbox = user?.role === 'owner' || user?.role === 'manager';
+  const inboxCount = useInboxCount(canInbox);
   const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [payJob, setPayJob] = useState<BoardJob | null>(null);
@@ -181,6 +185,7 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
   const goReports = useCallback(() => navigation.navigate('Reports'), [navigation]);
   const goMore = useCallback(() => navigation.navigate('More'), [navigation]);
   const goReminders = useCallback(() => navigation.navigate('Reminders'), [navigation]);
+  const goInbox = useCallback(() => navigation.navigate('Inbox'), [navigation]);
   const paused = shopInfo?.status === 'paused';
   const onFab = useCallback(() => {
     if (lane === 'community') return navigation.navigate('CommunitySetup');
@@ -227,6 +232,8 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
                 onMore={goMore}
                 onReminders={goReminders}
                 reminderCount={reminderCount}
+                onInbox={canInbox ? goInbox : undefined}
+                inboxCount={inboxCount}
                 moreAlert={moreAlert}
                 onLayout={(e) => setHeroHeight(e.nativeEvent.layout.height)}
               />
@@ -286,6 +293,8 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
           onMore={goMore}
           onReminders={goReminders}
           reminderCount={reminderCount}
+          onInbox={canInbox ? goInbox : undefined}
+          inboxCount={inboxCount}
           moreAlert={moreAlert}
         />
 

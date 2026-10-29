@@ -268,9 +268,35 @@ describe('WhatsApp assistant', () => {
     expectValid(text('City').messages);
   });
 
-  it('falls back to the welcome for anything else', () => {
-    const [m] = text('when are you open?').messages;
-    expect(as(m, 'buttons').buttons[0]!.id).toBe('svc|b1');
+  it('greetings get the welcome; a real question goes to the team', () => {
+    for (const hi of ['Hi', 'hii', 'Hello!', 'good morning', 'menu', 'prices', '👋']) {
+      const r = text(hi);
+      expect(r.forTeam).toBeUndefined();
+      expect(as(r.messages[0], 'buttons').imageUrl).toBeDefined();
+    }
+    const q = text('Do you wash tractors?');
+    expect(q.forTeam).toBe(true);
+    const ack = as(only(q.messages), 'buttons');
+    expect(ack.text).toContain('Our team will reply here shortly');
+    expect(ack.buttons.map((b) => b.id)).toEqual(['svc|b1', 'loc|b1']);
+  });
+
+  it('photos and voice notes go to the team', () => {
+    const r = reply({ kind: 'media' });
+    expect(r.forTeam).toBe(true);
+    expect(bodyOf(only(r.messages))).toContain('Our team will reply');
+  });
+
+  it('stays quiet while a teammate is talking with them, but still answers buttons', () => {
+    const paused = { ...ctx, person: { name: 'Ravi', returning: true, lang: null, paused: true } };
+    expect(reply({ kind: 'text', text: 'ok I will come at 5' }, paused)).toEqual({ messages: [], forTeam: true });
+    expect(reply({ kind: 'media' }, paused).messages).toHaveLength(0);
+    expect(reply({ kind: 'choice', id: 'loc|b1' }, paused).messages.length).toBeGreaterThan(0);
+  });
+
+  it('the Stop offers button turns offers off', () => {
+    expect(choose('STOP').marketing).toBe('stop');
+    expect(choose('START').marketing).toBe('start');
   });
 
   it('sends the pin and a Google Maps directions button', () => {

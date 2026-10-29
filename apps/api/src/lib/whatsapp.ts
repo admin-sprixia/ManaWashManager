@@ -211,17 +211,39 @@ export async function logIncoming(
 
 export async function logOutgoing(
   env: Env,
-  m: { phone: string; kind: string; body: string | null; purpose: string; sent: SendResult; shopId?: string | null; jobId?: string | null },
-): Promise<void> {
+  m: {
+    phone: string;
+    kind: string;
+    body: string | null;
+    purpose: string;
+    sent: SendResult;
+    shopId?: string | null;
+    jobId?: string | null;
+    /** A teammate's reply from the inbox. */
+    sentByUserId?: string | null;
+  },
+): Promise<string> {
   // A failed send has no Meta id; give it one of ours so it's still on record.
   const id = m.sent.ok ? m.sent.id : `failed:${crypto.randomUUID()}`;
   await d1(env)
     .prepare(
-      `INSERT OR IGNORE INTO whatsapp_messages (id, direction, phone, kind, body, purpose, status, error, shop_id, job_id)
-       VALUES (?1, 'out', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+      `INSERT OR IGNORE INTO whatsapp_messages (id, direction, phone, kind, body, purpose, status, error, shop_id, job_id, sent_by_user_id)
+       VALUES (?1, 'out', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
     )
-    .bind(id, m.phone, m.kind, clip(m.body), m.purpose, m.sent.ok ? 'sent' : 'failed', m.sent.ok ? null : clip(m.sent.error, 500), m.shopId ?? null, m.jobId ?? null)
+    .bind(
+      id,
+      m.phone,
+      m.kind,
+      clip(m.body),
+      m.purpose,
+      m.sent.ok ? 'sent' : 'failed',
+      m.sent.ok ? null : clip(m.sent.error, 500),
+      m.shopId ?? null,
+      m.jobId ?? null,
+      m.sentByUserId ?? null,
+    )
     .run();
+  return id;
 }
 
 const STATUS_RANK: Record<string, number> = { sent: 1, delivered: 2, read: 3, failed: 4 };
@@ -250,12 +272,15 @@ export async function chatPerson(
   phone: string,
   businessId: string | null,
   profileName: string | null,
-): Promise<{ name: string | null; returning: boolean; lang: ChatLang | null; context: string | null }> {
+): Promise<{ name: string | null; returning: boolean; lang: ChatLang | null; context: string | null; paused: boolean }> {
   const [contact, customer] = await Promise.all([
     d1(env)
-      .prepare('SELECT last_inbound_at AS seen, language, chat_context AS context FROM whatsapp_contacts WHERE phone = ?1')
+      .prepare(
+        `SELECT last_inbound_at AS seen, language, chat_context AS context, bot_paused_until > ${NOW} AS paused
+         FROM whatsapp_contacts WHERE phone = ?1`,
+      )
       .bind(phone)
-      .first<{ seen: string | null; language: string | null; context: string | null }>(),
+      .first<{ seen: string | null; language: string | null; context: string | null; paused: number | null }>(),
     businessId
       ? d1(env)
           .prepare(
@@ -267,7 +292,13 @@ export async function chatPerson(
       : null,
   ]);
   const lang = contact?.language === 'te' || contact?.language === 'en' ? contact.language : null;
-  return { name: customer?.name?.trim() || profileName, returning: !!customer || !!contact?.seen, lang, context: contact?.context ?? null };
+  return {
+    name: customer?.name?.trim() || profileName,
+    returning: !!customer || !!contact?.seen,
+    lang,
+    context: contact?.context ?? null,
+    paused: !!contact?.paused,
+  };
 }
 
 /** The price list this number just saw, so its next number picks from it. */
@@ -283,6 +314,25 @@ export async function setLanguage(env: Env, phone: string, lang: ChatLang): Prom
   await d1(env)
     .prepare(`INSERT INTO whatsapp_contacts (phone, language) VALUES (?1, ?2) ON CONFLICT (phone) DO UPDATE SET language = excluded.language`)
     .bind(phone, lang)
+    .run();
+}
+
+/** Their message needs a person: it waits in the team's inbox (the first unanswered one counts). */
+export async function setAwaiting(env: Env, phone: string): Promise<void> {
+  await d1(env)
+    .prepare(
+      `INSERT INTO whatsapp_contacts (phone, awaiting_reply_at) VALUES (?1, ${NOW})
+       ON CONFLICT (phone) DO UPDATE SET awaiting_reply_at = COALESCE(awaiting_reply_at, ${NOW})`,
+    )
+    .bind(phone)
+    .run();
+}
+
+/** A teammate answered (keeping the assistant quiet until `pauseUntil`), or marked it done. */
+export async function clearAwaiting(env: Env, phone: string, pauseUntil: Date | null): Promise<void> {
+  await d1(env)
+    .prepare('UPDATE whatsapp_contacts SET awaiting_reply_at = NULL, bot_paused_until = ?2 WHERE phone = ?1')
+    .bind(phone, pauseUntil?.toISOString() ?? null)
     .run();
 }
 

@@ -10,6 +10,7 @@ import {
   IconChevronDown,
   IconGrid,
   IconStore,
+  IconWhatsApp,
   colors,
   gradients,
   radius,
@@ -32,6 +33,9 @@ interface HeaderActionsProps {
   reminderCount: number;
   /** What in More needs a look (e.g. "stock running low") — a dot on its button, read out by screen readers. */
   moreAlert?: string;
+  /** The WhatsApp inbox (owners and managers): its button, and how many customers wait for a reply. */
+  onInbox?: () => void;
+  inboxCount?: number;
   compact?: boolean;
 }
 
@@ -42,11 +46,27 @@ function greeting(): string {
   return 'Good evening';
 }
 
-function HeaderActions({ isOwner, onReports, onMore, onReminders, reminderCount, moreAlert, compact }: HeaderActionsProps) {
+function HeaderActions({ isOwner, onReports, onMore, onReminders, reminderCount, moreAlert, onInbox, inboxCount = 0, compact }: HeaderActionsProps) {
   const size = compact ? 38 : 42;
   const btn = [styles.iconBtn, { width: size, height: size, borderRadius: size / 2 }];
   return (
     <View style={styles.actions}>
+      {onInbox ? (
+        <Pressable
+          onPress={onInbox}
+          style={({ pressed }) => [btn, pressed && styles.iconBtnPressed]}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={inboxCount > 0 ? `WhatsApp inbox, ${inboxCount} waiting for a reply` : 'WhatsApp inbox'}
+        >
+          <IconWhatsApp size={19} color={colors.white} variant="mono" />
+          {inboxCount > 0 ? (
+            <View style={[styles.badge, styles.badgeInbox]}>
+              <Text style={styles.badgeText}>{inboxCount > 99 ? '99+' : inboxCount}</Text>
+            </View>
+          ) : null}
+        </Pressable>
+      ) : null}
       <Pressable
         onPress={onReminders}
         style={({ pressed }) => [btn, pressed && styles.iconBtnPressed]}
@@ -322,6 +342,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   iconBtnPressed: { backgroundColor: 'rgba(255,255,255,0.3)' },
+  badgeInbox: { backgroundColor: '#22C55E' },
   badge: {
     position: 'absolute',
     top: -4,

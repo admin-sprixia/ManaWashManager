@@ -1147,6 +1147,8 @@ model WhatsAppContact {
   language           String?
   /// The price list they saw last ("pr|<branch>|<make>|<model>"), so a number picks from it.
   chatContext        String? @map("chat_context")
+  awaitingReplyAt    String? @map("awaiting_reply_at")
+  botPausedUntil     String? @map("bot_paused_until")
 
   @@map("whatsapp_contacts")
 }
@@ -1165,6 +1167,8 @@ model WhatsAppMessage {
   jobId     String? @map("job_id")
   createdAt String  @map("created_at")
   updatedAt String  @map("updated_at")
+  /// A teammate's reply from the inbox.
+  sentByUserId String? @map("sent_by_user_id")
 
   @@index([phone, createdAt])
   @@map("whatsapp_messages")

@@ -2,7 +2,8 @@
 // refused), the banner, a customer saying hi, Services & Prices → Car →
 // company → model and that model's prices, typing a model, directions, Telugu (remembered for the
 // number), STOP/START, a repeated delivery answered once, delivery reports, and the Ready and
-// bill templates a wash sends by itself (once each). Adds a throwaway owner to a branch of the
+// bill templates a wash sends by itself (once each), and the inbox (a question waits for the team,
+// a teammate replies, the assistant stays quiet, Mark done). Adds a throwaway owner to a branch of the
 // business for that last part.
 // A stand-in Graph API on :8798 records what the server sends back. Only writes the whatsapp_*
 // tables and rate_limits, so it can run against your local data. Run the API with:
@@ -290,7 +291,38 @@ check('a late “delivered” never undoes “read”', d1Rows(`SELECT status FR
   await call('POST', `/jobs/${jobId}/pay`, { paymentMethod: 'upi' });
   check('paying again (a retry) sends no second bill', templates('wash_bill').length === 1);
   const logged = d1Rows(`SELECT purpose FROM whatsapp_messages WHERE job_id = '${jobId}' ORDER BY created_at`).map((r) => r.purpose).join(',');
-  check('both are logged with the wash', logged === 'ready,bill', logged);
+  check('both are logged with the wash', logged.startsWith('ready,bill'), logged);
+
+  // ─── The inbox ─────────────────────────────────────────────────────────────
+  d1Run(`UPDATE whatsapp_contacts SET awaiting_reply_at = NULL, bot_paused_until = NULL WHERE phone = '${phone}'`);
+  const asked = await text('Do you wash tractors?');
+  check('a question the assistant can’t answer says the team will reply', bodyOf(asked[0]).includes('Our team will reply'), bodyOf(asked[0]));
+  const photo = await say({ type: 'image', image: { id: 'media1', caption: 'this scratch?' } });
+  check('a photo goes to the team too', bodyOf(photo[0]).includes('Our team will reply'));
+  const waiting = await call('GET', '/whatsapp/inbox?waiting=1');
+  const convo = waiting.body?.conversations?.find((cv) => cv.phone === phone);
+  check('the customer waits in the inbox, with their name and last message', convo?.name === 'Ravi Kumar' && convo.canReply && convo.last?.text?.includes('this scratch'), JSON.stringify(waiting.body).slice(0, 300));
+  const count = await call('GET', '/whatsapp/inbox/count');
+  check('the board badge counts them', count.body?.waiting >= 1);
+  const before = sent.length;
+  const replied = await call('POST', `/whatsapp/inbox/${phone}/reply`, { text: 'Yes we do, ₹999 for a tractor wash.' });
+  const outgoing = sent.slice(before).find((m) => m.type === 'text' && m.to === `91${phone}`);
+  check('a teammate’s reply goes out from the business number', replied.status === 201 && outgoing?.text?.body === 'Yes we do, ₹999 for a tractor wash.', JSON.stringify(replied.body));
+  const thread = await call('GET', `/whatsapp/inbox/${phone}`);
+  const mine = thread.body?.messages?.at(-1);
+  check('the chat shows the reply and who sent it, and it’s off the waiting list', mine?.by === 'WhatsApp Check' && !thread.body.awaitingSince, JSON.stringify(mine));
+  const quiet = await text('ok I will come at 5');
+  check('the assistant stays quiet while a teammate is talking', quiet.length === 0);
+  check('…and the message waits for the teammate', d1Rows(`SELECT awaiting_reply_at IS NOT NULL AS waiting FROM whatsapp_contacts WHERE phone = '${phone}'`)[0]?.waiting === 1);
+  await call('POST', `/whatsapp/inbox/${phone}/done`);
+  check('Mark done takes it off the list', d1Rows(`SELECT awaiting_reply_at IS NULL AS cleared FROM whatsapp_contacts WHERE phone = '${phone}'`)[0]?.cleared === 1);
+  // (This run has sent dozens of messages from one number; clear the flood guard first.)
+  d1Run(`DELETE FROM rate_limits WHERE key = 'wa:${phone}'`);
+  const awake = await text('Hi');
+  check('…and wakes the assistant', awake.length === 1, JSON.stringify(awake).slice(0, 200));
+  d1Run(`UPDATE whatsapp_contacts SET last_inbound_at = '2020-01-01T00:00:00.000+00:00' WHERE phone = '${phone}'`);
+  const late = await call('POST', `/whatsapp/inbox/${phone}/reply`, { text: 'hello?' });
+  check('after 24 hours a reply is refused (WhatsApp’s rule)', late.status === 409 && late.body?.error === 'window_closed');
 }
 
 graph.close();

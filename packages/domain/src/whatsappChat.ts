@@ -71,6 +71,8 @@ export interface ChatPerson {
   lang: ChatLang | null;
   /** The price list they saw last ("pr|<branch>|<make>|<model>"), so a number picks from it. */
   context?: string | null;
+  /** A teammate replied lately: typed messages go to them, not the assistant. */
+  paused?: boolean;
 }
 
 export interface ChatContext {
@@ -88,7 +90,8 @@ export interface ChatContext {
   flows?: boolean;
 }
 
-export type ChatInput = { kind: 'text'; text: string } | { kind: 'choice'; id: string };
+/** What the customer sent: words, a tap on a button or list, or a photo / voice note / file. */
+export type ChatInput = { kind: 'text'; text: string } | { kind: 'choice'; id: string } | { kind: 'media' };
 
 export interface ChatButton {
   id: string;
@@ -118,6 +121,8 @@ export interface ChatResult {
   lang?: ChatLang;
   /** The price list just sent, to remember for this customer (see ChatPerson.context). */
   context?: string;
+  /** Something only a person can answer: it waits in the team's inbox. */
+  forTeam?: true;
 }
 
 const STOP_WORDS = new Set(['stop', 'unsubscribe', 'stop offers', 'no offers', 'opt out', 'optout']);
@@ -125,6 +130,9 @@ const START_WORDS = new Set(['start', 'subscribe', 'opt in', 'optin']);
 const THANKS =
   /^(thanks?( you)?|thank u|thx|ty|ok(ay)?|k|👍|🙏|super|great|nice|good|ధన్యవాదాలు|థాంక్స్|థ్యాంక్స్|సరే)(\s|[.!]|🙏|👍|😊)*$/iu;
 const TELUGU_SCRIPT = /[ఀ-౿]/u;
+/** "Hi", "hello", "menu", "prices"…: answered with the welcome. Anything else unrecognised is a question for the team. */
+const GREETING =
+  /^(h+i+|hai|hey+|hello+|helo|hlo|hola|namaste|namaskaram|namaskar|good (morning|afternoon|evening)|gm|menu|price|prices|rate|rates|cost|services?|start over|నమస్కారం|నమస్తే|హాయ్|హలో)$/iu;
 const TELUGU_WORDS = new Set(['telugu', 'తెలుగు']);
 const ENGLISH_WORDS = new Set(['english', 'ఇంగ్లీష్']);
 
@@ -631,6 +639,21 @@ function rateReply(t: Turn, b: ChatBranch): ChatMessage[] {
   ];
 }
 
+/** "Thanks, our team will reply here", with the two things most people want meanwhile. */
+function teamAck(t: Turn, b: ChatBranch): ChatMessage[] {
+  return [
+    {
+      type: 'buttons',
+      text: say(
+        t,
+        'Thanks for your message! 🙏 Our team will reply here shortly.\n\nMeanwhile, tap below for prices or directions.',
+        'మీ సందేశానికి ధన్యవాదాలు! 🙏 మా టీమ్ త్వరలో ఇక్కడే జవాబు ఇస్తుంది.\n\nఈలోగా ధరలు లేదా దారి కోసం కింద నొక్కండి.',
+      ),
+      buttons: [servicesButton(t, b), directionsButton(t, b)],
+    },
+  ];
+}
+
 // ─── Typed model names ───────────────────────────────────────────────────────
 
 /** Listed models the text names, best first: "swift", "maruti swift", "my car is a creta". */
@@ -834,7 +857,7 @@ export function chatReply(input: ChatInput, ctx: ChatContext): ChatResult {
     if (TELUGU_WORDS.has(word)) switchTo('te');
     else if (ENGLISH_WORDS.has(word)) switchTo('en');
     else if (chatLanguageOf(input.text)) switchTo('te');
-  } else if (input.id.startsWith('lang|')) {
+  } else if (input.kind === 'choice' && input.id.startsWith('lang|')) {
     switchTo(input.id.endsWith('|te') ? 'te' : 'en');
   }
   const t: Turn = { ctx, lang, now: ctx.now ?? new Date(), edits: ctx.edits ?? [] };
@@ -856,6 +879,12 @@ export function chatReply(input: ChatInput, ctx: ChatContext): ChatResult {
     ]);
   }
   const only = ctx.branches.length === 1 ? ctx.branches[0]! : null;
+
+  // A teammate is talking with them: their typed messages and photos go to the inbox in silence.
+  if (input.kind !== 'choice' && ctx.person?.paused) return { messages: [], forTeam: true, ...(switched ? { lang: switched } : {}) };
+  if (input.kind === 'media') return { ...done(teamAck(t, only ?? ctx.branches[0]!)), forTeam: true };
+  // The Stop offers / Start offers buttons on our offer messages.
+  if (input.kind === 'choice' && /^(stop|start)$/i.test(input.id)) return chatReply({ kind: 'text', text: input.id }, ctx);
 
   if (input.kind === 'text') {
     const text = input.text.trim();
@@ -905,7 +934,10 @@ export function chatReply(input: ChatInput, ctx: ChatContext): ChatResult {
       const found = typedModel(t, only, text);
       if (found) return done(found.messages, undefined, found.context);
     }
-    return done(start(t));
+    const plain = lower.replace(/[^\p{L}\p{M}\p{N} ]+/gu, ' ').replace(/\s+/g, ' ').trim();
+    if (!plain || plain.length <= 2 || GREETING.test(plain)) return done(start(t));
+    // A real question ("do you wash tractors?"): a person answers it from the inbox.
+    return { ...done(teamAck(t, only ?? ctx.branches[0]!)), forTeam: true };
   }
 
   const [kind, branchId, ...rest] = input.id.split('|');

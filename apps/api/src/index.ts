@@ -34,6 +34,7 @@ import { customerPlaceRoutes } from './routes/customerPlaces';
 import { payRoutes } from './routes/pay';
 import { placeLinkRoutes } from './routes/placeLinks';
 import { whatsappRoutes } from './routes/whatsapp';
+import { whatsappInboxRoutes } from './routes/whatsappInbox';
 import { legalRoutes } from './routes/legal';
 import type { Env } from './types';
 
@@ -134,6 +135,7 @@ const routes = app
   .route('/c', customerPlaceRoutes)
   .route('/pay', payRoutes)
   .route('/p', placeLinkRoutes)
+  .route('/whatsapp/inbox', whatsappInboxRoutes)
   .route('/whatsapp', whatsappRoutes)
   .route('/legal', legalRoutes);
 

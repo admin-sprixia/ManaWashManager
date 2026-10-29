@@ -14,6 +14,8 @@ import { StaffReportScreen } from '../screens/StaffReportScreen';
 import { ExpensesScreen, type ExpenseItem } from '../screens/ExpensesScreen';
 import { AddExpenseScreen } from '../screens/AddExpenseScreen';
 import { RemindersScreen } from '../screens/RemindersScreen';
+import { InboxScreen } from '../screens/InboxScreen';
+import { ConversationScreen } from '../screens/ConversationScreen';
 import { CashScreen } from '../screens/CashScreen';
 import { AttendanceScreen } from '../screens/AttendanceScreen';
 import { ErrorLogScreen } from '../screens/ErrorLogScreen';
@@ -64,6 +66,9 @@ export type RootStackParamList = {
   Team: undefined;
   StaffReport: undefined;
   Reminders: undefined;
+  /** WhatsApp conversations on the business number (owners and managers). */
+  Inbox: undefined;
+  Conversation: { phone: string; name?: string | null };
   Cash: { date?: string } | undefined;
   Attendance: undefined;
   ErrorLog: undefined;
@@ -158,6 +163,8 @@ export function RootNavigator() {
         <Stack.Screen name="Expenses" component={ExpensesScreen} options={slide} />
         <Stack.Screen name="AddExpense" component={AddExpenseScreen} options={slide} />
         <Stack.Screen name="Reminders" component={RemindersScreen} options={slide} />
+        <Stack.Screen name="Inbox" component={InboxScreen} options={slide} />
+        <Stack.Screen name="Conversation" component={ConversationScreen} options={slide} />
         <Stack.Screen name="Cash" component={CashScreen} options={slide} />
         <Stack.Screen name="Inventory" component={InventoryScreen} options={slide} />
         <Stack.Screen name="Rewards" component={RewardsScreen} options={slide} />

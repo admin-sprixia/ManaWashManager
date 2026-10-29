@@ -892,8 +892,12 @@ CREATE TABLE whatsapp_contacts (
   -- The language they picked on WhatsApp (or wrote to us in); the assistant answers in it.
   language TEXT CHECK (language IS NULL OR language IN ('en', 'te')),
   -- The price list they saw last ("pr|<branch>|<make>|<model>"), so a number picks from it.
-  chat_context TEXT CHECK (chat_context IS NULL OR length(chat_context) <= 200)
+  chat_context TEXT CHECK (chat_context IS NULL OR length(chat_context) <= 200),
+  -- The inbox: waiting for a person since; the assistant stays quiet until (after a teammate replies).
+  awaiting_reply_at TEXT,
+  bot_paused_until TEXT
 );
+CREATE INDEX idx_whatsapp_contacts_awaiting ON whatsapp_contacts(awaiting_reply_at) WHERE awaiting_reply_at IS NOT NULL;
 
 -- Every message in and out, by Meta's message id: incoming ones once each (Meta retries
 -- webhooks), outgoing ones with their delivery status as Meta reports it.
@@ -909,7 +913,8 @@ CREATE TABLE whatsapp_messages (
   shop_id TEXT,
   job_id TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
-  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now'))
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  sent_by_user_id TEXT -- a teammate's reply from the inbox
 );
 CREATE INDEX idx_whatsapp_messages_phone ON whatsapp_messages(phone, created_at);
 CREATE INDEX idx_whatsapp_messages_job ON whatsapp_messages(job_id) WHERE job_id IS NOT NULL;

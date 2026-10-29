@@ -1,16 +1,16 @@
 // Builds the shop's printed posters in the brand's indigo and gold, from the live menu so their
 // prices always match the app and WhatsApp. English only (the logo's శ్రీ aside):
-//   counter card (A5, two sides)  · UPI to pay, and "Rate us on Google"
-//   plans poster (2 × 3 ft)       · the monthly wash plans per car size
+//   counter card (A5, two sides)  · MANA Pay (scan to pay), and "Rate us on Google"
+//   plans poster (2 × 3 ft)       · three membership cards: each plan per car size, per wash
 //   price board  (4 × 3 ft)       · every wash × car size (Small, Mid-size, Large), the Premium
 //                                   Care add-on, and two-wheelers
 //   waiting poster (A3)           · "We'll WhatsApp you when it's ready"
 //   valuables notice (A3)         · take cash, phones, gold and documents out
-//   highway board (6 × 3 ft)      · the shop's direction sign
+//   highway board (6 × 3 ft)      · the brand on the night side, a gold panel with the arrow
 // Each as a print-ready SVG and vector PDF (headless Chrome, like the other boards) and a PNG preview.
 //   node branding/flex/shop-posters/build-shop-posters.mjs
 // Prices come from the staging API's catalog (set API to another host to change). Fill in UPI_ID,
-// REVIEW_URL and HIGHWAY below; until then the counter card shows a marked placeholder.
+// REVIEW_URL and HIGHWAY below; until then the counter card's back shows a marked placeholder.
 // 1 unit = 1 mm on every poster.
 
 import { execFileSync } from 'node:child_process';
@@ -27,8 +27,14 @@ const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const API = process.env.API ?? 'https://api-staging.manawashmanager.com';
 
 // ─── Fill these in ────────────────────────────────────────────────────────────
-/** The shop's UPI ID (e.g. "srimanawash@okaxis"); empty shows a placeholder. */
-const UPI_ID = process.env.UPI_ID ?? '';
+/**
+ * MANA Pay: the shop's HDFC SmartHub Vyapar QR (Bharat QR: every UPI app, RuPay and cards), as
+ * the code inside it reads, redrawn here as a sharp vector QR. Replace it if the bank issues a new
+ * one; the counter card never prints the UPI ID itself.
+ */
+const MANA_PAY_QR =
+  process.env.MANA_PAY_QR ??
+  '0002010102110216440384369739550504165220240369739557061661000303697395550825HDFC00000015020011913562826470010A0000005240129SRIMANAWASH.36973955@hdfcbank27420010A0000005240124STQD330688317932821359835204753853033565802IN5913SRI MANA WASH6005KOVUR610652413762400524STQD3306883179328213598307083697395563046bd3';
 /** Google Business Profile → "Ask for reviews" link; empty shows a placeholder. */
 const REVIEW_URL = process.env.REVIEW_URL ?? '';
 /** The highway sign: how far, and which way (left or right). */
@@ -161,13 +167,19 @@ const DEFS = `
 <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFF1CF"/><stop offset="0.55" stop-color="#F0CF8E"/><stop offset="1" stop-color="#D2A250"/></linearGradient>
 <linearGradient id="goldLine" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#E8BF78" stop-opacity="0"/><stop offset="0.5" stop-color="#F8E2B0"/><stop offset="1" stop-color="#E8BF78" stop-opacity="0"/></linearGradient>
 <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.09"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.03"/></linearGradient>
+<linearGradient id="foil" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9C7536"/><stop offset="0.22" stop-color="#E9C987"/><stop offset="0.45" stop-color="#FFF4DA"/><stop offset="0.62" stop-color="#E2BD76"/><stop offset="1" stop-color="#A37C3C"/></linearGradient>
+<linearGradient id="foilH" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#B8904A"/><stop offset="0.3" stop-color="#F3D9A0"/><stop offset="0.5" stop-color="#FFF6E0"/><stop offset="0.7" stop-color="#EBCB8C"/><stop offset="1" stop-color="#B8904A"/></linearGradient>
+<linearGradient id="glass" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.11"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.025"/></linearGradient>
+<radialGradient id="halo" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#7E91F0" stop-opacity="0.35"/><stop offset="1" stop-color="#7E91F0" stop-opacity="0"/></radialGradient>
+<linearGradient id="glow" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#F0CF8E" stop-opacity="0"/><stop offset="0.5" stop-color="#F0CF8E" stop-opacity="0.13"/><stop offset="1" stop-color="#F0CF8E" stop-opacity="0"/></linearGradient>
+<linearGradient id="hair" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#9BAEF5" stop-opacity="0"/><stop offset="0.12" stop-color="#9BAEF5" stop-opacity="0.32"/><stop offset="0.88" stop-color="#9BAEF5" stop-opacity="0.32"/><stop offset="1" stop-color="#9BAEF5" stop-opacity="0"/></linearGradient>
 <linearGradient id="rib" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#9BAEF5" stop-opacity="0"/><stop offset="0.3" stop-color="#9BAEF5" stop-opacity="0.5"/><stop offset="0.7" stop-color="#9BAEF5" stop-opacity="0.5"/><stop offset="1" stop-color="#9BAEF5" stop-opacity="0"/></linearGradient>`;
 
 /** The night background, spotlight, stars and gold frame every poster shares. */
-function frame(W, H, k = 1) {
-  const stars = [[0.1, 0.18], [0.9, 0.12], [0.06, 0.55], [0.94, 0.6], [0.15, 0.85], [0.85, 0.82], [0.5, 0.03]]
+function frame(W, H, k = 1, { stars: withStars = true } = {}) {
+  const stars = (withStars ? [[0.1, 0.18], [0.9, 0.12], [0.06, 0.55], [0.94, 0.6], [0.15, 0.85], [0.85, 0.82], [0.5, 0.03]]
     .map(([x, y], i) => `<circle cx="${x * W}" cy="${y * H}" r="${(i % 2 ? 0.8 : 1.3) * k}" fill="#E6EAFF" opacity="0.55"/>`)
-    .join('');
+    .join('') : '');
   const inset = 14 * k;
   return (
     `<rect width="${W}" height="${H}" fill="url(#night)"/><rect width="${W}" height="${H}" fill="url(#spot)"/>${stars}` +
@@ -199,11 +211,59 @@ const ringIcon = (name, cx, cy, r, color = '#F0CF8E') =>
   `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#FFFFFF" fill-opacity="0.05" stroke="#E8BF78" stroke-opacity="0.6" stroke-width="${r * 0.05}"/>` +
   `<g color="${color}" transform="translate(${cx - r * 0.62} ${cy - r * 0.62}) scale(${(r * 1.24) / 24})">${ICONS[name]}</g>`;
 
+/** A gold hairline with a small diamond in the middle. */
+const ornament = (cx, y, w, k = 1) =>
+  `<rect x="${cx - w / 2}" y="${y - 0.6 * k}" width="${w}" height="${1.2 * k}" fill="url(#goldLine)"/>` +
+  `<path d="M${cx} ${y - 5 * k}L${cx + 5 * k} ${y}L${cx} ${y + 5 * k}L${cx - 5 * k} ${y}Z" fill="url(#foil)"/>`;
+
+/** Side views, 140 × 56, standing on y = 44: a small car, a mid-size sedan, a big SUV, a bike. */
+const SILHOUETTES = {
+  small: {
+    body: 'M14 44H22A9 9 0 0 1 40 44H84A9 9 0 0 1 102 44H112Q116 44 116 39V33Q116 28 110 27L104 26Q98 14 88 13H56Q48 13 40 22L22 26Q14 28 14 34Z',
+    glass: 'M44 24Q50 17 57 17H70V24ZM74 17H87Q94 17 98 24H74Z',
+    wheels: [31, 93],
+  },
+  mid: {
+    body: 'M6 44H18A9 9 0 0 1 36 44H96A9 9 0 0 1 114 44H128Q132 44 132 39V34Q132 30 127 29L112 27Q104 15 92 14H62Q52 14 44 23L18 27Q6 29 6 35Z',
+    glass: 'M48 25Q54 18 62 18H76V25ZM80 18H91Q99 18 105 25H80Z',
+    wheels: [27, 105],
+  },
+  large: {
+    body: 'M8 44H20A9 9 0 0 1 38 44H92A9 9 0 0 1 110 44H124Q128 44 128 39V28Q128 23 123 22L116 21L106 8Q104 5 99 5H40Q34 5 31 9L23 21L13 23Q8 24 8 30Z',
+    glass: 'M35 20L42 10H66V20ZM70 10H98Q101 10 103 13L108 20H70Z',
+    wheels: [29, 101],
+  },
+};
+/** A gold line-art side view of `kind`, `w` wide, centred on cx with its wheels on `baseY`. */
+function silhouette(kind, cx, baseY, w, color = '#F0CF8E') {
+  const s = SILHOUETTES[kind];
+  const k = w / 140;
+  const sw = 1.6 / k;
+  return (
+    `<g transform="translate(${cx - 70 * k} ${baseY - 53 * k}) scale(${k})" fill="none" stroke="${color}" stroke-width="${sw}" stroke-linejoin="round">` +
+    `<path d="${s.body}"/><path d="${s.glass}" fill="${color}" fill-opacity="0.16"/>` +
+    s.wheels.map((x) => `<circle cx="${x}" cy="44" r="6.6"/><circle cx="${x}" cy="44" r="2.2" fill="${color}"/>`).join('') +
+    `<path d="M0 53.5H140" stroke-opacity="0.35"/></g>`
+  );
+}
+/** A motorbike in gold line art, `w` wide, centred on cx, wheels on baseY. */
+function bikeArt(cx, baseY, w, color = '#F0CF8E') {
+  const k = w / 120;
+  return (
+    `<g transform="translate(${cx - 60 * k} ${baseY - 50 * k}) scale(${k})" fill="none" stroke="${color}" stroke-width="${1.7 / k}" stroke-linecap="round" stroke-linejoin="round">` +
+    `<circle cx="22" cy="38" r="12"/><circle cx="98" cy="38" r="12"/><circle cx="22" cy="38" r="2.4" fill="${color}"/><circle cx="98" cy="38" r="2.4" fill="${color}"/>` +
+    `<path d="M22 38L44 22H70L84 14M84 14L98 38M44 22L54 38H76L70 22M84 14H92M58 18H74Q80 18 80 22"/><path d="M40 16Q48 12 58 14" stroke-width="${2.4 / k}"/></g>`
+  );
+}
+
 // ─── Output ──────────────────────────────────────────────────────────────────
 /** Prints and previews go to Documents, outside the repo (lib/output.mjs). */
 const OUT = outputDir(HERE);
 mkdirSync(OUT, { recursive: true });
+/** ONLY=price-board-4x3ft,… builds just those; NO_PDF=1 skips the PDFs (quick previews). */
+const ONLY = process.env.ONLY ? process.env.ONLY.split(',') : null;
 async function write(name, W, H, body, label) {
+  if (ONLY && !ONLY.includes(name)) return;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}mm" height="${H}mm" role="img" aria-label="${esc(label)}">
 <title>${esc(label)}</title>
 <defs>${DEFS}</defs>
@@ -216,7 +276,7 @@ ${body}
   await sharp(Buffer.from(svg.replace(`width="${W}mm" height="${H}mm"`, `width="${Math.round(W * px)}" height="${Math.round(H * px)}"`)))
     .png()
     .toFile(join(OUT, `${name}-preview.png`));
-  if (existsSync(CHROME)) {
+  if (existsSync(CHROME) && !process.env.NO_PDF) {
     const htmlPath = join(OUT, `.${name}.html`);
     writeFileSync(
       htmlPath,
@@ -235,21 +295,52 @@ ${body}
   const k = 0.32;
   const logo = inline('sri-mana-wash-stacked-on-dark.svg', (W - 78) / 2, 16, 78, 'cf');
   const qs = 74;
-  const upi = UPI_ID ? `upi://pay?pa=${encodeURIComponent(UPI_ID)}&pn=${encodeURIComponent('Sri Mana Wash')}&cu=INR` : null;
-  await write(
-    'counter-card-front-pay',
-    W,
-    H,
-    `${frame(W, H, k)}
-${logo.svg}
-<text x="${W / 2}" y="${16 + logo.height + 18}" text-anchor="middle" font-family="${SANS}" font-weight="600" font-size="4.6" letter-spacing="2.4" fill="#9BAEF5">SCAN TO PAY</text>
-<text x="${W / 2}" y="${16 + logo.height + 31}" text-anchor="middle" font-family="${SERIF}" font-size="12" fill="#FFFFFF">Pay with <tspan font-style="italic" fill="url(#gold)">any UPI app</tspan></text>
-${upi ? qrTile(upi, (W - qs) / 2, 98, qs) : qrPlaceholder((W - qs) / 2, 98, qs, 'UPI ID')}
-<text x="${W / 2}" y="${98 + qs + 10}" text-anchor="middle" font-family="${SANS}" font-weight="600" font-size="4.4" fill="#FFFFFF">${esc(UPI_ID || 'your-upi-id@bank')}</text>
-<text x="${W / 2}" y="${98 + qs + 17}" text-anchor="middle" font-family="${SANS}" font-size="3.8" letter-spacing="0.6" fill="#C4CCF0">GPay · PhonePe · Paytm · BHIM · any bank app</text>
-<text x="${W / 2}" y="${H - 15}" text-anchor="middle" font-family="${SANS}" font-size="3.6" fill="#9BAEF5">Your bill comes on WhatsApp from ${NUMBER}</text>`,
-    'Sri Mana Wash counter card, front: pay by UPI',
-  );
+  // ── Front: MANA Pay ──
+  {
+    const k2 = 0.32;
+    const markW = 15;
+    const mark = inline('sri-mana-wash-mark.svg', (W - markW) / 2, 15, markW, 'mp');
+    const q = 84; // the QR's white tile
+    const qx = (W - q) / 2;
+    const qy = 75;
+    const br = 7; // corner brackets: length, and their gap from the tile
+    const gap = 4.2;
+    const corners = [
+      [qx - gap, qy - gap, 1, 1],
+      [qx + q + gap, qy - gap, -1, 1],
+      [qx - gap, qy + q + gap, 1, -1],
+      [qx + q + gap, qy + q + gap, -1, -1],
+    ]
+      .map(([x, y, dx, dy]) => `<path d="M${x} ${y + dy * br}V${y}H${x + dx * br}" fill="none" stroke="url(#foil)" stroke-width="1.1" stroke-linecap="round"/>`)
+      .join('');
+    const apps = ['GPay', 'PhonePe', 'Paytm', 'BHIM', 'RuPay'];
+    const pillW = 21.5;
+    const pillGap = 2.6;
+    const rowW = apps.length * pillW + (apps.length - 1) * pillGap;
+    const pills = apps
+      .map((a, i) => {
+        const x = (W - rowW) / 2 + i * (pillW + pillGap);
+        return `<rect x="${x}" y="182.5" width="${pillW}" height="7.2" rx="3.6" fill="#FFFFFF" fill-opacity="0.06" stroke="#E8BF78" stroke-opacity="0.45" stroke-width="0.3"/><text x="${x + pillW / 2}" y="187.3" text-anchor="middle" font-family="${SANS}" font-weight="600" font-size="3.3" fill="#E6EAFF">${a}</text>`;
+      })
+      .join('');
+    await write(
+      'counter-card-front-pay',
+      W,
+      H,
+      `${frame(W, H, k2)}
+<circle cx="${W / 2}" cy="${qy + q / 2}" r="${q * 0.8}" fill="url(#halo)"/>
+${mark.svg}
+<text x="${W / 2}" y="51" text-anchor="middle" font-family="${SERIF}" font-size="21" letter-spacing="1.6" fill="#FFFFFF">MANA <tspan font-style="italic" fill="url(#foil)">Pay</tspan></text>
+${ornament(W / 2, 57.5, 46, 0.32)}
+<text x="${W / 2}" y="64" text-anchor="middle" font-family="${SANS}" font-weight="600" font-size="3.2" letter-spacing="1.9" fill="#9BAEF5">SCAN · PAY · DRIVE AWAY SHINING</text>
+${corners}
+${qrTile(MANA_PAY_QR, qx, qy, q)}
+<text x="${W / 2}" y="${qy + q + 14}" text-anchor="middle" font-family="${SERIF}" font-size="8.4" fill="#FFFFFF">Scan with <tspan font-style="italic" fill="url(#foil)">any UPI app</tspan></text>
+${pills}
+<text x="${W / 2}" y="${H - 12.5}" text-anchor="middle" font-family="${SANS}" font-size="3.1" letter-spacing="0.5" fill="#9BAEF5">SRI MANA WASH · KOVUR  ·  Your bill arrives on WhatsApp</text>`,
+      'Sri Mana Wash counter card, front: MANA Pay',
+    );
+  }
   const stars = [0, 1, 2, 3, 4].map((i) => `<g color="#F0CF8E" transform="translate(${W / 2 - 30 + i * 12} ${16 + logo.height + 22}) scale(0.5)">${ICONS.star}</g>`).join('');
   await write(
     'counter-card-back-review',
@@ -267,149 +358,174 @@ ${REVIEW_URL ? qrTile(REVIEW_URL, (W - qs) / 2, 110, qs) : qrPlaceholder((W - qs
 }
 
 // ─── 2. Plans poster (2 × 3 ft) ──────────────────────────────────────────────
+// Three membership cards: each plan's price for every car size, what a wash works out to, and the
+// saving; the popular one in gold foil. Longer plans and bikes underneath, with the WhatsApp QR.
 {
   const W = 610;
   const H = 915;
   const CARS = [
-    ['small', 'Small car'],
-    ['mid', 'Mid-size'],
-    ['large', 'Large / 7-seater'],
+    ['small', 'SMALL CAR'],
+    ['mid', 'MID-SIZE'],
+    ['large', 'LARGE / 7-SEATER'],
   ];
   const monthly = servicesIn('small', 'plan').filter((s) => !/-\d+-months?$/.test(s));
-  const logo = inline('sri-mana-wash-horizontal-on-dark.svg', (W - 260) / 2, 40, 260, 'pl');
-  let y = 40 + logo.height + 40;
-  let body = `${frame(W, H)}${logo.svg}
-<text x="${W / 2}" y="${y}" text-anchor="middle" font-family="${SANS}" font-weight="600" font-size="13" letter-spacing="7" fill="#9BAEF5">MONTHLY WASH PLANS</text>
-<text x="${W / 2}" y="${y + 50}" text-anchor="middle" font-family="${SERIF}" font-size="44" fill="#FFFFFF">Wash every week.</text>
-<text x="${W / 2}" y="${y + 96}" text-anchor="middle" font-family="${SERIF}" font-style="italic" font-size="42" fill="url(#gold)">Pay once, save more.</text>`;
-  y += 150;
+  const logo = inline('sri-mana-wash-horizontal-on-dark.svg', (W - 220) / 2, 40, 220, 'pl');
+  let y = 40 + logo.height + 34;
+  let body = `${frame(W, H, 1, { stars: false })}${logo.svg}
+<text x="${W / 2}" y="${y}" text-anchor="middle" font-family="${SANS}" font-weight="600" font-size="12" letter-spacing="6" fill="#9BAEF5">MONTHLY WASH PLANS</text>
+<text x="${W / 2}" y="${y + 48}" text-anchor="middle" font-family="${SERIF}" font-size="46" fill="#FFFFFF">Wash every week.</text>
+<text x="${W / 2}" y="${y + 92}" text-anchor="middle" font-family="${SERIF}" font-style="italic" font-size="42" fill="url(#foil)">Pay once, save more.</text>
+${ornament(W / 2, y + 116, 300)}`;
+  y += 132;
+  const cx0 = 44;
+  const cwid = W - 88;
   for (const plan of monthly) {
     const c = cardOf(plan, 'small');
-    const popular = c?.card?.popular;
+    const popular = !!c?.card?.popular;
     const lines = (c?.card?.lines ?? []).filter((l) => !l.startsWith('Just '));
     const upgrade = lines.find((l) => l.startsWith('Every '));
-    const basics = lines.filter((l) => l !== upgrade);
-    // The better wash every Nth time gets a line of its own.
-    const extra = upgrade ? 20 : 0;
-    const cardH = 150 + extra;
-    body += `<rect x="40" y="${y}" width="${W - 80}" height="${cardH}" rx="16" fill="url(#panel)" stroke="${popular ? 'url(#gold)' : '#9BAEF5'}" stroke-opacity="${popular ? 1 : 0.35}" stroke-width="${popular ? 2 : 1}"/>`;
-    body += `<text x="64" y="${y + 40}" font-family="${SERIF}" font-size="31" fill="#FFFFFF">${esc(titleOf(plan, 'small'))}</text>`;
-    if (popular) body += `<rect x="${W - 64 - 108}" y="${y + 18}" width="108" height="28" rx="14" fill="url(#gold)"/><text x="${W - 64 - 54}" y="${y + 37}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="11.5" letter-spacing="2.4" fill="#1B2878">★ POPULAR</text>`;
-    body += `<text x="64" y="${y + 63}" font-family="${SANS}" font-size="14" fill="#C4CCF0">${esc(basics.join('  ·  '))}</text>`;
-    if (upgrade) body += `<text x="64" y="${y + 83}" font-family="${SANS}" font-size="14" fill="#F0CF8E">${esc(upgrade)}</text>`;
-    const colW = (W - 128) / CARS.length;
+    const what = lines.filter((l) => l !== upgrade).join('  ·  ');
+    const perWash = Math.round(price(plan, 'small') / 4);
+    const cardH = upgrade ? 164 : 148;
+    body += `<rect x="${cx0}" y="${y}" width="${cwid}" height="${cardH}" rx="18" fill="url(#glass)" stroke="${popular ? 'url(#foilH)' : '#9BAEF5'}" stroke-opacity="${popular ? 1 : 0.3}" stroke-width="${popular ? 2.2 : 1}"/>`;
+    if (popular) {
+      body += `<rect x="${W / 2 - 86}" y="${y - 13}" width="172" height="26" rx="13" fill="url(#foil)"/><text x="${W / 2}" y="${y + 4.5}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="11.5" letter-spacing="2.6" fill="#1B2878">★ MOST POPULAR</text>`;
+    }
+    body += `<text x="${cx0 + 26}" y="${y + 43}" font-family="${SERIF}" font-size="31" fill="#FFFFFF">${esc(titleOf(plan, 'small'))}</text>`;
+    body += `<text x="${cx0 + cwid - 26}" y="${y + 36}" text-anchor="end" font-family="${SANS}" font-size="11" letter-spacing="1.6" fill="#9BAEF5">SMALL CAR, A WASH</text>`;
+    body += `<text x="${cx0 + cwid - 26}" y="${y + 58}" text-anchor="end" font-family="${SANS}" font-weight="700" font-size="22" fill="url(#foil)">just ${rupees(perWash)}</text>`;
+    body += `<text x="${cx0 + 26}" y="${y + 66}" font-family="${SANS}" font-size="14" fill="#C4CCF0">${esc(what)}</text>`;
+    if (upgrade) body += `${sparkle(cx0 + 31, y + 82, 5)}<text x="${cx0 + 42}" y="${y + 87}" font-family="${SANS}" font-size="14" fill="#F0CF8E">${esc(upgrade)}</text>`;
+    const py = y + (upgrade ? 96 : 80);
+    body += `<rect x="${cx0 + 22}" y="${py}" width="${cwid - 44}" height="1" fill="url(#hair)"/>`;
+    const colW = (cwid - 44) / 3;
     CARS.forEach(([section, label], i) => {
-      const cx = 64 + colW * i + colW / 2;
+      const cx = cx0 + 22 + colW * i + colW / 2;
       const save = cardOf(plan, section)?.card?.footer;
-      body += `<text x="${cx}" y="${y + extra + 92}" text-anchor="middle" font-family="${SANS}" font-weight="600" font-size="11.5" letter-spacing="1.5" fill="#9BAEF5">${esc(label.toUpperCase())}</text>`;
-      body += `<text x="${cx}" y="${y + extra + 118}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="22" fill="#FFFFFF">${rupees(price(plan, section))}</text>`;
-      if (save) body += `<text x="${cx}" y="${y + extra + 136}" text-anchor="middle" font-family="${SANS}" font-size="11" fill="#F0CF8E">${esc(save.toLowerCase())}</text>`;
+      body += `<text x="${cx}" y="${py + 20}" text-anchor="middle" font-family="${SANS}" font-weight="600" font-size="10.5" letter-spacing="1.6" fill="#9BAEF5">${label}</text>`;
+      body += `<text x="${cx}" y="${py + 45}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="24" fill="#FFFFFF">${rupees(price(plan, section))}</text>`;
+      if (save) body += `<text x="${cx}" y="${py + 61}" text-anchor="middle" font-family="${SANS}" font-size="11.5" fill="#F0CF8E">${esc(save.toLowerCase())}</text>`;
     });
     y += cardH + 14;
   }
-  // The longer plans and bikes on the left, the WhatsApp QR on the right.
+  // Longer plans, bikes and the QR.
   const bikeFrom = Math.min(...servicesIn('bike', 'plan').map((s) => price(s, 'bike')).filter((n) => n != null));
-  const qs = 92;
-  const qy = y + 8;
-  body += qrTile(CHAT_URL, W - 64 - qs, qy, qs);
-  body += `<text x="64" y="${qy + 20}" font-family="${SANS}" font-size="14" fill="#FFFFFF"><tspan font-weight="700" fill="#F8E2B0">3 months:</tspan> 13 washes for 3 months' price</text>`;
-  body += `<text x="64" y="${qy + 42}" font-family="${SANS}" font-size="14" fill="#FFFFFF"><tspan font-weight="700" fill="#F8E2B0">12 months:</tspan> 13 months of washes for 12</text>`;
-  body += `<text x="64" y="${qy + 64}" font-family="${SANS}" font-size="14" fill="#FFFFFF"><tspan font-weight="700" fill="#F8E2B0">Bikes &amp; scooters:</tspan> from ${rupees(bikeFrom)} a month</text>`;
-  body += `<text x="64" y="${qy + 90}" font-family="${SANS}" font-size="13" fill="#C4CCF0">Ask at the counter, or scan &amp; say <tspan font-weight="700" fill="#F8E2B0">Hi</tspan> →</text>`;
+  const qs = 96;
+  const by = y + 12;
+  const facts = [
+    ['3-month plans', '13 washes: one wash free'],
+    ['12-month plans', '13 months of washes for 12'],
+    ['Bikes & scooters', `from ${rupees(bikeFrom)} a month`],
+  ];
+  facts.forEach(([head, line], i) => {
+    const fy = by + 16 + i * 25;
+    body += `<path d="M${cx0 + 6} ${fy - 9}l5 5 5-5-5-5z" fill="url(#foil)"/>`;
+    body += `<text x="${cx0 + 24}" y="${fy - 4}" font-family="${SANS}" font-size="14.5" fill="#FFFFFF"><tspan font-weight="700" fill="#F8E2B0">${esc(head)}</tspan>  ${esc(line)}</text>`;
+  });
+  body += qrTile(CHAT_URL, W - cx0 - qs, by - 4, qs);
+  body += `<text x="${cx0 + 24}" y="${by + 88}" font-family="${SANS}" font-size="13" fill="#C4CCF0">Ask at the counter, or scan &amp; say <tspan font-weight="700" fill="#F8E2B0">Hi</tspan> on WhatsApp →</text>`;
+  body += `<text x="${W / 2}" y="${H - 27}" text-anchor="middle" font-family="${SANS}" font-size="11" letter-spacing="2.4" fill="#9BAEF5">${esc(HOURS.toUpperCase())}  ·  ${NUMBER}</text>`;
   await write('plans-poster-2x3ft', W, H, body, 'Sri Mana Wash monthly plans poster (2 ft × 3 ft)');
 }
 
 // ─── 3. Price board (4 × 3 ft) ───────────────────────────────────────────────
+// A menu, not a spreadsheet: hairlines instead of boxes, the three car sizes drawn growing, the
+// popular wash lit in gold, Premium Care framed in gold foil, and two-wheelers, plans and the
+// WhatsApp QR as three cards along the bottom.
 {
   const W = 1220;
   const H = 915;
-  // Priced by size, whatever the brand: an imported car pays what its size pays.
+  const k = 1.4;
   const CARS = [
-    ['small', 'Small car', 'Swift, i20, Baleno, Kwid'],
-    ['mid', 'Mid-size', 'Dzire, City, Nexon, Brezza'],
-    ['large', 'Large / 7-seater', 'Creta, XUV700, Innova'],
+    ['small', 'Small car', 'Swift, i20, Baleno, Kwid', 120],
+    ['mid', 'Mid-size', 'Dzire, City, Nexon, Brezza', 146],
+    ['large', 'Large / 7-seater', 'Creta, XUV700, Innova', 156],
   ];
-  // One price for every two-wheeler, scooter to Harley.
-  const BIKES = [['bike', 'All bikes & scooters']];
-  const logo = inline('sri-mana-wash-horizontal-on-dark.svg', 60, 46, 330, 'pb');
-  let body = `${frame(W, H, 1.4)}${logo.svg}
-<text x="${W - 60}" y="86" text-anchor="end" font-family="${SERIF}" font-size="60" fill="#FFFFFF">Price list</text>
-<text x="${W - 60}" y="124" text-anchor="end" font-family="${SANS}" font-weight="600" font-size="14" letter-spacing="3" fill="#9BAEF5">PRICED BY SIZE, WHATEVER THE BRAND</text>
-<rect x="60" y="150" width="${W - 120}" height="1.2" fill="url(#goldLine)"/>`;
-  // Cars.
-  const nameW = 400;
-  const colW = (W - 120 - nameW) / CARS.length;
-  let y = 186;
-  CARS.forEach(([, label, examples], i) => {
-    const cx = 60 + nameW + colW * i + colW / 2;
-    body += ringIcon('car', cx, y - 4, 18);
-    body += `<text x="${cx}" y="${y + 36}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="16" letter-spacing="1.2" fill="#C4CCF0">${esc(label.toUpperCase())}</text>`;
-    body += `<text x="${cx}" y="${y + 56}" text-anchor="middle" font-family="${SANS}" font-size="13" fill="#9BAEF5">${esc(examples)}</text>`;
+  const L = 64; // left and right margin
+  const nameW = 430;
+  const colW = (W - L * 2 - nameW) / CARS.length;
+  const colX = (i) => L + nameW + colW * i + colW / 2;
+  const logo = inline('sri-mana-wash-horizontal-on-dark.svg', L, 52, 360, 'pb');
+  let body = `${frame(W, H, k, { stars: false })}${logo.svg}
+<text x="${W - L}" y="96" text-anchor="end" font-family="${SERIF}" font-size="70" fill="#FFFFFF">Price <tspan font-style="italic" fill="url(#foil)">list</tspan></text>
+<text x="${W - L}" y="128" text-anchor="end" font-family="${SANS}" font-weight="600" font-size="13.5" letter-spacing="4" fill="#9BAEF5">PRICED BY SIZE, WHATEVER THE BRAND</text>
+${ornament(W / 2, 156, W - L * 2, 1.2)}`;
+  // Column heads: the car grows with its size.
+  CARS.forEach(([kind, label, examples, w], i) => {
+    const cx = colX(i);
+    body += silhouette(kind, cx, 222, w);
+    body += `<text x="${cx}" y="252" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="16" letter-spacing="2.4" fill="#F8E2B0">${esc(label.toUpperCase())}</text>`;
+    body += `<text x="${cx}" y="272" text-anchor="middle" font-family="${SANS}" font-size="13" fill="#9BAEF5">${esc(examples)}</text>`;
   });
-  y += 72;
+  body += `<text x="${L}" y="252" font-family="${SANS}" font-weight="700" font-size="16" letter-spacing="5" fill="#9BAEF5">CAR WASH</text>`;
+  body += `<text x="${L}" y="272" font-family="${SANS}" font-size="13" fill="#6F7FC9">Every wash: high-lubricity, pH-neutral shampoo</text>`;
+  let y = 290;
+  const rowH = 70;
   for (const s of servicesIn('small', 'service')) {
     const c = cardOf(s, 'small');
     const sub = subtitleOf(s, 'small');
-    body += `<rect x="60" y="${y}" width="${W - 120}" height="62" rx="14" fill="url(#panel)"${c?.card?.popular ? ' stroke="url(#gold)" stroke-width="1.8"' : ''}/>`;
-    body += `<text x="86" y="${y + (sub ? 31 : 41)}" font-family="${SERIF}" font-size="30" fill="#FFFFFF">${esc(titleOf(s, 'small'))}${c?.card?.popular ? ' <tspan font-family="' + SANS + '" font-size="14" font-weight="700" fill="#F0CF8E">★ POPULAR</tspan>' : ''}</text>`;
-    if (sub) body += `<text x="86" y="${y + 51}" font-family="${SANS}" font-size="14" fill="#9BAEF5">${esc(sub)}</text>`;
+    const popular = !!c?.card?.popular;
+    if (popular) body += `<rect x="${L - 18}" y="${y + 3}" width="${W - (L - 18) * 2}" height="${rowH - 6}" rx="12" fill="url(#glow)"/><rect x="${L - 18}" y="${y + 3}" width="4" height="${rowH - 6}" rx="2" fill="url(#foil)"/>`;
+    body += `<text x="${L}" y="${y + (sub ? 34 : 44)}" font-family="${SERIF}" font-size="31" fill="#FFFFFF">${esc(titleOf(s, 'small'))}${popular ? `<tspan dx="14" dy="-6" font-family="${SANS}" font-size="12" font-weight="700" letter-spacing="2" fill="#F0CF8E">★ MOST POPULAR</tspan>` : ''}</text>`;
+    if (sub) body += `<text x="${L}" y="${y + 56}" font-family="${SANS}" font-size="14" fill="#9BAEF5">${esc(sub.replace(/\.$/, ''))}</text>`;
     CARS.forEach(([section], i) => {
-      const cx = 60 + nameW + colW * i + colW / 2;
-      body += `<text x="${cx}" y="${y + 43}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="33" fill="#FFFFFF">${rupees(price(s, section))}</text>`;
+      body += `<text x="${colX(i)}" y="${y + 46}" text-anchor="middle" font-family="${SANS}" font-weight="600" font-size="34" fill="${popular ? '#FFF1CF' : '#FFFFFF'}">${rupees(price(s, section))}</text>`;
     });
-    y += 68;
+    y += rowH;
+    body += `<rect x="${L}" y="${y}" width="${W - L * 2}" height="1" fill="url(#hair)"/>`;
   }
-  // The add-on: one price for every car, so one gold-edged strip across the columns.
+  // Premium Care: one price for every car, framed in gold foil.
   for (const s of servicesIn('small', 'addon')) {
+    y += 14;
     const sub = (subtitleOf(s, 'small') ?? '').replace(/\.$/, '');
-    body += `<rect x="60" y="${y}" width="${W - 120}" height="62" rx="14" fill="none" stroke="url(#gold)" stroke-width="1.6"/>`;
-    body += `<text x="86" y="${y + 31}" font-family="${SERIF}" font-size="28" fill="#FFFFFF">${esc(titleOf(s, 'small'))} <tspan font-family="${SANS}" font-size="13" font-weight="700" letter-spacing="2" fill="#F0CF8E">ADD TO EXPRESS, BASIC OR PREMIUM WASH</tspan></text>`;
-    body += `<text x="86" y="${y + 51}" font-family="${SANS}" font-size="14" fill="#C4CCF0">${esc(sub)}</text>`;
-    body += `<text x="${W - 60 - colW / 2}" y="${y + 42}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="30" fill="#F8E2B0">+${rupees(price(s, 'small'))}</text>`;
-    y += 70;
+    body += `<rect x="${L - 18}" y="${y}" width="${W - (L - 18) * 2}" height="76" rx="14" fill="url(#glass)" stroke="url(#foilH)" stroke-width="1.8"/>`;
+    body += sparkle(L + 4, y + 30, 9, 1, '#F8E2B0');
+    body += `<text x="${L + 24}" y="${y + 39}" font-family="${SERIF}" font-size="30" fill="#FFFFFF">${esc(titleOf(s, 'small'))}<tspan dx="14" dy="-5" font-family="${SANS}" font-size="12" font-weight="700" letter-spacing="2" fill="#F0CF8E">ADD-ON · WITH EXPRESS, BASIC OR PREMIUM WASH</tspan></text>`;
+    body += `<text x="${L + 24}" y="${y + 61}" font-family="${SANS}" font-size="14" fill="#C4CCF0">${esc(sub)}</text>`;
+    body += `<text x="${colX(2) + 20}" y="${y + 50}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="36" fill="url(#foil)">+${rupees(price(s, 'small'))}</text>`;
+    body += `<text x="${colX(2) - 92}" y="${y + 48}" text-anchor="end" font-family="${SANS}" font-size="13" letter-spacing="1.5" fill="#9BAEF5">ANY CAR</text>`;
+    y += 76;
   }
-  // Bikes, then the plans and WhatsApp boxes.
-  y += 14;
-  const bikeX = 60;
-  const bikeW = 640;
-  const bNameW = 290;
-  const bColW = (bikeW - bNameW) / BIKES.length;
-  BIKES.forEach(([, label], i) => {
-    const cx = bikeX + bNameW + bColW * i + bColW / 2;
-    body += `<text x="${cx}" y="${y + 20}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="16" letter-spacing="1.2" fill="#C4CCF0">${esc(label.toUpperCase())}</text>`;
+  // Three cards: two-wheelers, monthly plans, WhatsApp.
+  const cy = y + 22;
+  const ch = H - 68 - cy;
+  const gap = 22;
+  const cw = (W - L * 2 - gap * 2) / 3;
+  const card = (x, highlight) => `<rect x="${x}" y="${cy}" width="${cw}" height="${ch}" rx="16" fill="url(#glass)" stroke="${highlight ? 'url(#foilH)' : '#9BAEF5'}" stroke-opacity="${highlight ? 1 : 0.3}" stroke-width="${highlight ? 1.6 : 1}"/>`;
+  // a) two-wheelers
+  let x = L;
+  body += card(x, false);
+  body += bikeArt(x + 62, cy + 52, 74);
+  body += `<text x="${x + 116}" y="${cy + 36}" font-family="${SERIF}" font-size="25" fill="#FFFFFF">Bikes &amp; scooters</text>`;
+  body += `<text x="${x + 116}" y="${cy + 56}" font-family="${SANS}" font-size="12.5" letter-spacing="1.4" fill="#9BAEF5">ONE PRICE FOR EVERY BIKE</text>`;
+  const bikeRows = [...servicesIn('bike', 'service').map((s) => [titleOf(s, 'bike').replace(/^Bike /, ''), rupees(price(s, 'bike')), false]), ...servicesIn('bike', 'addon').map((s) => [titleOf(s, 'bike'), `+${rupees(price(s, 'bike'))}`, true])];
+  bikeRows.forEach(([name, amount, gold], i) => {
+    const ry = cy + 84 + i * 21;
+    body += `<text x="${x + 26}" y="${ry}" font-family="${SANS}" font-size="15" fill="${gold ? '#F0CF8E' : '#E6EAFF'}">${esc(name)}</text>`;
+    body += `<path d="M${x + 150} ${ry - 4}H${x + cw - 96}" stroke="#9BAEF5" stroke-opacity="0.35" stroke-dasharray="1.5 4"/>`;
+    body += `<text x="${x + cw - 26}" y="${ry}" text-anchor="end" font-family="${SANS}" font-weight="700" font-size="16" fill="${gold ? '#F0CF8E' : '#FFFFFF'}">${amount}</text>`;
   });
-  body += `<text x="${bikeX + 26}" y="${y + 20}" font-family="${SANS}" font-weight="700" font-size="16" letter-spacing="3" fill="#9BAEF5">TWO-WHEELERS</text>`;
-  let by = y + 36;
-  for (const s of servicesIn('bike', 'service')) {
-    body += `<rect x="${bikeX}" y="${by}" width="${bikeW}" height="42" rx="12" fill="url(#panel)"/>`;
-    body += `<text x="${bikeX + 26}" y="${by + 29}" font-family="${SERIF}" font-size="23" fill="#FFFFFF">${esc(titleOf(s, 'bike').replace(/^Bike /, ''))}</text>`;
-    BIKES.forEach(([section], i) => {
-      const cx = bikeX + bNameW + bColW * i + bColW / 2;
-      body += `<text x="${cx}" y="${by + 30}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="25" fill="#FFFFFF">${rupees(price(s, section))}</text>`;
-    });
-    by += 48;
-  }
-  for (const s of servicesIn('bike', 'addon')) {
-    body += `<rect x="${bikeX}" y="${by}" width="${bikeW}" height="42" rx="12" fill="none" stroke="url(#gold)" stroke-width="1.4"/>`;
-    body += `<text x="${bikeX + 26}" y="${by + 29}" font-family="${SERIF}" font-size="23" fill="#FFFFFF">${esc(titleOf(s, 'bike'))} <tspan font-family="${SANS}" font-size="12" font-weight="700" letter-spacing="1.5" fill="#F0CF8E">ADD-ON</tspan></text>`;
-    body += `<text x="${bikeX + bNameW + bColW / 2}" y="${by + 30}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="25" fill="#F8E2B0">+${rupees(price(s, 'bike'))}</text>`;
-    by += 48;
-  }
-  const boxX = bikeX + bikeW + 30;
-  const boxW = W - 60 - boxX;
+  // b) monthly plans
+  x += cw + gap;
   const planFrom = Math.min(...servicesIn('small', 'plan').map((s) => price(s, 'small')).filter((n) => n != null));
-  body += `<rect x="${boxX}" y="${y}" width="${boxW}" height="${Math.max(by - y - 8, 200)}" rx="16" fill="none" stroke="url(#gold)" stroke-width="2"/>`;
-  body += ringIcon('calendar', boxX + 46, y + 40, 22);
-  body += `<text x="${boxX + 82}" y="${y + 38}" font-family="${SERIF}" font-size="27" fill="#FFFFFF">Monthly plans</text>`;
-  body += `<text x="${boxX + 82}" y="${y + 60}" font-family="${SANS}" font-size="15" fill="#C4CCF0">4 washes a month, from <tspan font-weight="700" fill="#F8E2B0">${rupees(planFrom)}</tspan></text>`;
-  const qs = 104;
-  const qy = y + 80;
-  body += qrTile(CHAT_URL, boxX + 24, qy, qs);
-  body += `<text x="${boxX + 24 + qs + 20}" y="${qy + 26}" font-family="${SANS}" font-weight="700" font-size="17" fill="#FFFFFF">Scan &amp; say Hi</text>`;
-  body += `<text x="${boxX + 24 + qs + 20}" y="${qy + 50}" font-family="${SANS}" font-size="14" fill="#C4CCF0">your car's exact price,</text>`;
-  body += `<text x="${boxX + 24 + qs + 20}" y="${qy + 70}" font-family="${SANS}" font-size="14" fill="#C4CCF0">plans &amp; bills on WhatsApp</text>`;
-  body += `<text x="${boxX + 24 + qs + 20}" y="${qy + 96}" font-family="${SANS}" font-weight="700" font-size="16" fill="#F8E2B0">${NUMBER}</text>`;
-  body += `<text x="${W / 2}" y="${H - 34}" text-anchor="middle" font-family="${SANS}" font-size="15" letter-spacing="2.5" fill="#9BAEF5">${esc(ADDRESS.toUpperCase())}  ·  ${esc(HOURS.toUpperCase())}</text>`;
+  const save = Math.max(...servicesIn('small', 'plan').filter((s) => !/-\d+-months?$/.test(s)).flatMap((s) => CARS.map(([sec]) => Number(String(cardOf(s, sec)?.card?.footer ?? '').replace(/[^\d]/g, '')) || 0)));
+  body += card(x, true);
+  body += ringIcon('calendar', x + 52, cy + 44, 24);
+  body += `<text x="${x + 90}" y="${cy + 38}" font-family="${SERIF}" font-size="25" fill="#FFFFFF">Monthly plans</text>`;
+  body += `<text x="${x + 90}" y="${cy + 58}" font-family="${SANS}" font-size="12.5" letter-spacing="1.4" fill="#9BAEF5">4 WASHES A MONTH</text>`;
+  body += `<text x="${x + 26}" y="${cy + 104}" font-family="${SANS}" font-size="15" fill="#C4CCF0">from <tspan font-weight="700" font-size="30" fill="url(#foil)">${rupees(planFrom)}</tspan><tspan dx="6" font-size="15" fill="#C4CCF0">a month</tspan></text>`;
+  if (save) body += `<text x="${x + 26}" y="${cy + 128}" font-family="${SANS}" font-size="14" fill="#E6EAFF">Save up to ${rupees(save)} · 3 &amp; 12 months save more</text>`;
+  // c) WhatsApp
+  x += cw + gap;
+  body += card(x, false);
+  const qs = Math.min(ch - 32, 118);
+  body += qrTile(CHAT_URL, x + 18, cy + (ch - qs) / 2, qs);
+  const tx = x + 18 + qs + 18;
+  body += `<text x="${tx}" y="${cy + 40}" font-family="${SERIF}" font-size="25" fill="#FFFFFF">Scan &amp; say <tspan font-style="italic" fill="url(#foil)">Hi</tspan></text>`;
+  body += `<text x="${tx}" y="${cy + 66}" font-family="${SANS}" font-size="14" fill="#C4CCF0">your car's exact price,</text>`;
+  body += `<text x="${tx}" y="${cy + 85}" font-family="${SANS}" font-size="14" fill="#C4CCF0">plans &amp; bills on WhatsApp</text>`;
+  body += `<text x="${tx}" y="${cy + 116}" font-family="${SANS}" font-weight="700" font-size="17" letter-spacing="0.6" fill="#F8E2B0">${NUMBER}</text>`;
+  body += `<text x="${W / 2}" y="${H - 36}" text-anchor="middle" font-family="${SANS}" font-size="14" letter-spacing="3" fill="#9BAEF5">${esc(ADDRESS.toUpperCase())}  ·  ${esc(HOURS.toUpperCase())}</text>`;
   await write('price-board-4x3ft', W, H, body, 'Sri Mana Wash price board (4 ft × 3 ft)');
 }
 
@@ -483,27 +599,41 @@ ${REVIEW_URL ? qrTile(REVIEW_URL, (W - qs) / 2, 110, qs) : qrPlaceholder((W - qs
 }
 
 // ─── 6. Highway board (6 × 3 ft) ─────────────────────────────────────────────
+// Read from a moving vehicle: the brand big on the night side, and a gold panel with one huge
+// arrow and the distance. Nothing small enough to need stopping for.
 {
   const W = 1830;
   const H = 915;
   const right = HIGHWAY.arrow !== 'left';
-  const markH = 460;
-  const mark = inline('sri-mana-wash-mark.svg', right ? 120 : W - 120 - markH * (295.1 / 383.5), (H - markH) / 2 - 30, markH * (295.1 / 383.5), 'hw');
-  const textX = right ? 520 : 140;
-  const name = inline('sri-mana-wash-name-on-dark.svg', textX, 150, 1000, 'hn');
-  const arrowY = 610;
-  const ax = right ? textX : textX + 300;
+  const panelX = 1270; // where the gold panel's curved edge starts
+  const markH = 400;
+  const markW = markH * (295.1 / 383.5);
+  const mark = inline('sri-mana-wash-mark.svg', 110, (H - markH) / 2 - 20, markW, 'hw');
+  const tx = 110 + markW + 64;
+  const textW = panelX - tx - 110; // stays clear of the panel's curve
+  const name = inline('sri-mana-wash-name-on-dark.svg', tx, 250, textW, 'hn');
+  // The panel: gold foil with a soft S-curve against the night.
+  const panel = `<path d="M${panelX} 0 C ${panelX - 70} ${H * 0.35}, ${panelX + 40} ${H * 0.65}, ${panelX - 40} ${H} H${W} V0 Z" fill="url(#foil)"/>` +
+    `<path d="M${panelX} 0 C ${panelX - 70} ${H * 0.35}, ${panelX + 40} ${H * 0.65}, ${panelX - 40} ${H}" fill="none" stroke="#FFF6E0" stroke-width="6" stroke-opacity="0.7"/>`;
+  const acx = (panelX + W) / 2 - 6; // the arrow's centre
+  const ay = 400;
+  const aw = 440;
+  const shaft = 70;
+  const headW = 190;
+  const headH = 300;
   const arrow = right
-    ? `<path d="M${ax} ${arrowY - 30} H${ax + 560} V${arrowY - 85} L${ax + 720} ${arrowY} L${ax + 560} ${arrowY + 85} V${arrowY + 30} H${ax} Z" fill="url(#gold)"/>`
-    : `<path d="M${ax + 720} ${arrowY - 30} H${ax + 160} V${arrowY - 85} L${ax} ${arrowY} L${ax + 160} ${arrowY + 85} V${arrowY + 30} H${ax + 720} Z" fill="url(#gold)"/>`;
-  const body = `${frame(W, H, 2.2)}
+    ? `<path d="M${acx - aw / 2} ${ay - shaft / 2} H${acx + aw / 2 - headW} V${ay - headH / 2} L${acx + aw / 2} ${ay} L${acx + aw / 2 - headW} ${ay + headH / 2} V${ay + shaft / 2} H${acx - aw / 2} Z" fill="#141F66"/>`
+    : `<path d="M${acx + aw / 2} ${ay - shaft / 2} H${acx - aw / 2 + headW} V${ay - headH / 2} L${acx - aw / 2} ${ay} L${acx - aw / 2 + headW} ${ay + headH / 2} V${ay + shaft / 2} H${acx + aw / 2} Z" fill="#141F66"/>`;
+  const body = `<rect width="${W}" height="${H}" fill="url(#night)"/><rect width="${W}" height="${H}" fill="url(#spot)"/>
 ${mark.svg}
 ${name.svg}
-<text x="${textX + 6}" y="${150 + name.height + 92}" font-family="${SANS}" font-weight="700" font-size="76" letter-spacing="14" fill="#C4CCF0">CAR &amp; BIKE WASH</text>
+<text x="${tx + 4}" y="${250 + name.height + 88}" textLength="${textW - 8}" lengthAdjust="spacing" font-family="${SANS}" font-weight="700" font-size="62" fill="url(#foilH)">CAR &amp; BIKE WASH</text>
+<rect x="${tx + 4}" y="${250 + name.height + 128}" width="${textW - 8}" height="2.4" fill="url(#goldLine)"/>
+<text x="${tx + 4}" y="${250 + name.height + 190}" textLength="${textW - 8}" lengthAdjust="spacing" font-family="${SANS}" font-weight="600" font-size="40" fill="#E6EAFF">7 AM – 8 PM <tspan fill="#9BAEF5" font-weight="500">· CLOSED MONDAYS</tspan></text>
+${ribbon(panelX, H - 90, 2.4)}
+${panel}
 ${arrow}
-<text x="${right ? ax + 290 : ax + 430}" y="${arrowY + 22}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="68" fill="#1B2878">${esc(HIGHWAY.distance)}</text>
-<text x="${right ? ax + 860 : ax - 140}" y="${arrowY - 8}" text-anchor="${right ? 'start' : 'end'}" font-family="${SANS}" font-weight="700" font-size="44" fill="#FFFFFF">7 AM – 8 PM</text>
-<text x="${right ? ax + 860 : ax - 140}" y="${arrowY + 46}" text-anchor="${right ? 'start' : 'end'}" font-family="${SANS}" font-size="34" letter-spacing="4" fill="#C4CCF0">CLOSED MONDAYS</text>
-${ribbon(W, H - 120, 2.2)}`;
+<text x="${acx}" y="${ay + 290}" text-anchor="middle" font-family="${SERIF}" font-size="160" fill="#141F66">${esc(HIGHWAY.distance)}</text>
+<rect x="18" y="18" width="${W - 36}" height="${H - 36}" rx="26" fill="none" stroke="#E8BF78" stroke-opacity="0.65" stroke-width="3"/>`;
   await write('highway-board-6x3ft', W, H, body, 'Sri Mana Wash highway direction board (6 ft × 3 ft)');
 }

@@ -10,9 +10,11 @@ import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import { DROP, n } from '../shapes.mjs';
 import { band, slimDrop } from './geometry.mjs';
+import { outputDir } from '../lib/output.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const OUT = join(HERE, 'indigo-styles');
+// Written to Documents, outside the repo (../lib/output.mjs).
+const OUT = outputDir(HERE, 'indigo-styles');
 
 // ── Palette: deep indigo blues and white ────────────────────────────────────────
 const C = {
@@ -272,6 +274,8 @@ put(join(OUT, 'mark-white.svg'), markPearl);
 put(join(OUT, 'mark-indigo-warm-line.svg'), markIndigoWarm);
 put(join(OUT, 'mark-indigo-warm-line-512.png'), await sharp(Buffer.from(markIndigoWarm), { density: 288 }).resize({ height: 512 }).png().toBuffer());
 put(join(OUT, 'mark-indigo-white-line.svg'), markIndigoWhite);
+// The master mark every other script draws from stays in the repo.
+put(join(HERE, 'indigo-styles', 'mark-indigo-white-line.svg'), markIndigoWhite);
 put(join(OUT, 'mark-indigo-white-line-512.png'), await sharp(Buffer.from(markIndigoWhite), { density: 288 }).resize({ height: 512 }).png().toBuffer());
 put(join(OUT, 'mark-indigo-512.png'), await sharp(Buffer.from(markIndigo), { density: 288 }).resize({ height: 512 }).png().toBuffer());
 put(join(OUT, 'mark-white-512.png'), await sharp(Buffer.from(markPearl), { density: 288 }).resize({ height: 512 }).png().toBuffer());

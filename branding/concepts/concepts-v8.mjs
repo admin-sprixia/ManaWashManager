@@ -9,9 +9,11 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import { CORE, DROP, P, SHELL, n } from '../shapes.mjs';
+import { outputDir } from '../lib/output.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const OUT = join(HERE, 'v8-3d-nested');
+// Written to Documents, outside the repo (../lib/output.mjs).
+const OUT = outputDir(HERE, 'v8-3d-nested');
 
 // ── The round-3 shapes, unchanged ────────────────────────────────────────────
 const SLIT = 'M0 0Z'; // the nested drop has no cut: its centre drop is a filled shape

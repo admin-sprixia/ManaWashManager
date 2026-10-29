@@ -45,3 +45,9 @@ apps/api/perf-results/
 
 # Training guides with phone screenshots, kept outside git
 docs/App Usage Guide/
+
+# Branding: only the scripts and their sources live here. What they make (print PDFs, previews,
+# cards, concepts) goes to ~/Documents/Sri Mana Wash/Branding (branding/lib/output.mjs).
+branding/**/*.pdf
+branding/**/*-preview.png
+branding/**/.*.html

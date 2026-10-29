@@ -10,9 +10,11 @@ import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import { DROP, P, SHELL, n } from '../shapes.mjs';
 import { atArc, band, contour, mirrorPt } from './geometry.mjs';
+import { outputDir } from '../lib/output.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const OUT = join(HERE, 'v2-cut-top');
+// Written to Documents, outside the repo (../lib/output.mjs).
+const OUT = outputDir(HERE, 'v2-cut-top');
 const circle = (c, r, extra = '') => `<circle cx="${n(c[0])}" cy="${n(c[1])}" r="${n(r)}" ${extra}/>`;
 
 // The cut: a slit that starts above the drop (so it opens the tip) and runs down the middle.

@@ -19,6 +19,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import qrcode from 'qrcode-generator';
 import sharp from 'sharp';
+import { outputDir } from '../../lib/output.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const LOGO = join(HERE, '../../sri-mana-wash-logo');
@@ -199,7 +200,8 @@ const ringIcon = (name, cx, cy, r, color = '#F0CF8E') =>
   `<g color="${color}" transform="translate(${cx - r * 0.62} ${cy - r * 0.62}) scale(${(r * 1.24) / 24})">${ICONS[name]}</g>`;
 
 // ─── Output ──────────────────────────────────────────────────────────────────
-const OUT = HERE;
+/** Prints and previews go to Documents, outside the repo (lib/output.mjs). */
+const OUT = outputDir(HERE);
 mkdirSync(OUT, { recursive: true });
 async function write(name, W, H, body, label) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}mm" height="${H}mm" role="img" aria-label="${esc(label)}">

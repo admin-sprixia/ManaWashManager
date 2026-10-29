@@ -12,8 +12,11 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
+import { outputDir } from '../lib/output.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+/** Prints, previews and cards go to Documents, outside the repo (lib/output.mjs). */
+const OUT = outputDir(HERE);
 const PYTHON = process.env.PYTHON || 'python3';
 const n = (v) => String(Math.round(v * 100) / 100);
 
@@ -126,21 +129,21 @@ for (const o of outputs) {
 ${o.body}
 </svg>
 `;
-  writeFileSync(join(HERE, `${o.file}.svg`), svg);
+  writeFileSync(join(OUT, `${o.file}.svg`), svg);
   // Transparent PNG, 4000 px across: about 13 in wide at 300 dpi, enough for a back print.
   const scale = 4000 / o.W;
   await sharp(Buffer.from(svg), { density: 72 * scale })
     .resize(4000)
     .png()
     .withMetadata({ density: 300 })
-    .toFile(join(HERE, `${o.file}.png`));
+    .toFile(join(OUT, `${o.file}.png`));
   console.log('wrote', o.file);
 }
 
 // One preview sheet: each logo on a dark and a light shirt colour.
 const tiles = [];
 for (const o of outputs) {
-  const png = await sharp(join(HERE, `${o.file}.png`)).resize(900).toBuffer();
+  const png = await sharp(join(OUT, `${o.file}.png`)).resize(900).toBuffer();
   const meta = await sharp(png).metadata();
   const bg = o.file.endsWith('dark') ? '#121826' : '#F4F1EA';
   tiles.push(
@@ -162,5 +165,5 @@ rows.forEach(([a, b], r) => {
   if (tiles[b]) comps.push({ input: tiles[b], left: 1020, top: y });
   y += rowH[r] + 20;
 });
-await sheet.composite(comps).png().toFile(join(HERE, 'tshirt-logo-preview.png'));
+await sheet.composite(comps).png().toFile(join(OUT, 'tshirt-logo-preview.png'));
 console.log('wrote tshirt-logo-preview.png');

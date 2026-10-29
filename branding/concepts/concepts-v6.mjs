@@ -10,9 +10,11 @@ import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import { DROP, P, n } from '../shapes.mjs';
 import { band, slimDrop } from './geometry.mjs';
+import { outputDir } from '../lib/output.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const OUT = join(HERE, 'v6-3d-ripples');
+// Written to Documents, outside the repo (../lib/output.mjs).
+const OUT = outputDir(HERE, 'v6-3d-ripples');
 
 // ── The round-3 shapes, unchanged ────────────────────────────────────────────
 const RINGS = [

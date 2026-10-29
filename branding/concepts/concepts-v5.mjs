@@ -10,9 +10,11 @@ import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import { DROP, P, n } from '../shapes.mjs';
 import { band } from './geometry.mjs';
+import { outputDir } from '../lib/output.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const OUT = join(HERE, 'v5-3d-closed');
+// Written to Documents, outside the repo (../lib/output.mjs).
+const OUT = outputDir(HERE, 'v5-3d-closed');
 
 // ── The round-3 shapes, unchanged ────────────────────────────────────────────
 const RIM = band({ fo: 0.94, fi: 0.73, yO: 80, taper: true });

@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import { DROP, P, n } from '../shapes.mjs';
 import { atArc, band, contour, dropAt, glint, mirrorPt, slimDrop } from './geometry.mjs';
+import { outputDir } from '../lib/output.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const circle = (c, r, extra = '') => `<circle cx="${n(c[0])}" cy="${n(c[1])}" r="${n(r)}" ${extra}/>`;
@@ -177,7 +178,7 @@ const put = (path, content) => {
 };
 
 for (const c of CONCEPTS) {
-  const dir = join(HERE, c.id);
+  const dir = outputDir(HERE, c.id);
   put(join(dir, 'mark.svg'), mark(c, 'light'));
   put(join(dir, 'mark-dark.svg'), mark(c, 'dark'));
   put(join(dir, 'mark-mono.svg'), mark(c, 'mono'));
@@ -204,7 +205,7 @@ const tiles = (dir, name, blurb) => `
 </section>`;
 
 writeFileSync(
-  join(HERE, 'preview.html'),
+  join(outputDir(HERE), 'preview.html'),
   `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MANA logo concepts</title>

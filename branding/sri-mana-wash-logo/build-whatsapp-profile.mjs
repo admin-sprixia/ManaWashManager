@@ -4,8 +4,11 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
+import { outputDir } from '../lib/output.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+/** Prints, previews and cards go to Documents, outside the repo (lib/output.mjs). */
+const OUT = outputDir(HERE);
 const SIZE = 1080;
 // WhatsApp shows the middle circle; the drop (trimmed of the mark file's margin) fills about 80% of
 // its height, centred optically (its soft shadow sits below it, so the whole is nudged down a little).
@@ -26,5 +29,5 @@ const { width } = await sharp(drop).metadata();
 await sharp(Buffer.from(bg))
   .composite([{ input: drop, left: Math.round((SIZE - width) / 2), top: Math.round((SIZE - DROP_H) / 2 + SIZE * 0.02) }])
   .jpeg({ quality: 92 })
-  .toFile(join(HERE, 'whatsapp-profile.jpg'));
+  .toFile(join(OUT, 'whatsapp-profile.jpg'));
 console.log('wrote whatsapp-profile.jpg');

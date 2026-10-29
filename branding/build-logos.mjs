@@ -6,13 +6,14 @@
 // All lettering is drawn as vector paths, never <text>, so the files look the same everywhere
 // with no font installed. Set MARK_STYLE=gold for a warm centre drop instead of the water one.
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CORE, CORE_STOPS, DROP, n, P, SHELL, sparkle } from './shapes.mjs';
+import { outputDir } from './lib/output.mjs';
 
-const OUT = join(dirname(fileURLToPath(import.meta.url)), 'logo');
-mkdirSync(OUT, { recursive: true });
+// Written to Documents, outside the repo (lib/output.mjs).
+const OUT = outputDir(dirname(fileURLToPath(import.meta.url)), 'logo');
 
 const MARK_VIEWBOX = '0 0 256 256';
 

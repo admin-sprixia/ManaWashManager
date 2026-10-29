@@ -12,8 +12,11 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
+import { outputDir } from '../lib/output.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+/** Prints, previews and cards go to Documents, outside the repo (lib/output.mjs). */
+const OUT = outputDir(HERE);
 const LOGO = join(HERE, '../sri-mana-wash-logo');
 const W = 1200;
 const H = 628;
@@ -87,7 +90,7 @@ async function render(file, svg, overlays) {
     }),
   );
   const out = await base.composite(layers).png().toBuffer();
-  await sharp(out).resize(W, H).png().toFile(join(HERE, `${file}.png`));
+  await sharp(out).resize(W, H).png().toFile(join(OUT, `${file}.png`));
   await sharp(out).resize(W, H).jpeg({ quality: 90, mozjpeg: true }).toFile(join(HERE, '../../apps/api/src/assets/whatsapp-banner.jpg'));
   console.log(`wrote ${file}.png and apps/api/src/assets/whatsapp-banner.jpg`);
 }

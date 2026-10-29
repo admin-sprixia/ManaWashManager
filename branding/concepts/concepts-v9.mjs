@@ -9,9 +9,11 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import { CORE, DROP, P, SHELL, n } from '../shapes.mjs';
+import { outputDir } from '../lib/output.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const OUT = join(HERE, 'v9-3d-nested-cut');
+// Written to Documents, outside the repo (../lib/output.mjs).
+const OUT = outputDir(HERE, 'v9-3d-nested-cut');
 
 // ── The round-3 shapes, unchanged ────────────────────────────────────────────
 // The only change from round 9: a thin cut runs from the top of the centre drop up through the tip of the drop.

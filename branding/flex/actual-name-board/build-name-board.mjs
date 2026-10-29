@@ -14,8 +14,11 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import sharp from 'sharp';
+import { outputDir } from '../../lib/output.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+/** Prints, previews and cards go to Documents, outside the repo (lib/output.mjs). */
+const OUT = outputDir(HERE);
 const PYTHON = process.env.PYTHON || 'python3';
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
@@ -369,11 +372,11 @@ for (const side of SIDES) {
 ${side.body}
 </svg>
 `;
-  const svgPath = join(HERE, `${side.file}.svg`);
+  const svgPath = join(OUT, `${side.file}.svg`);
   writeFileSync(svgPath, svg);
   await sharp(Buffer.from(svg.replace('width="4572mm" height="914.4mm"', `width="${W}" height="${H}"`)))
     .png()
-    .toFile(join(HERE, `${side.file}-preview.png`));
+    .toFile(join(OUT, `${side.file}-preview.png`));
   console.log('wrote', `${side.file}.svg and preview`);
   printPdfs(svgPath, side.file, side.label);
 }
@@ -387,12 +390,12 @@ function printPdfs(svgPath, file, label) {
   ]) {
     const w = `${4572 * scale}mm`;
     const h = `${914.4 * scale}mm`;
-    const htmlPath = join(HERE, `.${file}-print${suffix}.html`);
+    const htmlPath = join(OUT, `.${file}-print${suffix}.html`);
     writeFileSync(
       htmlPath,
       `<!doctype html><meta charset="utf-8"><title>${label}</title><style>@page{size:${w} ${h};margin:0}html,body{margin:0;padding:0}img{display:block;width:${w};height:${h}}</style><img src="${pathToFileURL(svgPath).href}">`,
     );
-    const out = join(HERE, `${file}${suffix}.pdf`);
+    const out = join(OUT, `${file}${suffix}.pdf`);
     execFileSync(CHROME, ['--headless=new', '--disable-gpu', '--no-pdf-header-footer', '--allow-file-access-from-files', `--print-to-pdf=${out}`, pathToFileURL(htmlPath).href], { stdio: 'ignore' });
     execFileSync('rm', ['-f', htmlPath]);
     console.log('wrote', `${file}${suffix}.pdf`);

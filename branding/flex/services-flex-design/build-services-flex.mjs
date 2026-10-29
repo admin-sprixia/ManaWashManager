@@ -13,8 +13,11 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import sharp from 'sharp';
+import { outputDir } from '../../lib/output.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+/** Prints, previews and cards go to Documents, outside the repo (lib/output.mjs). */
+const OUT = outputDir(HERE);
 const PYTHON = process.env.PYTHON || 'python3';
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
@@ -313,11 +316,11 @@ ${body}
 </svg>
 `;
 
-const svgPath = join(HERE, 'mana-services-30x3.svg');
+const svgPath = join(OUT, 'mana-services-30x3.svg');
 writeFileSync(svgPath, svg);
 await sharp(Buffer.from(svg.replace('width="9144mm" height="914.4mm"', `width="${W}" height="${H}"`)))
   .png()
-  .toFile(join(HERE, 'mana-services-30x3-preview.png'));
+  .toFile(join(OUT, 'mana-services-30x3-preview.png'));
 console.log('wrote mana-services-30x3.svg and preview');
 
 // Print PDFs through headless Chrome (vector, at full size and at half scale), like the name board.
@@ -328,12 +331,12 @@ if (existsSync(CHROME)) {
   ]) {
     const w = `${9144 * scale}mm`;
     const h = `${914.4 * scale}mm`;
-    const htmlPath = join(HERE, `.services-print${suffix}.html`);
+    const htmlPath = join(OUT, `.services-print${suffix}.html`);
     writeFileSync(
       htmlPath,
       `<!doctype html><meta charset="utf-8"><title>Sri Mana Wash services board</title><style>@page{size:${w} ${h};margin:0}html,body{margin:0;padding:0}img{display:block;width:${w};height:${h}}</style><img src="${pathToFileURL(svgPath).href}">`,
     );
-    const out = join(HERE, `mana-services-30x3${suffix}.pdf`);
+    const out = join(OUT, `mana-services-30x3${suffix}.pdf`);
     execFileSync(CHROME, ['--headless=new', '--disable-gpu', '--no-pdf-header-footer', '--allow-file-access-from-files', `--print-to-pdf=${out}`, pathToFileURL(htmlPath).href], { stdio: 'ignore' });
     execFileSync('rm', ['-f', htmlPath]);
     console.log('wrote', `mana-services-30x3${suffix}.pdf`);

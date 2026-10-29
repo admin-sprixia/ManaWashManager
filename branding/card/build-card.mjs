@@ -14,8 +14,11 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import qrcode from 'qrcode-generator';
 import sharp from 'sharp';
+import { outputDir } from '../lib/output.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+/** Prints, previews and cards go to Documents, outside the repo (lib/output.mjs). */
+const OUT = outputDir(HERE);
 const URL_ = process.env.CARD_URL || 'https://manawashmanager.com';
 const PYTHON = process.env.PYTHON || 'python3';
 
@@ -283,9 +286,9 @@ function corners(cx, cy, s) {
 
 const files = { 'mana-card-front.svg': front(), 'mana-card-back.svg': back() };
 for (const [name, svg] of Object.entries(files)) {
-  writeFileSync(join(HERE, name), svg);
+  writeFileSync(join(OUT, name), svg);
   // 600 dpi preview: 55 mm ≈ 1300 px
-  await sharp(Buffer.from(svg), { density: 600 }).png().toFile(join(HERE, name.replace('.svg', '.png')));
+  await sharp(Buffer.from(svg), { density: 600 }).png().toFile(join(OUT, name.replace('.svg', '.png')));
   console.log('wrote', name);
 }
 console.log('QR →', URL_);

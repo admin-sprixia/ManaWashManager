@@ -11,8 +11,11 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
+import { outputDir } from '../lib/output.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+/** Prints, previews and cards go to Documents, outside the repo (lib/output.mjs). */
+const OUT = outputDir(HERE);
 const PYTHON = process.env.PYTHON || 'python3';
 const n = (v) => String(Math.round(v * 100) / 100);
 
@@ -145,5 +148,5 @@ for (let i = 0; i < tiles.length; i += 2) {
 await sharp({ create: { width: 1860, height: y, channels: 3, background: '#D8DBE3' } })
   .composite(comps)
   .png()
-  .toFile(join(HERE, 'sri-mana-wash-logo-preview.png'));
+  .toFile(join(OUT, 'sri-mana-wash-logo-preview.png'));
 console.log('wrote sri-mana-wash-logo-preview.png');

@@ -16,6 +16,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import sharp from 'sharp';
+import { outputDir } from '../lib/output.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PYTHON = process.env.PYTHON || 'python3';
@@ -382,7 +383,8 @@ const pw = TRIM_W * PX;
 const ph = TRIM_H * PX;
 const pad = 120;
 for (const person of PEOPLE) {
-  const dir = join(HERE, person.slug);
+  // Prints and previews go to Documents, outside the repo (lib/output.mjs).
+  const dir = outputDir(HERE, person.slug);
   mkdirSync(dir, { recursive: true });
   const frontPng = await writeSide(dir, 'visiting-card-front', `Sri Mana Wash visiting card, front (${person.name})`, frontBody, W / 2);
   const backPng = await writeSide(dir, 'visiting-card-back', `Sri Mana Wash visiting card, back (${person.name})`, back('pearl', person), W * 0.22);

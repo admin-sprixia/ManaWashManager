@@ -14,8 +14,11 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import sharp from 'sharp';
+import { outputDir } from '../lib/output.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+/** Prints, previews and cards go to Documents, outside the repo (lib/output.mjs). */
+const OUT = outputDir(HERE);
 const PYTHON = process.env.PYTHON || 'python3';
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
@@ -323,7 +326,7 @@ for (const side of SIDES) {
 ${side.body}
 </svg>
 `;
-  const svgPath = join(HERE, `${side.file}.svg`);
+  const svgPath = join(OUT, `${side.file}.svg`);
   writeFileSync(svgPath, svg);
   // Preview at 5 px per unit (whole pixels at this size), cropped to the trim.
   const scale = PX;
@@ -331,16 +334,16 @@ ${side.body}
     .extract({ left: BLEED * scale, top: BLEED * scale, width: TRIM_W * scale, height: TRIM_H * scale })
     .png()
     .toBuffer();
-  await sharp(png).toFile(join(HERE, `${side.file}.png`));
+  await sharp(png).toFile(join(OUT, `${side.file}.png`));
   previews.push(png);
   console.log('wrote', `${side.file}.svg and .png`);
   if (existsSync(CHROME)) {
-    const htmlPath = join(HERE, `.${side.file}-print.html`);
+    const htmlPath = join(OUT, `.${side.file}-print.html`);
     writeFileSync(
       htmlPath,
       `<!doctype html><meta charset="utf-8"><title>${side.label}</title><style>@page{size:${MM_W} ${MM_H};margin:0}html,body{margin:0;padding:0}img{display:block;width:${MM_W};height:${MM_H}}</style><img src="${pathToFileURL(svgPath).href}">`,
     );
-    const out = join(HERE, `${side.file}.pdf`);
+    const out = join(OUT, `${side.file}.pdf`);
     execFileSync(CHROME, ['--headless=new', '--disable-gpu', '--no-pdf-header-footer', '--allow-file-access-from-files', `--print-to-pdf=${out}`, pathToFileURL(htmlPath).href], { stdio: 'ignore' });
     execFileSync('rm', ['-f', htmlPath]);
     console.log('wrote', `${side.file}.pdf`);

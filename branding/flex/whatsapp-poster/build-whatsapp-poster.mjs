@@ -13,8 +13,11 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import qrcode from 'qrcode-generator';
 import sharp from 'sharp';
+import { outputDir } from '../../lib/output.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+/** Prints, previews and cards go to Documents, outside the repo (lib/output.mjs). */
+const OUT = outputDir(HERE);
 const LOGO = join(HERE, '../../sri-mana-wash-logo');
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
@@ -144,11 +147,11 @@ ${feature(330, qrY + QR + 250, 'bill', 'Bills in your chat', 'no paper, nothing 
 </svg>
 `;
 
-const svgPath = join(HERE, 'whatsapp-poster-2x4ft.svg');
+const svgPath = join(OUT, 'whatsapp-poster-2x4ft.svg');
 writeFileSync(svgPath, svg);
 await sharp(Buffer.from(svg.replace(`width="${W}mm" height="${H}mm"`, `width="${W * 2}" height="${H * 2}"`)))
   .png()
-  .toFile(join(HERE, 'whatsapp-poster-preview.png'));
+  .toFile(join(OUT, 'whatsapp-poster-preview.png'));
 console.log('wrote whatsapp-poster-2x4ft.svg and whatsapp-poster-preview.png');
 
 if (existsSync(CHROME)) {
@@ -158,12 +161,12 @@ if (existsSync(CHROME)) {
   ]) {
     const w = `${W * scale}mm`;
     const h = `${H * scale}mm`;
-    const htmlPath = join(HERE, `.poster-print${suffix}.html`);
+    const htmlPath = join(OUT, `.poster-print${suffix}.html`);
     writeFileSync(
       htmlPath,
       `<!doctype html><meta charset="utf-8"><title>Sri Mana Wash WhatsApp poster</title><style>@page{size:${w} ${h};margin:0}html,body{margin:0;padding:0}img{display:block;width:${w};height:${h}}</style><img src="${pathToFileURL(svgPath).href}">`,
     );
-    const out = join(HERE, `whatsapp-poster-2x4ft${suffix}.pdf`);
+    const out = join(OUT, `whatsapp-poster-2x4ft${suffix}.pdf`);
     execFileSync(CHROME, ['--headless=new', '--disable-gpu', '--no-pdf-header-footer', '--allow-file-access-from-files', `--print-to-pdf=${out}`, pathToFileURL(htmlPath).href], { stdio: 'ignore' });
     execFileSync('rm', ['-f', htmlPath]);
     console.log('wrote', `whatsapp-poster-2x4ft${suffix}.pdf`);

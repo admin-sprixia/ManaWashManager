@@ -101,7 +101,8 @@ export const BODY_TYPES: readonly BodyTypeDef[] = [
     hint: 'Harley, Ducati, Hayabusa, big BMW',
     group: 'Two-wheelers',
     classKey: 'twoWheeler',
-    size: 'XL',
+    // Every two-wheeler is one price: a premium bike pays what a bike pays.
+    size: 'M',
     match: /premium bike|luxury bike|superbike|big bike|harley|ducati|hayabusa|gold ?wing/,
   },
 ];

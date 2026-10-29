@@ -9,8 +9,8 @@
 //
 // Cars are priced by size only: Small (hatchbacks), Mid-size (sedans, compact SUVs) and Large
 // (big SUVs, MUVs, 7-seaters). Imported brands go by their size too (a BMW 3 Series is mid-size,
-// an X5 large); a "Luxury car" type pays the Large price. Premium Care is an add-on any car can
-// have with any wash. Premium bikes (XL) pay about double a regular bike. Autos, vans, pickups,
+// an X5 large); a "Luxury car" type pays the Large price. Premium Care is an add-on to an Express,
+// Basic or Premium Wash, for cars and bikes. Every two-wheeler pays the same, scooter to Harley. Autos, vans, pickups,
 // trucks, tractors and JCBs get the main washes too, for branches that take them.
 import { API, apiFetch, signIn } from './lib/target.mjs';
 
@@ -51,19 +51,19 @@ const car = (hub, community) => {
   };
 };
 /**
- * Two-wheeler prices [regular, premium] at the hub and at a community. Two prices only: every
- * scooter, moped and bike is Regular; Harley, Ducati, big BMW… are Premium (XL). Scooters (S)
- * are Regular too, kept apart only so chain care isn't offered for them (no chain). L is unused.
+ * Two-wheeler prices at the hub and at a community: one price for every two-wheeler, scooter to
+ * Harley. Scooters (S) are kept apart only so chain care isn't offered for them (no chain); XL (no
+ * body type uses it any more) is priced the same, so nothing old charges more. L is unused.
  */
-const bike = (hub, community, { scooters = true } = {}) => ({
+const bike = (hub, community) => ({
   twoWheeler: {
-    ...(scooters ? { S: [hub[0], community[0]] } : {}),
-    M: [hub[0], community[0]],
-    XL: [hub[1], community[1]],
+    S: [hub, community],
+    M: [hub, community],
+    XL: [hub, community],
   },
 });
-const BIKE_SIZES = { scooter: 'S', eScooter: 'S', moped: 'M', bike: 'M', sportsBike: 'M', cruiser: 'M', premiumBike: 'XL' };
-const BIKE_SIZE_NAMES = { S: 'Regular · scooter', M: 'Regular', L: 'Large (not used)', XL: 'Premium' };
+const BIKE_SIZES = { scooter: 'S', eScooter: 'S', moped: 'M', bike: 'M', sportsBike: 'M', cruiser: 'M', premiumBike: 'M' };
+const BIKE_SIZE_NAMES = { S: 'Bike · scooter', M: 'Bike', L: 'Large (not used)', XL: 'Extra large (not used)' };
 /** Car sizes as customers see them (WhatsApp, posters); no car body type is XL any more. */
 const CAR_SIZE_NAMES = { S: 'Small', M: 'Mid-size', L: 'Large / 7-seater', XL: 'Extra large (not used)' };
 
@@ -127,22 +127,21 @@ const SERVICES = [
   },
   {
     name: 'Premium Care',
-    description: 'Gentle shampoo, microfiber hand-dry, extra paint care.',
+    description: 'Premium shampoo & foam, microfiber hand-dry, extra paint care.',
     kind: 'addon',
     durationMin: 15,
-    checklist: ['pH-neutral gentle shampoo', 'Microfiber hand-dry', 'Extra care on paint & trim'],
-    prices: car(249, 249),
+    checklist: ['Premium shampoo, gentle on paint', 'Thick premium foam', 'Soft microfiber hand-dry', 'Extra care on paint & trim'],
+    prices: { ...car(249, 249), ...bike(99, 99) },
   },
   // Bikes: Express / Basic / Premium like the cars. A bike wash goes for about ₹150 locally, so
-  // Basic stays at that; community is a little less, like the cars. Premium bikes (Harley,
-  // Ducati, Hayabusa, big BMW…) pay about double: careful hand work and premium liquids.
+  // Basic stays at that; community is a little less, like the cars. One price for every bike.
   {
     id: 'cs_bike_exterior',
     name: 'Bike Express Wash',
     description: 'A quick foam wash.',
     durationMin: 15,
     checklist: ['Foam wash', 'Rinse', 'Towel dry'],
-    prices: bike([99, 199], [89, 179]),
+    prices: bike(99, 89),
   },
   {
     id: 'cs_bike_complete',
@@ -151,14 +150,14 @@ const SERVICES = [
     durationMin: 25,
     popular: true,
     checklist: ['Everything in Express', 'Wheels & rims', 'Chain area cleaned', 'Tyre shine', 'Seat & meter wiped'],
-    prices: bike([149, 299], [129, 269]),
+    prices: bike(149, 129),
   },
   {
     name: 'Bike Premium Wash',
     description: 'The full treatment for your bike.',
     durationMin: 40,
     checklist: ['Everything in Basic', 'Body polish', 'Chain clean & lube (bikes with a chain)', 'Engine degrease', 'Seat protect'],
-    prices: bike([249, 499], [229, 449]),
+    prices: bike(249, 229),
   },
 ];
 for (const s of SERVICES) Object.assign(s.prices, OTHER_VEHICLES[s.name] ?? {});
@@ -175,11 +174,11 @@ const TERMS = [
   { suffix: ' · 3 months', washes: 13, months: 3, times: 3, parts: true },
   { suffix: ' · 12 months', washes: 52, months: 13, times: 12, parts: true },
 ];
-/** Monthly only. Prices [regular, premium bike]; `was` is the plan's old name (it keeps its orders). */
+/** Monthly only, one price for every bike; `was` is the plan's old name (it keeps its orders). */
 const BIKE_PLANS = [
-  { name: 'Bike Express Plan', wash: 'Bike Express Wash', hub: [359, 729], community: [319, 649] },
-  { name: 'Bike Basic Plan', was: 'Bike Monthly', wash: 'Bike Basic Wash', hub: [549, 1099], community: [479, 989] },
-  { name: 'Bike Shine Plan', wash: 'Bike Basic Wash', upgrade: 'Bike Premium Wash', hub: [649, 1249], community: [569, 1129] },
+  { name: 'Bike Express Plan', wash: 'Bike Express Wash', hub: 359, community: 319 },
+  { name: 'Bike Basic Plan', was: 'Bike Monthly', wash: 'Bike Basic Wash', hub: 549, community: 479 },
+  { name: 'Bike Shine Plan', wash: 'Bike Basic Wash', upgrade: 'Bike Premium Wash', hub: 649, community: 569 },
 ];
 
 const owner = (await signIn(OWNER_PHONE, PIN)).body?.token;
@@ -330,9 +329,9 @@ for (const f of BIKE_PLANS) {
     popular: false,
     upgradeServiceId: f.upgrade ? serviceId(f.upgrade) : null,
     upgradeEvery: f.upgrade ? 4 : null,
-    prices: Object.entries({ S: 0, M: 0, XL: 1 }).flatMap(([size, i]) => [
-      { sizeId: sizeId(BIKE, size), mode: 'hub', price: f.hub[i] * 100 },
-      { sizeId: sizeId(BIKE, size), mode: 'doorstep', price: f.community[i] * 100 },
+    prices: ['S', 'M', 'XL'].flatMap((size) => [
+      { sizeId: sizeId(BIKE, size), mode: 'hub', price: f.hub * 100 },
+      { sizeId: sizeId(BIKE, size), mode: 'doorstep', price: f.community * 100 },
     ]),
   });
 }

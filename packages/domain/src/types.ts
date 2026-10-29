@@ -37,6 +37,8 @@ export interface Service {
   /** How long it takes, in minutes. */
   durationMin?: number | null;
   popular?: boolean;
+  /** 'wash', 'protection' or 'addon' (an add-on only goes with a wash, never alone). */
+  kind?: string;
   /** 'hub' = shop only, 'doorstep' = away from the shop only, 'both'. */
   modes?: string;
   /** Set when it comes from head office's services; null = made by hand at the branch. */

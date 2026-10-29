@@ -50,7 +50,7 @@ const branch: ChatBranch = {
 describe('WhatsApp catalog', () => {
   it('lists each wash and plan once per kind of vehicle, at the shop price', () => {
     const products = catalogProducts(branch);
-    expect(products.map((p) => p.id)).toEqual(['basic-wash--small', 'basic-wash--mid', 'basic-plan--mid', 'basic-wash--scooter']);
+    expect(products.map((p) => p.id)).toEqual(['basic-wash--small', 'basic-wash--mid', 'basic-plan--mid', 'basic-wash--bike']);
     const sedan = products.find((p) => p.id === 'basic-wash--mid')!;
     expect(sedan.price).toBe(54900);
     expect(sedan.section.label).toBe('Mid-size Cars');
@@ -81,11 +81,11 @@ describe('WhatsApp catalog', () => {
       durationMin: 15,
       prices: [{ vehicleTypeId: 'hatch', price: 24900 }],
     };
-    const p = catalogProducts({ ...branch, services: [care] })[0]!;
+    const p = catalogProducts({ ...branch, services: [...branch.services, care] }).find((x) => x.title === 'Premium Care')!;
     expect(p.id).toBe('premium-care--small');
     expect(p.kind).toBe('addon');
-    expect(p.description).toBe('Add-on, with any wash. For Swift, i20, Baleno, Kwid, Mini Cooper and similar.\nGentle shampoo, microfiber hand-dry, extra paint care.\n\nAdds about 15 minutes.');
-    expect(p.card).toEqual({ subtitle: 'Gentle shampoo, microfiber hand-dry, extra paint care.', lines: [], footer: 'Adds 15 min', popular: false });
+    expect(p.description).toBe('Add-on to a Basic Wash. For Swift, i20, Baleno, Kwid, Mini Cooper and similar.\nGentle shampoo, microfiber hand-dry, extra paint care.\n\nAdds about 15 minutes.');
+    expect(p.card).toEqual({ subtitle: 'Gentle shampoo, microfiber hand-dry, extra paint care.', lines: ['Add to Basic Wash'], footer: 'Adds 15 min', popular: false });
   });
 
   it('writes a CSV feed Commerce Manager can read', () => {

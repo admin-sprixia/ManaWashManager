@@ -306,10 +306,8 @@ ${REVIEW_URL ? qrTile(REVIEW_URL, (W - qs) / 2, 110, qs) : qrPlaceholder((W - qs
     ['mid', 'Mid-size', 'Dzire, City, Nexon, Brezza'],
     ['large', 'Large / 7-seater', 'Creta, XUV700, Innova'],
   ];
-  const BIKES = [
-    ['bike', 'Scooter / Bike'],
-    ['big-bike', 'Big bike'],
-  ];
+  // One price for every two-wheeler, scooter to Harley.
+  const BIKES = [['bike', 'All bikes & scooters']];
   const logo = inline('sri-mana-wash-horizontal-on-dark.svg', 60, 46, 330, 'pb');
   let body = `${frame(W, H, 1.4)}${logo.svg}
 <text x="${W - 60}" y="86" text-anchor="end" font-family="${SERIF}" font-size="60" fill="#FFFFFF">Price list</text>
@@ -329,23 +327,23 @@ ${REVIEW_URL ? qrTile(REVIEW_URL, (W - qs) / 2, 110, qs) : qrPlaceholder((W - qs
   for (const s of servicesIn('small', 'service')) {
     const c = cardOf(s, 'small');
     const sub = subtitleOf(s, 'small');
-    body += `<rect x="60" y="${y}" width="${W - 120}" height="66" rx="14" fill="url(#panel)"${c?.card?.popular ? ' stroke="url(#gold)" stroke-width="1.8"' : ''}/>`;
-    body += `<text x="86" y="${y + (sub ? 33 : 43)}" font-family="${SERIF}" font-size="30" fill="#FFFFFF">${esc(titleOf(s, 'small'))}${c?.card?.popular ? ' <tspan font-family="' + SANS + '" font-size="14" font-weight="700" fill="#F0CF8E">★ POPULAR</tspan>' : ''}</text>`;
-    if (sub) body += `<text x="86" y="${y + 54}" font-family="${SANS}" font-size="14" fill="#9BAEF5">${esc(sub)}</text>`;
+    body += `<rect x="60" y="${y}" width="${W - 120}" height="62" rx="14" fill="url(#panel)"${c?.card?.popular ? ' stroke="url(#gold)" stroke-width="1.8"' : ''}/>`;
+    body += `<text x="86" y="${y + (sub ? 31 : 41)}" font-family="${SERIF}" font-size="30" fill="#FFFFFF">${esc(titleOf(s, 'small'))}${c?.card?.popular ? ' <tspan font-family="' + SANS + '" font-size="14" font-weight="700" fill="#F0CF8E">★ POPULAR</tspan>' : ''}</text>`;
+    if (sub) body += `<text x="86" y="${y + 51}" font-family="${SANS}" font-size="14" fill="#9BAEF5">${esc(sub)}</text>`;
     CARS.forEach(([section], i) => {
       const cx = 60 + nameW + colW * i + colW / 2;
-      body += `<text x="${cx}" y="${y + 45}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="33" fill="#FFFFFF">${rupees(price(s, section))}</text>`;
+      body += `<text x="${cx}" y="${y + 43}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="33" fill="#FFFFFF">${rupees(price(s, section))}</text>`;
     });
-    y += 74;
+    y += 68;
   }
   // The add-on: one price for every car, so one gold-edged strip across the columns.
   for (const s of servicesIn('small', 'addon')) {
     const sub = (subtitleOf(s, 'small') ?? '').replace(/\.$/, '');
-    body += `<rect x="60" y="${y}" width="${W - 120}" height="54" rx="14" fill="none" stroke="url(#gold)" stroke-width="1.6"/>`;
-    body += `<text x="86" y="${y + 35}" font-family="${SERIF}" font-size="26" fill="#FFFFFF">${esc(titleOf(s, 'small'))} <tspan font-family="${SANS}" font-size="13" font-weight="700" letter-spacing="2" fill="#F0CF8E">ADD TO ANY WASH</tspan></text>`;
-    body += `<text x="${60 + nameW - 20}" y="${y + 33}" font-family="${SANS}" font-size="15" fill="#C4CCF0">${esc(sub)}</text>`;
-    body += `<text x="${W - 60 - colW / 2}" y="${y + 37}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="28" fill="#F8E2B0">+${rupees(price(s, 'small'))}</text>`;
-    y += 62;
+    body += `<rect x="60" y="${y}" width="${W - 120}" height="62" rx="14" fill="none" stroke="url(#gold)" stroke-width="1.6"/>`;
+    body += `<text x="86" y="${y + 31}" font-family="${SERIF}" font-size="28" fill="#FFFFFF">${esc(titleOf(s, 'small'))} <tspan font-family="${SANS}" font-size="13" font-weight="700" letter-spacing="2" fill="#F0CF8E">ADD-ON · ANY CAR</tspan></text>`;
+    body += `<text x="86" y="${y + 51}" font-family="${SANS}" font-size="14" fill="#C4CCF0">Add to Express, Basic or Premium Wash  ·  ${esc(sub.charAt(0).toLowerCase() + sub.slice(1))}</text>`;
+    body += `<text x="${W - 60 - colW / 2}" y="${y + 42}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="30" fill="#F8E2B0">+${rupees(price(s, 'small'))}</text>`;
+    y += 70;
   }
   // Bikes, then the plans and WhatsApp boxes.
   y += 14;
@@ -360,13 +358,19 @@ ${REVIEW_URL ? qrTile(REVIEW_URL, (W - qs) / 2, 110, qs) : qrPlaceholder((W - qs
   body += `<text x="${bikeX + 26}" y="${y + 20}" font-family="${SANS}" font-weight="700" font-size="16" letter-spacing="3" fill="#9BAEF5">TWO-WHEELERS</text>`;
   let by = y + 36;
   for (const s of servicesIn('bike', 'service')) {
-    body += `<rect x="${bikeX}" y="${by}" width="${bikeW}" height="50" rx="12" fill="url(#panel)"/>`;
-    body += `<text x="${bikeX + 26}" y="${by + 34}" font-family="${SERIF}" font-size="24" fill="#FFFFFF">${esc(titleOf(s, 'bike').replace(/^Bike /, ''))}</text>`;
+    body += `<rect x="${bikeX}" y="${by}" width="${bikeW}" height="42" rx="12" fill="url(#panel)"/>`;
+    body += `<text x="${bikeX + 26}" y="${by + 29}" font-family="${SERIF}" font-size="23" fill="#FFFFFF">${esc(titleOf(s, 'bike').replace(/^Bike /, ''))}</text>`;
     BIKES.forEach(([section], i) => {
       const cx = bikeX + bNameW + bColW * i + bColW / 2;
-      body += `<text x="${cx}" y="${by + 35}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="26" fill="#FFFFFF">${rupees(price(s, section))}</text>`;
+      body += `<text x="${cx}" y="${by + 30}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="25" fill="#FFFFFF">${rupees(price(s, section))}</text>`;
     });
-    by += 58;
+    by += 48;
+  }
+  for (const s of servicesIn('bike', 'addon')) {
+    body += `<rect x="${bikeX}" y="${by}" width="${bikeW}" height="42" rx="12" fill="none" stroke="url(#gold)" stroke-width="1.4"/>`;
+    body += `<text x="${bikeX + 26}" y="${by + 29}" font-family="${SERIF}" font-size="23" fill="#FFFFFF">${esc(titleOf(s, 'bike'))} <tspan font-family="${SANS}" font-size="12" font-weight="700" letter-spacing="1.5" fill="#F0CF8E">ADD-ON</tspan></text>`;
+    body += `<text x="${bikeX + bNameW + bColW / 2}" y="${by + 30}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="25" fill="#F8E2B0">+${rupees(price(s, 'bike'))}</text>`;
+    by += 48;
   }
   const boxX = bikeX + bikeW + 30;
   const boxW = W - 60 - boxX;

@@ -1,12 +1,12 @@
 import type { VehicleCategory } from './types';
 
 /**
- * The sizes customers see prices by: three for cars, three for two-wheelers. Cars go by size,
+ * The sizes customers see prices by: three for cars, one for every two-wheeler. Cars go by size,
  * imported brands included (a BMW 3 Series is a mid-size car, an X5 a large one), because a
  * bigger car takes more time, water and care. Each size covers some catalog body types; the
  * first one a branch has stands for the size's prices.
  */
-export type PriceSizeKey = 'small' | 'mid' | 'large' | 'scooter' | 'bike' | 'bigBike';
+export type PriceSizeKey = 'small' | 'mid' | 'large' | 'bike';
 
 export interface PriceSize {
   key: PriceSizeKey;
@@ -61,37 +61,16 @@ export const PRICE_SIZES: readonly PriceSize[] = [
     alsoExample: 'BMW X5',
   },
   {
-    key: 'scooter',
-    category: 'bike',
-    emoji: '🛵',
-    name: 'Scooter',
-    short: 'Scooter',
-    te: { name: 'స్కూటర్', short: 'స్కూటర్' },
-    bodyKeys: ['scooter', 'eScooter'],
-    examples: 'Activa, Jupiter, Access, Ather',
-    alsoExample: null,
-  },
-  {
     key: 'bike',
     category: 'bike',
     emoji: '🏍️',
-    name: 'Bike',
+    name: 'Bike / Scooter',
     short: 'Bike',
-    te: { name: 'బైక్', short: 'బైక్' },
-    bodyKeys: ['bike', 'sportsBike', 'cruiser', 'moped'],
-    examples: 'Splendor, Pulsar, Shine, Classic 350',
-    alsoExample: null,
-  },
-  {
-    key: 'bigBike',
-    category: 'bike',
-    emoji: '🏍️',
-    name: 'Big bike',
-    short: 'Big bike',
-    te: { name: 'పెద్ద బైక్', short: 'పెద్ద బైక్' },
-    bodyKeys: ['premiumBike'],
-    examples: 'Harley, Ducati, Hayabusa, Triumph',
-    alsoExample: null,
+    te: { name: 'బైక్ / స్కూటర్', short: 'బైక్' },
+    // Every two-wheeler pays the same, from a scooter to a Harley.
+    bodyKeys: ['bike', 'scooter', 'eScooter', 'moped', 'sportsBike', 'cruiser', 'premiumBike'],
+    examples: 'Activa, Splendor, Pulsar, Royal Enfield',
+    alsoExample: 'Harley',
   },
 ];
 

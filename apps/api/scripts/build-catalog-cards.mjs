@@ -65,7 +65,7 @@ function card(p, place) {
     ? `<rect x="80" y="938" width="${60 + p.card.footer.length * 19}" height="66" rx="33" fill="none" stroke="url(#gold)" stroke-width="2.5"/>` +
       `<text x="${110}" y="982" font-family="${SANS}" font-weight="600" font-size="30" fill="#F8E2B0">${esc(p.card.footer)}</text>`
     : '';
-  const kindLabel = p.kind === 'plan' ? 'WASH PLAN' : p.kind === 'addon' ? 'ADD-ON · WITH ANY WASH' : 'WASH';
+  const kindLabel = p.kind === 'plan' ? 'WASH PLAN' : p.kind === 'addon' ? 'ADD-ON' : 'WASH';
   const popular = p.card.popular
     ? `<rect x="${80 + kindLabel.length * 22 + 30}" y="226" width="180" height="46" rx="23" fill="url(#gold)"/><text x="${80 + kindLabel.length * 22 + 120}" y="257" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="22" letter-spacing="3" fill="#1B2878">★ POPULAR</text>`
     : '';

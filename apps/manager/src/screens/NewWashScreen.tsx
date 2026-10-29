@@ -129,6 +129,8 @@ interface CachedCatalog {
     active: boolean;
     sortOrder: number;
     appliesTo: string;
+    /** 'addon' goes with a wash only; missing from catalogs saved by older versions. */
+    kind?: string;
   }>;
   /** `bodyKey`: missing from catalogs saved by older versions (types are then matched by name). */
   vehicleTypes: Array<{ id: string; name: string; sortOrder: number; category: string; bodyKey?: string | null }>;
@@ -1202,6 +1204,8 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   const stepState = (i: number): StepState =>
     stepsDone[i] ? 'done' : i === activeStep ? 'active' : 'upcoming';
 
+  // An add-on (Premium Care) is never billed on its own: it goes on top of a wash.
+  const onlyAddons = [...selectedServiceIds].every((id) => services.find((s) => s.id === id)?.kind === 'addon');
   const missing =
     mode === 'search'
       ? 'Find the customer, or tap New customer'
@@ -1217,6 +1221,8 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
                 ? 'Choose a vehicle type'
                 : selectedServiceIds.size === 0
                   ? 'Pick at least one service'
+                  : onlyAddons
+                    ? 'Add a wash: an add-on goes with a wash'
                   : visit?.tooFar && visitRules
                     ? `Too far: the team goes up to ${visitRules.maxKm} km`
                   : needsLocation && !visitPoint && mode !== 'known'

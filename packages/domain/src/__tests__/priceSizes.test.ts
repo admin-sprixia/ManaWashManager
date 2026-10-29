@@ -6,9 +6,7 @@ const EXAMPLES: Record<PriceSizeKey, [string, string][]> = {
   small: [['Maruti Suzuki', 'Swift'], ['Hyundai', 'i20'], ['Maruti Suzuki', 'Baleno'], ['Renault', 'Kwid'], ['Mini', 'Cooper']],
   mid: [['Maruti Suzuki', 'Dzire'], ['Honda', 'City'], ['Tata', 'Nexon'], ['Maruti Suzuki', 'Brezza'], ['BMW', '3 Series']],
   large: [['Hyundai', 'Creta'], ['Mahindra', 'XUV700'], ['Toyota', 'Innova'], ['Toyota', 'Fortuner'], ['BMW', 'X5']],
-  scooter: [['Honda', 'Activa'], ['TVS', 'Jupiter'], ['Ather', '450X']],
-  bike: [['Hero', 'Splendor'], ['Bajaj', 'Pulsar 150'], ['Honda', 'Shine'], ['Royal Enfield', 'Classic 350']],
-  bigBike: [['Harley-Davidson', 'Fat Boy'], ['Suzuki', 'Hayabusa']],
+  bike: [['Honda', 'Activa'], ['Hero', 'Splendor'], ['Bajaj', 'Pulsar 150'], ['Royal Enfield', 'Classic 350'], ['Harley-Davidson', 'Fat Boy']],
 };
 
 describe('price sizes', () => {

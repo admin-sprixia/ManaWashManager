@@ -4,8 +4,7 @@ import { bodyTypeForName } from './vehicleCatalog';
 
 /**
  * The WhatsApp catalog of the business number: every hub wash, add-on and wash plan, once per
- * size (the same sizes the assistant prices by: Small, Mid-size and Large cars; scooters, bikes
- * and big bikes), at the shop price (community prices aren't listed). Commerce Manager reads it
+ * size (the same sizes the assistant prices by: Small, Mid-size and Large cars, and bikes), at the shop price (community prices aren't listed). Commerce Manager reads it
  * as a product feed (GET /whatsapp/catalog.csv), so it follows the menu by itself; each item's
  * picture is a styled card with its details (scripts/build-catalog-cards.mjs), not a photo.
  */
@@ -25,9 +24,7 @@ const SECTION_LABELS: Record<PriceSizeKey, string> = {
   small: 'Small Cars',
   mid: 'Mid-size Cars',
   large: 'Large Cars & 7-Seaters',
-  scooter: 'Scooters',
-  bike: 'Bikes',
-  bigBike: 'Big Bikes',
+  bike: 'Bikes & Scooters',
 };
 
 export const CATALOG_SECTIONS: CatalogSection[] = PRICE_SIZES.map((s) => ({
@@ -58,6 +55,8 @@ const slug = (s: string) =>
     .normalize('NFKD')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
+/** "Express, Basic or Premium Wash". */
+const orList = (parts: string[]) => (parts.length <= 1 ? parts.join('') : `${parts.slice(0, -1).join(', ')} or ${parts[parts.length - 1]}`);
 const rupees = (paise: number) => `₹${(paise / 100).toLocaleString('en-IN')}`;
 
 /** Communities aren't offered yet: sentences about them stay out of the catalog. */
@@ -88,7 +87,16 @@ export function catalogProducts(branch: ChatBranch): CatalogProduct[] {
     const type = types.find((t) => priced(t.id));
     if (!type) continue;
     const vehicles = `${section.examples} and similar`;
-    for (const s of branch.services) {
+    // What an add-on goes with: "Express, Basic or Premium Wash".
+    const washes = branch.services
+      .filter((s) => s.kind !== 'addon' && s.kind !== 'protection' && s.prices.some((p) => p.vehicleTypeId === type.id && p.price > 0))
+      .map((s) => s.name.replace(/^Bike /, ''));
+    const withWashes = washes.every((w) => / Wash$/.test(w))
+      ? orList(washes.map((w, i) => (i === washes.length - 1 ? w : w.replace(/ Wash$/, ''))))
+      : orList(washes);
+    // Add-ons after the washes they go with.
+    const ordered = [...branch.services.filter((s) => s.kind !== 'addon'), ...branch.services.filter((s) => s.kind === 'addon')];
+    for (const s of ordered) {
       const price = s.prices.find((p) => p.vehicleTypeId === type.id && p.price > 0)?.price;
       if (!price) continue;
       const addon = s.kind === 'addon';
@@ -100,7 +108,7 @@ export function catalogProducts(branch: ChatBranch): CatalogProduct[] {
         kind: addon ? 'addon' : 'service',
         title: s.name,
         description: [
-          addon ? `Add-on, with any wash. For ${vehicles}.` : `For ${vehicles}.`,
+          addon ? `Add-on${withWashes ? ` to ${/^[AEIOU]/i.test(withWashes) ? 'an' : 'a'} ${withWashes}` : ', with any wash'}. For ${vehicles}.` : `For ${vehicles}.`,
           ...(about ? [about] : []),
           ...(checklist.length ? ['', "What's included:", ...checklist.map((c) => `✓ ${c}`)] : []),
           ...(s.durationMin ? ['', addon ? `Adds about ${s.durationMin} minutes.` : `Takes about ${s.durationMin} minutes.`] : []),
@@ -108,7 +116,7 @@ export function catalogProducts(branch: ChatBranch): CatalogProduct[] {
         price,
         card: {
           subtitle: about,
-          lines: checklist,
+          lines: addon && withWashes ? [`Add to ${withWashes}`, ...checklist] : checklist,
           footer: s.durationMin ? `${addon ? 'Adds' : 'About'} ${s.durationMin} min` : null,
           popular: s.popular,
         },

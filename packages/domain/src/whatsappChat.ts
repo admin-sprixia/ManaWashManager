@@ -46,7 +46,7 @@ export interface ChatBranch {
     id: string;
     name: string;
     popular: boolean;
-    /** Add-ons are listed apart, as "+₹249 with any wash". */
+    /** Add-ons are listed apart, as "+₹249 with wash 1, 2 or 3". */
     kind?: ServiceKind;
     description?: string | null;
     /** What's included, one short line each. */
@@ -308,8 +308,8 @@ function firstName(name: string | null | undefined): string | null {
 }
 
 /** "3 & 12", "3, 6 & 12". */
-function joinAnd(parts: string[]): string {
-  return parts.length <= 1 ? parts.join('') : `${parts.slice(0, -1).join(', ')} & ${parts[parts.length - 1]}`;
+function joinAnd(parts: string[], and = '&'): string {
+  return parts.length <= 1 ? parts.join('') : `${parts.slice(0, -1).join(', ')} ${and} ${parts[parts.length - 1]}`;
 }
 
 const sizeName = (t: Turn, s: PriceSize) => (te(t) ? s.te.name : s.name);
@@ -540,8 +540,11 @@ type Target =
 
 const pricesId = (b: ChatBranch, make: string, model: string) => id('pr', b.id, make, model);
 
+/** Sizes from older messages: scooters and big bikes are bikes now. */
+const OLD_SIZES: Readonly<Record<string, string>> = { scooter: 'bike', bigBike: 'bike' };
+
 function sizeTarget(b: ChatBranch, key: string | undefined): Target | null {
-  const size = priceSize(key);
+  const size = priceSize(OLD_SIZES[key ?? ''] ?? key);
   const type = size && sizeType(b, size);
   return size && type ? { kind: 'size', size, type } : null;
 }
@@ -631,6 +634,10 @@ function priceHead(t: Turn, b: ChatBranch, x: Target): string[] {
     ];
   }
   const name = `*${x.make} ${x.model}*`;
+  // One size for the whole category (bikes): no "is a …", just its prices.
+  if (x.size && sizesAt(b, x.size.category).length === 1) {
+    return [`${x.size.emoji} ${name}`, say(t, `${x.size.short} prices at ${branchLine(t, b)}`, `${branchLine(t, b)} లో ${x.size.te.short} ధరలు`)];
+  }
   if (!x.size) return [`${emojiOf(x)} ${name} · ${x.type.name}`, say(t, `Prices at ${branchLine(t, b)}`, `${branchLine(t, b)} ధరలు`)];
   return [
     say(t, `${x.size.emoji} ${name} is a *${x.size.name}*.`, `${x.size.emoji} ${name} ఒక *${x.size.te.name}*.`),
@@ -638,13 +645,30 @@ function priceHead(t: Turn, b: ChatBranch, x: Target): string[] {
   ];
 }
 
-/** Another size (or, without sizes, another vehicle), Get Directions, Talk to us. */
+/**
+ * Another size, Get Directions, Talk to us. With only one size (bikes), the other vehicle's
+ * prices instead; without sizes, another model.
+ */
 function afterPrices(t: Turn, b: ChatBranch, category: VehicleCategory): ChatButton[] {
-  const bike = category === 'bike';
-  const other: ChatButton = sizesAt(b, category).length
-    ? { id: id('cat', b.id, category), title: bike ? say(t, '🔁 Other type', '🔁 వేరే రకం') : say(t, '🔁 Other size', '🔁 వేరే సైజ్') }
-    : { id: id('find', b.id, category), title: say(t, '🔁 Other vehicle', '🔁 వేరే వాహనం') };
-  return [other, directionsButton(t, b), talkButton(t, b)];
+  const sizes = sizesAt(b, category).length;
+  const otherCategory: VehicleCategory = category === 'bike' ? 'car' : 'bike';
+  const other: ChatButton | null =
+    sizes > 1
+      ? { id: id('cat', b.id, category), title: say(t, '🔁 Other size', '🔁 వేరే సైజ్') }
+      : sizes === 1
+        ? categoriesAt(b, t.edits).includes(otherCategory)
+          ? categoryButton(t, b, otherCategory)
+          : null
+        : { id: id('find', b.id, category), title: say(t, '🔁 Other vehicle', '🔁 వేరే వాహనం') };
+  return [...(other ? [other] : []), directionsButton(t, b), talkButton(t, b)];
+}
+
+/** The washes an add-on goes with: their numbers on the list ("1, 2 or 3") and names. */
+function addonWashes(t: Turn, services: ServiceItem[]): { numbers: string; names: string } | null {
+  const washes = services.flatMap((s, i) => (s.service.kind === 'protection' ? [] : [{ n: i + 1, name: s.name }]));
+  if (!washes.length) return null;
+  const or = say(t, 'or', 'లేదా');
+  return { numbers: joinAnd(washes.map((w) => String(w.n)), or), names: joinAnd(washes.map((w) => w.name), or) };
 }
 
 /** Back to the price list a detail came from: "📋 Large car prices" or "📋 All prices". */
@@ -686,11 +710,11 @@ function prices(t: Turn, b: ChatBranch, x: Target): ChatMessage[] {
   const lines = [...priceHead(t, b, x), '', say(t, '🧽 *Washes*', '🧽 *వాష్‌లు*')];
   for (const s of services) lines.push(`${keycap(++n)} ${s.name}${star(s)}: *${rupees(s.price)}*`);
   if (addons.length) {
+    const withWash = addonWashes(t, services);
+    const what = addons.length === 1 ? say(t, '✨ *Add-on*', '✨ *అదనంగా*') : say(t, '✨ *Add-ons*', '✨ *అదనంగా*');
     lines.push(
       '',
-      addons.length === 1
-        ? say(t, '✨ *Add-on* (with any wash)', '✨ *అదనంగా* (ఏ వాష్‌తోనైనా)')
-        : say(t, '✨ *Add-ons* (with any wash)', '✨ *అదనంగా* (ఏ వాష్‌తోనైనా)'),
+      withWash ? say(t, `${what} (with wash ${withWash.numbers})`, `${what} (${withWash.numbers} వాష్‌తో)`) : say(t, `${what} (with any wash)`, `${what} (ఏ వాష్‌తోనైనా)`),
     );
     for (const a of addons) {
       lines.push(`${keycap(++n)} ${a.name}: *+${rupees(a.price)}*`);
@@ -735,8 +759,16 @@ function planWhat(t: Turn, p: Plan): string | null {
 const perWash = (t: Turn, total: number, washes: number) =>
   washes > 1 ? say(t, `💡 That's *${rupees(Math.round(total / washes / 100) * 100)}* a wash.`, `💡 ఒక్కో వాష్ *${rupees(Math.round(total / washes / 100) * 100)}* మాత్రమే.`) : null;
 
+/** "Add it to an Express Wash, Basic Wash or Premium Wash at the counter." */
+function addonAsk(t: Turn, b: ChatBranch, x: Target): string {
+  const withWash = addonWashes(t, priceItems(b, x.type).services);
+  if (!withWash) return say(t, 'Ask for it with any wash at the counter.', 'కౌంటర్ వద్ద ఏ వాష్‌తోనైనా అడగండి.');
+  const a = /^[AEIOU]/i.test(withWash.names) ? 'an' : 'a';
+  return say(t, `Add it to ${a} ${withWash.names} at the counter.`, `కౌంటర్ వద్ద ${withWash.names} తో కలిపి అడగండి.`);
+}
+
 /** What's in one service, add-on or plan. */
-function itemDetails(t: Turn, x: Target, item: ServiceItem | PlanItem, n: number): string {
+function itemDetails(t: Turn, b: ChatBranch, x: Target, item: ServiceItem | PlanItem, n: number): string {
   const head = `${keycap(n)} *${item.name}*${star(item)}`;
   const who = `${emojiOf(x)} ${labelOf(t, x)}`;
   if (isPlan(item)) {
@@ -768,7 +800,7 @@ function itemDetails(t: Turn, x: Target, item: ServiceItem | PlanItem, n: number
             : say(t, `⏱️ Takes about ${s.durationMin} minutes`, `⏱️ సుమారు ${s.durationMin} నిమిషాలు పడుతుంది`),
         ]
       : []),
-    ...(addon ? ['', say(t, 'Ask for it with any wash at the counter.', 'కౌంటర్ వద్ద ఏ వాష్‌తోనైనా అడగండి.')] : []),
+    ...(addon ? ['', addonAsk(t, b, x)] : []),
   ].join('\n');
 }
 
@@ -782,7 +814,7 @@ function details(t: Turn, b: ChatBranch, x: Target, n: number): ChatMessage[] {
   const item = listed[n - 1];
   if (!listed.length) return prices(t, b, x);
   if (!item) return [{ type: 'buttons', text: pickRange(t, listed.length), buttons }];
-  return [{ type: 'buttons', text: cut(itemDetails(t, x, item, n), WA_BUTTONS_BODY_MAX), buttons }];
+  return [{ type: 'buttons', text: cut(itemDetails(t, b, x, item, n), WA_BUTTONS_BODY_MAX), buttons }];
 }
 
 /** PLANS: every wash plan for the size or model, by plan, with each length numbered. */
@@ -835,7 +867,7 @@ function planDetails(t: Turn, b: ChatBranch, x: Target, n: number): ChatMessage[
   const item = plans[n - 1];
   if (!plans.length) return plansList(t, b, x);
   if (!item) return [{ type: 'buttons', text: pickRange(t, plans.length), buttons }];
-  return [{ type: 'buttons', text: cut(itemDetails(t, x, item, n), WA_BUTTONS_BODY_MAX), buttons }];
+  return [{ type: 'buttons', text: cut(itemDetails(t, b, x, item, n), WA_BUTTONS_BODY_MAX), buttons }];
 }
 
 // ─── Location, talk, rate ───────────────────────────────────────────
@@ -1025,7 +1057,8 @@ function flowPrices(t: Turn, b: ChatBranch, make: string, model: string): string
     ...services.map((s) => `${++n}. **${s.name}**${star(s)} — ${rupees(s.price)}`),
   ];
   if (addons.length) {
-    lines.push('', say(t, '## ✨ Add-on (with any wash)', '## ✨ అదనంగా (ఏ వాష్‌తోనైనా)'));
+    const withWash = addonWashes(t, services);
+    lines.push('', withWash ? say(t, `## ✨ Add-on (with wash ${withWash.numbers})`, `## ✨ అదనంగా (${withWash.numbers} వాష్‌తో)`) : say(t, '## ✨ Add-on (with any wash)', '## ✨ అదనంగా (ఏ వాష్‌తోనైనా)'));
     for (const a of addons) lines.push(`${++n}. **${a.name}** — +${rupees(a.price)}${a.service.description ? ` · ${a.service.description.replace(/\.$/, '')}` : ''}`);
   }
   if (monthly.length) {
@@ -1238,8 +1271,12 @@ export function chatReply(input: ChatInput, ctx: ChatContext): ChatResult {
     case 'svc':
     case 'home':
       return done(servicesReply(t, b));
-    case 'cat':
-      return done(categoryReply(t, b, category));
+    case 'cat': {
+      // One price for every bike: straight to it.
+      const sizes = sizesAt(b, category);
+      const single = sizes.length === 1 ? sizeTarget(b, sizes[0]!.key) : null;
+      return single ? priceList(b, single) : done(categoryReply(t, b, category));
+    }
     case 'find':
       return done([findReply(t, b, category)]);
     case 'mk':

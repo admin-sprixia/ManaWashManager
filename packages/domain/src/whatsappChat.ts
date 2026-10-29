@@ -65,6 +65,8 @@ export interface ChatBranch {
     upgrade?: { every: number; name: string } | null;
     prices: { vehicleTypeId: string; total: number; listTotal: number }[];
   }[];
+  /** Services on the way (Premium Care…): shown as coming soon, without a price, not numbered. */
+  comingSoon?: { name: string; description: string | null; categories: VehicleCategory[] }[];
 }
 
 export type ChatLang = 'en' | 'te';
@@ -701,13 +703,26 @@ function noPrices(t: Turn, b: ChatBranch, label: string, category: VehicleCatego
   ];
 }
 
-/** The price list: washes, the add-on, monthly plans, numbered; longer plans on PLANS. */
+/** What every wash is washed with, under the washes and in a wash's details. */
+const washLine = (t: Turn) =>
+  say(t, 'We use a high-lubricity, pH-neutral daily maintenance wash.', 'మేము హై-లూబ్రిసిటీ, pH-న్యూట్రల్ డైలీ మెయింటెనెన్స్ వాష్ వాడుతాం.');
+
+/** The branch's coming-soon services for this kind of vehicle. */
+const comingSoonFor = (b: ChatBranch, category: VehicleCategory) => (b.comingSoon ?? []).filter((c) => c.categories.includes(category));
+
+/** "Premium Care: our specialized, ceramic-infused…", a coming-soon service on one line. */
+const soonLine = (c: NonNullable<ChatBranch['comingSoon']>[number]) => {
+  const about = c.description?.trim().replace(/\.$/, '');
+  return about ? `• *${c.name}*: ${about.charAt(0).toLowerCase()}${about.slice(1)}` : `• *${c.name}*`;
+};
+
+/** The price list: washes, the add-on, monthly plans, numbered; longer plans on PLANS; what's coming. */
 function prices(t: Turn, b: ChatBranch, x: Target): ChatMessage[] {
   const { services, addons, monthly, longer } = priceItems(b, x.type);
   const buttons = afterPrices(t, b, categoryOf(x));
   if (!services.length) return noPrices(t, b, labelOf(t, x), categoryOf(x));
   let n = 0;
-  const lines = [...priceHead(t, b, x), '', say(t, '🧽 *Washes*', '🧽 *వాష్‌లు*')];
+  const lines = [...priceHead(t, b, x), '', say(t, '🧽 *Washes*', '🧽 *వాష్‌లు*'), `_${washLine(t)}_`];
   for (const s of services) lines.push(`${keycap(++n)} ${s.name}${star(s)}: *${rupees(s.price)}*`);
   if (addons.length) {
     const withWash = addonWashes(t, services);
@@ -738,6 +753,8 @@ function prices(t: Turn, b: ChatBranch, x: Target): ChatMessage[] {
   } else if (longer.length) {
     lines.push('', say(t, '📅 *Wash plans*: reply *PLANS* to see them', '📅 *వాష్ ప్లాన్‌లు*: చూడటానికి *PLANS* అని పంపండి'));
   }
+  const soon = comingSoonFor(b, categoryOf(x));
+  if (soon.length) lines.push('', say(t, '🔜 *Coming soon*', '🔜 *త్వరలో*'), ...soon.map(soonLine));
   lines.push('', say(t, "👉 Reply a number to see what's included", '👉 ఏమేమి ఉంటాయో చూడటానికి నంబర్ పంపండి'));
   return withButtons(t, lines.join('\n'), buttons);
 }
@@ -791,6 +808,7 @@ function itemDetails(t: Turn, b: ChatBranch, x: Target, item: ServiceItem | Plan
     head,
     `${who} · *${addon ? '+' : ''}${rupees(item.price)}*`,
     ...(s.description ? ['', s.description] : []),
+    ...(s.kind === 'wash' || s.kind == null ? ['', `🧴 ${washLine(t)}`] : []),
     ...(checklist.length ? ['', say(t, "✅ *What's included*", '✅ *ఇందులో ఉండేవి*'), ...checklist.map((c) => `• ${c}`)] : []),
     ...(s.durationMin
       ? [
@@ -941,6 +959,22 @@ function rateReply(t: Turn, b: ChatBranch): ChatMessage[] {
   ];
 }
 
+/** A coming-soon service asked about by name: what it is, and that it isn't here yet. */
+function soonReply(t: Turn, b: ChatBranch, c: NonNullable<ChatBranch['comingSoon']>[number]): ChatMessage[] {
+  return [
+    {
+      type: 'buttons',
+      text: [
+        say(t, `🔜 *${c.name}* is coming soon at ${branchLine(t, b)}.`, `🔜 *${c.name}* ${branchLine(t, b)} లో త్వరలో వస్తోంది.`),
+        ...(c.description ? ['', c.description] : []),
+        '',
+        say(t, "It isn't available yet. Ask us at the counter, and we'll tell you when it starts.", 'ఇది ఇంకా అందుబాటులో లేదు. కౌంటర్ వద్ద అడగండి, ప్రారంభమైనప్పుడు చెబుతాం.'),
+      ].join('\n'),
+      buttons: mainButtons(t, b),
+    },
+  ];
+}
+
 /** "Thanks, our team will reply here", with the main buttons for meanwhile. */
 function teamAck(t: Turn, b: ChatBranch): ChatMessage[] {
   return [
@@ -1066,6 +1100,8 @@ function flowPrices(t: Turn, b: ChatBranch, make: string, model: string): string
     for (const p of monthly) lines.push(`${++n}. **${p.name}**${star(p)} — ${rupees(p.price)} · ${planSpan(t, p.plan.washes, p.plan.months)}${saveNote(t, p)}`);
   }
   if (longer.length) lines.push('', longerHint(t, longer).replace(/\*/g, '**'));
+  const soon = comingSoonFor(b, categoryOf(x));
+  if (soon.length) lines.push('', say(t, '## 🔜 Coming soon', '## 🔜 త్వరలో'), ...soon.map((c) => soonLine(c).replace(/\*/g, '**')));
   lines.push('', say(t, "Tap below to get this in chat, then reply with a number to see what's included.", 'దీన్ని చాట్‌లో పొందండి, తర్వాత వివరాల కోసం నంబర్ పంపండి.'));
   return lines.join('\n');
 }
@@ -1247,6 +1283,9 @@ export function chatReply(input: ChatInput, ctx: ChatContext): ChatResult {
         ...servicesReply(t, b),
       ]);
     }
+    // Asking about something that's coming soon ("premium care?"): say so, and when.
+    const soonAsked = (only ?? ctx.branches[0]!).comingSoon?.find((c) => alnum(c.name).length >= 4 && alnum(text).includes(alnum(c.name)));
+    if (soonAsked) return done(soonReply(t, only ?? ctx.branches[0]!, soonAsked));
     if (THANKS.test(text)) {
       return done([{ type: 'text', text: say(t, "You're welcome! 😊 Send *Hi* any time for our prices.", 'సంతోషం! 😊 మా ధరల కోసం ఎప్పుడైనా *Hi* పంపండి.') }]);
     }

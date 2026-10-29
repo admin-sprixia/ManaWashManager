@@ -51,6 +51,7 @@ export function CatalogServicesScreen({ navigation, route }: Props) {
         subtitle={[
           SERVICE_KIND_LABEL[s.kind],
           s.durationMin ? formatDuration(s.durationMin) : null,
+          s.comingSoon ? 'Coming soon' : null,
           s.popular ? 'Most popular' : null,
           names.length ? names.join(' + ') : s.checklist.length ? `${s.checklist.length} things included` : null,
         ]

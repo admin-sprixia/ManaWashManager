@@ -118,19 +118,25 @@ const SERVICES = [
     checklist: ['Everything in Basic', 'Spray wax', 'Inside deep clean', 'Rain repellent on the windscreen'],
     prices: car([899, 1099, 1399], [819, 999, 1279]),
   },
+  // Coming soon: shown on WhatsApp and the price board without a price; not sold yet. Their prices
+  // stay in the catalog, ready for the day they start (set comingSoon to false and run again).
   {
     name: 'Anti-Rust Protection',
-    description: 'Done at the shop. Community customers get free pick-up and drop.',
+    description: 'An underbody wash and anti-rust coating under the car, done at the shop.',
     kind: 'protection',
+    comingSoon: true,
     checklist: ['Underbody wash', 'Anti-rust coating under the car'],
     prices: car(4500, 4050),
   },
   {
     name: 'Premium Care',
-    description: 'Premium shampoo & foam, microfiber hand-dry, extra paint care.',
+    // Every wash already uses a high-lubricity, pH-neutral daily maintenance wash (WhatsApp says
+    // so); Premium Care is the step up.
+    description: 'Our specialized, ceramic-infused deep-cleaning lather, designed to condition the clear coat and maximize gloss.',
     kind: 'addon',
+    comingSoon: true,
     durationMin: 15,
-    checklist: ['Premium shampoo, gentle on paint', 'Thick premium foam', 'Soft microfiber hand-dry', 'Extra care on paint & trim'],
+    checklist: ['Ceramic-infused deep-cleaning lather', 'Conditions the clear coat', 'Maximum gloss', 'Soft microfiber hand-dry'],
     prices: { ...car(249, 249), ...bike(99, 99) },
   },
   // Bikes: Express / Basic / Premium like the cars. A bike wash goes for about ₹150 locally, so
@@ -247,6 +253,7 @@ for (const s of SERVICES) {
     durationMin: s.durationMin ?? null,
     popular: !!s.popular,
     showInApp: true,
+    comingSoon: !!s.comingSoon,
     checklist: s.checklist ?? [],
   };
   const existing = catalog.services.find((x) => (s.id && x.id === s.id) || x.name.toLowerCase() === s.name.toLowerCase());

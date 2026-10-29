@@ -2,7 +2,7 @@
 // eslint-disable-next-line @typescript-eslint/triple-slash-reference
 /// <reference path="../assets.d.ts" />
 import { Hono, type Context } from 'hono';
-import { createPlatformDb, customerAppRepo, shopPlanRepo, vehicleModelRepo } from '@mana/db';
+import { catalogRepo, createPlatformDb, customerAppRepo, shopPlanRepo, vehicleModelRepo } from '@mana/db';
 import { catalogFeed, catalogProducts, chatFlowChoice, chatFlowReply, chatReply, type ChatBranch, type ChatContext, type ChatFlowRequest, type ChatInput } from '@mana/domain';
 import banner from '../assets/whatsapp-banner.jpg';
 import makeLogos from '../assets/make-logos.json';
@@ -120,7 +120,10 @@ async function chatContext(env: Env, origin: string): Promise<ChatContext> {
     businessId ? vehicleModelRepo.list(pdb, businessId) : [],
   ]);
   const hubs = branches.filter((b) => b.modes.includes('hub'));
-  const plans = await Promise.all(hubs.map((b) => shopPlanRepo.menu(env.DB, b.id).catch(() => [])));
+  const [plans, soon] = await Promise.all([
+    Promise.all(hubs.map((b) => shopPlanRepo.menu(env.DB, b.id).catch(() => []))),
+    businessId ? catalogRepo.comingSoon(env.DB, businessId) : [],
+  ]);
   return {
     businessName: business?.name ?? hubs[0]?.name ?? 'our car wash',
     edits,
@@ -156,6 +159,9 @@ async function chatContext(env: Env, origin: string): Promise<ChatContext> {
           upgrade: p.upgrade ? { every: p.upgrade.every, name: p.upgrade.name } : null,
           prices: p.prices.map((x) => ({ vehicleTypeId: x.vehicleTypeId, total: x.total, listTotal: x.listTotal })),
         })),
+        comingSoon: soon
+          .filter((c) => c.shopId === b.id)
+          .map((c) => ({ name: c.name, description: c.description, categories: c.categories })),
       }),
     ),
   };
@@ -277,6 +283,8 @@ export const whatsappRoutes = new Hono<{ Bindings: Env }>()
       businessName: ctx.businessName,
       city: branch?.city ?? null,
       products: products.map((p) => ({ id: p.id, kind: p.kind, title: p.title, section: p.section.label, card: p.card })),
+      /** Shown on the posters as coming soon, without a price. */
+      comingSoon: branch?.comingSoon ?? [],
     });
   })
   /** A product's card picture (uploaded by scripts/build-catalog-cards.mjs). */

@@ -147,11 +147,17 @@ const largeBody = large.map(bodyOf).join('\n');
 // Premium Care comes from the menu seed's default price book; a branch on another book has none.
 const catalogJson = await (await apiFetch(`${API}/whatsapp/catalog.json`)).json();
 const hasCare = catalogJson.products.some((p) => p.title === 'Premium Care');
-if (!hasCare) console.log('NOTE  this branch has no Premium Care (another price book?): its checks are skipped');
+if (!hasCare) console.log('NOTE  Premium Care isn't on sale here (coming soon, or another price book): its checks are skipped');
 check(
   'Large shows numbered washes, Premium Care, monthly plans and PLANS',
   /1️⃣ .+: \*₹/.test(largeBody) && (!hasCare || /Premium Care: \*\+₹\d/.test(largeBody)) && largeBody.includes('📅 *Monthly plans*') && largeBody.includes('reply *PLANS*'),
   largeBody.slice(0, 600),
+);
+const soonForCars = (catalogJson.comingSoon ?? []).filter((c) => c.categories.includes('car'));
+check(
+  'what’s coming soon is listed at the end, without a price',
+  soonForCars.every((c) => largeBody.includes(`• *${c.name}*`)) && (!soonForCars.length || largeBody.includes('🔜 *Coming soon*')),
+  JSON.stringify(soonForCars),
 );
 check('…with Other size / Directions / Talk to us', buttonsOf(large.at(-1)).map((b) => b.id.split('|')[0]).join() === 'cat,loc,talk');
 console.log(`\n--- What the customer sees ---\n${largeBody}\n------------------------------\n`);

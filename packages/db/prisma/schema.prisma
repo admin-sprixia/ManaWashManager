@@ -1334,6 +1334,8 @@ model CatalogService {
   kind        String   @default("wash")
   popular     Boolean  @default(false)
   showInApp   Boolean  @default(true) @map("show_in_app")
+  /// Shown to customers as coming soon (no price) and sold nowhere yet.
+  comingSoon  Boolean  @default(false) @map("coming_soon")
   /// JSON list of short lines: what's included.
   checklist   String?
   sortOrder   Int      @default(0) @map("sort_order")

@@ -406,8 +406,9 @@ async function publishOnce(d1: D1Database, shopId: string): Promise<PublishResul
         }),
         includes: s.includes,
         sortOrder: s.sortOrder,
-        // Only what head office switched on for this branch (and still live at HQ).
-        active: s.active && branch.menu.has(s.id),
+        // Only what head office switched on for this branch (and still live at HQ). A
+        // coming-soon service isn't sold anywhere yet.
+        active: s.active && !s.comingSoon && branch.menu.has(s.id),
       })),
       basePrices,
       doorstepPrices,

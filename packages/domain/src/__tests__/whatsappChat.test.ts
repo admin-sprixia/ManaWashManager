@@ -281,6 +281,7 @@ describe('WhatsApp assistant: Car prices / Bike prices', () => {
         'Prices at *Sri Mana Wash*, Kovur',
         '',
         '🧽 *Washes*',
+        '_We use a high-lubricity, pH-neutral daily maintenance wash._',
         '1️⃣ Bike Basic Wash ⭐: *₹149*',
         '',
         '✨ *Add-on* (with wash 1)',
@@ -342,6 +343,7 @@ describe('WhatsApp assistant: a size’s prices', () => {
         'Prices at *Sri Mana Wash*, Kovur',
         '',
         '🧽 *Washes*',
+        '_We use a high-lubricity, pH-neutral daily maintenance wash._',
         '1️⃣ Express Wash: *₹419*',
         '2️⃣ Basic Wash ⭐: *₹799*',
         '3️⃣ Premium Wash: *₹1,399*',
@@ -385,6 +387,83 @@ describe('WhatsApp assistant: a size’s prices', () => {
   });
 });
 
+/** The hub as it opens: Anti-Rust and Premium Care aren't sold yet, only shown as coming soon. */
+const soonHub: ChatBranch = {
+  ...hub,
+  services: hub.services.filter((s) => s.id !== 'rust' && s.id !== 'care'),
+  comingSoon: [
+    { name: 'Anti-Rust Protection', description: 'An underbody wash and anti-rust coating under the car, done at the shop.', categories: ['car'] },
+    {
+      name: 'Premium Care',
+      description: 'Our specialized, ceramic-infused deep-cleaning lather, designed to condition the clear coat and maximize gloss.',
+      categories: ['car', 'bike'],
+    },
+  ],
+};
+const soonCtx: ChatContext = { ...ctx, branches: [soonHub] };
+
+describe('WhatsApp assistant: coming soon', () => {
+  it('lists what’s coming at the end, without a price or a number', () => {
+    const m = as(only(reply({ kind: 'choice', id: 'sz|b1|large' }, soonCtx).messages), 'buttons');
+    expectValid([m]);
+    expect(m.text).toBe(
+      [
+        '🚙 *Large / 7-seater*',
+        'For Creta, XUV700, Innova, Fortuner, BMW X5…',
+        'Prices at *Sri Mana Wash*, Kovur',
+        '',
+        '🧽 *Washes*',
+        '_We use a high-lubricity, pH-neutral daily maintenance wash._',
+        '1️⃣ Express Wash: *₹419*',
+        '2️⃣ Basic Wash ⭐: *₹799*',
+        '3️⃣ Premium Wash: *₹1,399*',
+        '',
+        '📅 *Monthly plans* (4 washes)',
+        '4️⃣ Express Plan: *₹1,549* (save ₹127)',
+        '5️⃣ Basic Plan ⭐: *₹2,949* (save ₹247)',
+        '6️⃣ Shine Plan: *₹3,499* (save ₹297)',
+        '💡 3 & 12-month plans save more: reply *PLANS*',
+        '',
+        '🔜 *Coming soon*',
+        '• *Anti-Rust Protection*: an underbody wash and anti-rust coating under the car, done at the shop',
+        '• *Premium Care*: our specialized, ceramic-infused deep-cleaning lather, designed to condition the clear coat and maximize gloss',
+        '',
+        "👉 Reply a number to see what's included",
+      ].join('\n'),
+    );
+    // Bikes only hear about what's coming for bikes.
+    const bike = bodyOf(only(reply({ kind: 'choice', id: 'cat|b1|bike' }, soonCtx).messages));
+    expect(bike).toContain('🔜 *Coming soon*\n• *Premium Care*:');
+    expect(bike).not.toContain('Anti-Rust');
+    // Telugu fits too.
+    expectValid(reply({ kind: 'choice', id: 'sz|b1|large' }, { ...soonCtx, person: { name: null, returning: false, lang: 'te' } }).messages);
+  });
+
+  it('asking about it by name says it’s coming, not a question for the team', () => {
+    const r = reply({ kind: 'text', text: 'Do you have premium care?' }, soonCtx);
+    expect(r.forTeam).toBeUndefined();
+    const m = as(only(r.messages), 'buttons');
+    expect(m.text).toBe(
+      [
+        '🔜 *Premium Care* is coming soon at *Sri Mana Wash*, Kovur.',
+        '',
+        'Our specialized, ceramic-infused deep-cleaning lather, designed to condition the clear coat and maximize gloss.',
+        '',
+        "It isn't available yet. Ask us at the counter, and we'll tell you when it starts.",
+      ].join('\n'),
+    );
+    expect(m.buttons.map((b) => b.id)).toEqual(['cat|b1|car', 'cat|b1|bike', 'loc|b1']);
+  });
+
+  it('the Flow shows it too', () => {
+    const md = chatFlowReply(
+      { action: 'data_exchange', screen: 'MODEL', data: { step: 'model', company: 'Maruti Suzuki', model: 'Swift' }, flow_token: chatFlowToken('b1', 'car', 'en') },
+      soonCtx,
+    ).data.prices as string;
+    expect(md).toContain('## 🔜 Coming soon\n• **Anti-Rust Protection**: an underbody wash');
+  });
+});
+
 describe('WhatsApp assistant: numbers and PLANS', () => {
   it('a number shows what that wash includes, with a way back to the size’s prices', () => {
     const m = as(only(reply({ kind: 'text', text: '1' }, after('sz|b1|large')).messages), 'buttons');
@@ -395,6 +474,8 @@ describe('WhatsApp assistant: numbers and PLANS', () => {
         '🚙 Large / 7-seater · *₹419*',
         '',
         'A quick, careful outside wash.',
+        '',
+        '🧴 We use a high-lubricity, pH-neutral daily maintenance wash.',
         '',
         "✅ *What's included*",
         '• Snow foam',
@@ -498,7 +579,7 @@ describe('WhatsApp assistant: finding a model', () => {
     const r = choose('pr|b1|Maruti Suzuki|Brezza');
     const m = as(only(r.messages), 'buttons');
     expectValid([m]);
-    expect(m.text.startsWith('🚘 *Maruti Suzuki Brezza* is a *Mid-size car*.\nMid-size prices at *Sri Mana Wash*, Kovur\n\n🧽 *Washes*\n1️⃣ Express Wash: *₹349*')).toBe(true);
+    expect(m.text.startsWith('🚘 *Maruti Suzuki Brezza* is a *Mid-size car*.\nMid-size prices at *Sri Mana Wash*, Kovur\n\n🧽 *Washes*\n_We use a high-lubricity, pH-neutral daily maintenance wash._\n1️⃣ Express Wash: *₹349*')).toBe(true);
     expect(m.buttons[0]).toEqual({ id: 'cat|b1|car', title: '🔁 Other size' });
     expect(r.context).toBe('pr|b1|Maruti Suzuki|Brezza');
     // A number after it reads from the same list.

@@ -111,6 +111,8 @@ const serviceDetails = {
   kind: z.enum(SERVICE_KINDS as [ServiceKind, ...ServiceKind[]]).optional(),
   popular: z.boolean().optional(),
   showInApp: z.boolean().optional(),
+  /** Shown to customers as coming soon, without a price; no branch sells it yet. */
+  comingSoon: z.boolean().optional(),
   checklist: z
     .array(z.string().trim().min(1).max(SERVICE_CHECKLIST_ITEM_MAX, `Keep each line under ${SERVICE_CHECKLIST_ITEM_MAX} letters`))
     .max(SERVICE_CHECKLIST_MAX, `Up to ${SERVICE_CHECKLIST_MAX} lines`)

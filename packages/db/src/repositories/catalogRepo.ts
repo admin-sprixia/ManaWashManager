@@ -25,7 +25,7 @@ import {
 import { createPlatformDb, createShopDb, type D1Database, type DbClient } from '../client';
 import { awayPricingRepo, type AwayPricing } from './awayPricingRepo';
 import { newId } from '../ids';
-import { insertRows, runStatements, SQL_NOW, type SqlStatement } from '../sql';
+import { insertRows, queryRows, runStatements, SQL_NOW, type SqlStatement } from '../sql';
 
 /**
  * The business catalog of the service network: vehicle classes, sizes and body types, services,
@@ -101,6 +101,8 @@ export interface ServiceDetails {
   kind?: ServiceKind;
   popular?: boolean;
   showInApp?: boolean;
+  /** Shown to customers as coming soon, without a price; no branch sells it yet. */
+  comingSoon?: boolean;
   checklist?: string[];
 }
 
@@ -116,6 +118,8 @@ export interface CatalogServiceView {
   kind: ServiceKind;
   popular: boolean;
   showInApp: boolean;
+  /** Shown to customers as coming soon, without a price; no branch sells it yet. */
+  comingSoon: boolean;
   /** What's included, one short line each. */
   checklist: string[];
   sortOrder: number;
@@ -248,6 +252,7 @@ async function readData(pdb: DbClient, businessId: string): Promise<CatalogData 
       kind: parseServiceKind(s.kind),
       popular: s.popular,
       showInApp: s.showInApp,
+      comingSoon: s.comingSoon,
       checklist: parseChecklist(s.checklist),
       sortOrder: s.sortOrder,
       active: s.active,
@@ -388,6 +393,34 @@ export const catalogRepo = {
         params: [catalogIds.defaultPriceBook(businessId), businessId, businessId],
       },
     ]);
+  },
+
+  /**
+   * The coming-soon services on each branch's menu (shown to customers without a price), with
+   * the vehicles they're for, in menu order.
+   */
+  async comingSoon(
+    d1: D1Database,
+    businessId: string,
+  ): Promise<{ shopId: string; name: string; description: string | null; kind: ServiceKind; categories: VehicleCategory[] }[]> {
+    const rows = await queryRows<{ shop_id: string; id: string; name: string; description: string | null; kind: string; class_keys: string | null }>(
+      d1,
+      `SELECT m.shop_id, c.id, c.name, c.description, c.kind,
+              (SELECT group_concat(v.key) FROM catalog_service_classes sc JOIN vehicle_classes v ON v.id = sc.class_id
+                WHERE sc.service_id = c.id) AS class_keys
+         FROM catalog_services c
+         JOIN branch_menu_services m ON m.catalog_service_id = c.id
+        WHERE c.business_id = ? AND c.active = 1 AND c.coming_soon = 1
+        ORDER BY c.sort_order, c.name`,
+      [businessId],
+    );
+    return rows.map((r) => ({
+      shopId: r.shop_id,
+      name: r.name,
+      description: r.description,
+      kind: parseServiceKind(r.kind),
+      categories: [...new Set((r.class_keys ?? '').split(',').filter(Boolean).map((k) => categoryForClass(k)))],
+    }));
   },
 
   /** The catalog, with its defaults filled in on first use. Null for an unknown business. */
@@ -746,7 +779,7 @@ export const catalogRepo = {
     await runStatements(d1, [
       {
         sql: `INSERT INTO catalog_services (id, business_id, name, description, modes, team_at, duration_minutes, kind, popular,
-                show_in_app, checklist, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                show_in_app, coming_soon, checklist, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         params: [
           id,
           businessId,
@@ -758,6 +791,7 @@ export const catalogRepo = {
           input.kind ?? 'wash',
           input.popular ? 1 : 0,
           input.showInApp === false ? 0 : 1,
+          input.comingSoon ? 1 : 0,
           input.checklist?.length ? JSON.stringify(input.checklist) : null,
           sortOrder,
         ],
@@ -807,6 +841,7 @@ export const catalogRepo = {
       ['kind', patch.kind],
       ['popular', patch.popular],
       ['show_in_app', patch.showInApp],
+      ['coming_soon', patch.comingSoon],
       ['checklist', patch.checklist === undefined ? undefined : patch.checklist.length ? JSON.stringify(patch.checklist) : null],
       ['sort_order', patch.sortOrder],
       ['active', patch.active],

@@ -125,6 +125,7 @@ function Editor({
   const [draft, setDraft] = useState('');
   const [popular, setPopular] = useState(service?.popular ?? false);
   const [showInApp, setShowInApp] = useState(service?.showInApp ?? true);
+  const [comingSoon, setComingSoon] = useState(service?.comingSoon ?? false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -193,6 +194,7 @@ function Editor({
       durationMin: minutes,
       popular,
       showInApp,
+      comingSoon,
       checklist: lines,
     };
     try {
@@ -503,6 +505,16 @@ function Editor({
             subtitle={showInApp ? 'Customers see it and can book it' : 'Staff sell it; customers don’t see it in the app'}
             value={showInApp}
             onChange={setShowInApp}
+          />
+          <SwitchRow
+            title="Coming soon"
+            subtitle={
+              comingSoon
+                ? 'Shown on WhatsApp and the price board as coming soon, without a price. No branch can sell it yet.'
+                : 'On sale at the branches that have it on their menu'
+            }
+            value={comingSoon}
+            onChange={setComingSoon}
           />
           <SwitchRow
             title="Most popular badge"

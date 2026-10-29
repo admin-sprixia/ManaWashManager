@@ -5,6 +5,7 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "scripts": {
+    "posters": "node ../../branding/flex/shop-posters/build-shop-posters.mjs",
     "predev": "npm run db:generate -w @mana/db",
     "dev": "wrangler dev --test-scheduled",
     "predeploy": "npm run db:generate -w @mana/db",

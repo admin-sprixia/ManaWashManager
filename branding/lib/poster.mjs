@@ -13,6 +13,8 @@ const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 export const SANS = 'Avenir Next';
 export const SERIF = 'Didot';
 export const NUMBER = '91547 52999';
+/** Both shop numbers, for anywhere a customer might call: WhatsApp is on the first. */
+export const NUMBERS = '91547 52999 · 77802 76797';
 export const CHAT_URL = 'https://wa.me/919154752999?text=Hi';
 export const ADDRESS = 'Near Highway · Sai Baba Temple · Kovur';
 export const HOURS = '7 AM – 8 PM · Closed Mondays';

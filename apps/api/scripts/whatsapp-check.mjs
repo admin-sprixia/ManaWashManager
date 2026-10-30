@@ -1,6 +1,6 @@
 // The WhatsApp assistant end to end: Meta's webhook check, signed deliveries (unsigned ones
 // refused), the banner, a customer saying hi, Car prices → a size and its numbered prices, a
-// number for what's included, PLANS, Not sure? → company → model, typing a model, directions,
+// number for what's included, building a plan (everyday wash → mix → price), Not sure? → company → model, typing a model, directions,
 // Telugu (typed, and remembered for the number), STOP/START, a repeated delivery answered once, delivery reports, and the Ready and
 // bill templates a wash sends by itself (once each), and the inbox (a question waits for the team,
 // a teammate replies, the assistant stays quiet, Mark done), and the 10:00 follow-ups. Adds a throwaway owner to a branch of the
@@ -149,8 +149,8 @@ const catalogJson = await (await apiFetch(`${API}/whatsapp/catalog.json`)).json(
 const hasCare = catalogJson.products.some((p) => p.title === 'Premium Care');
 if (!hasCare) console.log('NOTE  Premium Care isn’t on sale here (coming soon, or another price book): its checks are skipped');
 check(
-  'Large shows numbered washes, Premium Care, monthly plans and PLANS',
-  /1️⃣ .+: \*₹/.test(largeBody) && (!hasCare || /Premium Care: \*\+₹\d/.test(largeBody)) && largeBody.includes('📅 *Monthly plans*') && largeBody.includes('reply *PLANS*'),
+  'Large shows numbered washes, Premium Care and wash plans from a price',
+  /1️⃣ .+: \*₹/.test(largeBody) && (!hasCare || /Premium Care: \*\+₹\d/.test(largeBody)) && /📅 \*Wash plans\* from \*₹[\d,]+\* a month/.test(largeBody),
   largeBody.slice(0, 600),
 );
 const soonForCars = (catalogJson.comingSoon ?? []).filter((c) => c.prices.some((p) => p.classKey === 'car'));
@@ -159,7 +159,7 @@ check(
   soonForCars.every((c) => new RegExp(`️⃣ ${c.name}: \\*\\+?₹[\\d,]+\\* \\(🔜 Coming soon\\)`).test(largeBody)),
   JSON.stringify(soonForCars),
 );
-check('…with Other size / Directions / Talk to us', buttonsOf(large.at(-1)).map((b) => b.id.split('|')[0]).join() === 'cat,loc,talk');
+check('…with Wash plans / Other size / Talk to us', buttonsOf(large.at(-1)).map((b) => b.id.split('|')[0]).join() === 'pl,cat,talk');
 console.log(`\n--- What the customer sees ---\n${largeBody}\n------------------------------\n`);
 const careNo = largeBody.match(/(\d)️⃣ Premium Care/)?.[1];
 const care = await text(careNo ?? '1');
@@ -170,11 +170,16 @@ check(
   bodyOf(care[0]).slice(0, 300),
 );
 const plans = await text('PLANS');
-const plansBody = plans.map(bodyOf).join('\n');
-check('PLANS lists the 1, 3 and 12-month plans for Large', plansBody.startsWith('📅 *Wash plans* · 🚙 Large / 7-seater') && plansBody.includes('13 washes in 3 months'), plansBody.slice(0, 400));
-console.log(`\n--- PLANS ---\n${plansBody}\n-------------\n`);
-const planTwo = await text('2');
-check('a number after PLANS shows that plan', bodyOf(planTwo[0]).startsWith('2️⃣ *') && buttonsOf(planTwo[0])[0]?.id.startsWith('pl|'), bodyOf(planTwo[0]).slice(0, 300));
+const everyday = buttonsOf(plans[0]);
+check('PLANS asks for the everyday wash', bodyOf(plans[0]).startsWith('📅 *Build your wash plan* · 🚙 Large / 7-seater') && everyday.every((b) => b.id.startsWith('pm|')), JSON.stringify(plans[0]).slice(0, 400));
+const mixes = await choose(everyday[0].id);
+const mixRows = rowsOf(mixes[0]);
+const mixPick = mixRows.find((r) => r.title.startsWith('+')) ?? mixRows[0];
+check('…then the ways to mix it, each with a month’s price', mixRows.length > 0 && mixRows.every((r) => r.id.startsWith('pp|') && /₹[\d,]+ a month/.test(r.description ?? '')), JSON.stringify(mixes[0]).slice(0, 400));
+const offer = await choose(mixPick.id, 'list_reply');
+const offerBody = bodyOf(offer[0]);
+check('…then the plan, week by week, with 1, 3 and 12-month prices', offerBody.startsWith('✨ *') && /• 1 month: \*₹/.test(offerBody) && /• 3 months: \*₹/.test(offerBody), offerBody.slice(0, 400));
+console.log(`\n--- A plan ---\n${offerBody}\n--------------\n`);
 
 // Not sure? → the plain company list (what it shows when no Flow is published).
 const makes = await choose(`mk|${branch}|car|0`, 'list_reply');

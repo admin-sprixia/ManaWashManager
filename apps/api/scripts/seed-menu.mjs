@@ -169,23 +169,48 @@ const SERVICES = [
 for (const s of SERVICES) Object.assign(s.prices, OTHER_VEHICLES[s.name] ?? {});
 
 
-/** Monthly plan prices [S, M, L] at the hub and at a community; 3 months = ×3 (13 washes), 12 months = ×12 (13 months). */
-const PLAN_FAMILIES = [
-  { name: 'Express Plan', wash: 'Express Wash', hub: [1099, 1299, 1549], community: [999, 1179, 1399] },
-  { name: 'Basic Plan', wash: 'Basic Wash', hub: [1849, 2199, 2949], community: [1649, 1999, 2699], popular: true },
-  { name: 'Shine Plan', wash: 'Basic Wash', upgrade: 'Premium Wash', hub: [2199, 2699, 3499], community: [1999, 2449, 3199] },
+/**
+ * Wash plans: 4 washes a month, one every week. A customer picks the everyday wash and, if they
+ * like, a better one in between (Basic every 2nd wash, or Premium once a month). Every plan costs
+ * its washes added up, less PLAN_DISCOUNT, rounded to a price ending in 9. 3 months = ×3
+ * (13 washes), 12 months = ×12 (13 months). `was` is a plan's old name: it keeps its orders.
+ */
+const PLAN_DISCOUNT = 0.08;
+const PLAN_MIXES = [
+  { name: 'Express Plan', wash: 'Express' },
+  { name: 'Express + Basic Plan', wash: 'Express', upgrade: 'Basic', every: 2 },
+  { name: 'Express + Premium Plan', wash: 'Express', upgrade: 'Premium', every: 4 },
+  { name: 'Basic Plan', wash: 'Basic', popular: true },
+  { name: 'Basic + Premium Plan', was: 'Shine Plan', wash: 'Basic', upgrade: 'Premium', every: 4 },
 ];
+const WASHES_A_MONTH = 4;
+/** A month of the mix at one size: the washes' prices (rupees) added up, less the discount. */
+function mixPrice(washPrice, upgradePrice, every) {
+  const better = every ? WASHES_A_MONTH / every : 0;
+  return end9(((WASHES_A_MONTH - better) * washPrice + better * (upgradePrice ?? 0)) * (1 - PLAN_DISCOUNT));
+}
+/** Nearest rupee price ending in 9. */
+const end9 = (rupees) => Math.round((rupees - 9) / 10) * 10 + 9;
+const hubPrice = (service, classKey, size) => SERVICES.find((s) => s.name === service).prices[classKey][size][0];
+const PLAN_FAMILIES = PLAN_MIXES.map((m) => {
+  const wash = `${m.wash} Wash`;
+  const upgrade = m.upgrade ? `${m.upgrade} Wash` : null;
+  const hub = ['S', 'M', 'L'].map((z) => mixPrice(hubPrice(wash, 'car', z), upgrade && hubPrice(upgrade, 'car', z), m.every));
+  return { ...m, wash, upgrade, hub, community: hub };
+});
 const TERMS = [
   { suffix: '', washes: 4, months: 1, times: 1, parts: false },
   { suffix: ' · 3 months', washes: 13, months: 3, times: 3, parts: true },
   { suffix: ' · 12 months', washes: 52, months: 13, times: 12, parts: true },
 ];
-/** Monthly only, one price for every bike; `was` is the plan's old name (it keeps its orders). */
-const BIKE_PLANS = [
-  { name: 'Bike Express Plan', wash: 'Bike Express Wash', hub: 359, community: 319 },
-  { name: 'Bike Basic Plan', was: 'Bike Monthly', wash: 'Bike Basic Wash', hub: 549, community: 479 },
-  { name: 'Bike Shine Plan', wash: 'Bike Basic Wash', upgrade: 'Bike Premium Wash', hub: 649, community: 569 },
-];
+/** Bikes: the same mixes, monthly only, one price for every bike. */
+const BIKE_WAS = { 'Basic Plan': 'Bike Monthly', 'Basic + Premium Plan': 'Bike Shine Plan' };
+const BIKE_PLANS = PLAN_MIXES.map((m) => {
+  const wash = `Bike ${m.wash} Wash`;
+  const upgrade = m.upgrade ? `Bike ${m.upgrade} Wash` : null;
+  const hub = mixPrice(hubPrice(wash, 'twoWheeler', 'M'), upgrade && hubPrice(upgrade, 'twoWheeler', 'M'), m.every);
+  return { name: `Bike ${m.name}`, was: BIKE_WAS[m.name], wash, upgrade, every: m.every, hub, community: hub };
+});
 
 const owner = (await signIn(OWNER_PHONE, PIN)).body?.token;
 if (!owner) throw new Error('Couldn’t sign in as the owner. Run `npm run db:seed:demo` first (PIN 258025).');
@@ -312,6 +337,7 @@ for (const f of PLAN_FAMILIES) {
   for (const t of TERMS) {
     wanted.push({
       name: `${f.name}${t.suffix}`,
+      was: f.was ? `${f.was}${t.suffix}` : undefined,
       washes: t.washes,
       months: t.months,
       catalogServiceId: serviceId(f.wash),
@@ -319,7 +345,7 @@ for (const f of PLAN_FAMILIES) {
       allowParts: t.parts,
       popular: !!f.popular && t.times === 1,
       upgradeServiceId: f.upgrade ? serviceId(f.upgrade) : null,
-      upgradeEvery: f.upgrade ? 4 : null,
+      upgradeEvery: f.upgrade ? f.every : null,
       prices: planPrices(CAR, f.hub, f.community, t.times),
     });
   }
@@ -335,7 +361,7 @@ for (const f of BIKE_PLANS) {
     allowParts: false,
     popular: false,
     upgradeServiceId: f.upgrade ? serviceId(f.upgrade) : null,
-    upgradeEvery: f.upgrade ? 4 : null,
+    upgradeEvery: f.upgrade ? f.every : null,
     prices: ['S', 'M', 'XL'].flatMap((size) => [
       { sizeId: sizeId(BIKE, size), mode: 'hub', price: f.hub * 100 },
       { sizeId: sizeId(BIKE, size), mode: 'doorstep', price: f.community * 100 },

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { packWashProblem, parsePlanSoldAt, planLastDay, planPack, planUseBy, shopPlanProblem, soldAtCommunities, soldAtShop } from '../washPlans';
+import { buildPlan, builtPlanTitle, packWashProblem, parsePlanSoldAt, planLastDay, planPack, planUseBy, shopPlanProblem, soldAtCommunities, soldAtShop } from '../washPlans';
 
 describe('plans at the shop', () => {
   it('knows where a plan is sold', () => {
@@ -41,5 +41,45 @@ describe('plans at the shop', () => {
     const onlyBetter = planPack({ washesTotal: 4, washesUsed: 3, upgradesTotal: 1, upgradesUsed: 0 });
     expect(packWashProblem(onlyBetter, 'base', names)).toBe('No Express Wash left on this plan: use its Premium Wash.');
     expect(packWashProblem(onlyBetter, 'upgrade', { base: 'Express Wash', upgrade: null })).toBe('This plan has no better wash.');
+  });
+});
+
+describe('build your own plan', () => {
+  // SUV / 7-seater: Express ₹419, Basic ₹799, Premium ₹1,399.
+  const E = { id: 'ex', price: 41900 };
+  const B = { id: 'ba', price: 79900 };
+  const P = { id: 'pr', price: 139900 };
+
+  it('a month: the 4 washes added up, less 8%, ending in 9', () => {
+    expect(buildPlan([E, E, E, P], 1)).toEqual({
+      washes: [{ id: 'ex', count: 3 }, { id: 'pr', count: 1 }],
+      washesTotal: 4,
+      months: 1,
+      price: 243900,
+      listPrice: 265600,
+    });
+    // 2 Express + 1 Basic + 1 Premium: ₹3,036 one by one.
+    expect(buildPlan([B, E, E, P], 1).price).toBe(278900);
+  });
+
+  it('3 months: 3 months’ price and the cheapest wash once more, free', () => {
+    const p = buildPlan([E, E, E, P], 3);
+    expect(p.washes).toEqual([{ id: 'ex', count: 10 }, { id: 'pr', count: 3 }]);
+    expect([p.washesTotal, p.months, p.price]).toEqual([13, 3, 731700]);
+  });
+
+  it('12 months: 12 months’ price for 13 months of washes', () => {
+    const p = buildPlan([E, B, B, P], 12);
+    expect([p.washesTotal, p.months]).toEqual([52, 13]);
+    expect(p.washes).toEqual([{ id: 'ex', count: 13 }, { id: 'ba', count: 26 }, { id: 'pr', count: 13 }]);
+  });
+
+  it('needs exactly 4 washes', () => {
+    expect(() => buildPlan([E, E, P], 1)).toThrow(/4 washes/);
+  });
+  it('names a built plan by its month', () => {
+    const month = [{ name: 'Express Wash', count: 2 }, { name: 'Basic Wash', count: 1 }, { name: 'Bike Premium Wash', count: 1 }];
+    expect(builtPlanTitle(month, 1)).toBe('Custom plan · 2 Express + 1 Basic + 1 Premium');
+    expect(builtPlanTitle(month, 3)).toBe('Custom plan · 2 Express + 1 Basic + 1 Premium · 3 months');
   });
 });

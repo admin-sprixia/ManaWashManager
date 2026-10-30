@@ -1013,6 +1013,7 @@ CREATE TABLE catalog_services (
   show_in_app INTEGER NOT NULL DEFAULT 1 CHECK (show_in_app IN (0, 1)), -- off = sold at the shop only
   checklist TEXT, -- what's included: JSON list of short lines
   duration_minutes INTEGER CHECK (duration_minutes IS NULL OR duration_minutes BETWEEN 1 AND 43200), -- how long it takes, up to 30 days
+  coming_soon INTEGER NOT NULL DEFAULT 0 CHECK (coming_soon IN (0, 1)), -- shown as coming soon, not sold
   UNIQUE (business_id, id)
 );
 
@@ -1682,12 +1683,31 @@ CREATE TABLE shop_plan_orders (
   sold_by_user_id TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
   ended_at TEXT,
+  -- The pack's better washes, counted inside washes_total (see shop_plan_order_washes).
+  upgrades_total INTEGER NOT NULL DEFAULT 0 CHECK (upgrades_total >= 0),
+  upgrades_used INTEGER NOT NULL DEFAULT 0 CHECK (upgrades_used >= 0),
+  carried_in INTEGER NOT NULL DEFAULT 0 CHECK (carried_in >= 0), -- washes carried over from the plan before
+  carried_to TEXT, -- the plan this one's unused wash carried over to
   UNIQUE (shop_id, id),
   UNIQUE (shop_id, sale_job_id),
   FOREIGN KEY (shop_id, customer_id) REFERENCES customers(shop_id, id),
   FOREIGN KEY (shop_id, vehicle_id) REFERENCES vehicles(shop_id, id)
 );
 CREATE INDEX idx_shop_plan_orders_vehicle ON shop_plan_orders(shop_id, vehicle_id, status);
+CREATE INDEX idx_shop_plan_orders_carried_to ON shop_plan_orders(shop_id, carried_to) WHERE carried_to IS NOT NULL;
+
+-- A plan's pack, wash by wash: how many of each wash it holds and how many are used (a ready plan
+-- holds its everyday wash and maybe a better one; a plan the customer builds, any of the washes).
+CREATE TABLE shop_plan_order_washes (
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  order_id TEXT NOT NULL,
+  catalog_service_id TEXT NOT NULL,
+  washes_total INTEGER NOT NULL CHECK (washes_total BETWEEN 0 AND 400),
+  washes_used INTEGER NOT NULL DEFAULT 0 CHECK (washes_used >= 0 AND washes_used <= washes_total),
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (shop_id, order_id, catalog_service_id),
+  FOREIGN KEY (shop_id, order_id) REFERENCES shop_plan_orders(shop_id, id)
+);
 
 -- Each wash a shop plan paid for: one a day per plan, one plan per wash.
 CREATE TABLE shop_plan_uses (
@@ -1697,6 +1717,8 @@ CREATE TABLE shop_plan_uses (
   job_id TEXT NOT NULL,
   day TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  kind TEXT NOT NULL DEFAULT 'base' CHECK (kind IN ('base', 'upgrade')), -- legacy: see catalog_service_id
+  catalog_service_id TEXT, -- which wash of the pack it took
   UNIQUE (shop_id, order_id, day),
   UNIQUE (shop_id, job_id),
   FOREIGN KEY (shop_id, order_id) REFERENCES shop_plan_orders(shop_id, id)

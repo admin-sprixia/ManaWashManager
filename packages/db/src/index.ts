@@ -10,7 +10,7 @@ export { branchPriceRepo } from './repositories/branchPriceRepo';
 export type { BranchPriceCell, BranchPriceSheet, BranchSizePrice } from './repositories/branchPriceRepo';
 export { vehicleModelRepo, VehicleModelError } from './repositories/vehicleModelRepo';
 export { shopPlanRepo } from './repositories/shopPlanRepo';
-export type { ShopPlanForSale, VehicleShopPlan } from './repositories/shopPlanRepo';
+export type { BuildableWash, PackWash, ShopPlanForSale, ShopPlanOption, VehicleShopPlan } from './repositories/shopPlanRepo';
 export { awayPricingRepo, VISIT_CHARGE_NAME } from './repositories/awayPricingRepo';
 export type { AwayPricing } from './repositories/awayPricingRepo';
 export type { PublishResult } from './repositories/menuRepo';

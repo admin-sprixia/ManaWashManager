@@ -318,7 +318,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   const [shopPlans, setShopPlans] = useState<ShopPlan[]>([]);
   const [planOrderId, setPlanOrderId] = useState<string | null>(null);
   /** Which of a counter plan's washes pays: its everyday one or its better one. */
-  const [planKind, setPlanKind] = useState<'base' | 'upgrade' | null>(null);
+  const [planKind, setPlanKind] = useState<string | null>(null);
   /** Plans bought at this counter for the vehicle. */
   const [counterPlans, setCounterPlans] = useState<ShopPlan[]>([]);
   const [selling, setSelling] = useState(false);
@@ -1034,14 +1034,14 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     [shopPlans, counterPlans, reg, regOk],
   );
 
-  /** The wash a plan pays for: the pack's chosen kind (counter plans), else the plan's one wash. */
-  const planServiceOf = (plan: ShopPlan, kind: 'base' | 'upgrade' | null) =>
-    (kind && plan.options?.find((o) => o.kind === kind)?.service) || plan.service;
-  /** A counter plan's first kind with washes left on this menu, the everyday one first. */
-  const defaultKind = (plan: ShopPlan): 'base' | 'upgrade' | null =>
-    plan.options?.find((o) => o.left > 0 && o.service && servicesForVehicle.some((s) => s.id === o.service?.id))?.kind ?? null;
+  /** The wash a plan pays for: the pack's chosen wash (counter plans, by key), else the plan's one wash. */
+  const planServiceOf = (plan: ShopPlan, kind: string | null) =>
+    (kind && plan.options?.find((o) => o.key === kind)?.service) || plan.service;
+  /** A counter plan's first wash with any left on this menu (the everyday or cheapest one first). */
+  const defaultKind = (plan: ShopPlan): string | null =>
+    plan.options?.find((o) => o.left > 0 && o.service && servicesForVehicle.some((s) => s.id === o.service?.id))?.key ?? null;
 
-  const planBlocked = (plan: ShopPlan, kind: 'base' | 'upgrade' | null = defaultKind(plan)): string | null => {
+  const planBlocked = (plan: ShopPlan, kind: string | null = defaultKind(plan)): string | null => {
     if (!online) return 'Needs internet to use';
     if (washMode !== 'hub') return 'Plan washes here are for washes at the shop';
     if (!selectedVehicle) return 'Pick the vehicle size first';
@@ -1080,7 +1080,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   }, [selectedServiceIds, planService, betterWash]);
 
   /** Switches a counter plan's wash (everyday ↔ better): the bill swaps the one for the other. */
-  const pickPlanKind = (plan: ShopPlan, kind: 'base' | 'upgrade') => {
+  const pickPlanKind = (plan: ShopPlan, kind: string) => {
     animate();
     const from = planOrderId === plan.orderId ? planServiceOf(plan, activeKind) : null;
     const to = planServiceOf(plan, kind);
@@ -1094,7 +1094,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     setPlanKind(kind);
   };
 
-  const togglePlan = (plan: ShopPlan, kind: 'base' | 'upgrade' | null = defaultKind(plan)) => {
+  const togglePlan = (plan: ShopPlan, kind: string | null = defaultKind(plan)) => {
     animate();
     if (planOrderId === plan.orderId) {
       setPlanOrderId(null);
@@ -1354,7 +1354,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
             rewardServiceIds: freeActive ? freeActiveIds : undefined,
             planOrderId: planActive && activePlan && activePlan.source !== 'shop' ? activePlan.orderId : undefined,
             shopPlanId: planActive && activePlan && activePlan.source === 'shop' ? activePlan.orderId : undefined,
-            shopPlanUse: planActive && activePlan?.source === 'shop' && activeKind ? activeKind : undefined,
+            shopPlanWash: planActive && activePlan?.source === 'shop' && activeKind ? activeKind : undefined,
             sellerIds: commissionTotal > 0 ? pickedSellers.map((s) => s.id) : undefined,
           },
           meta: {

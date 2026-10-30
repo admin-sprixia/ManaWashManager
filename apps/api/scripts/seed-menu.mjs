@@ -170,18 +170,19 @@ for (const s of SERVICES) Object.assign(s.prices, OTHER_VEHICLES[s.name] ?? {});
 
 
 /**
- * Wash plans: 4 washes a month, one every week. A customer picks the everyday wash and, if they
- * like, a better one in between (Basic every 2nd wash, or Premium once a month). Every plan costs
- * its washes added up, less PLAN_DISCOUNT, rounded to a price ending in 9. 3 months = ×3
- * (13 washes), 12 months = ×12 (13 months). `was` is a plan's old name: it keeps its orders.
+ * Wash plans: packs of 4 washes a month, used in any order on any days. Five ready plans, named
+ * (what's in each is shown under the name); a customer can also build their own from any 4 washes
+ * (domain `buildPlan`, sold at the counter). Every plan costs its washes added up, less
+ * PLAN_DISCOUNT, rounded to a price ending in 9. 3 months = ×3 (13 washes), 12 months = ×12
+ * (13 months). `was` lists a plan's old names: it keeps its orders.
  */
 const PLAN_DISCOUNT = 0.08;
 const PLAN_MIXES = [
   { name: 'Express Plan', wash: 'Express' },
-  { name: 'Express + Basic Plan', wash: 'Express', upgrade: 'Basic', every: 2 },
-  { name: 'Express + Premium Plan', wash: 'Express', upgrade: 'Premium', every: 4 },
+  { name: 'Express Plus', was: ['Express + Basic Plan'], wash: 'Express', upgrade: 'Basic', every: 2 },
+  { name: 'Express Shine', was: ['Express + Premium Plan'], wash: 'Express', upgrade: 'Premium', every: 4 },
   { name: 'Basic Plan', wash: 'Basic', popular: true },
-  { name: 'Basic + Premium Plan', was: 'Shine Plan', wash: 'Basic', upgrade: 'Premium', every: 4 },
+  { name: 'Shine Plan', was: ['Basic + Premium Plan'], wash: 'Basic', upgrade: 'Premium', every: 4 },
 ];
 const WASHES_A_MONTH = 4;
 /** A month of the mix at one size: the washes' prices (rupees) added up, less the discount. */
@@ -204,12 +205,13 @@ const TERMS = [
   { suffix: ' · 12 months', washes: 52, months: 13, times: 12, parts: true },
 ];
 /** Bikes: the same mixes, monthly only, one price for every bike. */
-const BIKE_WAS = { 'Basic Plan': 'Bike Monthly', 'Basic + Premium Plan': 'Bike Shine Plan' };
+const BIKE_WAS = { 'Basic Plan': ['Bike Monthly'] };
 const BIKE_PLANS = PLAN_MIXES.map((m) => {
   const wash = `Bike ${m.wash} Wash`;
   const upgrade = m.upgrade ? `Bike ${m.upgrade} Wash` : null;
   const hub = mixPrice(hubPrice(wash, 'twoWheeler', 'M'), upgrade && hubPrice(upgrade, 'twoWheeler', 'M'), m.every);
-  return { name: `Bike ${m.name}`, was: BIKE_WAS[m.name], wash, upgrade, every: m.every, hub, community: hub };
+  const was = [...(BIKE_WAS[m.name] ?? []), ...(m.was ?? []).map((n) => `Bike ${n}`)];
+  return { name: `Bike ${m.name}`, was, wash, upgrade, every: m.every, hub, community: hub };
 });
 
 const owner = (await signIn(OWNER_PHONE, PIN)).body?.token;
@@ -337,7 +339,7 @@ for (const f of PLAN_FAMILIES) {
   for (const t of TERMS) {
     wanted.push({
       name: `${f.name}${t.suffix}`,
-      was: f.was ? `${f.was}${t.suffix}` : undefined,
+      was: (f.was ?? []).map((n) => `${n}${t.suffix}`),
       washes: t.washes,
       months: t.months,
       catalogServiceId: serviceId(f.wash),
@@ -375,7 +377,7 @@ for (const [i, { was, ...plan }] of wanted.entries()) {
   const p = { ...plan, soldAt: 'shop' };
   const existing =
     existingPlans.find((x) => x.name.toLowerCase() === p.name.toLowerCase()) ??
-    (was ? existingPlans.find((x) => x.name.toLowerCase() === was.toLowerCase()) : undefined);
+    existingPlans.find((x) => was.some((n) => x.name.toLowerCase() === n.toLowerCase()));
   if (existing) {
     await call(owner, 'PATCH', `/business/plans/${existing.id}`, { ...p, active: true, sortOrder: i });
     keptPlans.push(existing.id);

@@ -1662,13 +1662,29 @@ model ShopPlanUse {
   orderId   String   @map("order_id")
   jobId     String   @map("job_id")
   day       String
-  /// "base" (an everyday wash of the pack) or "upgrade" (one of its better washes).
-  kind      String   @default("base")
-  createdAt DateTime @default(now()) @map("created_at")
+  /// "base" (an everyday wash of the pack) or "upgrade" (one of its better washes). Legacy:
+  /// catalogServiceId says which wash it took.
+  kind             String   @default("base")
+  /// Which wash of the pack it took (a ShopPlanOrderWash).
+  catalogServiceId String?  @map("catalog_service_id")
+  createdAt        DateTime @default(now()) @map("created_at")
 
   @@unique([shopId, orderId, day])
   @@unique([shopId, jobId])
   @@map("shop_plan_uses")
+}
+
+/// A shop plan's pack, wash by wash: so many of this wash, so many used.
+model ShopPlanOrderWash {
+  shopId           String @default("") @map("shop_id")
+  orderId          String @map("order_id")
+  catalogServiceId String @map("catalog_service_id")
+  washesTotal      Int    @map("washes_total")
+  washesUsed       Int    @default(0) @map("washes_used")
+  sortOrder        Int    @default(0) @map("sort_order")
+
+  @@id([shopId, orderId, catalogServiceId])
+  @@map("shop_plan_order_washes")
 }
 
 /// A plan's fixed price for one vehicle size and way of washing. No row = priced from its wash.

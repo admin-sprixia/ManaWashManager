@@ -516,3 +516,67 @@ export function packWashProblem(pack: PlanPack, kind: PlanWashKind, names: { bas
   if (kind === 'base' && pack.everydayLeft === 0) return `No ${names.base} left on this plan${pack.betterLeft ? `: use its ${names.upgrade}` : ''}.`;
   return null;
 }
+
+// ─── Build your own plan ─────────────────────────────────────────────────────
+
+/** A month of any plan is this many washes; "Build your own" picks exactly this many. */
+export const PLAN_WASHES_A_MONTH = 4;
+/** Every plan costs its washes added up, less this. */
+export const PLAN_DISCOUNT_BP = 800;
+/** The lengths a plan comes in: 1 month, 3 months (one wash free), 12 months (one month free). */
+export type PlanLength = 1 | 3 | 12;
+export const PLAN_LENGTHS: readonly PlanLength[] = [1, 3, 12];
+
+/** Paise → the nearest whole-rupee price ending in 9, in paise. */
+export function priceEnding9(paise: number): number {
+  return (Math.round((paise / 100 - 9) / 10) * 10 + 9) * 100;
+}
+
+/** A plan built from picked washes: what it holds and what it costs. Prices in paise. */
+export interface BuiltPlan {
+  /** Each wash and how many of it the plan holds, in the order first picked. */
+  washes: { id: string; count: number }[];
+  washesTotal: number;
+  /** Its months: 1, 3, or 13 for the 12-month plan (a month free). */
+  months: number;
+  price: number;
+  /** The same washes one by one: what the customer saves is the difference. */
+  listPrice: number;
+}
+
+/**
+ * "Build your own": 4 picked washes (with today's price each) for a length. A month costs the 4
+ * added up, less 8%, ending in 9. 3 months: 3 months' price, and the cheapest pick once more
+ * free (13 washes). 12 months: 12 months' price for 13 months of washes (52).
+ */
+export function buildPlan(picks: readonly { id: string; price: number }[], length: PlanLength): BuiltPlan {
+  if (picks.length !== PLAN_WASHES_A_MONTH) throw new Error(`Pick ${PLAN_WASHES_A_MONTH} washes`);
+  const month = picks.reduce((n, p) => n + p.price, 0);
+  const monthPrice = priceEnding9((month * (10_000 - PLAN_DISCOUNT_BP)) / 10_000);
+  const counts = new Map<string, number>();
+  for (const p of picks) counts.set(p.id, (counts.get(p.id) ?? 0) + 1);
+  const times = length === 12 ? 13 : length;
+  const washes = [...counts].map(([id, count]) => ({ id, count: count * times }));
+  let listPrice = month * times;
+  if (length === 3) {
+    const cheapest = [...picks].sort((a, b) => a.price - b.price)[0]!;
+    washes.find((w) => w.id === cheapest.id)!.count += 1;
+    listPrice += cheapest.price;
+  }
+  return {
+    washes,
+    washesTotal: washes.reduce((n, w) => n + w.count, 0),
+    months: times,
+    price: monthPrice * (length === 12 ? 12 : length),
+    listPrice,
+  };
+}
+
+/** A wash's name where space is short: "Bike Express Wash" → "Express". */
+export const shortWashName = (name: string) => name.replace(/^Bike /, '').replace(/ Wash$/, '');
+
+/** A built plan's name on the bill and in the app: "Custom plan · 2 Express + 1 Basic + 1 Premium · 3 months". */
+export function builtPlanTitle(monthWashes: readonly { name: string; count: number }[], length: PlanLength): string {
+  const mix = monthWashes.map((w) => `${w.count} ${shortWashName(w.name)}`).join(' + ');
+  return `Custom plan · ${mix}${length === 1 ? '' : ` · ${length} months`}`;
+}

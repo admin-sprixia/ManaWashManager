@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { customerRepo, jobRepo, shopPlanRepo } from '@mana/db';
-import { VEHICLE_MAKE_MAX, normalizePhone, type JobStatus } from '@mana/domain';
+import { PLAN_WASHES_A_MONTH, VEHICLE_MAKE_MAX, normalizePhone, type JobStatus } from '@mana/domain';
 import { occurredAt } from '../lib/clientTime';
 import { requireAuth } from '../middleware/auth';
 import { executionCtx, queueWashMessage } from '../lib/washMessages';
@@ -30,9 +30,17 @@ const sellSchema = z.object({
   /** A vehicle added while selling: its company and model, kept on it. */
   make: z.string().trim().min(1).max(VEHICLE_MAKE_MAX).optional(),
   model: z.string().trim().min(1).max(VEHICLE_MAKE_MAX).optional(),
-  planId: z.string().min(1).max(64),
+  /** One of the branch's plans… */
+  planId: z.string().min(1).max(64).optional(),
+  /** …or one the customer built: 4 of the branch's washes (one may repeat) and a length. */
+  custom: z
+    .object({
+      serviceIds: z.array(z.string().min(1).max(64)).length(PLAN_WASHES_A_MONTH),
+      length: z.union([z.literal(1), z.literal(3), z.literal(12)]),
+    })
+    .optional(),
   paymentMethod: z.enum(['cash', 'upi', 'other']),
-});
+}).refine((b) => !!b.planId !== !!b.custom, 'Choose a plan, or build one');
 
 /**
  * Wash plans at the counter: what the branch sells for a vehicle, a vehicle's running plans, and
@@ -40,7 +48,6 @@ const sellSchema = z.object({
  */
 export const shopPlanRoutes = new Hono<{ Bindings: Env }>()
   .use('*', requireAuth)
-  /** The plans sold here for a vehicle type, with their price. */
   /** Every plan sold at the counter, priced for each vehicle type: the hub menu's plans. */
   .get('/menu', async (c) => {
     const plans = await shopPlanRepo.menu(c.env.DB, c.get('session').shopId);
@@ -48,7 +55,7 @@ export const shopPlanRoutes = new Hono<{ Bindings: Env }>()
   })
   /**
    * The plans for a vehicle type. With the customer's phone (and the vehicle's number), a second
-   * car in the same home is priced 10% off.
+   * car in the same home is priced 10% off. `washes`: what a customer can build a plan from.
    */
   .get(
     '/for-sale',
@@ -65,8 +72,11 @@ export const shopPlanRoutes = new Hono<{ Bindings: Env }>()
       const shopId = c.get('session').shopId;
       const normalized = phone ? normalizePhone(phone) : null;
       const secondCar = normalized ? await shopPlanRepo.isSecondCar(c.env.DB, shopId, normalized, registrationNumber ?? null) : false;
-      const plans = await shopPlanRepo.forSale(c.env.DB, shopId, vehicleTypeId, secondCar);
-      return c.json({ plans, secondCar });
+      const [plans, washes] = await Promise.all([
+        shopPlanRepo.forSale(c.env.DB, shopId, vehicleTypeId, secondCar),
+        shopPlanRepo.buildable(c.env.DB, shopId, vehicleTypeId),
+      ]);
+      return c.json({ plans, washes, secondCar });
     },
   )
   /** A vehicle's running shop plans here, and whether each can pay for a wash today. */
@@ -104,6 +114,7 @@ export const shopPlanRoutes = new Hono<{ Bindings: Env }>()
     const sold = await shopPlanRepo.sell(c.env.DB, session.shopId, {
       saleId: body.id,
       planId: body.planId,
+      custom: body.custom,
       customerId: customer.id,
       vehicleId: vehicle.id,
       vehicleTypeId: vehicle.vehicleTypeId,

@@ -226,6 +226,9 @@ async function standardPrices(
   };
 }
 
+/** The hidden plan every plan a customer builds hangs off (one per business, never listed or sold). */
+export const customPlanId = (businessId: string) => `custom-plan-${businessId}`;
+
 export const planRepo = {
   /**
    * Whether the customer already has a plan running at this branch on another vehicle (a shop
@@ -253,7 +256,7 @@ export const planRepo = {
 
   async list(pdb: DbClient, businessId: string, options: { activeOnly?: boolean } = {}): Promise<WashPlanView[]> {
     const plans = await pdb.washPlan.findMany({
-      where: { businessId, ...(options.activeOnly ? { active: true } : {}) },
+      where: { businessId, ...(options.activeOnly ? { active: true } : {}), NOT: { id: customPlanId(businessId) } },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
     const serviceIds = [...new Set(plans.flatMap((p) => [p.catalogServiceId, p.upgradeServiceId]).filter((id): id is string => !!id))];

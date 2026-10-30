@@ -1,5 +1,5 @@
-import { createPlatformDb, createShopDb, jobRepo } from '@mana/db';
-import { planPack, planUseBy, planWashMessage, rateChoiceId, washTemplateMessage, type ChatLang, type PaymentMethod, type WashTemplateKind } from '@mana/domain';
+import { createPlatformDb, createShopDb, jobRepo, shopPlanRepo } from '@mana/db';
+import { planUseBy, planWashMessage, rateChoiceId, washTemplateMessage, type ChatLang, type PaymentMethod, type WashTemplateKind } from '@mana/domain';
 import type { Env } from '../types';
 import { billPdf } from './washBill';
 import { graphSend, logOutgoing, uploadMedia, waId, whatsappConfigured } from './whatsapp';
@@ -148,7 +148,7 @@ export async function sendPlanWashMessage(env: Env, shopId: string, jobId: strin
     if (!whatsappConfigured(env)) return;
     if (Date.now() - at.getTime() > BILL_STALE_MS) return;
     const db = createShopDb(env.DB, shopId);
-    const use = await db.shopPlanUse.findFirst({ where: { jobId }, select: { orderId: true, kind: true } });
+    const use = await db.shopPlanUse.findFirst({ where: { jobId }, select: { orderId: true, kind: true, catalogServiceId: true } });
     if (!use) return;
     const [order, job] = await Promise.all([db.shopPlanOrder.findUnique({ where: { id: use.orderId } }), jobRepo.findBoardRow(db, jobId)]);
     if (!order || !job) return;
@@ -161,28 +161,22 @@ export async function sendPlanWashMessage(env: Env, shopId: string, jobId: strin
     if (sentBefore) return;
 
     const pdb = createPlatformDb(env.DB);
+    const pack = (await shopPlanRepo.pack(env.DB, shopId, order)).filter((w) => w.washesTotal > 0);
     const [shop, catalog] = await Promise.all([
       pdb.shop.findUnique({ where: { id: shopId }, select: { name: true, city: true, businessId: true } }),
-      pdb.catalogService.findMany({
-        where: { id: { in: [order.catalogServiceId, order.upgradeServiceId].filter((x): x is string => !!x) } },
-        select: { id: true, name: true },
-      }),
+      pdb.catalogService.findMany({ where: { id: { in: pack.map((w) => w.catalogServiceId) } }, select: { id: true, name: true } }),
     ]);
     if (!shop) return;
     const business = shop.businessId ? await pdb.business.findUnique({ where: { id: shop.businessId }, select: { name: true } }) : null;
     const washName = (id: string | null) => catalog.find((c) => c.id === id)?.name ?? 'Wash';
-    const pack = planPack(order);
     const model = [job.vehicle.make, job.vehicle.model].filter(Boolean).join(' ');
     const input = {
       customerName: job.customer.name,
       vehicle: model || job.vehicle.vehicleType.name,
       registrationNumber: job.vehicle.registrationNumber,
-      wash: washName(use.kind === 'upgrade' ? order.upgradeServiceId : order.catalogServiceId),
+      wash: washName(use.catalogServiceId ?? (use.kind === 'upgrade' ? order.upgradeServiceId : order.catalogServiceId)),
       plan: order.title,
-      left: [
-        { wash: washName(order.catalogServiceId), count: pack.everydayLeft },
-        ...(order.upgradeServiceId && order.upgradesTotal > 0 ? [{ wash: washName(order.upgradeServiceId), count: pack.betterLeft }] : []),
-      ],
+      left: pack.map((w) => ({ wash: washName(w.catalogServiceId), count: w.washesTotal - w.washesUsed })),
       useBy: dayLabel(planUseBy(order.endsOn)),
       place: [business?.name ?? shop.name, shop.city].filter(Boolean).join(', '),
       branchId: shopId,

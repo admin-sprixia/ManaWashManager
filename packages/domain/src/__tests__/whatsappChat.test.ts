@@ -260,7 +260,7 @@ describe('WhatsApp assistant: Telugu', () => {
     const large = bodyOf(reply({ kind: 'choice', id: 'sz|b1|large' }, tel).messages[0]!);
     expect(large).toContain('🚙 *SUV / 7-సీటర్*');
     expect(large).toContain('✨ *అదనంగా* (1, 2 లేదా 3 వాష్‌తో)\n5️⃣ Premium Care: *+₹249*');
-    expect(large).toContain('📅 *వాష్ ప్లాన్‌లు* నెలకు *₹1,549* నుండి');
+    expect(large).toContain('📅 *నెల ప్లాన్‌లు* నెలకు *₹1,549* నుండి · 8% ఆదా');
   });
 });
 
@@ -361,14 +361,14 @@ describe('WhatsApp assistant: a size’s prices', () => {
         '5️⃣ Premium Care: *+₹249*',
         '_Gentle shampoo, microfiber hand-dry, extra paint care_',
         '',
-        '📅 *Wash plans* from *₹1,549* a month',
-        'Mix Express, Basic and Premium your way: tap *📅 Wash plans*',
+        '📅 *Monthly plans* from *₹1,549* a month · save 8%',
+        'Pick a plan, or build your own: tap *📅 Monthly plans*',
         '',
         "👉 Reply a number to see what's included",
       ].join('\n'),
     );
     expect(m.buttons).toEqual([
-      { id: 'pl|b1|sz|large', title: '📅 Wash plans' },
+      { id: 'pl|b1|sz|large', title: '📅 Monthly plans' },
       { id: 'cat|b1|car', title: '🔁 Other size' },
       { id: 'talk|b1', title: '📞 Talk to us' },
     ]);
@@ -426,8 +426,8 @@ describe('WhatsApp assistant: coming soon', () => {
         '5️⃣ Premium Care: *+₹249* (🔜 Coming soon)',
         '_Our specialized, ceramic-infused deep-cleaning lather, designed to condition the clear coat and maximize gloss_',
         '',
-        '📅 *Wash plans* from *₹1,549* a month',
-        'Mix Express, Basic and Premium your way: tap *📅 Wash plans*',
+        '📅 *Monthly plans* from *₹1,549* a month · save 8%',
+        'Pick a plan, or build your own: tap *📅 Monthly plans*',
         '',
         "👉 Reply a number to see what's included",
       ].join('\n'),
@@ -519,36 +519,37 @@ describe('WhatsApp assistant: numbers and PLANS', () => {
     expect(as(only(text('2').messages), 'buttons').imageUrl).toBeDefined();
   });
 
-  it('PLANS lists every plan, each named by what is in it', () => {
+  it('PLANS lists the plans by name, what is in each underneath, and Build your own', () => {
     const r = reply({ kind: 'text', text: 'PLANS' }, after('sz|b1|small'));
     const m = as(only(r.messages), 'list');
     expectValid([m]);
     expect(m.text).toBe(
-      ['📅 *Monthly wash plans* · 🚗 Hatchback', '4 washes a month, on any days you like. Pay once and save 8%.', '', 'Pick your mix 👇'].join('\n'),
+      ['📅 *Monthly plans* · 🚗 Hatchback', '4 washes a month, on any days you like. Pay once and save 8%.', '', 'Pick a plan, or build your own 👇'].join('\n'),
     );
-    expect(m.button).toBe('Choose your plan');
+    expect(m.button).toBe('Choose a plan');
     expect(m.rows).toEqual([
-      { id: 'pp|b1|Express Plan|sz|small', title: '4 Express', description: '₹1,099 a month · save ₹97' },
-      { id: 'pp|b1|Express + Premium Plan|sz|small', title: '3 Express + 1 Premium', description: '₹1,649 a month · save ₹147' },
-      { id: 'pp|b1|Basic Plan|sz|small', title: '4 Basic ⭐', description: '₹1,849 a month · save ₹147' },
-      { id: 'pp|b1|Shine Plan|sz|small', title: '3 Basic + 1 Premium', description: '₹2,199 a month · save ₹197' },
+      { id: 'pp|b1|Express Plan|sz|small', title: 'Express Plan', description: '4 Express · ₹1,099 a month' },
+      { id: 'pp|b1|Express + Premium Plan|sz|small', title: 'Express + Premium Plan', description: '3 Express + 1 Premium · ₹1,649 a month' },
+      { id: 'pp|b1|Basic Plan|sz|small', title: 'Basic Plan ⭐', description: '4 Basic · ₹1,849 a month' },
+      { id: 'pp|b1|Shine Plan|sz|small', title: 'Shine Plan', description: '3 Basic + 1 Premium · ₹2,199 a month' },
+      { id: 'bo|b1|-|sz|small', title: '🛠️ Build your own', description: 'Pick any 4 washes · save 8%' },
     ]);
     // The price list stays remembered: a number still picks from it.
     expect(r.context).toBeUndefined();
     for (const word of ['plans', 'Plan', 'monthly plans', 'ప్లాన్‌లు']) {
-      expect(as(reply({ kind: 'text', text: word }, after('sz|b1|small')).messages[0], 'list').rows).toHaveLength(4);
+      expect(as(reply({ kind: 'text', text: word }, after('sz|b1|small')).messages[0], 'list').rows).toHaveLength(5);
     }
     // A button from an older message (the everyday wash) shows the same list.
-    expect(as(only(choose('pm|b1|Express Wash|sz|small').messages), 'list').rows).toHaveLength(4);
+    expect(as(only(choose('pm|b1|Express Wash|sz|small').messages), 'list').rows).toHaveLength(5);
   });
 
-  it('then the plan: what is in it, any order, and its price for each length', () => {
+  it('a ready plan: its name, what is in it, and its price for each length', () => {
     const m = as(only(choose('pp|b1|Express + Premium Plan|sz|small').messages), 'buttons');
     expectValid([m]);
     expect(m.text).toBe(
       [
-        '✨ *3 Express + 1 Premium* · 🚗 Hatchback',
-        '4 washes a month: use them in any order, on any days you like (one a day).',
+        '✨ *Express + Premium Plan* · 🚗 Hatchback',
+        '*3 Express + 1 Premium* a month, in any order, on any days you like.',
         '',
         '• 1 month: *₹1,649* (save ₹147)',
         '',
@@ -556,11 +557,11 @@ describe('WhatsApp assistant: numbers and PLANS', () => {
         '⬆️ Want a better wash on the day? Pay just the difference.',
         '🗓️ 7 extra days to use any wash left, and 1 unused wash carries over when you renew.',
         '',
-        'Ask for the *Express + Premium Plan* at the counter on your next visit.',
+        'Ask for *Express + Premium Plan* at the counter on your next visit.',
       ].join('\n'),
     );
     expect(m.buttons).toEqual([
-      { id: 'pl|b1|sz|small', title: '🔁 Change plan' },
+      { id: 'pl|b1|sz|small', title: '🔁 Other plans' },
       { id: 'sz|b1|small', title: '📋 Back to prices' },
       { id: 'talk|b1', title: '📞 Talk to us' },
     ]);
@@ -570,7 +571,46 @@ describe('WhatsApp assistant: numbers and PLANS', () => {
     expect(longer).toContain('• 12 months: *₹13,188* (save ₹2,360) · 13 months for 12');
     const te = reply({ kind: 'choice', id: 'pp|b1|Express + Premium Plan|sz|small' }, after('', 'te')).messages;
     expectValid(te);
-    expect(bodyOf(te[0]!)).toContain('✨ *3 Express + 1 Premium*');
+    expect(bodyOf(te[0]!)).toContain('నెలకు *3 Express + 1 Premium*');
+  });
+
+  it('Build your own: one wash a tap, 4 taps, then the price', () => {
+    const first = as(only(choose('bo|b1|-|sz|large').messages), 'buttons');
+    expectValid([first]);
+    expect(first.text).toBe(
+      ['🛠️ *Build your plan* · 🚙 SUV / 7-seater', 'Pick 4 washes for your month. Use them on any days you like.', '', '*Wash 1 of 4:*'].join('\n'),
+    );
+    expect(first.buttons).toEqual([
+      { id: 'bo|b1|0|sz|large', title: 'Express Wash · ₹419'.replace(' Wash', '') },
+      { id: 'bo|b1|1|sz|large', title: 'Basic · ₹799' },
+      { id: 'bo|b1|2|sz|large', title: 'Premium · ₹1,399' },
+    ]);
+    const third = as(only(choose('bo|b1|10|sz|large').messages), 'buttons');
+    expect(third.text).toBe('✅ Basic, Express\n\n*Wash 3 of 4:*');
+    expect(third.buttons[2]!.id).toBe('bo|b1|102|sz|large');
+    // The 4th tap: 2 Express + 1 Basic + 1 Premium, priced like the counter (the 4 added up, less 8%).
+    const done = as(only(choose('bo|b1|1002|sz|large').messages), 'buttons');
+    expectValid([done]);
+    expect(done.text).toBe(
+      [
+        '✨ *Your plan* · 🚙 SUV / 7-seater',
+        '*2 Express + 1 Basic + 1 Premium* a month, in any order',
+        '',
+        '• 1 month: *₹2,789* (save ₹247)',
+        '• 3 months: *₹8,367* (save ₹1,160) · 13 washes, 1 free ⭐ *Best value*',
+        '• 12 months: *₹33,468* (save ₹6,000) · 13 months for 12',
+        '',
+        "💡 That's *₹697* a wash.",
+        '⬆️ Want a better wash on the day? Pay just the difference.',
+        '🗓️ 7 extra days to use any wash left, and 1 unused wash carries over when you renew.',
+        '',
+        'Show this message at the counter to buy it.',
+      ].join('\n'),
+    );
+    expect(done.buttons.map((b) => b.id)).toEqual(['bo|b1|-|sz|large', 'sz|b1|large', 'talk|b1']);
+    // Telugu fits too; a pick from an older list starts again.
+    expectValid(reply({ kind: 'choice', id: 'bo|b1|1002|sz|large' }, after('', 'te')).messages);
+    expect(bodyOf(only(choose('bo|b1|09|sz|large').messages))).toContain('*Wash 1 of 4:*');
   });
 
   it('a number after an older plans list reads from the price list', () => {
@@ -758,7 +798,7 @@ describe('WhatsApp assistant: the Services & Prices Flow', () => {
     expect(md).toContain('# 🚗 Maruti Suzuki Swift\nHatchback · Sri Mana Wash, Kovur');
     expect(md).toContain('2. **Basic Wash** ⭐ — ₹499');
     expect(md).toContain('5. **Premium Care** — +₹249 · Gentle shampoo, microfiber hand-dry, extra paint care');
-    expect(md).toContain('📅 **Wash plans** from **₹1,099** a month');
+    expect(md).toContain('📅 **Monthly plans** from **₹1,099** a month · save 8%');
     const telugu = chatFlowReply({ action: 'INIT', flow_token: chatFlowToken('b1', 'bike', 'te') }, ctx);
     expect(telugu.data.heading).toBe('మీ బైక్ ఏ కంపెనీది?');
   });

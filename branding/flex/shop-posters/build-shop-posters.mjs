@@ -207,8 +207,9 @@ ${REVIEW_URL ? qrTile(REVIEW_URL, (W - qs) / 2, 110, qs) : qrPlaceholder((W - qs
 }
 
 // ─── 2. Plans poster (2 × 3 ft) ──────────────────────────────────────────────
-// Every plan is a pack of 4 washes a month, used in any order: one row per pack, its price for
-// each car size, the popular one lit in gold; the 3- and 12-month deals and the rules underneath.
+// Every plan is a pack of 4 washes a month, used in any order: one row per plan (its name, what's
+// in it), its price for each car size, the popular one lit in gold; then Build your own (any 4
+// washes, less 8%), and the 3- and 12-month deals and the rules underneath.
 {
   const W = 610;
   const H = 915;
@@ -241,22 +242,30 @@ ${ornament(W / 2, y + 148, 300)}`;
   });
   body += `<text x="${L}" y="${y}" font-family="${SANS}" font-weight="700" font-size="12" letter-spacing="3" fill="#9BAEF5">EVERY MONTH</text>`;
   y += 14;
-  const rowH = 70;
+  const rowH = 62;
   for (const plan of monthly) {
     const popular = !!cardOf(plan, 'small')?.card?.popular;
     if (popular) {
       body += `<rect x="${L - 16}" y="${y + 2}" width="${W - (L - 16) * 2}" height="${rowH - 4}" rx="12" fill="url(#glow)" stroke="url(#foilH)" stroke-width="1.4"/>`;
     }
-    body += `<text x="${L}" y="${y + 32}" font-family="${SERIF}" font-size="23" fill="#FFFFFF">${esc(titleOf(plan, 'small').replace(/ Plan$/, ''))}${popular ? `<tspan dx="8" dy="-4" font-family="${SANS}" font-size="9.5" font-weight="700" letter-spacing="1.4" fill="#F0CF8E">★ POPULAR</tspan>` : ''}</text>`;
-    body += `<text x="${L}" y="${y + 52}" font-family="${SANS}" font-size="12.5" fill="#9BAEF5">${esc(packOf(plan))}</text>`;
+    body += `<text x="${L}" y="${y + 29}" font-family="${SERIF}" font-size="22" fill="#FFFFFF">${esc(titleOf(plan, 'small'))}${popular ? `<tspan dx="8" dy="-4" font-family="${SANS}" font-size="9.5" font-weight="700" letter-spacing="1.4" fill="#F0CF8E">★ POPULAR</tspan>` : ''}</text>`;
+    body += `<text x="${L}" y="${y + 48}" font-family="${SANS}" font-size="12.5" fill="#9BAEF5">${esc(packOf(plan))}</text>`;
     CARS.forEach(([section], i) => {
-      body += `<text x="${colX(i)}" y="${y + 42}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="21" fill="${popular ? '#FFF1CF' : '#FFFFFF'}">${rupees(price(plan, section))}</text>`;
+      body += `<text x="${colX(i)}" y="${y + 38}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="21" fill="${popular ? '#FFF1CF' : '#FFFFFF'}">${rupees(price(plan, section))}</text>`;
     });
     y += rowH;
     if (!popular) body += `<rect x="${L}" y="${y - 1}" width="${W - L * 2}" height="1" fill="url(#hair)"/>`;
   }
+  // Build your own: any 4 washes, priced by the mix.
+  y += 12;
+  body += `<rect x="${L - 16}" y="${y}" width="${W - (L - 16) * 2}" height="56" rx="12" fill="none" stroke="url(#foilH)" stroke-width="1.2" stroke-dasharray="5 4"/>`;
+  body += `<text x="${L}" y="${y + 25}" font-family="${SERIF}" font-size="22" fill="#FFFFFF">Build your own</text>`;
+  body += `<text x="${L}" y="${y + 44}" font-family="${SANS}" font-size="12.5" fill="#9BAEF5">Pick any 4 washes, any mix</text>`;
+  body += `<text x="${W - L}" y="${y + 25}" text-anchor="end" font-family="${SERIF}" font-style="italic" font-size="21" fill="url(#foil)">your mix, your price</text>`;
+  body += `<text x="${W - L}" y="${y + 44}" text-anchor="end" font-family="${SANS}" font-size="12.5" fill="#E6EAFF">the 4 washes added up, <tspan font-weight="700" fill="#F8E2B0">less 8%</tspan></text>`;
+  y += 56;
   // The deals and the rules.
-  y += 26;
+  y += 24;
   const bikeFrom = Math.min(...servicesIn('bike', 'plan').map((s) => price(s, 'bike')).filter((n) => n != null));
   const facts = [
     ['3 months', '13 washes, 1 free  ★ Best value'],
@@ -267,7 +276,7 @@ ${ornament(W / 2, y + 148, 300)}`;
   ];
   const qs = 104;
   facts.forEach(([head, line], i) => {
-    const fy = y + i * 24;
+    const fy = y + i * 23;
     body += `<path d="M${L + 2} ${fy - 5}l4.5 4.5 4.5-4.5-4.5-4.5z" fill="url(#foil)"/>`;
     body += `<text x="${L + 18}" y="${fy}" font-family="${SANS}" font-size="12.5" fill="#E6EAFF"><tspan font-weight="700" fill="#F8E2B0">${esc(head)}</tspan>  ${esc(line)}</text>`;
   });

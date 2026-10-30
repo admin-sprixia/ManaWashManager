@@ -15,13 +15,15 @@ export interface ShopPlan {
   /** A community plan, or one bought at this counter (for this vehicle, one wash a day). */
   source?: 'community' | 'shop';
   /**
-   * A counter plan is a pack: its everyday wash and its better one, how many of each are left,
-   * used in any order (one a day).
+   * A counter plan is a pack: its washes (Express and Premium; any a built plan holds), how many
+   * of each are left, used in any order (one a day).
    */
   options?: PlanOption[];
 }
 
 export interface PlanOption {
+  /** Its catalog wash: sent back to say which wash the plan pays. */
+  key: string;
   kind: 'base' | 'upgrade';
   name: string;
   service: { id: string; name: string } | null;
@@ -37,9 +39,9 @@ interface PlanWashCardProps {
   blocked: string | null;
   formatMoney: (paise: number) => string;
   onToggle: () => void;
-  /** The pack's wash in use, and picking another one. */
-  kind?: 'base' | 'upgrade' | null;
-  onPickKind?: (kind: 'base' | 'upgrade') => void;
+  /** The pack's wash in use (an option's key), and picking another one. */
+  kind?: string | null;
+  onPickKind?: (key: string) => void;
   /** A better wash than the plan's is on the bill: the plan pays its wash, the customer the rest. */
   towards?: string | null;
 }
@@ -48,7 +50,7 @@ interface PlanWashCardProps {
 export function PlanWashCard({ plan, applied, saving, blocked, formatMoney, onToggle, kind, onPickKind, towards }: PlanWashCardProps) {
   const left = plan.washesTotal - plan.washesUsed;
   const options = plan.options ?? [];
-  const chosen = options.find((o) => o.kind === kind) ?? null;
+  const chosen = options.find((o) => o.key === kind) ?? null;
   const covered = applied && chosen?.service ? chosen.service : plan.service;
   const note = plan.problem ?? blocked;
   const disabled = !applied && note != null;
@@ -74,12 +76,12 @@ export function PlanWashCard({ plan, applied, saving, blocked, formatMoney, onTo
         {options.length > 1 && onPickKind && !(note && !applied) ? (
           <View style={styles.kinds}>
             {options.map((o) => {
-              const on = applied && kind === o.kind;
+              const on = applied && kind === o.key;
               const off = o.left === 0 || !o.service;
               return (
                 <Pressable
-                  key={o.kind}
-                  onPress={() => onPickKind(o.kind)}
+                  key={o.key}
+                  onPress={() => onPickKind(o.key)}
                   disabled={off}
                   style={({ pressed }) => [styles.kind, on && styles.kindOn, off && styles.kindOff, pressed && styles.pressed]}
                   accessibilityRole="button"
@@ -103,7 +105,9 @@ export function PlanWashCard({ plan, applied, saving, blocked, formatMoney, onTo
               ? towards
                 ? `Plan pays ${covered.name} · customer pays the rest of ${towards}`
                 : `${covered.name} is free · uses 1 plan wash`
-              : `Covers ${covered.name}${options.length > 1 ? ' or its better wash · any order' : ''}`}
+              : options.length > 1
+                ? `Covers ${options.map((o) => o.name).join(', ')} · any order`
+                : `Covers ${covered.name}`}
           </Text>
         ) : null}
       </View>

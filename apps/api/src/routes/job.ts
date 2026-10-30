@@ -47,7 +47,6 @@ import {
   type ExpenseCategory,
   type JobStatus,
   type PaymentMethod,
-  type PlanWashKind,
 } from '@mana/domain';
 import {
   cancelReferralForVoidedJob,
@@ -189,7 +188,9 @@ const startJobSchema = z
     planOrderId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/).optional(),
     /** A plan bought at this counter for this vehicle pays for its wash (one a day). */
     shopPlanId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/).optional(),
-    /** Which of the plan's washes pays: its everyday one or its better one. Left out: worked out from the bill. */
+    /** Which of the plan's washes pays: its catalog wash (an option's key). Left out: worked out from the bill. */
+    shopPlanWash: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/).optional(),
+    /** Older apps: the plan's everyday wash or its better one. */
     shopPlanUse: z.enum(['base', 'upgrade']).optional(),
     ...pricingFields,
     sellerIds: sellerIdsSchema.optional(),
@@ -620,7 +621,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
 
     // A community plan member at the shop: the plan's wash is free, and uses one of its washes.
     const planInvalid = (message: string) => c.json({ error: 'plan_wash_invalid' as const, message }, 409);
-    let planWash: { discount: number; reason: string; serviceId: string; kind?: PlanWashKind } | null = null;
+    let planWash: { discount: number; reason: string; serviceId: string; wash?: string } | null = null;
     if (body.planOrderId) {
       if (body.ownership) return planInvalid('A plan wash can’t be used while the vehicle’s owner is being changed.');
       const plans = await placeOrderRepo.shopPlans(c.env.DB, session.shopId, body.customer.phone, now);
@@ -646,11 +647,13 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       if (found.problem) return planInvalid(found.problem);
       const lineFor = (serviceId: string | undefined) => priced.lineItems.find((l) => l.serviceId === serviceId);
       const usable = found.options.filter((o) => o.left > 0 && o.service);
-      const option = body.shopPlanUse
-        ? found.options.find((o) => o.kind === body.shopPlanUse)
-        : // Not said (an older app): the wash on the bill, the better one first, else the everyday one.
-          (usable.find((o) => o.kind === 'upgrade' && lineFor(o.service?.id)) ?? usable.find((o) => lineFor(o.service?.id)) ?? usable[0]);
-      if (!option) return planInvalid('This plan has no better wash.');
+      const option = body.shopPlanWash
+        ? found.options.find((o) => o.key === body.shopPlanWash)
+        : body.shopPlanUse
+          ? found.options.find((o) => o.kind === body.shopPlanUse)
+          : // Not said: the plan's wash that's on the bill (the better one first), else its first.
+            (usable.filter((o) => lineFor(o.service?.id)).at(-1) ?? usable[0]);
+      if (!option) return planInvalid(body.shopPlanWash ? 'This plan doesn’t cover that wash.' : 'This plan has no better wash.');
       if (option.left === 0) return planInvalid(`No ${option.name} left on this plan.`);
       if (!option.service) return planInvalid(`${option.name} isn’t on this branch’s menu.`);
       const left = found.washesTotal - found.washesUsed - 1;
@@ -660,7 +663,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
           discount: direct.priceAtTime,
           reason: `Plan wash · ${found.title} · ${option.name} · ${left} left`.slice(0, 200),
           serviceId: direct.serviceId,
-          kind: option.kind,
+          wash: option.key,
         };
       } else {
         // Pay the difference: the plan's wash at today's price, towards the dearest wash on the bill.
@@ -680,7 +683,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
           discount: coveredPrice,
           reason: `Plan wash · ${found.title} · ${option.name} towards a better wash · ${left} left`.slice(0, 200),
           serviceId: better.serviceId,
-          kind: option.kind,
+          wash: option.key,
         };
       }
     }
@@ -743,7 +746,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
         orderId: body.shopPlanId,
         jobId: body.id,
         registrationNumber: body.registrationNumber,
-        kind: planWash.kind ?? 'base',
+        wash: planWash.wash,
         now,
       });
       if (!used.ok) {

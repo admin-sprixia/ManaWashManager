@@ -149,8 +149,8 @@ const catalogJson = await (await apiFetch(`${API}/whatsapp/catalog.json`)).json(
 const hasCare = catalogJson.products.some((p) => p.title === 'Premium Care');
 if (!hasCare) console.log('NOTE  Premium Care isn’t on sale here (coming soon, or another price book): its checks are skipped');
 check(
-  'Large shows numbered washes, Premium Care and wash plans from a price',
-  /1️⃣ .+: \*₹/.test(largeBody) && (!hasCare || /Premium Care: \*\+₹\d/.test(largeBody)) && /📅 \*Wash plans\* from \*₹[\d,]+\* a month/.test(largeBody),
+  'Large shows numbered washes, Premium Care and monthly plans from a price',
+  /1️⃣ .+: \*₹/.test(largeBody) && (!hasCare || /Premium Care: \*\+₹\d/.test(largeBody)) && /📅 \*Monthly plans\* from \*₹[\d,]+\* a month · save 8%/.test(largeBody),
   largeBody.slice(0, 600),
 );
 const soonForCars = (catalogJson.comingSoon ?? []).filter((c) => c.prices.some((p) => p.classKey === 'car'));
@@ -159,7 +159,7 @@ check(
   soonForCars.every((c) => new RegExp(`️⃣ ${c.name}: \\*\\+?₹[\\d,]+\\* \\(🔜 Coming soon\\)`).test(largeBody)),
   JSON.stringify(soonForCars),
 );
-check('…with Wash plans / Other size / Talk to us', buttonsOf(large.at(-1)).map((b) => b.id.split('|')[0]).join() === 'pl,cat,talk');
+check('…with Monthly plans / Other size / Talk to us', buttonsOf(large.at(-1)).map((b) => b.id.split('|')[0]).join() === 'pl,cat,talk');
 console.log(`\n--- What the customer sees ---\n${largeBody}\n------------------------------\n`);
 const careNo = largeBody.match(/(\d)️⃣ Premium Care/)?.[1];
 const care = await text(careNo ?? '1');
@@ -171,17 +171,34 @@ check(
 );
 const plans = await text('PLANS');
 const mixRows = rowsOf(plans[0]);
+const readyRows = mixRows.filter((r) => r.id.startsWith('pp|'));
 check(
-  'PLANS lists every plan by its mix, each with a month’s price',
-  bodyOf(plans[0]).startsWith('📅 *Monthly wash plans* · 🚙 SUV / 7-seater') &&
-    mixRows.length > 1 &&
-    mixRows.every((r) => r.id.startsWith('pp|') && /^\d+ \w+/.test(r.title) && /₹[\d,]+ a month/.test(r.description ?? '')),
-  JSON.stringify(plans[0]).slice(0, 400),
+  'PLANS lists the plans by name (what’s in each underneath, with a month’s price), then Build your own',
+  bodyOf(plans[0]).startsWith('📅 *Monthly plans* · 🚙 SUV / 7-seater') &&
+    readyRows.length > 1 &&
+    readyRows.every((r) => /^(Express|Basic|Shine)\b/.test(r.title) && /^\d+ \w+.* · ₹[\d,]+ a month$/.test(r.description ?? '')) &&
+    ['Express Plan', 'Express Plus', 'Express Shine', 'Basic Plan ⭐', 'Shine Plan'].every((n) => readyRows.some((r) => r.title === n)) &&
+    mixRows.at(-1)?.id.startsWith('bo|') && mixRows.at(-1)?.title === '🛠️ Build your own',
+  JSON.stringify(plans[0]).slice(0, 600),
 );
-const mixPick = mixRows.find((r) => r.title.includes('+')) ?? mixRows[0];
+// Build your own: 4 taps, one wash each, then the plan's price.
+let step = await choose(mixRows.at(-1).id, 'list_reply');
+check('Build your own asks for wash 1 of 4, one button per wash with its price', bodyOf(step[0]).includes('*Wash 1 of 4:*') && buttonsOf(step[0]).every((b) => /· ₹[\d,]+$/.test(b.title)), JSON.stringify(step[0]).slice(0, 400));
+for (const i of [0, 0, 1]) step = await choose(buttonsOf(step[0])[Math.min(i, buttonsOf(step[0]).length - 1)].id, 'button_reply');
+check('…wash 4 of 4 shows what is picked so far', bodyOf(step[0]).includes('*Wash 4 of 4:*') && bodyOf(step[0]).startsWith('✅ '), bodyOf(step[0]));
+step = await choose(buttonsOf(step[0]).at(-1).id, 'button_reply');
+const builtBody = bodyOf(step[0]);
+check(
+  '…and the 4th tap prices the plan for 1, 3 and 12 months',
+  builtBody.startsWith('✨ *Your plan* · 🚙 SUV / 7-seater') && /• 1 month: \*₹/.test(builtBody) && /• 3 months: \*₹.*13 washes, 1 free/.test(builtBody) && /• 12 months: \*₹/.test(builtBody) &&
+    builtBody.includes('Show this message at the counter') && buttonsOf(step[0]).map((b) => b.id.split('|')[0]).join() === 'bo,sz,talk',
+  builtBody,
+);
+console.log(`\n--- Build your own ---\n${builtBody}\n---------------------\n`);
+const mixPick = readyRows.find((r) => r.title === 'Express Shine') ?? readyRows[0];
 const offer = await choose(mixPick.id, 'list_reply');
 const offerBody = bodyOf(offer[0]);
-check('…then the plan as a pack, with 1, 3 and 12-month prices', offerBody.startsWith('✨ *') && /• 1 month: \*₹/.test(offerBody) && /• 3 months: \*₹/.test(offerBody), offerBody.slice(0, 400));
+check('…then the plan by name, with 1, 3 and 12-month prices', offerBody.startsWith(`✨ *${mixPick.title.replace(' ⭐', '')}* ·`) && /• 1 month: \*₹/.test(offerBody) && /• 3 months: \*₹/.test(offerBody), offerBody.slice(0, 400));
 console.log(`\n--- A plan ---\n${offerBody}\n--------------\n`);
 
 // Not sure? → the plain company list (what it shows when no Flow is published).
@@ -381,8 +398,7 @@ check('a late “delivered” never undoes “read”', d1Rows(`SELECT status FR
       });
       check(`selling ${pack.name} works`, sold.status === 201, JSON.stringify(sold.body).slice(0, 200));
       const held = (await call('GET', `/shop-plans/vehicle?registrationNumber=${reg}`)).body?.plans?.[0];
-      const better = held?.options?.find((o) => o.kind === 'upgrade');
-      const everyday = held?.options?.find((o) => o.kind === 'base');
+      const [everyday, better] = held?.options ?? [];
       check('the plan is a pack: everyday and better washes counted apart', !!better && !!everyday && better.left >= 1 && everyday.left >= 1, JSON.stringify(held?.options));
       const first = await call('POST', '/jobs/start', {
         id: `job_pk1_${phone}`,
@@ -391,11 +407,11 @@ check('a late “delivered” never undoes “read”', d1Rows(`SELECT status FR
         vehicleTypeId: priced.vehicle_type_id,
         services: [{ serviceId: better.service.id, quantity: 1 }],
         shopPlanId: held.orderId,
-        shopPlanUse: 'upgrade',
+        shopPlanWash: better.key,
       });
       check(`its ${better.name} can come first (any order), and is free`, first.status === 201 && first.body?.total === 0, JSON.stringify(first.body).slice(0, 200));
       const after = (await call('GET', `/shop-plans/vehicle?registrationNumber=${reg}`)).body?.plans?.[0];
-      check('…and only the better washes go down', after?.options?.find((o) => o.kind === 'upgrade')?.left === better.left - 1 && after?.options?.find((o) => o.kind === 'base')?.left === everyday.left);
+      check('…and only the better washes go down', after?.options?.[1]?.left === better.left - 1 && after?.options?.[0]?.left === everyday.left);
       const msg = templates('plan_wash').at(-1);
       const params = msg?.template?.components?.[0]?.parameters?.map((x) => x.text) ?? [];
       check('the customer gets “plan wash used” with what is left', params[2] === better.name && params[4]?.includes(`${everyday.left} `), JSON.stringify(params));
@@ -431,6 +447,43 @@ check('a late “delivered” never undoes “read”', d1Rows(`SELECT status FR
       });
       const expected = priceOf(better.service.id) - priceOf(plainHeld?.options?.[0]?.service?.id);
       check('a better wash on the plan: the customer pays just the difference', diff.status === 201 && diff.body?.total === expected && expected > 0, `${diff.status} total ${diff.body?.total} expected ${expected}`);
+
+      // Build your own at the counter: any 4 of the branch's washes, priced like WhatsApp shows it.
+      const washes = forSale.body?.washes ?? [];
+      check('the counter gets the washes a plan can be built from, with prices', washes.length >= 3 && washes.every((w) => w.serviceId && w.price > 0), JSON.stringify(washes));
+      if (washes.length >= 3) {
+        const [w0, w1, w2] = washes;
+        const end9 = (paise) => (Math.round((paise / 100 - 9) / 10) * 10 + 9) * 100;
+        const want = end9(((w0.price * 2 + w1.price + w2.price) * 92) / 100) * 3;
+        const custom = await call('POST', '/shop-plans/sell', {
+          id: `sale_pk3_${phone}`,
+          customer: { phone, name: 'Ravi Kumar' },
+          registrationNumber: reg,
+          vehicleTypeId: priced.vehicle_type_id,
+          custom: { serviceIds: [w0.serviceId, w2.serviceId, w0.serviceId, w1.serviceId], length: 3 },
+          paymentMethod: 'upi',
+        });
+        check('selling a built plan (2 + 1 + 1, 3 months) charges the 4 added up, less 8%, ×3', custom.status === 201 && custom.body?.job?.total === want, `${custom.status} ${custom.body?.job?.total} want ${want} ${JSON.stringify(custom.body).slice(0, 200)}`);
+        const own = (await call('GET', `/shop-plans/vehicle?registrationNumber=${reg}`)).body?.plans?.find((p) => p.title.startsWith('Custom plan'));
+        const lefts = own?.options?.map((o) => o.left).join();
+        check('…it holds 7 + 3 + 3 washes (the cheapest one free), cheapest first', own?.title.endsWith('· 3 months') && lefts === '7,3,3' && own.washesTotal === 13, `${own?.title} ${lefts}`);
+        const ownWash = await call('POST', '/jobs/start', {
+          id: `job_pk4_${phone}`,
+          customer: { phone, name: 'Ravi Kumar' },
+          registrationNumber: reg,
+          vehicleTypeId: priced.vehicle_type_id,
+          services: [{ serviceId: w2.serviceId, quantity: 1 }],
+          shopPlanId: own?.orderId,
+          shopPlanWash: own?.options?.[2]?.key,
+        });
+        const ownAfter = (await call('GET', `/shop-plans/vehicle?registrationNumber=${reg}`)).body?.plans?.find((p) => p.orderId === own?.orderId);
+        check(`its ${w2.name} is free and only that wash goes down`, ownWash.status === 201 && ownWash.body?.total === 0 && ownAfter?.options?.map((o) => o.left).join() === '7,3,2', `${ownWash.status} ${ownWash.body?.total} ${ownAfter?.options?.map((o) => o.left).join()}`);
+        const ownMsg = templates('plan_wash').at(-1)?.template?.components?.[0]?.parameters?.map((x) => x.text) ?? [];
+        check('…and “plan wash used” lists all three washes left', (ownMsg[4]?.match(/\d+ \w+/g) ?? []).length === 3, JSON.stringify(ownMsg));
+        await call('POST', `/jobs/job_pk4_${phone}/void`, { reason: 'Checking the void path' });
+        const ownBack = (await call('GET', `/shop-plans/vehicle?registrationNumber=${reg}`)).body?.plans?.find((p) => p.orderId === own?.orderId);
+        check('voiding that wash gives it back', ownBack?.options?.map((o) => o.left).join() === '7,3,3', ownBack?.options?.map((o) => o.left).join());
+      }
     }
   }
 

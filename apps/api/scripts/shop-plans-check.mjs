@@ -155,7 +155,7 @@ const wash = (extra = {}) =>
   });
 r = await wash();
 const firstWash = r.body;
-check('A plan wash at the shop: the wash is free', r.status === 201 && r.body?.total === 0 && /Plan wash · Shop Basic · 1 of 4/.test(r.body?.discountReason ?? ''), show(r));
+check('A plan wash at the shop: the wash is free', r.status === 201 && r.body?.total === 0 && /Plan wash · Shop Basic · Basic Wash · 3 left/.test(r.body?.discountReason ?? ''), show(r));
 r = await call(OA, 'GET', `/shop-plans/vehicle?registrationNumber=${plate}`);
 check('…and one of its washes is used', r.body?.plans?.[0]?.washesUsed === 1 && /one wash a day/.test(r.body?.plans?.[0]?.problem ?? ''), show(r));
 r = await wash();

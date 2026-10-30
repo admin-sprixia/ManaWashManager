@@ -528,7 +528,7 @@ describe('WhatsApp assistant: numbers and PLANS', () => {
         '📅 *Build your wash plan* · 🚗 Small car',
         'A pack of 4 washes a month: use them in any order, whenever you like. Pay once and save 8%.',
         '',
-        'What wash do you want *every week*?',
+        "What's your *everyday wash*?",
       ].join('\n'),
     );
     expect(m.buttons).toEqual([
@@ -546,7 +546,7 @@ describe('WhatsApp assistant: numbers and PLANS', () => {
   it('then the ways to mix it, with each month’s price and its weeks', () => {
     const express = as(only(choose('pm|b1|Express Wash|sz|small').messages), 'list');
     expectValid([express]);
-    expect(express.text).toBe('Every week: *Express*. Want a better wash in between?');
+    expect(express.text).toBe('Everyday wash: *Express*. Add some better washes to your pack?');
     expect(express.rows).toEqual([
       { id: 'pp|b1|Express Plan|sz|small', title: 'All Express', description: '₹1,099 a month · 4 Express, any order' },
       {

@@ -881,7 +881,7 @@ function planStart(t: Turn, b: ChatBranch, x: Target): ChatMessage[] {
           `నెలకు ${washes} వాష్‌ల ప్యాక్: మీకు నచ్చిన క్రమంలో, ఎప్పుడైనా వాడుకోండి. ఒకేసారి చెల్లించండి${pct > 0 ? `, ${pct}% ఆదా` : ''}.`,
         ),
         '',
-        say(t, 'What wash do you want *every week*?', '*ప్రతి వారం* ఏ వాష్ కావాలి?'),
+        say(t, "What's your *everyday wash*?", 'మీ *రోజువారీ వాష్* ఏది?'),
       ].join('\n'),
       buttons: bases.slice(0, WA_MAX_BUTTONS).map((base) => {
         const price = services.find((s) => s.name === base)?.price;
@@ -901,8 +901,8 @@ function planMixes(t: Turn, b: ChatBranch, x: Target, base: string): ChatMessage
       type: 'list',
       text: say(
         t,
-        `Every week: *${shortWash(base)}*. Want a better wash in between?`,
-        `ప్రతి వారం: *${shortWash(base)}*. మధ్యలో ఇంకా మంచి వాష్ కావాలా?`,
+        `Everyday wash: *${shortWash(base)}*. Add some better washes to your pack?`,
+        `రోజువారీ వాష్: *${shortWash(base)}*. మీ ప్యాక్‌లో ఇంకా మంచి వాష్‌లు కలపాలా?`,
       ),
       button: say(t, 'Choose plan', 'ప్లాన్ ఎంచుకోండి'),
       title: say(t, 'Wash plans', 'వాష్ ప్లాన్‌లు'),

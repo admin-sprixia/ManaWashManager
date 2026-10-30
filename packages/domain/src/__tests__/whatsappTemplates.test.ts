@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { followUpMessage, WA_TEMPLATES, washMessageDate, washTemplateMessage, type WashMessageInput } from '../index';
+import { followUpMessage, planWashMessage, WA_TEMPLATES, washMessageDate, washTemplateMessage, type WashMessageInput } from '../index';
 
 const wash: WashMessageInput = {
   customerName: 'Ravi Kumar',
@@ -102,5 +102,30 @@ describe('WhatsApp wash templates', () => {
 
   it('writes dates in India time', () => {
     expect(washMessageDate(new Date('2026-10-28T02:05:00Z'))).toBe('28 Oct 2026, 7:35 am');
+  });
+
+  it('after a plan wash, says what was done and what is left of the pack', () => {
+    const input = {
+      customerName: 'Ravi Kumar',
+      vehicle: 'Hyundai Creta',
+      registrationNumber: 'AP39AB1234',
+      wash: 'Premium Wash',
+      plan: 'Express + Premium Plan',
+      left: [
+        { wash: 'Express Wash', count: 3 },
+        { wash: 'Premium Wash', count: 0 },
+      ],
+      useBy: '28 Nov 2026',
+      place: 'Sri Mana Wash, Kovur',
+      branchId: 'b1',
+    };
+    const m = planWashMessage(input, 'en');
+    expect(m.name).toBe('plan_wash');
+    expect(m.preview).toBe(
+      'Hi Ravi, your plan wash for Hyundai Creta (AP39AB1234) is done: Premium Wash. 🚿\n\nLeft on your Express + Premium Plan: 3 Express, to use any time till 28 Nov 2026.\n\nThank you for choosing Sri Mana Wash, Kovur. See you soon!',
+    );
+    expect(m.buttonPayloads).toEqual(['loc|b1']);
+    const done = planWashMessage({ ...input, left: [{ wash: 'Express Wash', count: 0 }] }, 'te');
+    expect(done.params[4]).toBe('వాష్‌లు ఏమీ లేవు (కౌంటర్ వద్ద రీన్యూ చేసుకోండి)');
   });
 });

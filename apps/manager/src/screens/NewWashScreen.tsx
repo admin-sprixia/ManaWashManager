@@ -317,6 +317,8 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   /** The customer's community plans, and the one paying for this wash. */
   const [shopPlans, setShopPlans] = useState<ShopPlan[]>([]);
   const [planOrderId, setPlanOrderId] = useState<string | null>(null);
+  /** Which of a counter plan's washes pays: its everyday one or its better one. */
+  const [planKind, setPlanKind] = useState<'base' | 'upgrade' | null>(null);
   /** Plans bought at this counter for the vehicle. */
   const [counterPlans, setCounterPlans] = useState<ShopPlan[]>([]);
   const [selling, setSelling] = useState(false);
@@ -1005,7 +1007,8 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
         body.plans.map((p) => ({
           orderId: p.orderId,
           placeName: 'Bought at the shop',
-          unit: `ends ${new Date(`${p.endsOn}T00:00:00Z`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'UTC' })}`,
+          // Its last day plus the grace week: the last day it can still pay.
+          unit: `use by ${new Date(`${p.useBy}T00:00:00Z`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'UTC' })}`,
           planName: p.title,
           vehicle: p.vehicle,
           washesUsed: p.washesUsed,
@@ -1013,6 +1016,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
           service: p.service,
           problem: p.problem,
           source: 'shop' as const,
+          options: p.options,
         })),
       );
     } catch {
@@ -1030,40 +1034,75 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     [shopPlans, counterPlans, reg, regOk],
   );
 
-  const planBlocked = (plan: ShopPlan): string | null => {
+  /** The wash a plan pays for: the pack's chosen kind (counter plans), else the plan's one wash. */
+  const planServiceOf = (plan: ShopPlan, kind: 'base' | 'upgrade' | null) =>
+    (kind && plan.options?.find((o) => o.kind === kind)?.service) || plan.service;
+  /** A counter plan's first kind with washes left on this menu, the everyday one first. */
+  const defaultKind = (plan: ShopPlan): 'base' | 'upgrade' | null =>
+    plan.options?.find((o) => o.left > 0 && o.service && servicesForVehicle.some((s) => s.id === o.service?.id))?.kind ?? null;
+
+  const planBlocked = (plan: ShopPlan, kind: 'base' | 'upgrade' | null = defaultKind(plan)): string | null => {
     if (!online) return 'Needs internet to use';
     if (washMode !== 'hub') return 'Plan washes here are for washes at the shop';
     if (!selectedVehicle) return 'Pick the vehicle size first';
     if (plan.vehicle.typeId !== selectedVehicle.id) return `The plan is for a ${plan.vehicle.typeName}`;
-    if (!plan.service) return null;
-    const offered = servicesForVehicle.some((s) => s.id === plan.service?.id) && priceFor(plan.service.id) != null;
-    if (!offered) return `${plan.service.name} isn’t on the ${selectedVehicle.name} menu`;
-    const combo = coveredBy.get(plan.service.id);
-    if (combo) return `In the ${combo} combo — pick ${plan.service.name} on its own`;
+    const service = planServiceOf(plan, kind);
+    if (!service) return null;
+    const offered = servicesForVehicle.some((s) => s.id === service.id) && priceFor(service.id) != null;
+    if (!offered) return `${service.name} isn’t on the ${selectedVehicle.name} menu`;
+    const combo = coveredBy.get(service.id);
+    if (combo) return `In the ${combo} combo — pick ${service.name} on its own`;
     return null;
   };
 
   const activePlan = visiblePlans.find((p) => p.orderId === planOrderId) ?? null;
+  const activeKind = activePlan?.options ? planKind ?? defaultKind(activePlan) : null;
+  const planService = activePlan ? planServiceOf(activePlan, activeKind) : null;
+  const planPrice = planService ? (priceFor(planService.id) ?? null) : null;
+  // Pay the difference (counter plans): a dearer wash than the plan's on the bill instead of it.
+  const betterWash =
+    activePlan?.source === 'shop' && planService && planPrice != null && !selectedServiceIds.has(planService.id)
+      ? (services
+          .filter((s) => selectedServiceIds.has(s.id) && (s.kind ?? 'wash') === 'wash' && (priceFor(s.id) ?? 0) > planPrice)
+          .sort((a, b) => (priceFor(b.id) ?? 0) - (priceFor(a.id) ?? 0))[0] ?? null)
+      : null;
   const planActive =
     activePlan != null &&
-    activePlan.service != null &&
+    planService != null &&
     activePlan.problem == null &&
-    planBlocked(activePlan) == null &&
-    selectedServiceIds.has(activePlan.service.id);
-  const planSaving = planActive && activePlan?.service ? (priceFor(activePlan.service.id) ?? 0) : 0;
+    planBlocked(activePlan, activeKind) == null &&
+    (selectedServiceIds.has(planService.id) || betterWash != null);
+  const planSaving = planActive && planPrice != null ? planPrice : 0;
 
-  // Unpicking the covered service drops the plan wash with it.
+  // Unpicking the covered service (with no better wash picked instead) drops the plan wash with it.
   useEffect(() => {
-    if (activePlan?.service && !selectedServiceIds.has(activePlan.service.id)) setPlanOrderId(null);
-  }, [selectedServiceIds, activePlan]);
+    if (planService && !selectedServiceIds.has(planService.id) && !betterWash) setPlanOrderId(null);
+  }, [selectedServiceIds, planService, betterWash]);
 
-  const togglePlan = (plan: ShopPlan) => {
+  /** Switches a counter plan's wash (everyday ↔ better): the bill swaps the one for the other. */
+  const pickPlanKind = (plan: ShopPlan, kind: 'base' | 'upgrade') => {
+    animate();
+    const from = planOrderId === plan.orderId ? planServiceOf(plan, activeKind) : null;
+    const to = planServiceOf(plan, kind);
+    if (!to || plan.problem || planBlocked(plan, kind)) return;
+    if (planOrderId !== plan.orderId) {
+      togglePlan(plan, kind);
+      return;
+    }
+    if (from && from.id !== to.id && selectedServiceIds.has(from.id)) toggleService(from.id);
+    if (!selectedServiceIds.has(to.id)) toggleService(to.id);
+    setPlanKind(kind);
+  };
+
+  const togglePlan = (plan: ShopPlan, kind: 'base' | 'upgrade' | null = defaultKind(plan)) => {
     animate();
     if (planOrderId === plan.orderId) {
       setPlanOrderId(null);
+      setPlanKind(null);
       return;
     }
-    if (plan.problem || planBlocked(plan) || !plan.service) return;
+    const service = planServiceOf(plan, kind);
+    if (plan.problem || planBlocked(plan, kind) || !service) return;
     // One kind of discount per bill: the plan wash replaces every other one.
     setCouponApplied(false);
     setFreeIds(new Set());
@@ -1071,7 +1110,8 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     setDiscountOpen(false);
     setDiscountRupees('');
     setDiscountReason('');
-    if (!selectedServiceIds.has(plan.service.id)) toggleService(plan.service.id);
+    if (!selectedServiceIds.has(service.id)) toggleService(service.id);
+    setPlanKind(plan.options ? kind : null);
     setPlanOrderId(plan.orderId);
   };
 
@@ -1232,7 +1272,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
                     : freeActive && !online
                       ? 'Free wash needs internet — remove it to save offline'
                       : planOrderId && !planActive && activePlan
-                      ? planBlocked(activePlan) ?? 'This plan can’t be used — remove it'
+                      ? planBlocked(activePlan, activeKind) ?? 'This plan can’t be used — remove it'
                       : couponActive && !online
                       ? 'Coupon needs internet — remove it to save offline'
                       : isNewCustomer && referral.entered && !referralActive
@@ -1314,6 +1354,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
             rewardServiceIds: freeActive ? freeActiveIds : undefined,
             planOrderId: planActive && activePlan && activePlan.source !== 'shop' ? activePlan.orderId : undefined,
             shopPlanId: planActive && activePlan && activePlan.source === 'shop' ? activePlan.orderId : undefined,
+            shopPlanUse: planActive && activePlan?.source === 'shop' && activeKind ? activeKind : undefined,
             sellerIds: commissionTotal > 0 ? pickedSellers.map((s) => s.id) : undefined,
           },
           meta: {
@@ -1845,9 +1886,12 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
               plan={plan}
               applied={planActive && activePlan?.orderId === plan.orderId}
               saving={planSaving}
-              blocked={planBlocked(plan)}
+              blocked={planBlocked(plan, planOrderId === plan.orderId ? activeKind : defaultKind(plan))}
               formatMoney={formatRupees}
               onToggle={() => togglePlan(plan)}
+              kind={planOrderId === plan.orderId ? activeKind : null}
+              onPickKind={plan.options && plan.options.length > 1 ? (k) => pickPlanKind(plan, k) : undefined}
+              towards={planOrderId === plan.orderId && betterWash ? betterWash.name : null}
             />
           ))}
 

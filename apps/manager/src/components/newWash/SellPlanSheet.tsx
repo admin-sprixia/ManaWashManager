@@ -35,6 +35,12 @@ const shortDate = (day: string) =>
  * price, and how it's paid. Paid in full now; for this vehicle, at this branch, one wash a day
  * until it ends. Needs internet.
  */
+/** A plan's pack: "3 × Express Wash + 1 × Premium Wash", or "4 × Basic Wash". */
+function packText(p: { washes: number; serviceName: string; upgrade: { every: number; name: string } | null }): string {
+  const better = p.upgrade && p.upgrade.every > 1 ? Math.floor(p.washes / p.upgrade.every) : 0;
+  return better ? `${p.washes - better} × ${p.serviceName} + ${better} × ${p.upgrade!.name}` : `${p.washes} × ${p.serviceName}`;
+}
+
 export function SellPlanSheet({
   visible,
   vehicleTypeId,
@@ -176,8 +182,7 @@ export function SellPlanSheet({
                   {p.popular ? <Text style={styles.popular}>  Most popular</Text> : null}
                 </Text>
                 <Text style={styles.planMeta}>
-                  {p.washes} × {p.serviceName}
-                  {p.upgrade ? `, every ${p.upgrade.every}th ${p.upgrade.name}` : ''} · {p.months === 1 ? '1 month' : `${p.months} months`}
+                  {packText(p)} · any order · {p.months === 1 ? '1 month' : p.months >= 12 ? '12 months' : `${p.months} months`}
                 </Text>
                 {save > 0 ? <Text style={styles.save}>Saves {formatMoney(save)}</Text> : null}
                 {p.secondCar ? <Text style={styles.secondCar}>Second car at home · 10% off</Text> : null}

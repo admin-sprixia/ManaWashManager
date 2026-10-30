@@ -71,7 +71,7 @@ export const shopPlanRoutes = new Hono<{ Bindings: Env }>()
   )
   /** A vehicle's running shop plans here, and whether each can pay for a wash today. */
   .get('/vehicle', zValidator('query', z.object({ registrationNumber: registrationSchema })), async (c) => {
-    const plans = await shopPlanRepo.forVehicle(c.get('db'), c.req.valid('query').registrationNumber, new Date());
+    const plans = await shopPlanRepo.forVehicle(c.env.DB, c.get('session').shopId, c.req.valid('query').registrationNumber, new Date());
     return c.json({ plans });
   })
   /** Sells a plan for a vehicle: the customer and vehicle are found or added, and the bill is paid. */

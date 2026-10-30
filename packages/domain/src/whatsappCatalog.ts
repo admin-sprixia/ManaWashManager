@@ -1,4 +1,5 @@
 import { PRICE_SIZES, type PriceSizeKey } from './priceSizes';
+import { upgradeWashes } from './washPlans';
 import type { ChatBranch } from './whatsappChat';
 import { bodyTypeForName } from './vehicleCatalog';
 
@@ -73,6 +74,13 @@ function typeKey(t: ChatBranch['vehicleTypes'][number]): string | null {
   return t.bodyKey ?? bodyTypeForName(t.name)?.key ?? null;
 }
 
+/** "3 Express Wash + 1 Premium Wash", or "4 Basic Wash". */
+function packOf(p: ChatBranch['plans'][number]): string {
+  const better = p.upgrade ? upgradeWashes(p.washes, p.upgrade) : 0;
+  const base = `${p.washes - better} ${p.serviceName}`;
+  return better ? `${base} + ${better} ${p.upgrade!.name}` : base;
+}
+
 /** "4 washes in a month". */
 function planSpan(washes: number, months: number) {
   return `${washes} washes in ${months === 1 ? 'a month' : `${months} months`}`;
@@ -129,8 +137,8 @@ export function catalogProducts(branch: ChatBranch): CatalogProduct[] {
       const saving = price.listTotal - price.total;
       const lines = [
         planSpan(p.washes, p.months),
-        ...(p.serviceName ? [`${/^[AEIOU]/i.test(p.serviceName) ? 'An' : 'A'} ${p.serviceName} each time`] : []),
-        ...(p.upgrade ? [`Every ${p.upgrade.every}th wash is ${/^[AEIOU]/i.test(p.upgrade.name) ? 'an' : 'a'} ${p.upgrade.name}`] : []),
+        // A pack: its washes in any order, whenever the customer likes (one a day).
+        ...(p.serviceName ? [`${packOf(p)}, in any order`] : []),
         ...(p.washes > 1 ? [`Just ${rupees(Math.round(price.total / p.washes / 100) * 100)} a wash`] : []),
       ];
       out.push({

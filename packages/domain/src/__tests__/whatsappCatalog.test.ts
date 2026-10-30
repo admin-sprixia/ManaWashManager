@@ -66,7 +66,7 @@ describe('WhatsApp catalog', () => {
 
   it('describes a plan by its washes and what it costs each time', () => {
     const plan = catalogProducts(branch).find((p) => p.kind === 'plan')!;
-    expect(plan.card.lines).toEqual(['4 washes in a month', 'A Basic Wash each time', 'Just ₹550 a wash']);
+    expect(plan.card.lines).toEqual(['4 washes in a month', '4 Basic Wash, in any order', 'Just ₹550 a wash']);
     expect(plan.description).toContain('You save ₹7.');
   });
 

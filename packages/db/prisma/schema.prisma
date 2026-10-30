@@ -1633,6 +1633,13 @@ model ShopPlanOrder {
   upgradeEvery     Int?      @map("upgrade_every")
   washesTotal      Int       @map("washes_total")
   washesUsed       Int       @default(0) @map("washes_used")
+  /// The pack's better washes (Premium in Express + Premium), counted inside washesTotal.
+  upgradesTotal    Int       @default(0) @map("upgrades_total")
+  upgradesUsed     Int       @default(0) @map("upgrades_used")
+  /// Washes carried over from the plan before it (unused, on renewal).
+  carriedIn        Int       @default(0) @map("carried_in")
+  /// The plan this one's unused wash carried over to.
+  carriedTo        String?   @map("carried_to")
   price            Int
   paymentMethod    String    @map("payment_method")
   saleJobId        String    @map("sale_job_id")
@@ -1655,6 +1662,8 @@ model ShopPlanUse {
   orderId   String   @map("order_id")
   jobId     String   @map("job_id")
   day       String
+  /// "base" (an everyday wash of the pack) or "upgrade" (one of its better washes).
+  kind      String   @default("base")
   createdAt DateTime @default(now()) @map("created_at")
 
   @@unique([shopId, orderId, day])

@@ -1,5 +1,5 @@
 import { createPlatformDb, createShopDb, jobRepo } from '@mana/db';
-import { rateChoiceId, washTemplateMessage, type ChatLang, type PaymentMethod, type WashTemplateKind } from '@mana/domain';
+import { planPack, planUseBy, planWashMessage, rateChoiceId, washTemplateMessage, type ChatLang, type PaymentMethod, type WashTemplateKind } from '@mana/domain';
 import type { Env } from '../types';
 import { billPdf } from './washBill';
 import { graphSend, logOutgoing, uploadMedia, waId, whatsappConfigured } from './whatsapp';
@@ -127,6 +127,93 @@ export function queueWashMessage(
   at: Date,
 ): Promise<void> {
   const work = sendWashMessage(env, shopId, jobId, kind, at);
+  if (env.DEV_MODE === 'true' || !ctx) return work;
+  ctx.waitUntil(work);
+  return Promise.resolve();
+}
+
+/** "2026-11-28" → "28 Nov 2026". */
+function dayLabel(day: string): string {
+  const [y, m, d] = day.split('-').map(Number) as [number, number, number];
+  return `${d} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m - 1]} ${y}`;
+}
+
+/**
+ * After a wash a shop plan paid for: what was done and what's left of the pack, so the customer
+ * always knows their balance (and sees at once if a wash was marked that they didn't have). Once
+ * per wash; never throws.
+ */
+export async function sendPlanWashMessage(env: Env, shopId: string, jobId: string, at: Date): Promise<void> {
+  try {
+    if (!whatsappConfigured(env)) return;
+    if (Date.now() - at.getTime() > BILL_STALE_MS) return;
+    const db = createShopDb(env.DB, shopId);
+    const use = await db.shopPlanUse.findFirst({ where: { jobId }, select: { orderId: true, kind: true } });
+    if (!use) return;
+    const [order, job] = await Promise.all([db.shopPlanOrder.findUnique({ where: { id: use.orderId } }), jobRepo.findBoardRow(db, jobId)]);
+    if (!order || !job) return;
+    const phone = job.customer.phone;
+    if (!/^\d{10}$/.test(phone)) return;
+    const sentBefore = await d1(env)
+      .prepare(`SELECT 1 AS sent FROM whatsapp_messages WHERE job_id = ?1 AND purpose = 'plan_wash' AND direction = 'out' AND status != 'failed' LIMIT 1`)
+      .bind(jobId)
+      .first<{ sent: number }>();
+    if (sentBefore) return;
+
+    const pdb = createPlatformDb(env.DB);
+    const [shop, catalog] = await Promise.all([
+      pdb.shop.findUnique({ where: { id: shopId }, select: { name: true, city: true, businessId: true } }),
+      pdb.catalogService.findMany({
+        where: { id: { in: [order.catalogServiceId, order.upgradeServiceId].filter((x): x is string => !!x) } },
+        select: { id: true, name: true },
+      }),
+    ]);
+    if (!shop) return;
+    const business = shop.businessId ? await pdb.business.findUnique({ where: { id: shop.businessId }, select: { name: true } }) : null;
+    const washName = (id: string | null) => catalog.find((c) => c.id === id)?.name ?? 'Wash';
+    const pack = planPack(order);
+    const model = [job.vehicle.make, job.vehicle.model].filter(Boolean).join(' ');
+    const input = {
+      customerName: job.customer.name,
+      vehicle: model || job.vehicle.vehicleType.name,
+      registrationNumber: job.vehicle.registrationNumber,
+      wash: washName(use.kind === 'upgrade' ? order.upgradeServiceId : order.catalogServiceId),
+      plan: order.title,
+      left: [
+        { wash: washName(order.catalogServiceId), count: pack.everydayLeft },
+        ...(order.upgradeServiceId && order.upgradesTotal > 0 ? [{ wash: washName(order.upgradeServiceId), count: pack.betterLeft }] : []),
+      ],
+      useBy: dayLabel(planUseBy(order.endsOn)),
+      place: [business?.name ?? shop.name, shop.city].filter(Boolean).join(', '),
+      branchId: shopId,
+    };
+    const languages = (await languageOf(env, phone)) === 'te' ? (['te', 'en'] as const) : (['en'] as const);
+    for (const lang of languages) {
+      const m = planWashMessage(input, lang);
+      const sent = await graphSend(env, {
+        recipient_type: 'individual',
+        to: waId(phone),
+        type: 'template',
+        template: {
+          name: m.name,
+          language: { code: m.language },
+          components: [
+            { type: 'body', parameters: m.params.map((text) => ({ type: 'text', text })) },
+            ...m.buttonPayloads.map((payload, i) => ({ type: 'button', sub_type: 'quick_reply', index: String(i), parameters: [{ type: 'payload', payload }] })),
+          ],
+        },
+      });
+      await logOutgoing(env, { phone, kind: 'template', body: m.preview, purpose: 'plan_wash', sent, shopId, jobId });
+      if (sent.ok) return;
+    }
+  } catch (err) {
+    console.error(`WhatsApp plan wash message for job ${jobId} failed`, err);
+  }
+}
+
+/** Runs `sendPlanWashMessage` after the response, like `queueWashMessage`. */
+export function queuePlanWashMessage(ctx: { waitUntil(p: Promise<unknown>): void } | undefined, env: Env, shopId: string, jobId: string, at: Date): Promise<void> {
+  const work = sendPlanWashMessage(env, shopId, jobId, at);
   if (env.DEV_MODE === 'true' || !ctx) return work;
   ctx.waitUntil(work);
   return Promise.resolve();

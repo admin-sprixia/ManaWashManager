@@ -247,6 +247,35 @@ export const WA_TEMPLATES: WaTemplateDefinition[] = [
     example: ['Ravi గారు', 'Basic Plan', 'Maruti Suzuki Swift (AP39AB1234)', '8 Nov 2026', '2', '7 am – 8 pm, closed Mondays'],
     buttons: ['దారి చూపించు'],
   },
+  {
+    name: 'plan_wash',
+    language: 'en',
+    // About a plan they hold, sent as a wash on it is used: what's left.
+    category: 'UTILITY',
+    body: [
+      'Hi {{1}}, your plan wash for {{2}} is done: {{3}}. 🚿',
+      '',
+      'Left on your {{4}}: {{5}}, to use any time till {{6}}.',
+      '',
+      'Thank you for choosing {{7}}. See you soon!',
+    ].join('\n'),
+    example: ['Ravi', 'Hyundai Creta (AP39AB1234)', 'Express Wash', 'Express + Premium Plan', '2 Express, 1 Premium', '28 Nov 2026', 'Sri Mana Wash, Kovur'],
+    buttons: ['Get Directions'],
+  },
+  {
+    name: 'plan_wash',
+    language: 'te',
+    category: 'UTILITY',
+    body: [
+      'నమస్కారం {{1}}, {{2}} కి మీ ప్లాన్ వాష్ పూర్తయింది: {{3}}. 🚿',
+      '',
+      'మీ {{4}} లో మిగిలినవి: {{5}}, {{6}} వరకు ఎప్పుడైనా వాడుకోండి.',
+      '',
+      '{{7}} ని ఎంచుకున్నందుకు ధన్యవాదాలు. మళ్ళీ కలుద్దాం!',
+    ].join('\n'),
+    example: ['Ravi గారు', 'Hyundai Creta (AP39AB1234)', 'Express Wash', 'Express + Premium Plan', '2 Express, 1 Premium', '28 Nov 2026', 'Sri Mana Wash, Kovur'],
+    buttons: ['దారి చూపించు'],
+  },
 ];
 
 /** What one wash's message needs. Amounts in paise. */
@@ -380,4 +409,36 @@ export function followUpMessage(input: FollowUpInput, lang: ChatLang): FollowUpM
   params = params.map(clean);
   const buttonPayloads = input.kind === 'plan_ending' ? [`loc|${input.branchId}`] : [`svc|${input.branchId}`, 'STOP'];
   return { name: templateName, language: lang, params, buttonPayloads, preview: fill(def, params) };
+}
+
+/** What the "plan wash used" message needs; `useBy` is written out ("28 Nov 2026"). */
+export interface PlanWashInput {
+  customerName: string | null;
+  vehicle: string;
+  registrationNumber: string;
+  /** The wash just done ("Premium Wash"). */
+  wash: string;
+  plan: string;
+  /** What's left of the pack, by wash ("Express Wash": 2). */
+  left: { wash: string; count: number }[];
+  useBy: string;
+  place: string;
+  branchId: string;
+}
+
+/** "Express Wash" → "Express", "Bike Premium Wash" → "Premium". */
+const shortWash = (wash: string) => wash.replace(/^Bike /, '').replace(/ Wash$/, '');
+
+/** After a plan wash: what was done and what's left of the pack, with Get Directions. */
+export function planWashMessage(input: PlanWashInput, lang: ChatLang): FollowUpMessage {
+  const def = WA_TEMPLATES.find((t) => t.name === 'plan_wash' && t.language === lang)!;
+  const who = name({ customerName: input.customerName } as WashMessageInput, lang);
+  const remaining = input.left.filter((l) => l.count > 0);
+  const left = remaining.length
+    ? remaining.map((l) => `${l.count} ${shortWash(l.wash)}`).join(', ')
+    : lang === 'te'
+      ? 'వాష్‌లు ఏమీ లేవు (కౌంటర్ వద్ద రీన్యూ చేసుకోండి)'
+      : 'no washes (renew at the counter)';
+  const params = [who, vehicleLine({ vehicle: input.vehicle, registrationNumber: input.registrationNumber } as WashMessageInput), input.wash, input.plan, left, input.useBy, input.place].map(clean);
+  return { name: 'plan_wash', language: lang, params, buttonPayloads: [`loc|${input.branchId}`], preview: fill(def, params) };
 }

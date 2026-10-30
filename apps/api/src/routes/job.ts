@@ -37,6 +37,7 @@ import {
   MIN_REASON_LENGTH,
   normalizeCouponCode,
   normalizePhone,
+  parseServiceKind,
   PriceNotFoundError,
   referralProblemMessage,
   stockLevel,
@@ -46,6 +47,7 @@ import {
   type ExpenseCategory,
   type JobStatus,
   type PaymentMethod,
+  type PlanWashKind,
 } from '@mana/domain';
 import {
   cancelReferralForVoidedJob,
@@ -60,7 +62,7 @@ import { requireAuth, requireRole } from '../middleware/auth';
 import { formatIstDateOnly, startOfIstDay } from '../lib/istDate';
 import { reportQuerySchema, resolveReportWindow, windowMeta } from '../lib/reportWindow';
 import { billPdf } from '../lib/washBill';
-import { executionCtx, queueWashMessage } from '../lib/washMessages';
+import { executionCtx, queuePlanWashMessage, queueWashMessage } from '../lib/washMessages';
 import type { Env } from '../types';
 
 const MAX_SERVICE_QUANTITY = 20;
@@ -187,6 +189,8 @@ const startJobSchema = z
     planOrderId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/).optional(),
     /** A plan bought at this counter for this vehicle pays for its wash (one a day). */
     shopPlanId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/).optional(),
+    /** Which of the plan's washes pays: its everyday one or its better one. Left out: worked out from the bill. */
+    shopPlanUse: z.enum(['base', 'upgrade']).optional(),
     ...pricingFields,
     sellerIds: sellerIdsSchema.optional(),
   })
@@ -616,7 +620,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
 
     // A community plan member at the shop: the plan's wash is free, and uses one of its washes.
     const planInvalid = (message: string) => c.json({ error: 'plan_wash_invalid' as const, message }, 409);
-    let planWash: { discount: number; reason: string; serviceId: string } | null = null;
+    let planWash: { discount: number; reason: string; serviceId: string; kind?: PlanWashKind } | null = null;
     if (body.planOrderId) {
       if (body.ownership) return planInvalid('A plan wash can’t be used while the vehicle’s owner is being changed.');
       const plans = await placeOrderRepo.shopPlans(c.env.DB, session.shopId, body.customer.phone, now);
@@ -631,20 +635,54 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
         serviceId: line.serviceId,
       };
     }
-    // A plan bought at this counter for this vehicle: the same, one wash a day.
+    // A plan bought at this counter for this vehicle: one of its pack's washes, any order, one a
+    // day. A better wash than the one it covers is fine: the plan pays its wash, the customer the
+    // difference.
     if (body.shopPlanId) {
       if (body.ownership) return planInvalid('A plan wash can’t be used while the vehicle’s owner is being changed.');
-      const plans = await shopPlanRepo.forVehicle(db, body.registrationNumber, now);
+      const plans = await shopPlanRepo.forVehicle(c.env.DB, session.shopId, body.registrationNumber, now);
       const found = plans.find((p) => p.orderId === body.shopPlanId);
       if (!found) return planInvalid('This plan isn’t running for this vehicle any more.');
       if (found.problem) return planInvalid(found.problem);
-      const line = priced.lineItems.find((l) => l.serviceId === found.service?.id);
-      if (!line) return planInvalid(`Add ${found.service?.name ?? 'the plan’s wash'} to the bill to use the plan.`);
-      planWash = {
-        discount: line.priceAtTime,
-        reason: `Plan wash · ${found.title} · ${found.washesUsed + 1} of ${found.washesTotal}`.slice(0, 200),
-        serviceId: line.serviceId,
-      };
+      const lineFor = (serviceId: string | undefined) => priced.lineItems.find((l) => l.serviceId === serviceId);
+      const usable = found.options.filter((o) => o.left > 0 && o.service);
+      const option = body.shopPlanUse
+        ? found.options.find((o) => o.kind === body.shopPlanUse)
+        : // Not said (an older app): the wash on the bill, the better one first, else the everyday one.
+          (usable.find((o) => o.kind === 'upgrade' && lineFor(o.service?.id)) ?? usable.find((o) => lineFor(o.service?.id)) ?? usable[0]);
+      if (!option) return planInvalid('This plan has no better wash.');
+      if (option.left === 0) return planInvalid(`No ${option.name} left on this plan.`);
+      if (!option.service) return planInvalid(`${option.name} isn’t on this branch’s menu.`);
+      const left = found.washesTotal - found.washesUsed - 1;
+      const direct = lineFor(option.service.id);
+      if (direct) {
+        planWash = {
+          discount: direct.priceAtTime,
+          reason: `Plan wash · ${found.title} · ${option.name} · ${left} left`.slice(0, 200),
+          serviceId: direct.serviceId,
+          kind: option.kind,
+        };
+      } else {
+        // Pay the difference: the plan's wash at today's price, towards the dearest wash on the bill.
+        const coveredPrice = (await serviceRepo.listPrices(db, body.vehicleTypeId)).find(
+          (p) => p.serviceId === option.service!.id && p.mode === 'hub',
+        )?.price;
+        const washIds = new Set(
+          (await db.service.findMany({ where: { id: { in: priced.lineItems.map((l) => l.serviceId) } }, select: { id: true, kind: true } }))
+            .filter((s) => parseServiceKind(s.kind) === 'wash')
+            .map((s) => s.id),
+        );
+        const better = priced.lineItems
+          .filter((l) => washIds.has(l.serviceId) && coveredPrice != null && l.priceAtTime > coveredPrice)
+          .sort((a, b) => b.priceAtTime - a.priceAtTime)[0];
+        if (!better || coveredPrice == null) return planInvalid(`Add ${option.service.name} (or a better wash) to the bill to use the plan.`);
+        planWash = {
+          discount: coveredPrice,
+          reason: `Plan wash · ${found.title} · ${option.name} towards a better wash · ${left} left`.slice(0, 200),
+          serviceId: better.serviceId,
+          kind: option.kind,
+        };
+      }
     }
 
     const percentOff = coupon?.percent ?? referral?.percent ?? null;
@@ -705,6 +743,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
         orderId: body.shopPlanId,
         jobId: body.id,
         registrationNumber: body.registrationNumber,
+        kind: planWash.kind ?? 'base',
         now,
       });
       if (!used.ok) {
@@ -812,6 +851,8 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
           },
         });
       }
+      // A counter plan paid for it: the customer hears on WhatsApp what's left of their pack.
+      if (planWash && body.shopPlanId) await queuePlanWashMessage(executionCtx(c), c.env, session.shopId, body.id, now);
       return c.json(job, 201);
     } catch (e) {
       // A replay of this same request may have created the job first; its coupon, referral and

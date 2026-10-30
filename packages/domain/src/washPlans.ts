@@ -468,6 +468,34 @@ export function planLastDay(startDay: string, months: number): string {
   return end.toISOString().slice(0, 10);
 }
 
+/** After a plan's last day, a week more to use any wash still left on it. */
+export const PLAN_GRACE_DAYS = 7;
+
+/** The last day a plan can still pay for a wash: its end, plus the grace week. */
+export function planUseBy(endsOn: string): string {
+  const d = new Date(`${endsOn}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + PLAN_GRACE_DAYS);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * A plan is a pack: so many everyday washes and so many better ones (3 Express + 1 Premium),
+ * used in any order, one a day. What's left of each.
+ */
+export interface PlanPack {
+  everydayLeft: number;
+  betterLeft: number;
+  left: number;
+}
+export function planPack(plan: { washesTotal: number; washesUsed: number; upgradesTotal: number; upgradesUsed: number }): PlanPack {
+  const betterLeft = Math.max(0, plan.upgradesTotal - plan.upgradesUsed);
+  const everydayLeft = Math.max(0, plan.washesTotal - plan.upgradesTotal - (plan.washesUsed - plan.upgradesUsed));
+  return { everydayLeft, betterLeft, left: everydayLeft + betterLeft };
+}
+
+/** Which of a pack's washes pays: an everyday one, or one of its better ones. */
+export type PlanWashKind = 'base' | 'upgrade';
+
 /** Why a shop plan can't pay for a wash today, or null when it can. */
 export function shopPlanProblem(
   plan: { status: string; washesUsed: number; washesTotal: number; endsOn: string },
@@ -476,7 +504,15 @@ export function shopPlanProblem(
 ): string | null {
   if (plan.status === 'void') return 'This plan was cancelled.';
   if (plan.washesUsed >= plan.washesTotal) return 'Every wash on this plan is used.';
-  if (today > plan.endsOn) return 'This plan has ended.';
+  if (today > planUseBy(plan.endsOn)) return 'This plan has ended.';
   if (usedToday) return 'This plan was already used today: one wash a day.';
+  return null;
+}
+
+/** Why one kind of a pack's washes can't pay today (none of that kind left), or null. */
+export function packWashProblem(pack: PlanPack, kind: PlanWashKind, names: { base: string; upgrade: string | null }): string | null {
+  if (kind === 'upgrade' && !names.upgrade) return 'This plan has no better wash.';
+  if (kind === 'upgrade' && pack.betterLeft === 0) return `No ${names.upgrade} left on this plan.`;
+  if (kind === 'base' && pack.everydayLeft === 0) return `No ${names.base} left on this plan${pack.betterLeft ? `: use its ${names.upgrade}` : ''}.`;
   return null;
 }

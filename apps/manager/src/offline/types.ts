@@ -121,6 +121,8 @@ export interface StartJobPayload {
   planOrderId?: string;
   /** A plan bought at this counter for this vehicle pays for the wash. Never queued offline. */
   shopPlanId?: string;
+  /** Which of the counter plan's washes pays: its everyday one or its better one. */
+  shopPlanUse?: 'base' | 'upgrade';
   /** Who got this service, when a picked service pays commission. Defaults to whoever enters it. */
   sellerIds?: string[];
 }

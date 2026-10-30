@@ -14,6 +14,18 @@ export interface ShopPlan {
   problem: string | null;
   /** A community plan, or one bought at this counter (for this vehicle, one wash a day). */
   source?: 'community' | 'shop';
+  /**
+   * A counter plan is a pack: its everyday wash and its better one, how many of each are left,
+   * used in any order (one a day).
+   */
+  options?: PlanOption[];
+}
+
+export interface PlanOption {
+  kind: 'base' | 'upgrade';
+  name: string;
+  service: { id: string; name: string } | null;
+  left: number;
 }
 
 interface PlanWashCardProps {
@@ -25,11 +37,19 @@ interface PlanWashCardProps {
   blocked: string | null;
   formatMoney: (paise: number) => string;
   onToggle: () => void;
+  /** The pack's wash in use, and picking another one. */
+  kind?: 'base' | 'upgrade' | null;
+  onPickKind?: (kind: 'base' | 'upgrade') => void;
+  /** A better wash than the plan's is on the bill: the plan pays its wash, the customer the rest. */
+  towards?: string | null;
 }
 
 /** A community plan member at the shop: one tap uses a plan wash, and its service is free. */
-export function PlanWashCard({ plan, applied, saving, blocked, formatMoney, onToggle }: PlanWashCardProps) {
+export function PlanWashCard({ plan, applied, saving, blocked, formatMoney, onToggle, kind, onPickKind, towards }: PlanWashCardProps) {
   const left = plan.washesTotal - plan.washesUsed;
+  const options = plan.options ?? [];
+  const chosen = options.find((o) => o.kind === kind) ?? null;
+  const covered = applied && chosen?.service ? chosen.service : plan.service;
   const note = plan.problem ?? blocked;
   const disabled = !applied && note != null;
   const where = [plan.placeName, plan.unit].filter(Boolean).join(', ');
@@ -45,14 +65,45 @@ export function PlanWashCard({ plan, applied, saving, blocked, formatMoney, onTo
           {applied && saving > 0 ? <Text style={styles.saving}> −{formatMoney(saving)}</Text> : null}
         </Text>
         <Text style={styles.meta} numberOfLines={2}>
-          {where} · {left} of {plan.washesTotal} {plan.washesTotal === 1 ? 'wash' : 'washes'} left
+          {where} ·{' '}
+          {options.length
+            ? `Left: ${options.map((o) => `${o.left} ${o.name.replace(/^Bike /, '').replace(/ Wash$/, '')}`).join(' · ')}`
+            : `${left} of ${plan.washesTotal} ${plan.washesTotal === 1 ? 'wash' : 'washes'} left`}
           {plan.vehicle.registrationNumber ? ` · ${plan.vehicle.registrationNumber}` : ` · ${plan.vehicle.typeName}`}
         </Text>
+        {options.length > 1 && onPickKind && !(note && !applied) ? (
+          <View style={styles.kinds}>
+            {options.map((o) => {
+              const on = applied && kind === o.kind;
+              const off = o.left === 0 || !o.service;
+              return (
+                <Pressable
+                  key={o.kind}
+                  onPress={() => onPickKind(o.kind)}
+                  disabled={off}
+                  style={({ pressed }) => [styles.kind, on && styles.kindOn, off && styles.kindOff, pressed && styles.pressed]}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on, disabled: off }}
+                  accessibilityLabel={`Use a ${o.name} from the plan, ${o.left} left`}
+                  hitSlop={4}
+                >
+                  <Text style={[styles.kindText, on && styles.kindTextOn, off && styles.kindTextOff]}>
+                    {o.name} · {o.left}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
         {note && !applied ? (
           <Text style={styles.note}>{note}</Text>
-        ) : plan.service ? (
+        ) : covered ? (
           <Text style={styles.covers}>
-            {applied ? `${plan.service.name} is free · uses 1 plan wash` : `Covers ${plan.service.name}`}
+            {applied
+              ? towards
+                ? `Plan pays ${covered.name} · customer pays the rest of ${towards}`
+                : `${covered.name} is free · uses 1 plan wash`
+              : `Covers ${covered.name}${options.length > 1 ? ' or its better wash · any order' : ''}`}
           </Text>
         ) : null}
       </View>
@@ -101,6 +152,20 @@ const styles = StyleSheet.create({
   meta: { ...typography.caption, color: colors.slateDeep, letterSpacing: 0.2 },
   covers: { ...typography.caption, color: colors.waterDeep, fontWeight: '700', letterSpacing: 0 },
   note: { ...typography.caption, color: colors.amberDeep, letterSpacing: 0 },
+  kinds: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
+  kind: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.water,
+    backgroundColor: colors.white,
+  },
+  kindOn: { backgroundColor: colors.waterDeep, borderColor: colors.waterDeep },
+  kindOff: { borderColor: '#CBD5E1', backgroundColor: '#F1F5F9' },
+  kindText: { ...typography.caption, color: colors.waterDeep, fontWeight: '700', letterSpacing: 0 },
+  kindTextOn: { color: colors.white },
+  kindTextOff: { color: colors.slate },
   btn: {
     paddingHorizontal: 16,
     paddingVertical: 9,

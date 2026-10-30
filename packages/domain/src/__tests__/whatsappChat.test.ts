@@ -526,7 +526,7 @@ describe('WhatsApp assistant: numbers and PLANS', () => {
     expect(m.text).toBe(
       [
         '📅 *Build your wash plan* · 🚗 Small car',
-        '4 washes a month, one every week. Pay once and save 8%.',
+        'A pack of 4 washes a month: use them in any order, whenever you like. Pay once and save 8%.',
         '',
         'What wash do you want *every week*?',
       ].join('\n'),
@@ -548,28 +548,31 @@ describe('WhatsApp assistant: numbers and PLANS', () => {
     expectValid([express]);
     expect(express.text).toBe('Every week: *Express*. Want a better wash in between?');
     expect(express.rows).toEqual([
-      { id: 'pp|b1|Express Plan|sz|small', title: 'All Express', description: '₹1,099 a month · Express every week' },
+      { id: 'pp|b1|Express Plan|sz|small', title: 'All Express', description: '₹1,099 a month · 4 Express, any order' },
       {
         id: 'pp|b1|Express + Premium Plan|sz|small',
-        title: '+ Premium once a month',
-        description: '₹1,649 a month · Week 1, 2, 3: Express · Week 4: Premium',
+        title: '+ 1 Premium a month',
+        description: '₹1,649 a month · 3 Express + 1 Premium, any order',
       },
     ]);
     const basic = as(only(choose('pm|b1|Basic Wash|sz|small').messages), 'list');
-    expect(basic.rows.map((r) => r.title)).toEqual(['All Basic ⭐', '+ Premium once a month']);
+    expect(basic.rows.map((r) => r.title)).toEqual(['All Basic ⭐', '+ 1 Premium a month']);
   });
 
-  it('then the plan: its weeks and its price for each length', () => {
+  it('then the plan: its pack, any order, and its price for each length', () => {
     const m = as(only(choose('pp|b1|Express + Premium Plan|sz|small').messages), 'buttons');
     expectValid([m]);
     expect(m.text).toBe(
       [
         '✨ *Express + Premium Plan* · 🚗 Small car',
-        'Week 1, 2, 3: Express · Week 4: Premium',
+        '*3 Express + 1 Premium* every month',
+        'Use them in any order, whenever you like (one a day).',
         '',
         '• 1 month: *₹1,649* (save ₹147)',
         '',
         "💡 That's *₹412* a wash.",
+        '⬆️ Want a better wash on the day? Pay just the difference.',
+        '🗓️ 7 extra days to use any wash left, and 1 unused wash carries over when you renew.',
         '',
         'Buy it at the counter on your next visit.',
       ].join('\n'),
@@ -581,11 +584,11 @@ describe('WhatsApp assistant: numbers and PLANS', () => {
     ]);
     const longer = bodyOf(only(choose('pp|b1|Express Plan|sz|small').messages));
     expect(longer).toContain('• 1 month: *₹1,099* (save ₹97)');
-    expect(longer).toContain('• 3 months: *₹3,297* (save ₹590) · 13 washes, 1 free');
+    expect(longer).toContain('• 3 months: *₹3,297* (save ₹590) · 13 washes, 1 free ⭐ *Best value*');
     expect(longer).toContain('• 12 months: *₹13,188* (save ₹2,360) · 13 months for 12');
     const te = reply({ kind: 'choice', id: 'pp|b1|Express + Premium Plan|sz|small' }, after('', 'te')).messages;
     expectValid(te);
-    expect(bodyOf(te[0]!)).toContain('వారం 1, 2, 3: Express · వారం 4: Premium');
+    expect(bodyOf(te[0]!)).toContain('ప్రతి నెల *3 Express + 1 Premium*');
   });
 
   it('a number after an older plans list reads from the price list', () => {

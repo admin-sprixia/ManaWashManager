@@ -1,6 +1,7 @@
 import { clockMinutes, formatClock, offDaysOf, WEEKDAY_LABELS, type OpeningHours } from './customerApp';
 import type { VehicleCategory } from './types';
 import { PRICE_SIZES, priceSize, priceSizeOfBody, type PriceSize } from './priceSizes';
+import { PLAN_GRACE_DAYS, upgradeWashes } from './washPlans';
 import type { ServiceKind } from './serviceNetwork';
 import { bodyTypeDef, bodyTypeForName } from './vehicleCatalog';
 import { VEHICLE_MAKES, vehicleGuideRows, vehicleTypeKeysFor, type VehicleGuideRow, type VehicleModelEdit } from './vehicleMakes';
@@ -792,8 +793,9 @@ function details(t: Turn, b: ChatBranch, x: Target, n: number): ChatMessage[] {
 }
 
 // ─── Build your plan ─────────────────────────────────────────────────────────
-// PLANS → the everyday wash (Express or Basic) → how to mix it (all the same, Basic every 2nd
-// wash, Premium once a month…) → that plan's price for 1, 3 and 12 months. Each step's id
+// PLANS → the everyday wash (Express or Basic) → how to mix it (all the same, 2 Basic a month,
+// 1 Premium a month…) → that plan's price for 1, 3 and 12 months. A plan is a pack: its washes
+// in any order, whenever the customer likes (one a day). Each step's id
 // carries the size or model it's for: "pm|<branch>|Express Wash|sz|large".
 
 /** "Express Wash" → "Express", "Bike Premium Wash" → "Premium". */
@@ -835,23 +837,18 @@ function planFamilies(b: ChatBranch, x: Target): PlanFamily[] {
 const planStepId = (kind: 'pm' | 'pp', b: ChatBranch, arg: string, x: Target) =>
   x.kind === 'size' ? id(kind, b.id, arg, 'sz', x.size.key) : id(kind, b.id, arg, 'pr', x.make, x.model);
 
-/** Which weeks get which wash: "Week 1, 2, 3: Express · Week 4: Premium", or "Express every week". */
-function weekPattern(t: Turn, f: PlanFamily): string {
-  if (!f.upgrade) return say(t, `${shortWash(f.base)} every week`, `ప్రతి వారం ${shortWash(f.base)}`);
-  const weeks = Array.from({ length: f.washes }, (_, i) => i + 1);
-  const better = weeks.filter((w) => w % f.upgrade!.every === 0);
-  const plain = weeks.filter((w) => w % f.upgrade!.every !== 0);
-  const wk = say(t, 'Week', 'వారం');
-  return `${wk} ${plain.join(', ')}: ${shortWash(f.base)} · ${wk} ${better.join(', ')}: ${shortWash(f.upgrade.name)}`;
+/** What a month of the plan holds: "3 Express + 1 Premium", or "4 Express". */
+function packLine(f: PlanFamily): string {
+  const better = f.upgrade ? upgradeWashes(f.washes, f.upgrade) : 0;
+  const base = `${f.washes - better} ${shortWash(f.base)}`;
+  return better ? `${base} + ${better} ${shortWash(f.upgrade!.name)}` : base;
 }
 
-/** How a plan mixes its washes, for its row: "All Express", "+ Premium once a month". */
+/** How a plan mixes its washes, for its row: "All Express", "+ 1 Premium a month". */
 function mixTitle(t: Turn, f: PlanFamily): string {
   if (!f.upgrade) return say(t, `All ${shortWash(f.base)}`, `అన్నీ ${shortWash(f.base)}`);
-  const up = shortWash(f.upgrade.name);
-  if (f.upgrade.every >= f.washes) return say(t, `+ ${up} once a month`, `+ నెలకు ఒకసారి ${up}`);
-  const nth = f.upgrade.every === 2 ? '2nd' : f.upgrade.every === 3 ? '3rd' : `${f.upgrade.every}th`;
-  return say(t, `+ ${up} every ${nth} wash`, `+ ప్రతి ${f.upgrade.every}వ వాష్ ${up}`);
+  const n = upgradeWashes(f.washes, f.upgrade);
+  return say(t, `+ ${n} ${shortWash(f.upgrade.name)} a month`, `+ నెలకు ${n} ${shortWash(f.upgrade.name)}`);
 }
 
 function noPlans(t: Turn, b: ChatBranch, x: Target): ChatMessage[] {
@@ -880,8 +877,8 @@ function planStart(t: Turn, b: ChatBranch, x: Target): ChatMessage[] {
         say(t, `📅 *Build your wash plan* · ${emojiOf(x)} ${labelOf(t, x)}`, `📅 *మీ వాష్ ప్లాన్* · ${emojiOf(x)} ${labelOf(t, x)}`),
         say(
           t,
-          `${washes} washes a month, one every week. Pay once${pct > 0 ? ` and save ${pct}%` : ''}.`,
-          `నెలకు ${washes} వాష్‌లు, వారానికి ఒకటి. ఒకేసారి చెల్లించండి${pct > 0 ? `, ${pct}% ఆదా` : ''}.`,
+          `A pack of ${washes} washes a month: use them in any order, whenever you like. Pay once${pct > 0 ? ` and save ${pct}%` : ''}.`,
+          `నెలకు ${washes} వాష్‌ల ప్యాక్: మీకు నచ్చిన క్రమంలో, ఎప్పుడైనా వాడుకోండి. ఒకేసారి చెల్లించండి${pct > 0 ? `, ${pct}% ఆదా` : ''}.`,
         ),
         '',
         say(t, 'What wash do you want *every week*?', '*ప్రతి వారం* ఏ వాష్ కావాలి?'),
@@ -912,7 +909,7 @@ function planMixes(t: Turn, b: ChatBranch, x: Target, base: string): ChatMessage
       rows: families.slice(0, WA_MAX_LIST_ROWS).map((f) => ({
         id: planStepId('pp', b, f.name, x),
         title: cut(`${mixTitle(t, f)}${f.popular ? ' ⭐' : ''}`, WA_ROW_TITLE_MAX),
-        description: cut(`${rupees(f.monthly!.price)}${say(t, ' a month', ' నెలకు')} · ${weekPattern(t, f)}`, WA_ROW_DESCRIPTION_MAX),
+        description: cut(`${rupees(f.monthly!.price)}${say(t, ' a month', ' నెలకు')} · ${packLine(f)}${say(t, ', any order', ', ఏ క్రమంలోనైనా')}`, WA_ROW_DESCRIPTION_MAX),
       })),
     },
   ];
@@ -922,9 +919,11 @@ function planMixes(t: Turn, b: ChatBranch, x: Target, base: string): ChatMessage
 function planOffer(t: Turn, b: ChatBranch, x: Target, name: string): ChatMessage[] {
   const f = planFamilies(b, x).find((g) => g.name === name);
   if (!f) return planStart(t, b, x);
+  const best = f.items.find((p) => p.plan.months > 1 && p.plan.months < 12);
   const lines = [
     `✨ *${f.name}*${f.popular ? ' ⭐' : ''} · ${emojiOf(x)} ${labelOf(t, x)}`,
-    weekPattern(t, f),
+    say(t, `*${packLine(f)}* every month`, `ప్రతి నెల *${packLine(f)}*`),
+    say(t, 'Use them in any order, whenever you like (one a day).', 'మీకు నచ్చిన క్రమంలో, ఎప్పుడైనా వాడుకోండి (రోజుకు ఒకటి).'),
     '',
     ...f.items.map((p) => {
       const span = p.plan.months <= 1 ? say(t, '1 month', '1 నెల') : p.plan.months >= 12 ? say(t, '12 months', '12 నెలలు') : say(t, `${p.plan.months} months`, `${p.plan.months} నెలలు`);
@@ -934,9 +933,16 @@ function planOffer(t: Turn, b: ChatBranch, x: Target, name: string): ChatMessage
           : p.plan.months >= 12
             ? say(t, ' · 13 months for 12', ' · 12 ధరకు 13 నెలలు')
             : say(t, ` · ${p.plan.washes} washes, 1 free`, ` · ${p.plan.washes} వాష్‌లు, 1 ఉచితం`);
-      return `• ${span}: *${rupees(p.price)}*${saveNote(t, p)}${extra}`;
+      const tag = p === best && f.items.length > 2 ? say(t, ' ⭐ *Best value*', ' ⭐ *మంచి ఆఫర్*') : '';
+      return `• ${span}: *${rupees(p.price)}*${saveNote(t, p)}${extra}${tag}`;
     }),
-    ...(f.monthly ? ['', perWash(t, f.monthly.price, f.monthly.plan.washes)].filter((l): l is string => l != null) : []),
+    ...(f.monthly ? ['', perWash(t, f.monthly.price, f.monthly.plan.washes)].filter((l): l is string => l != null) : ['']),
+    say(t, '⬆️ Want a better wash on the day? Pay just the difference.', '⬆️ ఆ రోజు ఇంకా మంచి వాష్ కావాలా? తేడా మాత్రమే చెల్లించండి.'),
+    say(
+      t,
+      `🗓️ ${PLAN_GRACE_DAYS} extra days to use any wash left, and 1 unused wash carries over when you renew.`,
+      `🗓️ మిగిలిన వాష్‌లకు ఇంకా ${PLAN_GRACE_DAYS} రోజులు, రీన్యూ చేస్తే 1 వాడని వాష్ కొత్త ప్లాన్‌లోకి వస్తుంది.`,
+    ),
     '',
     say(t, 'Buy it at the counter on your next visit.', 'మీ తదుపరి విజిట్‌లో కౌంటర్ వద్ద తీసుకోండి.'),
   ];

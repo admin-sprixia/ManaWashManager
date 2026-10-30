@@ -178,7 +178,7 @@ const mixPick = mixRows.find((r) => r.title.startsWith('+')) ?? mixRows[0];
 check('…then the ways to mix it, each with a month’s price', mixRows.length > 0 && mixRows.every((r) => r.id.startsWith('pp|') && /₹[\d,]+ a month/.test(r.description ?? '')), JSON.stringify(mixes[0]).slice(0, 400));
 const offer = await choose(mixPick.id, 'list_reply');
 const offerBody = bodyOf(offer[0]);
-check('…then the plan, week by week, with 1, 3 and 12-month prices', offerBody.startsWith('✨ *') && /• 1 month: \*₹/.test(offerBody) && /• 3 months: \*₹/.test(offerBody), offerBody.slice(0, 400));
+check('…then the plan as a pack, with 1, 3 and 12-month prices', offerBody.startsWith('✨ *') && /• 1 month: \*₹/.test(offerBody) && /• 3 months: \*₹/.test(offerBody), offerBody.slice(0, 400));
 console.log(`\n--- A plan ---\n${offerBody}\n--------------\n`);
 
 // Not sure? → the plain company list (what it shows when no Flow is published).
@@ -358,6 +358,78 @@ check('a late “delivered” never undoes “read”', d1Rows(`SELECT status FR
   check('the app can open the same bill as a PDF', appBill.status === 200 && appBill.headers.get('content-type') === 'application/pdf' && (await appBill.arrayBuffer()).byteLength > 1000);
   const logged = d1Rows(`SELECT purpose FROM whatsapp_messages WHERE job_id = '${jobId}' ORDER BY created_at`).map((r) => r.purpose).join(',');
   check('both are logged with the wash', logged.startsWith('ready,bill'), logged);
+
+  // ─── Wash plans are packs: any order, one a day, pay the difference ───
+  {
+    const reg = `AP39PK${phone.slice(-4)}`;
+    const forSale = await call('GET', `/shop-plans/for-sale?vehicleTypeId=${encodeURIComponent(priced.vehicle_type_id)}`);
+    const pack = forSale.body?.plans?.find((p) => p.upgrade && p.months === 1);
+    const plain = forSale.body?.plans?.find((p) => !p.upgrade && p.months === 1);
+    if (!pack || !plain) {
+      console.log('NOTE  no monthly pack plans for this vehicle type here: plan checks skipped');
+    } else {
+      const sold = await call('POST', '/shop-plans/sell', {
+        id: `sale_pk_${phone}`,
+        customer: { phone, name: 'Ravi Kumar' },
+        registrationNumber: reg,
+        vehicleTypeId: priced.vehicle_type_id,
+        planId: pack.planId,
+        paymentMethod: 'cash',
+      });
+      check(`selling ${pack.name} works`, sold.status === 201, JSON.stringify(sold.body).slice(0, 200));
+      const held = (await call('GET', `/shop-plans/vehicle?registrationNumber=${reg}`)).body?.plans?.[0];
+      const better = held?.options?.find((o) => o.kind === 'upgrade');
+      const everyday = held?.options?.find((o) => o.kind === 'base');
+      check('the plan is a pack: everyday and better washes counted apart', !!better && !!everyday && better.left >= 1 && everyday.left >= 1, JSON.stringify(held?.options));
+      const first = await call('POST', '/jobs/start', {
+        id: `job_pk1_${phone}`,
+        customer: { phone, name: 'Ravi Kumar' },
+        registrationNumber: reg,
+        vehicleTypeId: priced.vehicle_type_id,
+        services: [{ serviceId: better.service.id, quantity: 1 }],
+        shopPlanId: held.orderId,
+        shopPlanUse: 'upgrade',
+      });
+      check(`its ${better.name} can come first (any order), and is free`, first.status === 201 && first.body?.total === 0, JSON.stringify(first.body).slice(0, 200));
+      const after = (await call('GET', `/shop-plans/vehicle?registrationNumber=${reg}`)).body?.plans?.[0];
+      check('…and only the better washes go down', after?.options?.find((o) => o.kind === 'upgrade')?.left === better.left - 1 && after?.options?.find((o) => o.kind === 'base')?.left === everyday.left);
+      const msg = templates('plan_wash').at(-1);
+      const params = msg?.template?.components?.[0]?.parameters?.map((x) => x.text) ?? [];
+      check('the customer gets “plan wash used” with what is left', params[2] === better.name && params[4]?.includes(`${everyday.left} `), JSON.stringify(params));
+      const again = await call('POST', '/jobs/start', {
+        id: `job_pk2_${phone}`,
+        customer: { phone, name: 'Ravi Kumar' },
+        registrationNumber: reg,
+        vehicleTypeId: priced.vehicle_type_id,
+        services: [{ serviceId: everyday.service.id, quantity: 1 }],
+        shopPlanId: held.orderId,
+        shopPlanUse: 'base',
+      });
+      check('a second plan wash the same day is refused (one a day)', again.status === 409, JSON.stringify(again.body).slice(0, 200));
+      // A plain plan on the same car: its Express towards a better wash, the difference paid.
+      await call('POST', '/shop-plans/sell', {
+        id: `sale_pk2_${phone}`,
+        customer: { phone, name: 'Ravi Kumar' },
+        registrationNumber: reg,
+        vehicleTypeId: priced.vehicle_type_id,
+        planId: plain.planId,
+        paymentMethod: 'cash',
+      });
+      const plainHeld = (await call('GET', `/shop-plans/vehicle?registrationNumber=${reg}`)).body?.plans?.find((p) => p.title === plain.name);
+      const prices = (await call('GET', `/services/prices`)).body;
+      const priceOf = (id) => (Array.isArray(prices) ? prices : prices?.prices ?? []).find((p) => p.serviceId === id && p.vehicleTypeId === priced.vehicle_type_id && p.mode === 'hub')?.price;
+      const diff = await call('POST', '/jobs/start', {
+        id: `job_pk3_${phone}`,
+        customer: { phone, name: 'Ravi Kumar' },
+        registrationNumber: reg,
+        vehicleTypeId: priced.vehicle_type_id,
+        services: [{ serviceId: better.service.id, quantity: 1 }],
+        shopPlanId: plainHeld?.orderId,
+      });
+      const expected = priceOf(better.service.id) - priceOf(plainHeld?.options?.[0]?.service?.id);
+      check('a better wash on the plan: the customer pays just the difference', diff.status === 201 && diff.body?.total === expected && expected > 0, `${diff.status} total ${diff.body?.total} expected ${expected}`);
+    }
+  }
 
   // ─── The inbox ─────────────────────────────────────────────────────────────
   d1Run(`UPDATE whatsapp_contacts SET awaiting_reply_at = NULL, bot_paused_until = NULL WHERE phone = '${phone}'`);

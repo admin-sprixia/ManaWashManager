@@ -53,7 +53,7 @@ describe('WhatsApp catalog', () => {
     expect(products.map((p) => p.id)).toEqual(['basic-wash--small', 'basic-wash--mid', 'basic-plan--mid', 'basic-wash--bike']);
     const sedan = products.find((p) => p.id === 'basic-wash--mid')!;
     expect(sedan.price).toBe(54900);
-    expect(sedan.section.label).toBe('Mid-size Cars');
+    expect(sedan.section.label).toBe('Sedans & Compact SUVs');
     expect(sedan.description).toContain('For Dzire, City, Nexon, Brezza, BMW 3 Series and similar.');
     expect(sedan.description).toContain('✓ Full vacuum');
     expect(sedan.description).toContain('Takes about 45 minutes.');
@@ -97,7 +97,7 @@ describe('WhatsApp catalog', () => {
     const csv = catalogFeed(branch, { brand: 'Sri Mana Wash', link: 'https://srimanawash.com/', imageUrl: (id) => `https://x/${id}.jpg` });
     const [head, first] = csv.split('\n');
     expect(head).toBe('id,title,description,availability,condition,price,link,image_link,brand,custom_label_0,custom_label_1');
-    expect(first).toMatch(/^"basic-wash--small","Basic Wash · Small Cars","For Swift, i20, Baleno, Kwid, Mini Cooper and similar\./);
-    expect(csv).toContain('"471.00 INR","https://srimanawash.com/","https://x/basic-wash--small.jpg","Sri Mana Wash","Small Cars","Washes"');
+    expect(first).toMatch(/^"basic-wash--small","Basic Wash · Hatchbacks","For Swift, i20, Baleno, Kwid, Mini Cooper and similar\./);
+    expect(csv).toContain('"471.00 INR","https://srimanawash.com/","https://x/basic-wash--small.jpg","Sri Mana Wash","Hatchbacks","Washes"');
   });
 });

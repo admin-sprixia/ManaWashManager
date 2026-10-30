@@ -190,8 +190,8 @@ describe('WhatsApp assistant: the welcome', () => {
     expect(m.text.endsWith('How can we help you today?\n(తెలుగు కోసం "తెలుగు" అని టైప్ చేయండి)')).toBe(true);
     expect(m.footer).toBeUndefined();
     expect(m.buttons).toEqual([
-      { id: 'cat|b1|car', title: '🚗 Car prices' },
-      { id: 'cat|b1|bike', title: '🏍️ Bike prices' },
+      { id: 'cat|b1|car', title: '🚗 Car services' },
+      { id: 'cat|b1|bike', title: '🏍️ Bike services' },
       { id: 'loc|b1', title: '📍 Get Directions' },
     ]);
   });
@@ -229,7 +229,7 @@ describe('WhatsApp assistant: Telugu', () => {
     expect(m.text).toContain('నమస్కారం! 👋');
     expect(m.text).toContain('🕗 ఈరోజు: ఉదయం 7 – రాత్రి 8');
     expect(m.text).toContain('(For English, type "English")');
-    expect(m.buttons.map((b) => b.title)).toEqual(['🚗 కార్ ధరలు', '🏍️ బైక్ ధరలు', '📍 దారి చూపించు']);
+    expect(m.buttons.map((b) => b.title)).toEqual(['🚗 కార్ సర్వీసులు', '🏍️ బైక్ సర్వీసులు', '📍 దారి చూపించు']);
     expect(text('telugu').lang).toBe('te');
     expect(text('నమస్కారం').lang).toBe('te');
     const inTelugu = { ...ctx, person: { name: 'Ravi', returning: true, lang: 'te' as const } };
@@ -258,7 +258,7 @@ describe('WhatsApp assistant: Telugu', () => {
     for (const choice of choices) expectValid(reply({ kind: 'choice', id: choice }, tel).messages);
     for (const n of ['1', '5', '6', '9']) expectValid(reply({ kind: 'text', text: n }, tel).messages);
     const large = bodyOf(reply({ kind: 'choice', id: 'sz|b1|large' }, tel).messages[0]!);
-    expect(large).toContain('🚙 *పెద్ద కార్ / 7-సీటర్*');
+    expect(large).toContain('🚙 *SUV / 7-సీటర్*');
     expect(large).toContain('✨ *అదనంగా* (1, 2 లేదా 3 వాష్‌తో)\n5️⃣ Premium Care: *+₹249*');
     expect(large).toContain('📅 *వాష్ ప్లాన్‌లు* నెలకు *₹1,549* నుండి');
   });
@@ -269,11 +269,11 @@ describe('WhatsApp assistant: Car prices / Bike prices', () => {
     const m = as(only(choose('cat|b1|car').messages), 'list');
     expectValid([m]);
     expect(m.text).toBe('Which size is your car?\nPrices go by size: bigger cars take more time, water and care.');
-    expect(m.button).toBe('Choose size');
+    expect(m.button).toBe('Choose your size');
     expect(m.rows).toEqual([
-      { id: 'sz|b1|small', title: '🚗 Small car', description: 'Swift, i20, Baleno, Kwid' },
-      { id: 'sz|b1|mid', title: '🚘 Mid-size car', description: 'Dzire, City, Nexon, Brezza' },
-      { id: 'sz|b1|large', title: '🚙 Large / 7-seater', description: 'Creta, XUV700, Innova, Fortuner' },
+      { id: 'sz|b1|small', title: '🚗 Hatchback', description: 'Swift, i20, Baleno, Kwid' },
+      { id: 'sz|b1|mid', title: '🚘 Sedan / Compact SUV', description: 'Dzire, City, Nexon, Brezza' },
+      { id: 'sz|b1|large', title: '🚙 SUV / 7-seater', description: 'Creta, XUV700, Innova, Fortuner' },
       { id: 'find|b1|car', title: '🤔 Not sure?', description: 'Find your model: pick the company, then the model' },
     ]);
   });
@@ -330,9 +330,9 @@ describe('WhatsApp assistant: Car prices / Bike prices', () => {
   it('a branch whose vehicle types fit no size goes straight to the companies', () => {
     const custom = {
       ...ctx,
-      branches: [{ ...hub, vehicleTypes: [{ id: 'hatch', name: 'Small car', category: 'car' as const, bodyKey: null }], services: hub.services.slice(0, 1) }],
+      branches: [{ ...hub, vehicleTypes: [{ id: 'hatch', name: 'Hatchback', category: 'car' as const, bodyKey: null }], services: hub.services.slice(0, 1) }],
     };
-    // "Small car" reads as a hatchback, so it still has its size (the only one: straight to it).
+    // "Hatchback" reads as a hatchback, so it still has its size (the only one: straight to it).
     expect(reply({ kind: 'choice', id: 'cat|b1|car' }, custom).context).toBe('sz|b1|small');
     const vans = { ...ctx, branches: [{ ...hub, vehicleTypes: [{ id: 'hatch', name: 'Van', category: 'car' as const, bodyKey: 'van' }], services: hub.services.slice(0, 1) }] };
     expect(as(only(reply({ kind: 'choice', id: 'cat|b1|car' }, vans).messages), 'list').title).toBe('Companies');
@@ -346,7 +346,7 @@ describe('WhatsApp assistant: a size’s prices', () => {
     expectValid([m]);
     expect(m.text).toBe(
       [
-        '🚙 *Large / 7-seater*',
+        '🚙 *SUV / 7-seater*',
         'For Creta, XUV700, Innova, Fortuner, BMW X5…',
         'Prices at *Sri Mana Wash*, Kovur',
         '',
@@ -378,7 +378,7 @@ describe('WhatsApp assistant: a size’s prices', () => {
 
   it('a mid-size car is priced from the sedan, and bikes by type', () => {
     const mid = bodyOf(only(choose('sz|b1|mid').messages));
-    expect(mid).toContain('🚘 *Mid-size car*\nFor Dzire, City, Nexon, Brezza, BMW 3 Series…');
+    expect(mid).toContain('🚘 *Sedan / Compact SUV*\nFor Dzire, City, Nexon, Brezza, BMW 3 Series…');
     expect(mid).toContain('1️⃣ Express Wash: *₹349*');
     const harley = as(only(choose('pr|b1|Harley-Davidson|Fat Boy').messages), 'buttons');
     expect(harley.text).toContain('🏍️ *Harley-Davidson Fat Boy*\nBike prices at *Sri Mana Wash*, Kovur');
@@ -411,7 +411,7 @@ describe('WhatsApp assistant: coming soon', () => {
     expectValid([m]);
     expect(m.text).toBe(
       [
-        '🚙 *Large / 7-seater*',
+        '🚙 *SUV / 7-seater*',
         'For Creta, XUV700, Innova, Fortuner, BMW X5…',
         'Prices at *Sri Mana Wash*, Kovur',
         '',
@@ -442,7 +442,7 @@ describe('WhatsApp assistant: coming soon', () => {
     const seen = { ...soonCtx, person: { name: 'Ravi', returning: true, lang: null, context: 'sz|b1|large' } };
     const m = as(only(reply({ kind: 'text', text: '5' }, seen).messages), 'buttons');
     expectValid([m]);
-    expect(m.text.startsWith('5️⃣ *Premium Care*\n🚙 Large / 7-seater · *+₹249* (🔜 Coming soon)\n\nOur specialized, ceramic-infused deep-cleaning lather, designed to condition the clear coat and maximize gloss.')).toBe(true);
+    expect(m.text.startsWith('5️⃣ *Premium Care*\n🚙 SUV / 7-seater · *+₹249* (🔜 Coming soon)\n\nOur specialized, ceramic-infused deep-cleaning lather, designed to condition the clear coat and maximize gloss.')).toBe(true);
     expect(m.text.endsWith("🔜 *Coming soon.* It isn't available yet: ask us at the counter, and we'll tell you when it starts.")).toBe(true);
     expect(m.text).not.toContain('Add it to');
   });
@@ -485,7 +485,7 @@ describe('WhatsApp assistant: numbers and PLANS', () => {
     expect(m.text).toBe(
       [
         '1️⃣ *Express Wash*',
-        '🚙 Large / 7-seater · *₹419*',
+        '🚙 SUV / 7-seater · *₹419*',
         '',
         'A quick, careful outside wash.',
         '',
@@ -500,7 +500,7 @@ describe('WhatsApp assistant: numbers and PLANS', () => {
       ].join('\n'),
     );
     expect(m.buttons).toEqual([
-      { id: 'sz|b1|large', title: '📋 Large car prices' },
+      { id: 'sz|b1|large', title: '📋 Back to prices' },
       { id: 'loc|b1', title: '📍 Get Directions' },
       { id: 'talk|b1', title: '📞 Talk to us' },
     ]);
@@ -508,7 +508,7 @@ describe('WhatsApp assistant: numbers and PLANS', () => {
 
   it('the add-on explains itself', () => {
     const care = bodyOf(only(reply({ kind: 'text', text: '5' }, after('sz|b1|small')).messages));
-    expect(care).toContain('5️⃣ *Premium Care*\n🚗 Small car · *+₹249*');
+    expect(care).toContain('5️⃣ *Premium Care*\n🚗 Hatchback · *+₹249*');
     expect(care).toContain('• pH-neutral shampoo');
     expect(care).toContain('⏱️ Adds about 15 minutes');
     expect(care).toContain('Add it to an Express Wash, Basic Wash or Premium Wash at the counter.');
@@ -525,7 +525,7 @@ describe('WhatsApp assistant: numbers and PLANS', () => {
     expectValid([m]);
     expect(m.text).toBe(
       [
-        '📅 *Build your wash plan* · 🚗 Small car',
+        '📅 *Build your wash plan* · 🚗 Hatchback',
         'A pack of 4 washes a month: use them in any order, whenever you like. Pay once and save 8%.',
         '',
         "What's your *everyday wash*?",
@@ -564,7 +564,7 @@ describe('WhatsApp assistant: numbers and PLANS', () => {
     expectValid([m]);
     expect(m.text).toBe(
       [
-        '✨ *Express + Premium Plan* · 🚗 Small car',
+        '✨ *Express + Premium Plan* · 🚗 Hatchback',
         '*3 Express + 1 Premium* every month',
         'Use them in any order, whenever you like (one a day).',
         '',
@@ -579,7 +579,7 @@ describe('WhatsApp assistant: numbers and PLANS', () => {
     );
     expect(m.buttons).toEqual([
       { id: 'pl|b1|sz|small', title: '🔁 Change plan' },
-      { id: 'sz|b1|small', title: '📋 Small car prices' },
+      { id: 'sz|b1|small', title: '📋 Back to prices' },
       { id: 'talk|b1', title: '📞 Talk to us' },
     ]);
     const longer = bodyOf(only(choose('pp|b1|Express Plan|sz|small').messages));
@@ -607,7 +607,7 @@ describe('WhatsApp assistant: numbers and PLANS', () => {
 });
 
 describe('WhatsApp assistant: finding a model', () => {
-  it('Not sure? walks company → model → “Brezza is a Mid-size car” with mid-size prices', () => {
+  it('Not sure? walks company → model → “Brezza is a Sedan / Compact SUV” with mid-size prices', () => {
     const makes = as(only(choose('find|b1|car').messages), 'list');
     expectValid([makes]);
     expect(makes.rows[0]!.title).toBe('Maruti Suzuki');
@@ -617,18 +617,18 @@ describe('WhatsApp assistant: finding a model', () => {
     const models = as(only(choose(makes.rows[0]!.id).messages), 'list');
     expectValid([models]);
     expect(models.rows.every((r) => r.id.startsWith('pr|b1|Maruti Suzuki|') || r.id.startsWith('mo|b1|car|Maruti Suzuki|'))).toBe(true);
-    expect(models.rows.filter((r) => r.id.startsWith('pr|')).every((r) => ['Small car', 'Mid-size car', 'Large / 7-seater'].includes(r.description!))).toBe(true);
+    expect(models.rows.filter((r) => r.id.startsWith('pr|')).every((r) => ['Hatchback', 'Sedan / Compact SUV', 'SUV / 7-seater'].includes(r.description!))).toBe(true);
 
     const r = choose('pr|b1|Maruti Suzuki|Brezza');
     const m = as(only(r.messages), 'buttons');
     expectValid([m]);
-    expect(m.text.startsWith('🚘 *Maruti Suzuki Brezza* is a *Mid-size car*.\nMid-size prices at *Sri Mana Wash*, Kovur\n\n🧽 *Washes*\n_We use a high-lubricity, pH-neutral daily maintenance wash._\n1️⃣ Express Wash: *₹349*')).toBe(true);
+    expect(m.text.startsWith('🚘 *Maruti Suzuki Brezza* is a *Sedan / Compact SUV*.\nSedan / Compact SUV prices at *Sri Mana Wash*, Kovur\n\n🧽 *Washes*\n_We use a high-lubricity, pH-neutral daily maintenance wash._\n1️⃣ Express Wash: *₹349*')).toBe(true);
     expect(m.buttons[0]).toEqual({ id: 'cat|b1|car', title: '🔁 Other size' });
     expect(r.context).toBe('pr|b1|Maruti Suzuki|Brezza');
     // A number after it reads from the same list.
     const detail = as(only(reply({ kind: 'text', text: '5' }, after('pr|b1|Maruti Suzuki|Brezza')).messages), 'buttons');
     expect(detail.text).toContain('5️⃣ *Premium Care*\n🚘 Maruti Suzuki Brezza · *+₹249*');
-    expect(detail.buttons[0]).toEqual({ id: 'pr|b1|Maruti Suzuki|Brezza', title: '📋 All prices' });
+    expect(detail.buttons[0]).toEqual({ id: 'pr|b1|Maruti Suzuki|Brezza', title: '📋 Back to prices' });
   });
 
   it('pages long company lists with a More row', () => {
@@ -641,14 +641,14 @@ describe('WhatsApp assistant: finding a model', () => {
   });
 
   it('a typed model jumps to its size and prices, imported brands by their size', () => {
-    expect(bodyOf(only(text('swift').messages))).toContain('🚗 *Maruti Suzuki Swift* is a *Small car*.\nSmall car prices at');
+    expect(bodyOf(only(text('swift').messages))).toContain('🚗 *Maruti Suzuki Swift* is a *Hatchback*.\nHatchback prices at');
     expect(text('swift').context).toBe('pr|b1|Maruti Suzuki|Swift');
     expect(bodyOf(only(text('Activa').messages))).toContain('🏍️ *Honda Activa*\nBike prices at');
-    expect(bodyOf(only(text('my car is a creta').messages))).toContain('🚙 *Hyundai Creta* is a *Large / 7-seater*.');
+    expect(bodyOf(only(text('my car is a creta').messages))).toContain('🚙 *Hyundai Creta* is an *SUV / 7-seater*.');
     const x5 = bodyOf(only(text('BMW X5').messages));
-    expect(x5).toContain('🚙 *BMW X5* is a *Large / 7-seater*.\nLarge car prices at');
+    expect(x5).toContain('🚙 *BMW X5* is an *SUV / 7-seater*.\nSUV / 7-seater prices at');
     expect(x5).toContain('1️⃣ Express Wash: *₹419*');
-    expect(bodyOf(only(choose('pr|b1|BMW|3 Series').messages))).toContain('🚘 *BMW 3 Series* is a *Mid-size car*.');
+    expect(bodyOf(only(choose('pr|b1|BMW|3 Series').messages))).toContain('🚘 *BMW 3 Series* is a *Sedan / Compact SUV*.');
     expect(bodyOf(only(choose('pr|b1|Royal Enfield|Classic 350').messages))).toContain('Bike prices at');
   });
 
@@ -769,11 +769,11 @@ describe('WhatsApp assistant: the Services & Prices Flow', () => {
     expect(companies.some((c) => c.id === 'Honda' && !c.image)).toBe(true);
     const models = chatFlowReply({ action: 'data_exchange', screen: 'COMPANY', data: { step: 'company', company: 'Maruti Suzuki' }, flow_token: token }, ctx);
     expect(models.screen).toBe('MODEL');
-    expect((models.data.models as { id: string; description: string }[]).find((r) => r.id === 'Swift')?.description).toBe('Small car');
+    expect((models.data.models as { id: string; description: string }[]).find((r) => r.id === 'Swift')?.description).toBe('Hatchback');
     const prices = chatFlowReply({ action: 'data_exchange', screen: 'MODEL', data: { step: 'model', company: 'Maruti Suzuki', model: 'Swift' }, flow_token: token }, ctx);
     expect(prices.screen).toBe('PRICES');
     const md = prices.data.prices as string;
-    expect(md).toContain('# 🚗 Maruti Suzuki Swift\nA small car · Sri Mana Wash, Kovur');
+    expect(md).toContain('# 🚗 Maruti Suzuki Swift\nHatchback · Sri Mana Wash, Kovur');
     expect(md).toContain('2. **Basic Wash** ⭐ — ₹499');
     expect(md).toContain('5. **Premium Care** — +₹249 · Gentle shampoo, microfiber hand-dry, extra paint care');
     expect(md).toContain('📅 **Wash plans** from **₹1,099** a month');

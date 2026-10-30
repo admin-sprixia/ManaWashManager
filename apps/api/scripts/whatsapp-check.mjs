@@ -1,5 +1,5 @@
 // The WhatsApp assistant end to end: Meta's webhook check, signed deliveries (unsigned ones
-// refused), the banner, a customer saying hi, Car prices → a size and its numbered prices, a
+// refused), the banner, a customer saying hi, Car services → a size and its numbered prices, a
 // number for what's included, building a plan (everyday wash → mix → price), Not sure? → company → model, typing a model, directions,
 // Telugu (typed, and remembered for the number), STOP/START, a repeated delivery answered once, delivery reports, and the Ready and
 // bill templates a wash sends by itself (once each), and the inbox (a question waits for the team,
@@ -118,7 +118,7 @@ if (multi) {
 } else {
   check('“Hi” gets one welcome message', hi.length === 1, JSON.stringify(hi).slice(0, 300));
   check(
-    'the welcome has the banner, a greeting by name, the Telugu line and Car / Bike prices / Directions',
+    'the welcome has the banner, a greeting by name, the Telugu line and Car / Bike services / Directions',
     welcome?.interactive?.header?.image?.link?.includes('/whatsapp/banner.jpg') &&
       bodyOf(welcome).includes('Ravi! 👋') &&
       bodyOf(welcome).includes('"తెలుగు" అని టైప్ చేయండి') &&
@@ -133,12 +133,12 @@ check('the customer is recorded with their WhatsApp name', contact?.profile_name
 check('a second Hi welcomes them back', bodyOf((await text('hello'))[0]).includes('Welcome back, Ravi'));
 
 const services = await choose(`svc|${branch}`);
-check('a reminder’s See prices button asks Car or Bike', services.length === 1 && buttonsOf(services[0]).map((b) => b.title).join() === '🚗 Car prices,🏍️ Bike prices');
+check('a reminder’s See prices button asks Car or Bike', services.length === 1 && buttonsOf(services[0]).map((b) => b.title).join() === '🚗 Car services,🏍️ Bike services');
 
 const sizes = await choose(`cat|${branch}|car`);
 const sizeRows = rowsOf(sizes[0]);
 check(
-  'Car prices lists Small / Mid-size / Large with models, and Not sure?',
+  'Car services lists Hatchback / Sedan / SUV with models, and Not sure?',
   sizeRows.map((r) => r.id.split('|')[2]).join() === 'small,mid,large,car' && sizeRows[2]?.description?.includes('Innova'),
   JSON.stringify(sizes[0]).slice(0, 400),
 );
@@ -166,12 +166,12 @@ const care = await text(careNo ?? '1');
 check(
   hasCare ? 'its number shows what Premium Care adds' : 'a number shows what that wash includes',
   (hasCare ? bodyOf(care[0]).includes('*Premium Care*') && bodyOf(care[0]).includes('· *+₹') : bodyOf(care[0]).startsWith('1️⃣ *')) &&
-    buttonsOf(care[0])[0]?.title === '📋 Large car prices',
+    buttonsOf(care[0])[0]?.title === '📋 Back to prices',
   bodyOf(care[0]).slice(0, 300),
 );
 const plans = await text('PLANS');
 const everyday = buttonsOf(plans[0]);
-check('PLANS asks for the everyday wash', bodyOf(plans[0]).startsWith('📅 *Build your wash plan* · 🚙 Large / 7-seater') && everyday.every((b) => b.id.startsWith('pm|')), JSON.stringify(plans[0]).slice(0, 400));
+check('PLANS asks for the everyday wash', bodyOf(plans[0]).startsWith('📅 *Build your wash plan* · 🚙 SUV / 7-seater') && everyday.every((b) => b.id.startsWith('pm|')), JSON.stringify(plans[0]).slice(0, 400));
 const mixes = await choose(everyday[0].id);
 const mixRows = rowsOf(mixes[0]);
 const mixPick = mixRows.find((r) => r.title.startsWith('+')) ?? mixRows[0];
@@ -198,9 +198,9 @@ if (makeRows.length) {
 }
 
 const typed = await text('swift');
-check('typing “swift” says it’s a Small car, with its prices', typed.map(bodyOf).join('\n').includes('*Maruti Suzuki Swift* is a *Small car*'), bodyOf(typed[0]).slice(0, 300));
+check('typing “swift” says it’s a Hatchback, with its prices', typed.map(bodyOf).join('\n').includes('*Maruti Suzuki Swift* is a *Hatchback*'), bodyOf(typed[0]).slice(0, 300));
 const x5 = await text('bmw x5');
-check('a BMW X5 is priced as a Large car', bodyOf(x5[0]).includes('*BMW X5* is a *Large / 7-seater*'), bodyOf(x5[0]).slice(0, 300));
+check('a BMW X5 is priced as an SUV / 7-seater', bodyOf(x5[0]).includes('*BMW X5* is an *SUV / 7-seater*'), bodyOf(x5[0]).slice(0, 300));
 await text('swift');
 check('the price list is numbered', /1️⃣ .+: \*₹/.test(typed.map(bodyOf).join('\n')));
 const one = await text('1');
@@ -214,11 +214,11 @@ check('Get Directions sends a Google Maps button', maps?.interactive?.action?.pa
 // (A real customer never sends this many in an hour: start the reply limit afresh.)
 d1Run(`DELETE FROM rate_limits WHERE key = 'wa:${phone}'`);
 const telugu = await text('తెలుగు');
-check('typing తెలుగు answers in Telugu', bodyOf(telugu[0]).includes('గారు') && buttonsOf(telugu[0]).some((b) => b.title === '🚗 కార్ ధరలు'), bodyOf(telugu[0]).slice(0, 200));
+check('typing తెలుగు answers in Telugu', bodyOf(telugu[0]).includes('గారు') && buttonsOf(telugu[0]).some((b) => b.title === '🚗 కార్ సర్వీసులు'), bodyOf(telugu[0]).slice(0, 200));
 check('the language is remembered for the number', contactRow()?.language === 'te');
 check('the next Hi comes in Telugu', bodyOf((await text('Hi'))[0]).includes('మళ్ళీ స్వాగతం'));
 const teSize = await choose(`sz|${branch}|mid`, 'list_reply');
-check('sizes come in Telugu too', bodyOf(teSize[0]).includes('మీడియం కార్'), bodyOf(teSize[0]).slice(0, 200));
+check('sizes come in Telugu too', bodyOf(teSize[0]).includes('సెడాన్ / కాంపాక్ట్ SUV'), bodyOf(teSize[0]).slice(0, 200));
 await text('English');
 check('English switches back', contactRow()?.language === 'en');
 

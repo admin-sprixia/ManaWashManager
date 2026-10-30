@@ -8,8 +8,9 @@ import { VEHICLE_MAKES, vehicleGuideRows, vehicleTypeKeysFor, type VehicleGuideR
 
 /**
  * The WhatsApp assistant on the business number. "Hi" gets the welcome: the banner, a greeting by
- * name, today's hours, the address and phone, and Car prices / Bike prices / Get Directions.
- * Prices go by size (see priceSizes.ts): Car prices lists Small, Mid-size and Large with
+ * name, today's hours, the address and phone, and Car services / Bike services / Get Directions.
+ * Prices go by size (see priceSizes.ts): Car services lists Hatchback, Sedan / Compact SUV and
+ * SUV / 7-seater with
  * well-known models, and a size shows its washes, the Premium Care add-on and monthly plans,
  * numbered; a number shows what's included, PLANS the 3- and 12-month plans. "Not sure?" walks
  * company → model ("Brezza is a Mid-size car"), and a typed model name works too. Everything is
@@ -320,13 +321,13 @@ const sizeName = (t: Turn, s: PriceSize) => (te(t) ? s.te.name : s.name);
 
 const categoryButton = (t: Turn, b: ChatBranch, category: VehicleCategory): ChatButton =>
   category === 'bike'
-    ? { id: id('cat', b.id, 'bike'), title: say(t, '🏍️ Bike prices', '🏍️ బైక్ ధరలు') }
-    : { id: id('cat', b.id, 'car'), title: say(t, '🚗 Car prices', '🚗 కార్ ధరలు') };
+    ? { id: id('cat', b.id, 'bike'), title: say(t, '🏍️ Bike services', '🏍️ బైక్ సర్వీసులు') }
+    : { id: id('cat', b.id, 'car'), title: say(t, '🚗 Car services', '🚗 కార్ సర్వీసులు') };
 const directionsButton = (t: Turn, b: ChatBranch): ChatButton => ({ id: id('loc', b.id), title: say(t, '📍 Get Directions', '📍 దారి చూపించు') });
 const talkButton = (t: Turn, b: ChatBranch): ChatButton => ({ id: id('talk', b.id), title: say(t, '📞 Talk to us', '📞 మాతో మాట్లాడండి') });
 const menuFooter = (t: Turn) => say(t, 'Send Hi any time for the menu', 'మెనూ కోసం ఎప్పుడైనా Hi పంపండి');
 
-/** Car prices and Bike prices (whichever the branch has), Get Directions, and Talk to us if there's room. */
+/** Car services and Bike services (whichever the branch has), Get Directions, and Talk to us if there's room. */
 function mainButtons(t: Turn, b: ChatBranch): ChatButton[] {
   const cats = categoriesAt(b, t.edits);
   return [...cats.map((c) => categoryButton(t, b, c)), directionsButton(t, b), talkButton(t, b)].slice(0, WA_MAX_BUTTONS);
@@ -349,7 +350,7 @@ function greeting(t: Turn): string {
 }
 
 /**
- * The banner, a greeting with today's hours, and Car prices / Bike prices / Get Directions.
+ * The banner, a greeting with today's hours, and Car services / Bike services / Get Directions.
  * There's no language button: a line says how to switch, and writing in Telugu switches anyway.
  */
 function welcome(t: Turn, b: ChatBranch): Extract<ChatMessage, { type: 'buttons' }> {
@@ -420,7 +421,7 @@ function start(t: Turn): ChatMessage[] {
   return t.ctx.branches.length === 1 ? [welcome(t, t.ctx.branches[0]!)] : [branchPicker(t)];
 }
 
-// ─── Car prices / Bike prices ────────────────────────────────────────────────
+// ─── Car services / Bike services ────────────────────────────────────────────
 
 /** Car or Bike when the branch washes both, else straight to that one's sizes. */
 function servicesReply(t: Turn, b: ChatBranch): ChatMessage[] {
@@ -448,7 +449,7 @@ function servicesReply(t: Turn, b: ChatBranch): ChatMessage[] {
   ];
 }
 
-/** Car prices / Bike prices: the sizes with well-known models, and "Not sure?" to find a model. */
+/** Car services / Bike services: the sizes with well-known models, and "Not sure?" to find a model. */
 function categoryReply(t: Turn, b: ChatBranch, category: VehicleCategory): ChatMessage[] {
   const sizes = sizesAt(b, category);
   if (!sizes.length) return [findReply(t, b, category)];
@@ -475,7 +476,7 @@ function categoryReply(t: Turn, b: ChatBranch, category: VehicleCategory): ChatM
             'Which size is your car?\nPrices go by size: bigger cars take more time, water and care.',
             'మీ కార్ ఏ సైజ్?\nధరలు సైజ్‌ని బట్టి ఉంటాయి: పెద్ద కార్లకు ఎక్కువ సమయం, నీళ్ళు, శ్రద్ధ కావాలి.',
           ),
-      button: bike ? say(t, 'Choose type', 'రకం ఎంచుకోండి') : say(t, 'Choose size', 'సైజ్ ఎంచుకోండి'),
+      button: bike ? say(t, 'Choose type', 'రకం ఎంచుకోండి') : say(t, 'Choose your size', 'మీ సైజ్ ఎంచుకోండి'),
       title: bike ? say(t, 'Bike types', 'బైక్ రకాలు') : say(t, 'Car sizes', 'కార్ సైజ్‌లు'),
       rows,
     },
@@ -626,8 +627,9 @@ function priceHead(t: Turn, b: ChatBranch, x: Target): string[] {
   }
   if (!x.size) return [`${emojiOf(x)} ${name} · ${x.type.name}`, say(t, `Prices at ${branchLine(t, b)}`, `${branchLine(t, b)} ధరలు`)];
   return [
-    say(t, `${x.size.emoji} ${name} is a *${x.size.name}*.`, `${x.size.emoji} ${name} ఒక *${x.size.te.name}*.`),
-    say(t, `${x.size.short} prices at ${branchLine(t, b)}`, `${branchLine(t, b)} లో ${x.size.te.short} ధరలు`),
+    // "an SUV": said "ess-yoo-vee".
+    say(t, `${x.size.emoji} ${name} is ${/^(SUV|[AEIOU])/i.test(x.size.name) ? 'an' : 'a'} *${x.size.name}*.`, `${x.size.emoji} ${name} ఒక *${x.size.te.name}*.`),
+    say(t, `${x.size.name} prices at ${branchLine(t, b)}`, `${branchLine(t, b)} లో ${x.size.te.name} ధరలు`),
   ];
 }
 
@@ -660,9 +662,9 @@ function addonWashes(t: Turn, services: ServiceItem[]): { numbers: string; names
   return { numbers: joinAnd(washes.map((w) => String(w.n)), or), names: joinAnd(washes.map((w) => w.name), or) };
 }
 
-/** Back to the price list a detail came from: "📋 Large car prices" or "📋 All prices". */
+/** Back to the price list a detail came from. */
 function backButton(t: Turn, b: ChatBranch, x: Target): ChatButton {
-  const title = x.kind === 'size' ? say(t, `📋 ${x.size.short} prices`, `📋 ${x.size.te.short} ధరలు`) : say(t, '📋 All prices', '📋 అన్ని ధరలు');
+  const title = say(t, '📋 Back to prices', '📋 ధరల జాబితా');
   return { id: targetId(b, x), title: cut(title, WA_BUTTON_TITLE_MAX) };
 }
 
@@ -1152,7 +1154,7 @@ function flowPrices(t: Turn, b: ChatBranch, make: string, model: string): string
   let n = 0;
   const lines = [
     `# ${emojiOf(x)} ${make} ${model}`,
-    x.size ? say(t, `A ${x.size.name.toLowerCase()} · ${where}`, `${x.size.te.name} · ${where}`) : `${x.type.name} · ${where}`,
+    x.size ? say(t, `${x.size.name} · ${where}`, `${x.size.te.name} · ${where}`) : `${x.type.name} · ${where}`,
     '',
     say(t, '## 🧽 Washes', '## 🧽 వాష్‌లు'),
     ...services.map((s) => `${++n}. **${s.name}**${star(s)} — ${rupees(s.price)}${soonTag(t, s.service)}`),

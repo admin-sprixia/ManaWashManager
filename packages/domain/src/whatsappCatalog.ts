@@ -5,7 +5,7 @@ import { bodyTypeForName } from './vehicleCatalog';
 
 /**
  * The WhatsApp catalog of the business number: every hub wash, add-on and wash plan, once per
- * size (the same sizes the assistant prices by: Small, Mid-size and Large cars, and bikes), at the shop price (community prices aren't listed). Commerce Manager reads it
+ * size (the same sizes the assistant prices by: hatchbacks, sedans & compact SUVs, SUVs & 7-seaters, and bikes), at the shop price (community prices aren't listed). Commerce Manager reads it
  * as a product feed (GET /whatsapp/catalog.csv), so it follows the menu by itself; each item's
  * picture is a styled card with its details (scripts/build-catalog-cards.mjs), not a photo.
  */
@@ -22,9 +22,9 @@ export interface CatalogSection {
 }
 
 const SECTION_LABELS: Record<PriceSizeKey, string> = {
-  small: 'Small Cars',
-  mid: 'Mid-size Cars',
-  large: 'Large Cars & 7-Seaters',
+  small: 'Hatchbacks',
+  mid: 'Sedans & Compact SUVs',
+  large: 'SUVs & 7-Seaters',
   bike: 'Bikes & Scooters',
 };
 

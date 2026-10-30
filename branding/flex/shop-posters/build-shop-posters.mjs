@@ -214,9 +214,9 @@ ${REVIEW_URL ? qrTile(REVIEW_URL, (W - qs) / 2, 110, qs) : qrPlaceholder((W - qs
   const H = 915;
   const L = 44;
   const CARS = [
-    ['small', 'SMALL'],
-    ['mid', 'MID-SIZE'],
-    ['large', 'LARGE'],
+    ['small', 'HATCHBACK'],
+    ['mid', 'SEDAN /|COMPACT SUV'],
+    ['large', 'SUV /|7-SEATER'],
   ];
   const monthly = servicesIn('small', 'plan').filter((s) => !/-\d+-months?$/.test(s));
   /** "3 Express Wash + 1 Premium Wash, in any order" → "3 Express + 1 Premium". */
@@ -235,7 +235,9 @@ ${ornament(W / 2, y + 148, 300)}`;
   const colW = (W - L * 2 - nameW) / CARS.length;
   const colX = (i) => L + nameW + colW * i + colW / 2;
   CARS.forEach(([, label], i) => {
-    body += `<text x="${colX(i)}" y="${y}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="12" letter-spacing="2" fill="#F8E2B0">${label}</text>`;
+    label.split('|').forEach((part, j) => {
+      body += `<text x="${colX(i)}" y="${y - 7 + j * 14}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="10.5" letter-spacing="1.2" fill="#F8E2B0">${esc(part)}</text>`;
+    });
   });
   body += `<text x="${L}" y="${y}" font-family="${SANS}" font-weight="700" font-size="12" letter-spacing="3" fill="#9BAEF5">EVERY MONTH</text>`;
   y += 14;
@@ -284,9 +286,9 @@ ${ornament(W / 2, y + 148, 300)}`;
   const H = 915;
   const k = 1.4;
   const CARS = [
-    ['small', 'Small car', 'Swift, i20, Baleno, Kwid', 120],
-    ['mid', 'Mid-size', 'Dzire, City, Nexon, Brezza', 146],
-    ['large', 'Large / 7-seater', 'Creta, XUV700, Innova', 156],
+    ['small', 'Hatchback', 'Swift, i20, Baleno, Kwid', 120],
+    ['mid', 'Sedan / Compact SUV', 'Dzire, City, Nexon, Brezza', 146],
+    ['large', 'SUV / 7-seater', 'Creta, XUV700, Innova', 156],
   ];
   const L = 64; // left and right margin
   const nameW = 430;
@@ -300,7 +302,7 @@ ${ornament(W / 2, 156, W - L * 2, 1.2)}`;
   // Column heads: the car grows with its size.
   CARS.forEach(([kind, label, examples, w], i) => {
     const cx = colX(i);
-    body += `<text x="${cx}" y="206" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="16" letter-spacing="2.4" fill="#F8E2B0">${esc(label.toUpperCase())}</text>`;
+    body += `<text x="${cx}" y="206" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="15" letter-spacing="1.4" fill="#F8E2B0">${esc(label.toUpperCase())}</text>`;
     body += `<text x="${cx}" y="228" text-anchor="middle" font-family="${SANS}" font-size="13" fill="#9BAEF5">${esc(examples)}</text>`;
   });
   body += `<text x="${L}" y="206" font-family="${SANS}" font-weight="700" font-size="16" letter-spacing="5" fill="#9BAEF5">CAR WASH</text>`;

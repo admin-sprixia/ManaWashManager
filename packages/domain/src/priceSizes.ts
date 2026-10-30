@@ -12,9 +12,9 @@ export interface PriceSize {
   key: PriceSizeKey;
   category: VehicleCategory;
   emoji: string;
-  /** "Mid-size car". */
+  /** "Sedan / Compact SUV". */
   name: string;
-  /** "Mid-size", for buttons. */
+  /** "Sedan", where space is short. */
   short: string;
   te: { name: string; short: string };
   /** Catalog body type keys it covers, the one that stands for its prices first. */
@@ -30,9 +30,9 @@ export const PRICE_SIZES: readonly PriceSize[] = [
     key: 'small',
     category: 'car',
     emoji: '🚗',
-    name: 'Small car',
-    short: 'Small car',
-    te: { name: 'చిన్న కార్', short: 'చిన్న కార్' },
+    name: 'Hatchback',
+    short: 'Hatchback',
+    te: { name: 'హ్యాచ్‌బ్యాక్', short: 'హ్యాచ్‌బ్యాక్' },
     bodyKeys: ['hatch'],
     examples: 'Swift, i20, Baleno, Kwid',
     alsoExample: 'Mini Cooper',
@@ -41,9 +41,9 @@ export const PRICE_SIZES: readonly PriceSize[] = [
     key: 'mid',
     category: 'car',
     emoji: '🚘',
-    name: 'Mid-size car',
-    short: 'Mid-size',
-    te: { name: 'మీడియం కార్', short: 'మీడియం కార్' },
+    name: 'Sedan / Compact SUV',
+    short: 'Sedan',
+    te: { name: 'సెడాన్ / కాంపాక్ట్ SUV', short: 'సెడాన్' },
     bodyKeys: ['sedan', 'suvMini', 'sports'],
     examples: 'Dzire, City, Nexon, Brezza',
     alsoExample: 'BMW 3 Series',
@@ -52,9 +52,9 @@ export const PRICE_SIZES: readonly PriceSize[] = [
     key: 'large',
     category: 'car',
     emoji: '🚙',
-    name: 'Large / 7-seater',
-    short: 'Large car',
-    te: { name: 'పెద్ద కార్ / 7-సీటర్', short: 'పెద్ద కార్' },
+    name: 'SUV / 7-seater',
+    short: 'SUV',
+    te: { name: 'SUV / 7-సీటర్', short: 'SUV' },
     // A branch's "Luxury car" type, if it still has one, pays the big-car price.
     bodyKeys: ['suvLarge', 'muv', 'jeep', 'luxury'],
     examples: 'Creta, XUV700, Innova, Fortuner',

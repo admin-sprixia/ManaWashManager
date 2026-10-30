@@ -170,12 +170,15 @@ check(
   bodyOf(care[0]).slice(0, 300),
 );
 const plans = await text('PLANS');
-const everyday = buttonsOf(plans[0]);
-check('PLANS asks for the everyday wash', bodyOf(plans[0]).startsWith('📅 *Build your wash plan* · 🚙 SUV / 7-seater') && everyday.every((b) => b.id.startsWith('pm|')), JSON.stringify(plans[0]).slice(0, 400));
-const mixes = await choose(everyday[0].id);
-const mixRows = rowsOf(mixes[0]);
-const mixPick = mixRows.find((r) => r.title.startsWith('+')) ?? mixRows[0];
-check('…then the ways to mix it, each with a month’s price', mixRows.length > 0 && mixRows.every((r) => r.id.startsWith('pp|') && /₹[\d,]+ a month/.test(r.description ?? '')), JSON.stringify(mixes[0]).slice(0, 400));
+const mixRows = rowsOf(plans[0]);
+check(
+  'PLANS lists every plan by its mix, each with a month’s price',
+  bodyOf(plans[0]).startsWith('📅 *Monthly wash plans* · 🚙 SUV / 7-seater') &&
+    mixRows.length > 1 &&
+    mixRows.every((r) => r.id.startsWith('pp|') && /^\d+ \w+/.test(r.title) && /₹[\d,]+ a month/.test(r.description ?? '')),
+  JSON.stringify(plans[0]).slice(0, 400),
+);
+const mixPick = mixRows.find((r) => r.title.includes('+')) ?? mixRows[0];
 const offer = await choose(mixPick.id, 'list_reply');
 const offerBody = bodyOf(offer[0]);
 check('…then the plan as a pack, with 1, 3 and 12-month prices', offerBody.startsWith('✨ *') && /• 1 month: \*₹/.test(offerBody) && /• 3 months: \*₹/.test(offerBody), offerBody.slice(0, 400));

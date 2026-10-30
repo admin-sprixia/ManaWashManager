@@ -11,7 +11,7 @@
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { outputDir } from '../../lib/output.mjs';
-import { ADDRESS, CHAT_URL, esc, frame, HOURS, inline, NUMBERS, ornament, qrTile, SANS, SERIF, sparkle, writer } from '../../lib/poster.mjs';
+import { ADDRESS, CHAT_URL, esc, frame, HOURS, inline, NUMBERS, ornament, qrTile, SANS, SERIF, writer } from '../../lib/poster.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const write = writer(outputDir(HERE));
@@ -43,8 +43,7 @@ function sayHi(x, y, size, anchor = 'middle') {
   const body = `${frame(W, H, k, { stars: false })}
 <circle cx="${qx + qs / 2}" cy="${qy + qs / 2}" r="${qs * 0.85}" fill="url(#halo)"/>
 ${mark.svg}
-${sparkle(tx + 12, 214, 20)}
-<text x="${tx + 52}" y="232" font-family="${SANS}" font-weight="700" font-size="56" letter-spacing="24" fill="url(#foilH)">NOW IN KOVUR</text>
+<text x="${tx + 6}" y="232" font-family="${SANS}" font-weight="700" font-size="56" letter-spacing="24" fill="url(#foilH)">NOW IN KOVUR</text>
 ${name.svg}
 <text x="${tx}" y="${ny + 170}" font-family="${SERIF}" font-size="124" fill="#FFFFFF">Where every ride <tspan font-style="italic" fill="url(#foil)">shines.</tspan></text>
 ${ornament(tx + textW / 2, ny + 245, textW, 3)}

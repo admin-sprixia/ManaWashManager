@@ -182,7 +182,7 @@ ${mark.svg}
 <rect x="${qx - 2.4}" y="${qy - 2.4}" width="${q + 4.8}" height="${q + 4.8}" rx="6.6" fill="none" stroke="url(#foil)" stroke-width="0.7"/>
 ${qrTile(MANA_PAY_QR, qx, qy, q)}
 <text x="${W / 2}" y="${qy + q + 12}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="4.4" letter-spacing="1.6" fill="#FFFFFF">SRI MANA WASH</text>
-<text x="${W / 2}" y="${qy + q + 17.5}" text-anchor="middle" font-family="${SERIF}" font-style="italic" font-size="4" fill="#C4CCF0">Check this name on your screen before you pay</text>
+<text x="${W / 2}" y="${qy + q + 17.8}" text-anchor="middle" font-family="${SANS}" font-weight="600" font-size="3.7" letter-spacing="0.2" fill="#F8E2B0">Check this name on your screen before you pay</text>
 ${stepRow}
 ${pills}
 <text x="${W / 2}" y="${H - 14.2}" text-anchor="middle" font-family="${SANS}" font-weight="600" font-size="3.4" letter-spacing="0.6" fill="#F8E2B0">${NUMBERS}</text>`,

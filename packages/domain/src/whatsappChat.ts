@@ -596,12 +596,16 @@ function priceItems(b: ChatBranch, type: VehicleType) {
     const price = p.prices.find((x) => x.vehicleTypeId === type.id && x.total > 0);
     return price ? [{ name: p.name, popular: p.popular, price: price.total, listPrice: price.listTotal, plan: p }] : [];
   });
-  const services = offered.filter((s) => s.service.kind !== 'addon');
+  // Washes first, then care services (Anti-Rust, Deep Interior Cleaning), then add-ons: the order
+  // they're numbered in.
+  const washes = offered.filter((s) => s.service.kind !== 'addon' && s.service.kind !== 'protection');
+  const care = offered.filter((s) => s.service.kind === 'protection');
+  const services = [...washes, ...care];
   const addons = offered.filter((s) => s.service.kind === 'addon');
   const monthly = plans.filter((p) => p.plan.months <= 1);
   const longer = plans.filter((p) => p.plan.months > 1);
   const listed: ServiceItem[] = [...services, ...addons];
-  return { services, addons, monthly, longer, plans, listed };
+  return { washes, care, services, addons, monthly, longer, plans, listed };
 }
 
 
@@ -710,12 +714,16 @@ function plansTeaser(t: Turn, monthly: PlanItem[]): string[] {
 
 /** The price list: washes and the add-on, numbered; plans on their button; what's coming. */
 function prices(t: Turn, b: ChatBranch, x: Target): ChatMessage[] {
-  const { services, addons, monthly } = priceItems(b, x.type);
+  const { washes, care, services, addons, monthly } = priceItems(b, x.type);
   const buttons = afterPrices(t, b, categoryOf(x), monthly.length ? plansButton(t, b, x) : null);
   if (!services.some((s) => !s.service.comingSoon)) return noPrices(t, b, labelOf(t, x), categoryOf(x));
   let n = 0;
   const lines = [...priceHead(t, b, x), '', say(t, '🧽 *Washes*', '🧽 *వాష్‌లు*'), `_${washLine(t)}_`];
-  for (const s of services) lines.push(`${keycap(++n)} ${s.name}${star(s)}: *${rupees(s.price)}*${soonTag(t, s.service)}`);
+  for (const s of washes) lines.push(`${keycap(++n)} ${s.name}${star(s)}: *${rupees(s.price)}*${soonTag(t, s.service)}`);
+  if (care.length) {
+    lines.push('', say(t, '🛡️ *Care & protection*', '🛡️ *కేర్ & ప్రొటెక్షన్*'));
+    for (const s of care) lines.push(`${keycap(++n)} ${s.name}: *${rupees(s.price)}*${soonTag(t, s.service)}`);
+  }
   if (addons.length) {
     const withWash = addonWashes(t, services);
     const what = addons.length === 1 ? say(t, '✨ *Add-on*', '✨ *అదనంగా*') : say(t, '✨ *Add-ons*', '✨ *అదనంగా*');
@@ -762,8 +770,8 @@ function itemDetails(t: Turn, b: ChatBranch, x: Target, item: ServiceItem, n: nu
       ? [
           '',
           addon
-            ? say(t, `⏱️ Adds about ${s.durationMin} minutes`, `⏱️ సుమారు ${s.durationMin} నిమిషాలు ఎక్కువ`)
-            : say(t, `⏱️ Takes about ${s.durationMin} minutes`, `⏱️ సుమారు ${s.durationMin} నిమిషాలు పడుతుంది`),
+            ? say(t, `⏱️ Adds about ${howLong(t, s.durationMin)}`, `⏱️ సుమారు ${howLong(t, s.durationMin)} ఎక్కువ`)
+            : say(t, `⏱️ Takes about ${howLong(t, s.durationMin)}`, `⏱️ సుమారు ${howLong(t, s.durationMin)} పడుతుంది`),
         ]
       : []),
     ...(s.comingSoon
@@ -772,6 +780,14 @@ function itemDetails(t: Turn, b: ChatBranch, x: Target, item: ServiceItem, n: nu
         ? ['', addonAsk(t, b, x)]
         : []),
   ].join('\n');
+}
+
+/** "45 minutes"; from an hour and a half, in hours: "4 hours", "3½ hours". */
+function howLong(t: Turn, minutes: number): string {
+  if (minutes < 90) return say(t, `${minutes} minutes`, `${minutes} నిమిషాలు`);
+  const halves = Math.round(minutes / 30);
+  const hours = `${Math.floor(halves / 2)}${halves % 2 ? '½' : ''}`;
+  return say(t, `${hours} hours`, `${hours} గంటలు`);
 }
 
 const pickRange = (t: Turn, count: number) =>
@@ -1098,6 +1114,17 @@ function rateReply(t: Turn, b: ChatBranch): ChatMessage[] {
 }
 
 /** A coming-soon service asked about by name: what it is, and that it isn't here yet. */
+/**
+ * How a customer may name a coming-soon service: in full, or without a last word that only says
+ * what kind it is ("deep interior" for Deep Interior Cleaning, "anti rust" for Anti-Rust Protection).
+ * "Premium Care" is only ever its full name, so "premium" alone still means the Premium Wash.
+ */
+function soonNames(name: string): string[] {
+  const full = alnum(name);
+  const short = alnum(name.replace(/\s+(cleaning|protection|coating|treatment)$/i, ''));
+  return [full, ...(short !== full && short.length >= 6 ? [short] : [])].filter((n) => n.length >= 4);
+}
+
 function soonReply(t: Turn, b: ChatBranch, c: Service): ChatMessage[] {
   return [
     {
@@ -1218,7 +1245,7 @@ function flowPrices(t: Turn, b: ChatBranch, make: string, model: string): string
   if (!x || !found?.services.some((s) => !s.service.comingSoon)) {
     return say(t, `# ${make} ${model}\nSorry, we don't have prices for this one at ${placeName(t, b)} yet.`, `# ${make} ${model}\nక్షమించండి, దీనికి ఇంకా ధరలు లేవు.`);
   }
-  const { services, addons, monthly } = found;
+  const { washes, care, services, addons, monthly } = found;
   const where = `${placeName(t, b)}${b.city ? `, ${b.city}` : ''}`;
   let n = 0;
   const lines = [
@@ -1226,8 +1253,12 @@ function flowPrices(t: Turn, b: ChatBranch, make: string, model: string): string
     x.size ? say(t, `${x.size.name} · ${where}`, `${x.size.te.name} · ${where}`) : `${x.type.name} · ${where}`,
     '',
     say(t, '## 🧽 Washes', '## 🧽 వాష్‌లు'),
-    ...services.map((s) => `${++n}. **${s.name}**${star(s)} — ${rupees(s.price)}${soonTag(t, s.service)}`),
+    ...washes.map((s) => `${++n}. **${s.name}**${star(s)} — ${rupees(s.price)}${soonTag(t, s.service)}`),
   ];
+  if (care.length) {
+    lines.push('', say(t, '## 🛡️ Care & protection', '## 🛡️ కేర్ & ప్రొటెక్షన్'));
+    for (const s of care) lines.push(`${++n}. **${s.name}** — ${rupees(s.price)}${soonTag(t, s.service)}`);
+  }
   if (addons.length) {
     const withWash = addonWashes(t, services);
     lines.push('', withWash ? say(t, `## ✨ Add-on (with wash ${withWash.numbers})`, `## ✨ అదనంగా (${withWash.numbers} వాష్‌తో)`) : say(t, '## ✨ Add-on (with any wash)', '## ✨ అదనంగా (ఏ వాష్‌తోనైనా)'));
@@ -1414,7 +1445,7 @@ export function chatReply(input: ChatInput, ctx: ChatContext): ChatResult {
       ]);
     }
     // Asking about something that's coming soon ("premium care?"): say so, and when.
-    const soonAsked = (only ?? ctx.branches[0]!).services.find((c) => c.comingSoon && alnum(c.name).length >= 4 && alnum(text).includes(alnum(c.name)));
+    const soonAsked = (only ?? ctx.branches[0]!).services.find((c) => c.comingSoon && soonNames(c.name).some((n) => alnum(text).includes(n)));
     if (soonAsked) return done(soonReply(t, only ?? ctx.branches[0]!, soonAsked));
     if (THANKS.test(text)) {
       return done([{ type: 'text', text: say(t, "You're welcome! 😊 Send *Hi* any time for our prices.", 'సంతోషం! 😊 మా ధరల కోసం ఎప్పుడైనా *Hi* పంపండి.') }]);

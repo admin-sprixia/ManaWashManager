@@ -113,12 +113,18 @@ const rupees = (n) => (n == null ? '—' : `₹${n.toLocaleString('en-IN')}`);
 /** Services in menu order, of one kind, on the menu for this section. */
 const servicesIn = (section, kind) => [...new Set(products.filter((p) => p.section === section && p.kind === kind).map((p) => p.service))];
 const titleOf = (service, section) => cardOf(service, section)?.title ?? service;
+/** Shorter lines where a service's description is too long for the price board's name column. */
+const BOARD_LINES = {
+  'deep-interior-cleaning': 'Seats, carpets, roof & AC vents · Express Wash free',
+  'premium-care': 'Thick yellow snow foam & wash-and-wax lather · deep gloss',
+};
 /** A service's one-line description, without anything about communities (not offered yet). */
 const subtitleOf = (service, section) =>
-  (cardOf(service, section)?.card?.subtitle ?? '')
+  BOARD_LINES[service] ??
+  ((cardOf(service, section)?.card?.subtitle ?? '')
     .split(/(?<=\.)\s+/)
     .filter((sentence) => !/communit/i.test(sentence))
-    .join(' ') || null;
+    .join(' ') || null);
 
 // ─── Output ──────────────────────────────────────────────────────────────────
 /** Prints and previews go to Documents, outside the repo (lib/output.mjs). */
@@ -287,7 +293,8 @@ ${ornament(W / 2, y + 148, 300)}`;
 
 // ─── 3. Price board (4 × 3 ft) ───────────────────────────────────────────────
 // A menu, not a spreadsheet: hairlines instead of boxes, the three car sizes drawn growing, the
-// popular wash lit in gold, Premium Care framed in gold foil, and two-wheelers, plans and the
+// popular wash lit in gold, the care services (Anti-Rust, Deep Interior Cleaning) under their own
+// heading, Premium Care framed in gold foil with a price per size, and two-wheelers, plans and the
 // WhatsApp QR as three cards along the bottom.
 {
   const W = 1220;
@@ -316,30 +323,45 @@ ${ornament(W / 2, 156, W - L * 2, 1.2)}`;
   body += `<text x="${L}" y="206" font-family="${SANS}" font-weight="700" font-size="16" letter-spacing="5" fill="#9BAEF5">CAR WASH</text>`;
   body += `<text x="${L}" y="228" font-family="${SANS}" font-size="13" fill="#6F7FC9">Every wash: high-lubricity, pH-neutral shampoo</text>`;
   let y = 248;
-  const rowH = 80;
-  for (const s of servicesIn('small', 'service')) {
+  // Washes, then the care services (catalog.json says which those are), each a row with its
+  // price per size. More rows, shorter rows, so the cards below keep their room.
+  const careNames = new Set((info.comingSoon ?? []).filter((c) => c.kind === 'protection').map((c) => slug(c.name)));
+  const rows = servicesIn('small', 'service');
+  const washRows = rows.filter((s) => !careNames.has(s));
+  const careRows = rows.filter((s) => careNames.has(s));
+  const rowH = rows.length > 4 ? 64 : 80;
+  const row = (s) => {
     const c = cardOf(s, 'small');
     const sub = subtitleOf(s, 'small');
     const popular = !!c?.card?.popular;
+    const short = rowH < 80;
     if (popular) body += `<rect x="${L - 18}" y="${y + 3}" width="${W - (L - 18) * 2}" height="${rowH - 6}" rx="12" fill="url(#glow)"/><rect x="${L - 18}" y="${y + 3}" width="4" height="${rowH - 6}" rx="2" fill="url(#foil)"/>`;
-    body += `<text x="${L}" y="${y + (sub ? 38 : 48)}" font-family="${SERIF}" font-size="31" fill="#FFFFFF">${esc(titleOf(s, 'small'))}${popular ? `<tspan dx="14" dy="-6" font-family="${SANS}" font-size="12" font-weight="700" letter-spacing="2" fill="#F0CF8E">★ MOST POPULAR</tspan>` : ''}</text>`;
-    if (sub) body += `<text x="${L}" y="${y + 62}" font-family="${SANS}" font-size="14" fill="#9BAEF5">${esc(sub.replace(/\.$/, ''))}</text>`;
+    body += `<text x="${L}" y="${y + (sub ? (short ? 30 : 38) : short ? 40 : 48)}" font-family="${SERIF}" font-size="${short ? 28 : 31}" fill="#FFFFFF">${esc(titleOf(s, 'small'))}${popular ? `<tspan dx="14" dy="-6" font-family="${SANS}" font-size="12" font-weight="700" letter-spacing="2" fill="#F0CF8E">★ MOST POPULAR</tspan>` : ''}</text>`;
+    if (sub) body += `<text x="${L}" y="${y + (short ? 51 : 62)}" font-family="${SANS}" font-size="${short ? 13 : 14}" fill="#9BAEF5">${esc(sub.replace(/\.$/, ''))}</text>`;
     CARS.forEach(([section], i) => {
-      body += `<text x="${colX(i)}" y="${y + 52}" text-anchor="middle" font-family="${SANS}" font-weight="600" font-size="34" fill="${popular ? '#FFF1CF' : '#FFFFFF'}">${rupees(price(s, section))}</text>`;
+      body += `<text x="${colX(i)}" y="${y + (short ? 43 : 52)}" text-anchor="middle" font-family="${SANS}" font-weight="600" font-size="${short ? 31 : 34}" fill="${popular ? '#FFF1CF' : '#FFFFFF'}">${rupees(price(s, section))}</text>`;
     });
     y += rowH;
     body += `<rect x="${L}" y="${y}" width="${W - L * 2}" height="1" fill="url(#hair)"/>`;
+  };
+  washRows.forEach(row);
+  if (careRows.length) {
+    body += `<text x="${L}" y="${y + 24}" font-family="${SANS}" font-weight="700" font-size="13" letter-spacing="5" fill="#9BAEF5">CARE &amp; PROTECTION</text>`;
+    y += 30;
+    careRows.forEach(row);
   }
-  // Premium Care: one price for every car, framed in gold foil.
+  // Premium Care: an add-on with a price per size, framed in gold foil.
   for (const s of servicesIn('small', 'addon')) {
-    y += 14;
+    y += 12;
+    const boxH = 70;
     const sub = (subtitleOf(s, 'small') ?? '').replace(/\.$/, '');
-    body += `<rect x="${L - 18}" y="${y}" width="${W - (L - 18) * 2}" height="76" rx="14" fill="url(#glass)" stroke="url(#foilH)" stroke-width="1.8"/>`;
-    body += `<text x="${L}" y="${y + 39}" font-family="${SERIF}" font-size="30" fill="#FFFFFF">${esc(titleOf(s, 'small'))}<tspan dx="14" dy="-5" font-family="${SANS}" font-size="12" font-weight="700" letter-spacing="2" fill="#F0CF8E">ADD-ON · WITH EXPRESS, BASIC OR PREMIUM WASH</tspan></text>`;
-    body += `<text x="${L}" y="${y + 61}" font-family="${SANS}" font-size="14" fill="#C4CCF0">${esc(sub)}</text>`;
-    body += `<text x="${colX(2) + 20}" y="${y + 50}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="36" fill="url(#foil)">+${rupees(price(s, 'small'))}</text>`;
-    body += `<text x="${colX(2) - 92}" y="${y + 48}" text-anchor="end" font-family="${SANS}" font-size="13" letter-spacing="1.5" fill="#9BAEF5">ANY CAR</text>`;
-    y += 76;
+    body += `<rect x="${L - 18}" y="${y}" width="${W - (L - 18) * 2}" height="${boxH}" rx="14" fill="url(#glass)" stroke="url(#foilH)" stroke-width="1.8"/>`;
+    body += `<text x="${L}" y="${y + 32}" font-family="${SERIF}" font-size="28" fill="#FFFFFF">${esc(titleOf(s, 'small'))}<tspan dx="12" dy="-5" font-family="${SANS}" font-size="11" font-weight="700" letter-spacing="1.8" fill="#F0CF8E">ADD-ON · WITH ANY WASH</tspan></text>`;
+    body += `<text x="${L}" y="${y + 54}" font-family="${SANS}" font-size="13" fill="#C4CCF0">${esc(sub)}</text>`;
+    CARS.forEach(([section], i) => {
+      body += `<text x="${colX(i)}" y="${y + 45}" text-anchor="middle" font-family="${SANS}" font-weight="700" font-size="31" fill="url(#foil)">+${rupees(price(s, section))}</text>`;
+    });
+    y += boxH;
   }
   // Three cards: two-wheelers, monthly plans, WhatsApp.
   const cy = y + 22;
@@ -353,8 +375,10 @@ ${ornament(W / 2, 156, W - L * 2, 1.2)}`;
   body += `<text x="${x + 26}" y="${cy + 36}" font-family="${SERIF}" font-size="25" fill="#FFFFFF">Bikes &amp; scooters</text>`;
   body += `<text x="${x + 26}" y="${cy + 56}" font-family="${SANS}" font-size="12.5" letter-spacing="1.4" fill="#9BAEF5">ONE PRICE FOR EVERY BIKE</text>`;
   const bikeRows = [...servicesIn('bike', 'service').map((s) => [titleOf(s, 'bike').replace(/^Bike /, ''), rupees(price(s, 'bike')), false]), ...servicesIn('bike', 'addon').map((s) => [titleOf(s, 'bike'), `+${rupees(price(s, 'bike'))}`, true])];
+  // Rows close up a little when the card is short, so the last one stays inside it.
+  const bikeGap = Math.min(21, (ch - 92) / Math.max(1, bikeRows.length - 1));
   bikeRows.forEach(([name, amount, gold], i) => {
-    const ry = cy + 84 + i * 21;
+    const ry = cy + 78 + i * bikeGap;
     body += `<text x="${x + 26}" y="${ry}" font-family="${SANS}" font-size="15" fill="${gold ? '#F0CF8E' : '#E6EAFF'}">${esc(name)}</text>`;
     body += `<path d="M${x + 150} ${ry - 4}H${x + cw - 96}" stroke="#9BAEF5" stroke-opacity="0.35" stroke-dasharray="1.5 4"/>`;
     body += `<text x="${x + cw - 26}" y="${ry}" text-anchor="end" font-family="${SANS}" font-weight="700" font-size="16" fill="${gold ? '#F0CF8E' : '#FFFFFF'}">${amount}</text>`;

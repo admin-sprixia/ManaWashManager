@@ -355,6 +355,8 @@ describe('WhatsApp assistant: a size’s prices', () => {
         '1️⃣ Express Wash: *₹419*',
         '2️⃣ Basic Wash ⭐: *₹799*',
         '3️⃣ Premium Wash: *₹1,399*',
+        '',
+        '🛡️ *Care & protection*',
         '4️⃣ Anti-Rust Protection: *₹4,500*',
         '',
         '✨ *Add-on* (with wash 1, 2 or 3)',
@@ -399,7 +401,7 @@ const soonHub: ChatBranch = {
     s.id === 'rust'
       ? { ...s, description: 'Underbody wash and anti-rust coating.', comingSoon: true }
       : s.id === 'care'
-        ? { ...s, description: 'Our specialized, ceramic-infused deep-cleaning lather, designed to condition the clear coat and maximize gloss.', comingSoon: true }
+        ? { ...s, description: 'Our thick yellow snow foam and a wash-and-wax lather for a deep, glossy shine that protects the paint.', comingSoon: true }
         : s,
   ),
 };
@@ -420,11 +422,13 @@ describe('WhatsApp assistant: coming soon', () => {
         '1️⃣ Express Wash: *₹419*',
         '2️⃣ Basic Wash ⭐: *₹799*',
         '3️⃣ Premium Wash: *₹1,399*',
+        '',
+        '🛡️ *Care & protection*',
         '4️⃣ Anti-Rust Protection: *₹4,500* (🔜 Coming soon)',
         '',
         '✨ *Add-on* (with wash 1, 2 or 3)',
         '5️⃣ Premium Care: *+₹249* (🔜 Coming soon)',
-        '_Our specialized, ceramic-infused deep-cleaning lather, designed to condition the clear coat and maximize gloss_',
+        '_Our thick yellow snow foam and a wash-and-wax lather for a deep, glossy shine that protects the paint_',
         '',
         '📅 *Monthly plans* from *₹1,549* a month · save 8%',
         'Pick a plan, or build your own: tap *📅 Monthly plans*',
@@ -442,7 +446,7 @@ describe('WhatsApp assistant: coming soon', () => {
     const seen = { ...soonCtx, person: { name: 'Ravi', returning: true, lang: null, context: 'sz|b1|large' } };
     const m = as(only(reply({ kind: 'text', text: '5' }, seen).messages), 'buttons');
     expectValid([m]);
-    expect(m.text.startsWith('5️⃣ *Premium Care*\n🚙 SUV / 7-seater · *+₹249* (🔜 Coming soon)\n\nOur specialized, ceramic-infused deep-cleaning lather, designed to condition the clear coat and maximize gloss.')).toBe(true);
+    expect(m.text.startsWith('5️⃣ *Premium Care*\n🚙 SUV / 7-seater · *+₹249* (🔜 Coming soon)\n\nOur thick yellow snow foam and a wash-and-wax lather for a deep, glossy shine that protects the paint.')).toBe(true);
     expect(m.text.endsWith("🔜 *Coming soon.* It isn't available yet: ask us at the counter, and we'll tell you when it starts.")).toBe(true);
     expect(m.text).not.toContain('Add it to');
   });
@@ -460,7 +464,7 @@ describe('WhatsApp assistant: coming soon', () => {
       [
         '🔜 *Premium Care* is coming soon at *Sri Mana Wash*, Kovur.',
         '',
-        'Our specialized, ceramic-infused deep-cleaning lather, designed to condition the clear coat and maximize gloss.',
+        'Our thick yellow snow foam and a wash-and-wax lather for a deep, glossy shine that protects the paint.',
         '',
         "It isn't available yet. Ask us at the counter, and we'll tell you when it starts.",
       ].join('\n'),
@@ -468,13 +472,49 @@ describe('WhatsApp assistant: coming soon', () => {
     expect(m.buttons.map((b) => b.id)).toEqual(['cat|b1|car', 'cat|b1|bike', 'loc|b1']);
   });
 
+  it('Deep Interior Cleaning: listed under care, after the washes, with its time in hours', () => {
+    const deep = {
+      id: 'deep',
+      name: 'Deep Interior Cleaning',
+      popular: false,
+      kind: 'protection' as const,
+      comingSoon: true,
+      durationMin: 240,
+      description: 'Every surface inside, deep cleaned: seats shampooed or leather conditioned, carpets, roof and AC vents. Express Wash free.',
+      checklist: ['Fabric seats shampooed & extracted', 'AC vents cleaned', 'Express Wash free'],
+      prices: car(2499, 2999, 3499),
+    };
+    // Listed first in the catalog, it still comes after the washes (care keeps the catalog's order).
+    const withDeep: ChatContext = { ...soonCtx, branches: [{ ...soonHub, services: [deep, ...soonHub.services] }] };
+    const list = bodyOf(only(reply({ kind: 'choice', id: 'sz|b1|large' }, withDeep).messages));
+    expect(list).toContain(
+      ['3️⃣ Premium Wash: *₹1,399*', '', '🛡️ *Care & protection*', '4️⃣ Deep Interior Cleaning: *₹3,499* (🔜 Coming soon)', '5️⃣ Anti-Rust Protection: *₹4,500* (🔜 Coming soon)', '', '✨ *Add-on* (with wash 1, 2 or 3)', '6️⃣ Premium Care: *+₹249* (🔜 Coming soon)'].join('\n'),
+    );
+    expect(bodyOf(only(reply({ kind: 'choice', id: 'cat|b1|bike' }, withDeep).messages))).not.toContain('Deep Interior');
+    const seen = { ...withDeep, person: { name: 'Ravi', returning: true, lang: null, context: 'sz|b1|small' } };
+    const four = as(only(reply({ kind: 'text', text: '4' }, seen).messages), 'buttons');
+    expectValid([four]);
+    expect(four.text).toContain('4️⃣ *Deep Interior Cleaning*\n🚗 Hatchback · *₹2,499* (🔜 Coming soon)');
+    expect(four.text).toContain('• Express Wash free');
+    expect(four.text).toContain('⏱️ Takes about 4 hours');
+    expect(four.text).not.toContain('pH-neutral');
+    const halfway = { ...withDeep, branches: [{ ...soonHub, services: [{ ...deep, durationMin: 210 }, ...soonHub.services] }] };
+    expect(bodyOf(only(reply({ kind: 'text', text: '4' }, { ...halfway, person: seen.person }).messages))).toContain('⏱️ Takes about 3½ hours');
+    // Asked about by its short name, it's coming soon; "premium" alone is still the Premium Wash.
+    for (const text of ['Do you do deep interior cleaning?', 'deep interior?']) {
+      expect(bodyOf(only(reply({ kind: 'text', text }, withDeep).messages))).toContain('🔜 *Deep Interior Cleaning* is coming soon');
+    }
+    expect(reply({ kind: 'text', text: 'anti rust?' }, withDeep).messages.map(bodyOf).join()).toContain('🔜 *Anti-Rust Protection* is coming soon');
+    expect(reply({ kind: 'text', text: 'what is in premium?' }, withDeep).messages.map(bodyOf).join()).not.toContain('Premium Care* is coming soon');
+  });
+
   it('the Flow marks it too', () => {
     const md = chatFlowReply(
       { action: 'data_exchange', screen: 'MODEL', data: { step: 'model', company: 'Maruti Suzuki', model: 'Swift' }, flow_token: chatFlowToken('b1', 'car', 'en') },
       soonCtx,
     ).data.prices as string;
-    expect(md).toContain('4. **Anti-Rust Protection** — ₹4,500 (🔜 Coming soon)');
-    expect(md).toContain('5. **Premium Care** — +₹249 (🔜 Coming soon) · Our specialized');
+    expect(md).toContain('## 🛡️ Care & protection\n4. **Anti-Rust Protection** — ₹4,500 (🔜 Coming soon)');
+    expect(md).toContain('5. **Premium Care** — +₹249 (🔜 Coming soon) · Our thick yellow snow foam');
   });
 });
 

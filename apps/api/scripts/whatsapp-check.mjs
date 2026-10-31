@@ -160,6 +160,10 @@ check(
   JSON.stringify(soonForCars),
 );
 check('…with Monthly plans / Other size / Talk to us', buttonsOf(large.at(-1)).map((b) => b.id.split('|')[0]).join() === 'pl,cat,talk');
+if ((catalogJson.comingSoon ?? []).some((c) => c.name === 'Deep Interior Cleaning')) {
+  const deep = await text('deep interior?');
+  check('asking for “deep interior” says Deep Interior Cleaning is coming soon', bodyOf(deep[0]).startsWith('🔜 *Deep Interior Cleaning* is coming soon'), bodyOf(deep[0]));
+}
 console.log(`\n--- What the customer sees ---\n${largeBody}\n------------------------------\n`);
 const careNo = largeBody.match(/(\d)️⃣ Premium Care/)?.[1];
 const care = await text(careNo ?? '1');

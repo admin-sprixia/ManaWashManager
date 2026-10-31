@@ -10,7 +10,8 @@
 // Cars are priced by size only: Small (hatchbacks), Mid-size (sedans, compact SUVs) and Large
 // (big SUVs, MUVs, 7-seaters). Imported brands go by their size too (a BMW 3 Series is mid-size,
 // an X5 large); a "Luxury car" type pays the Large price. Premium Care is an add-on to an Express,
-// Basic or Premium Wash, for cars and bikes. Every two-wheeler pays the same, scooter to Harley. Autos, vans, pickups,
+// Basic or Premium Wash, for cars and bikes; Deep Interior Cleaning (with a free Express Wash) is
+// done at the shop only. Every two-wheeler pays the same, scooter to Harley. Autos, vans, pickups,
 // trucks, tractors and JCBs get the main washes too, for branches that take them.
 import { API, apiFetch, signIn } from './lib/target.mjs';
 
@@ -114,8 +115,9 @@ const SERVICES = [
   {
     name: 'Premium Wash',
     description: 'The full treatment, inside and out.',
-    durationMin: 75,
-    checklist: ['Everything in Basic', 'Spray wax', 'Inside deep clean', 'Rain repellent on the windscreen'],
+    durationMin: 80,
+    // "Seats, steering & vents cleaned", not "deep clean": Deep Interior Cleaning is its own service.
+    checklist: ['Everything in Basic', 'Seats, steering & vents cleaned', 'Spray wax', 'Black trim shine', 'Rain repellent on the windscreen'],
     prices: car([899, 1099, 1399], [819, 999, 1279]),
   },
   // Coming soon: shown on WhatsApp and the price board without a price; not sold yet. Their prices
@@ -129,15 +131,36 @@ const SERVICES = [
     prices: car(4500, 4050),
   },
   {
+    name: 'Deep Interior Cleaning',
+    description: 'Every surface inside, deep cleaned: seats shampooed or leather conditioned, carpets, roof and AC vents. Express Wash free.',
+    kind: 'protection',
+    comingSoon: true,
+    // Seats and carpets are shampooed and extracted at the shop, then dried: about 3½ hours of work plus drying.
+    durationMin: 240,
+    places: { shop: true, community: false, doorstep: false },
+    checklist: [
+      'Fabric seats shampooed & extracted',
+      'Leather seats cleaned & conditioned',
+      'Carpets & mats shampooed',
+      'Roof lining cleaned',
+      'AC vents cleaned',
+      'Dashboard, doors, steering & pedals',
+      'Door edges, seat rails & seat belts',
+      'Express Wash free',
+    ],
+    prices: car([2499, 2999, 3499], [2499, 2999, 3499]),
+  },
+  {
     name: 'Premium Care',
     // Every wash already uses a high-lubricity, pH-neutral daily maintenance wash (WhatsApp says
-    // so); Premium Care is the step up.
-    description: 'Our specialized, ceramic-infused deep-cleaning lather, designed to condition the clear coat and maximize gloss.',
+    // so); Premium Care is the step up: Wavex yellow snow foam, Wavex Wash and Wax, a gloss finish.
+    description: 'Our thick yellow snow foam and a wash-and-wax lather for a deep, glossy shine that protects the paint.',
     kind: 'addon',
     comingSoon: true,
     durationMin: 15,
-    checklist: ['Ceramic-infused deep-cleaning lather', 'Conditions the clear coat', 'Maximum gloss', 'Soft microfiber hand-dry'],
-    prices: { ...car(249, 249), ...bike(99, 99) },
+    checklist: ['Thick yellow snow foam', 'Wash & wax lather', 'Deep gloss, water beads off', 'Soft microfiber hand-dry'],
+    // Sized like every wash: a bigger car takes more foam, shampoo and time.
+    prices: { ...car([249, 299, 349], [249, 299, 349]), ...bike(99, 99) },
   },
   // Bikes: Express / Basic / Premium like the cars. A bike wash goes for about ₹150 locally, so
   // Basic stays at that; community is a little less, like the cars. One price for every bike.
@@ -272,7 +295,7 @@ for (const s of SERVICES) {
   const fields = {
     name: s.name,
     description: s.description ?? null,
-    places: { shop: true, community: true, doorstep: true },
+    places: s.places ?? { shop: true, community: true, doorstep: true },
     classIds,
     sizeIds,
     includes: [],

@@ -158,7 +158,7 @@ const write = writer(OUT);
         );
       })
       .join('');
-    const apps = ['GPay', 'PhonePe', 'Paytm', 'BHIM', 'RuPay'];
+    const apps = ['GPay', 'PhonePe', 'Paytm', 'BHIM'];
     const pillW = 19.5;
     const pillGap = 2.4;
     const rowW = apps.length * pillW + (apps.length - 1) * pillGap;

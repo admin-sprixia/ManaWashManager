@@ -44,13 +44,12 @@ const API = process.env.API ?? 'https://api-staging.manawashmanager.com';
 
 // ─── Fill these in ────────────────────────────────────────────────────────────
 /**
- * MANA Pay: the shop's HDFC SmartHub Vyapar QR (Bharat QR: every UPI app, RuPay and cards), as
- * the code inside it reads, redrawn here as a sharp vector QR. Replace it if the bank issues a new
- * one; the counter card never prints the UPI ID itself.
+ * MANA Pay: the shop's HDFC PayZapp / Vyapar UPI QR, the one the sound box announces payments
+ * for, as the code inside it reads, redrawn here as a sharp vector QR. Replace it if the bank
+ * issues a new one; the counter card never prints the UPI ID itself.
  */
 const MANA_PAY_QR =
-  process.env.MANA_PAY_QR ??
-  '0002010102110216440384369739550504165220240369739557061661000303697395550825HDFC00000015020011913562826470010A0000005240129SRIMANAWASH.36973955@hdfcbank27420010A0000005240124STQD330688317932821359835204753853033565802IN5913SRI MANA WASH6005KOVUR610652413762400524STQD3306883179328213598307083697395563046bd3';
+  process.env.MANA_PAY_QR ?? 'upi://pay?pa=Vyapar.178760059376@hdfcbank&pn=Default&mc=8999&tr=STQU178760059376&cu=INR';
 /** Google Business Profile → "Ask for reviews" link; empty shows a placeholder. */
 const REVIEW_URL = process.env.REVIEW_URL ?? '';
 /** The highway sign: how far, and which way (left or right). */

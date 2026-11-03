@@ -2,6 +2,11 @@ name = "mana-api"
 main = "src/worker.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
+# Production, at api.manawashmanager.com (single-level subdomain, covered by Cloudflare's free certificate).
+routes = [{ pattern = "api.manawashmanager.com", custom_domain = true }]
+
+[vars]
+ENVIRONMENT = "production"
 
 # Pictures bundled into the worker (the WhatsApp banner), imported as bytes.
 [[rules]]

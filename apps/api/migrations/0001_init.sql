@@ -1,7 +1,7 @@
--- Baseline: the whole mana_db schema as it stood before launch (2026-10-28), replacing the 39
--- development migrations (0001_init … 0039_whatsapp; they're in git history). It builds an
--- empty database: no shop, business or settings rows (those come from scripts/setup-business.mjs
--- for production, seed.sql for local dev).
+-- Baseline: the whole mana_db schema as it stood before launch (2026-11-02), replacing the
+-- development migrations (the 2026-10-28 baseline and 0002_whatsapp_language … 0007_plan_washes;
+-- they're in git history). It builds an empty database: no shop, business or settings rows
+-- (those come from scripts/setup-business.mjs for production, seed.sql for local dev).
 --
 -- From here on the schema only changes by adding new numbered files (0002_…); never edit this
 -- one or any file that has been applied to the production database. schema.sql stays the
@@ -882,8 +882,16 @@ CREATE TABLE whatsapp_contacts (
   profile_name TEXT CHECK (profile_name IS NULL OR length(profile_name) <= 120),
   marketing_stopped_at TEXT,
   last_inbound_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now'))
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  -- The language they picked on WhatsApp (or wrote to us in); the assistant answers in it.
+  language TEXT CHECK (language IS NULL OR language IN ('en', 'te')),
+  -- The price list they saw last ("pr|<branch>|<make>|<model>"), so a number picks from it.
+  chat_context TEXT CHECK (chat_context IS NULL OR length(chat_context) <= 200),
+  -- The inbox: waiting for a person since; the assistant stays quiet until (after a teammate replies).
+  awaiting_reply_at TEXT,
+  bot_paused_until TEXT
 );
+CREATE INDEX idx_whatsapp_contacts_awaiting ON whatsapp_contacts(awaiting_reply_at) WHERE awaiting_reply_at IS NOT NULL;
 
 -- Every message in and out, by Meta's message id: incoming ones once each (Meta retries
 -- webhooks), outgoing ones with their delivery status as Meta reports it.
@@ -899,7 +907,8 @@ CREATE TABLE whatsapp_messages (
   shop_id TEXT,
   job_id TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
-  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now'))
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  sent_by_user_id TEXT -- a teammate's reply from the inbox
 );
 CREATE INDEX idx_whatsapp_messages_phone ON whatsapp_messages(phone, created_at);
 CREATE INDEX idx_whatsapp_messages_job ON whatsapp_messages(job_id) WHERE job_id IS NOT NULL;
@@ -998,6 +1007,7 @@ CREATE TABLE catalog_services (
   show_in_app INTEGER NOT NULL DEFAULT 1 CHECK (show_in_app IN (0, 1)), -- off = sold at the shop only
   checklist TEXT, -- what's included: JSON list of short lines
   duration_minutes INTEGER CHECK (duration_minutes IS NULL OR duration_minutes BETWEEN 1 AND 43200), -- how long it takes, up to 30 days
+  coming_soon INTEGER NOT NULL DEFAULT 0 CHECK (coming_soon IN (0, 1)), -- shown as coming soon, not sold
   UNIQUE (business_id, id)
 );
 
@@ -1667,12 +1677,31 @@ CREATE TABLE shop_plan_orders (
   sold_by_user_id TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
   ended_at TEXT,
+  -- The pack's better washes, counted inside washes_total (see shop_plan_order_washes).
+  upgrades_total INTEGER NOT NULL DEFAULT 0 CHECK (upgrades_total >= 0),
+  upgrades_used INTEGER NOT NULL DEFAULT 0 CHECK (upgrades_used >= 0),
+  carried_in INTEGER NOT NULL DEFAULT 0 CHECK (carried_in >= 0), -- washes carried over from the plan before
+  carried_to TEXT, -- the plan this one's unused wash carried over to
   UNIQUE (shop_id, id),
   UNIQUE (shop_id, sale_job_id),
   FOREIGN KEY (shop_id, customer_id) REFERENCES customers(shop_id, id),
   FOREIGN KEY (shop_id, vehicle_id) REFERENCES vehicles(shop_id, id)
 );
 CREATE INDEX idx_shop_plan_orders_vehicle ON shop_plan_orders(shop_id, vehicle_id, status);
+CREATE INDEX idx_shop_plan_orders_carried_to ON shop_plan_orders(shop_id, carried_to) WHERE carried_to IS NOT NULL;
+
+-- A plan's pack, wash by wash: how many of each wash it holds and how many are used (a ready plan
+-- holds its everyday wash and maybe a better one; a plan the customer builds, any of the washes).
+CREATE TABLE shop_plan_order_washes (
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  order_id TEXT NOT NULL,
+  catalog_service_id TEXT NOT NULL,
+  washes_total INTEGER NOT NULL CHECK (washes_total BETWEEN 0 AND 400),
+  washes_used INTEGER NOT NULL DEFAULT 0 CHECK (washes_used >= 0 AND washes_used <= washes_total),
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (shop_id, order_id, catalog_service_id),
+  FOREIGN KEY (shop_id, order_id) REFERENCES shop_plan_orders(shop_id, id)
+);
 
 -- Each wash a shop plan paid for: one a day per plan, one plan per wash.
 CREATE TABLE shop_plan_uses (
@@ -1682,6 +1711,8 @@ CREATE TABLE shop_plan_uses (
   job_id TEXT NOT NULL,
   day TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  kind TEXT NOT NULL DEFAULT 'base' CHECK (kind IN ('base', 'upgrade')), -- legacy: see catalog_service_id
+  catalog_service_id TEXT, -- which wash of the pack it took
   UNIQUE (shop_id, order_id, day),
   UNIQUE (shop_id, job_id),
   FOREIGN KEY (shop_id, order_id) REFERENCES shop_plan_orders(shop_id, id)

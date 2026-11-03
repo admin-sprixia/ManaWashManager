@@ -13,9 +13,9 @@ import { placeTitle, useApiData, type PlaceDetail } from './shared';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PlaceLive'>;
 
-/** Straight after approving: it's live, who was invited, and the first things to do to get members. */
+/** Straight after approving: it's live, and the first things to do to get members. */
 export function PlaceLiveScreen({ navigation, route }: Props) {
-  const { placeId, invited } = route.params;
+  const { placeId } = route.params;
   const detail = useApiData<PlaceDetail>(() => api.places[':id'].$get({ param: { id: placeId } }), 'Couldn’t load the community.');
   const place = detail.data?.place ?? null;
 
@@ -48,10 +48,6 @@ export function PlaceLiveScreen({ navigation, route }: Props) {
         />
 
         <View style={styles.stats}>
-          <View style={[styles.stat, { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' }]}>
-            <Text style={[styles.statValue, { color: '#15803D' }]}>{invited}</Text>
-            <Text style={styles.statLabel}>{invited === 1 ? 'person nearby invited' : 'people nearby invited'}</Text>
-          </View>
           <View style={[styles.stat, { backgroundColor: '#F0F9FF', borderColor: '#BAE6FD' }]}>
             <Text style={[styles.statValue, { color: '#0369A1' }]}>{units}</Text>
             <Text style={styles.statLabel}>{`${noun}s on the list`}</Text>

@@ -26,7 +26,7 @@ const savedKey = (placeId: string) => `review.v1.${placeId}`;
 const snapshot = (s: { days: string[]; time: string; teamIds: string[]; approval: Approval; capacity: string; status: PlaceStatus; checks: string[] }) =>
   JSON.stringify({ ...s, days: [...s.days].sort(), teamIds: [...s.teamIds].sort(), checks: [...s.checks].sort(), capacity: s.capacity.trim() });
 
-export type SubmitResult = { ok: true; invited: number | null } | { ok: false };
+export type SubmitResult = { ok: true } | { ok: false };
 
 /**
  * The owner's choices for a community — days, time, team, who can join, a daily limit and (once
@@ -135,14 +135,13 @@ export function useWashSettings(placeId: string, place: Place | null) {
         if (!b.ok) return fail(await apiErrorMessage(b, 'Couldn’t save the team.'));
         setBaseline(current);
         showToast('Saved', 'success');
-        return { ok: true, invited: null };
+        return { ok: true };
       }
       const res = await api.places[':id']['go-live'].$post({ param: { id: placeId }, json: { ...values, teamUserIds: teamIds } });
       if (!res.ok) return fail(await apiErrorMessage(res, 'Couldn’t make it live.'));
-      const { invited } = await res.json();
       setBaseline(current);
       await clearSaved();
-      return { ok: true, invited };
+      return { ok: true };
     } catch (e) {
       return fail(failure(e));
     } finally {

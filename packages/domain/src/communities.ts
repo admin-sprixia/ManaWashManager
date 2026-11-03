@@ -1,4 +1,4 @@
-import { formatClock } from './customerApp';
+import { formatClock } from './openingHours';
 import { isClockTime, sortWeekdays, WEEKDAY_SHORT } from './places';
 
 /**

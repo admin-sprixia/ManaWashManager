@@ -1,8 +1,7 @@
 // HQ services end to end: where a service is done (shop, community, doorstep — any mix), its
 // prices for every size saved with it, its time, kind, badge, app setting and checklist, all
-// copied to branch menus; a doorstep wash refuses a community-only service, the customer app hides
-// staff-only services and doesn't sell community-only ones at the door, community menus show only
-// what's done at communities, plans can't use (or strand) a service not done there; and the
+// copied to branch menus; a doorstep wash refuses a community-only service, community menus show
+// only what's done at communities, plans can't use (or strand) a service not done there; and the
 // vehicle size guide's sizes are open to everyone. Run against the local API:
 //   cd apps/api && npm run db:reset:local && npm run dev      (in one terminal)
 //   cd apps/api && npm run test:services                      (in another)
@@ -45,7 +44,7 @@ const phone = { owner: `91${rand(8)}`, staff: `91${rand(8)}` };
 
 d1Run(
   `INSERT INTO businesses (id, name) VALUES ('${BIZ}', 'Services Check Co');` +
-    `INSERT INTO shops (id, code, name, business_id, latitude, longitude, service_radius_km, in_customer_app) VALUES ('${SHOP}', '${rand(6)}', 'Services Hub', '${BIZ}', 14.51, 79.98, 10, 1);` +
+    `INSERT INTO shops (id, code, name, business_id, latitude, longitude, service_radius_km) VALUES ('${SHOP}', '${rand(6)}', 'Services Hub', '${BIZ}', 14.51, 79.98, 10);` +
     `INSERT INTO users (id, shop_id, name, phone, role) VALUES ('user_svc_o_${run}', '${SHOP}', 'Owner', '${phone.owner}', 'owner'), ('user_svc_s_${run}', '${SHOP}', 'Staff', '${phone.staff}', 'staff');` +
     `INSERT INTO business_admins (business_id, phone) VALUES ('${BIZ}', '${phone.owner}');`,
 );
@@ -203,15 +202,7 @@ check('A doorstep wash refuses a service done only at communities', r.status ===
 r = await doorstepJob(branch['Home Detail']?.id);
 check('…and sells one done at homes: its price plus the visit charge (₹500 + ₹99)', r.status === 201 && r.body?.total === 59900, show(r));
 
-// ─── Customer app and community menus ────────────────────────────────────────
-
-r = await call(null, 'GET', '/c/branches');
-const listed = (r.body?.branches ?? []).find((b) => b.id === SHOP);
-const appSvc = (name) => listed?.services?.find((s) => s.name === name);
-check('The customer app hides staff-only services', !!listed && !appSvc('Staff Special'), JSON.stringify(listed?.services?.map((s) => s.name)));
-check('…doesn’t sell a community-only service at the door', !appSvc('Community Care'), JSON.stringify(appSvc('Community Care')));
-check('…sells a doorstep-only service at the door', (appSvc('Home Detail')?.doorstepPrices?.length ?? 0) > 0, JSON.stringify(appSvc('Home Detail')));
-check('…and shows the time, badge and checklist', appSvc('Express Test')?.durationMin === 30 && appSvc('Express Test')?.popular === true && appSvc('Express Test')?.checklist?.join() === 'Foam wash', JSON.stringify(appSvc('Express Test')));
+// ─── Community menus ─────────────────────────────────────────────────────────
 
 r = await call(T.staff, 'GET', '/places/menu');
 const menuNames = (r.body?.menu?.services ?? []).map((s) => s.name);

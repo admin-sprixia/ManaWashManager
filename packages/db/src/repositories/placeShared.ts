@@ -65,7 +65,7 @@ export async function businessRules(pdb: DbClient, businessId: string | null): P
 export async function shopContext(pdb: DbClient, shopId: string) {
   const shop = await pdb.shop.findUnique({
     where: { id: shopId },
-    select: { id: true, code: true, name: true, city: true, businessId: true, contactPhone: true, inCustomerApp: true },
+    select: { id: true, code: true, name: true, city: true, businessId: true, contactPhone: true },
   });
   if (!shop) return placeFail('not_found', 'Branch not found.');
   return { shop, rules: await businessRules(pdb, shop.businessId) };

@@ -2,7 +2,7 @@
 // eslint-disable-next-line @typescript-eslint/triple-slash-reference
 /// <reference path="../assets.d.ts" />
 import { Hono, type Context } from 'hono';
-import { catalogRepo, createPlatformDb, customerAppRepo, shopPlanRepo, vehicleModelRepo } from '@mana/db';
+import { branchDirectoryRepo, catalogRepo, createPlatformDb, shopPlanRepo, vehicleModelRepo } from '@mana/db';
 import { catalogFeed, catalogProducts, chatFlowChoice, chatFlowReply, chatReply, type ChatBranch, type ChatContext, type ChatFlowRequest, type ChatInput } from '@mana/domain';
 import banner from '../assets/whatsapp-banner.jpg';
 import makeLogos from '../assets/make-logos.json';
@@ -115,7 +115,7 @@ async function chatContext(env: Env, origin: string): Promise<ChatContext> {
   const pdb = createPlatformDb(env.DB);
   const businessId = env.WHATSAPP_BUSINESS_ID?.trim() || null;
   const [branches, business, edits] = await Promise.all([
-    customerAppRepo.branches(pdb, { id: businessId }),
+    branchDirectoryRepo.branches(pdb, { id: businessId }),
     businessId ? pdb.business.findUnique({ where: { id: businessId }, select: { name: true } }) : null,
     businessId ? vehicleModelRepo.list(pdb, businessId) : [],
   ]);

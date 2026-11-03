@@ -3,13 +3,12 @@
 //
 // The artwork uses blurred glows, shadows and masks, which Android vector drawables cannot express, so the
 // adaptive icon's two image layers are rendered to PNG at every density. Writes into the res folder of
-// both apps (apps/manager and apps/customer, android/app/src/main/res):
+// the app (apps/manager/android/app/src/main/res):
 //   - Adaptive icon (Android 8+): mipmap-*/ic_launcher_background.png + ic_launcher_foreground.png (108 dp
 //     layers; the launcher guarantees only the centre 66 dp is visible, and masks to circle / squircle / square),
 //     plus a one-colour vector (drawable-v26/ic_launcher_monochrome.xml) that Android 13+ tints for themed icons.
 //   - Legacy PNGs (Android 6–7, minSdk is 23): rounded-square and round, at every density.
-// And writes the layers (background.svg, foreground.svg) and a 512×512 Play Store PNG into branding/android-icon/,
-// and the iOS app icon set of apps/customer (square, opaque PNGs; iOS rounds the corners itself).
+// And writes the layers (background.svg, foreground.svg) and a 512×512 Play Store PNG into branding/android-icon/.
 
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -17,8 +16,7 @@ import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const RES_DIRS = ['manager', 'customer'].map((app) => join(HERE, '..', 'apps', app, 'android', 'app', 'src', 'main', 'res'));
-const IOS_ICONSET = join(HERE, '..', 'apps', 'customer', 'ios', 'ManaCarWash', 'Images.xcassets', 'AppIcon.appiconset');
+const RES_DIRS = ['manager'].map((app) => join(HERE, '..', 'apps', app, 'android', 'app', 'src', 'main', 'res'));
 const SRC_DIR = join(HERE, 'android-icon');
 const SRC = join(SRC_DIR, 'app-icon.svg');
 
@@ -144,31 +142,3 @@ for (const [density, size] of Object.entries(LEGACY_PX)) {
   putRes(join(`mipmap-${density}`, 'ic_launcher_round.png'), await raster(size, 'round'));
 }
 put(join(SRC_DIR, 'play-store-512.png'), await raster(512, 'square'));
-
-// ─── iOS app icon (apps/customer) ──────────────────────────────────────────────
-// iOS rejects icons with transparency, so each is flattened onto the tile's darkest colour.
-const IOS_ICONS = [
-  { idiom: 'iphone', size: 20, scale: 2 },
-  { idiom: 'iphone', size: 20, scale: 3 },
-  { idiom: 'iphone', size: 29, scale: 2 },
-  { idiom: 'iphone', size: 29, scale: 3 },
-  { idiom: 'iphone', size: 40, scale: 2 },
-  { idiom: 'iphone', size: 40, scale: 3 },
-  { idiom: 'iphone', size: 60, scale: 2 },
-  { idiom: 'iphone', size: 60, scale: 3 },
-  { idiom: 'ios-marketing', size: 1024, scale: 1 },
-];
-const images = [];
-for (const icon of IOS_ICONS) {
-  const px = icon.size * icon.scale;
-  const filename = `icon-${icon.size}@${icon.scale}x.png`;
-  const png = await sharp(iconSvg, { density: 288 })
-    .resize(px, px, { kernel: 'lanczos3' })
-    .flatten({ background: '#060A22' })
-    .removeAlpha()
-    .png({ compressionLevel: 9 })
-    .toBuffer();
-  put(join(IOS_ICONSET, filename), png);
-  images.push({ filename, idiom: icon.idiom, scale: `${icon.scale}x`, size: `${icon.size}x${icon.size}` });
-}
-put(join(IOS_ICONSET, 'Contents.json'), `${JSON.stringify({ images, info: { author: 'xcode', version: 1 } }, null, 2)}\n`);

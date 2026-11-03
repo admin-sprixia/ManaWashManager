@@ -7,7 +7,6 @@ import {
   isValidPhone,
   MAX_WEEKLY_OFF_DAYS,
   normalizePhone,
-  SERVICE_AREA_NAME_MAX,
   WEEKDAY_LABELS,
 } from '@mana/domain';
 import {
@@ -19,14 +18,12 @@ import {
   IconMapPin,
   IconPerson,
   IconPhone,
-  IconPlus,
   IconShield,
   IconStar,
   IconStore,
   IconTag,
   IconUpi,
   Notice,
-  Pill,
   PhoneField,
   ScreenContainer,
   ScreenHeader,
@@ -45,28 +42,26 @@ import { BranchLocationCard } from '../components/BranchLocationCard';
 import { TimeField, formatAmPm } from '../components/TimeField';
 import { UpiSheet } from '../components/UpiSheet';
 import { ReviewLinkSheet } from '../components/ReviewLinkSheet';
-import { BandRow, ScreenHero } from '../components/ScreenChrome';
+import { ScreenHero } from '../components/ScreenChrome';
 import { Pill as ChoicePill, TONE } from './business/prices/parts';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BranchProfile'>;
 type Settings = InferResponseType<(typeof api)['service-area']['$get'], 200>;
 type Details = InferResponseType<(typeof api)['shop']['details']['$get'], 200>;
-type Area = Settings['areas'][number];
 
 /** The week as shown, Monday first (Sunday = 0, as stored). */
 const WEEK = [1, 2, 3, 4, 5, 6, 0];
 
-/** How far the branch serves customers, in km: the app's area and its team's reach. */
+/** How far the branch serves customers, in km: its team's reach. */
 const REACH_KM = [3, 5, 10, 15, 20, 30];
 
-type Tab = 'name' | 'contact' | 'location' | 'pay' | 'app' | 'hq';
+type Tab = 'name' | 'contact' | 'location' | 'pay' | 'hq';
 const TABS: { key: Tab; label: string; Icon: (p: { size?: number; color?: string }) => React.ReactElement }[] = [
   { key: 'name', label: 'Name', Icon: IconStore },
   { key: 'contact', label: 'Contact & hours', Icon: IconClock },
   { key: 'location', label: 'Location', Icon: IconMapPin },
   { key: 'pay', label: 'UPI & review', Icon: IconUpi },
-  { key: 'app', label: 'In the app', Icon: IconPhone },
   { key: 'hq', label: 'From HQ', Icon: IconLock },
 ];
 
@@ -79,8 +74,8 @@ function failure(err: unknown): string {
 
 /**
  * Everything about this branch the owner can change, on one page: its name, contact and hours,
- * weekly holiday, where it is, and how far the Mana Wash app finds it — and, below, what Mana
- * Wash HQ set when it opened the branch. Owner only.
+ * weekly holiday, where it is and how far it washes — and, below, what Mana Wash HQ set when it
+ * opened the branch. Owner only.
  */
 export function BranchProfileScreen({ navigation }: Props) {
   const { info, refresh, upiId, googleReviewUrl } = useShop();
@@ -106,12 +101,6 @@ export function BranchProfileScreen({ navigation }: Props) {
 
   const [radiusError, setRadiusError] = useState<string | null>(null);
   const [savingRadius, setSavingRadius] = useState<number | null>(null);
-
-  const [areaName, setAreaName] = useState('');
-  const [pincode, setPincode] = useState('');
-  const [areaError, setAreaError] = useState<string | null>(null);
-  const [addingArea, setAddingArea] = useState(false);
-  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const apply = useCallback((next: Settings) => {
     setSettings(next);
@@ -196,7 +185,7 @@ export function BranchProfileScreen({ navigation }: Props) {
     }
   };
 
-  // One distance for the branch, around its pin: the app's area, and how far its team goes.
+  // One distance for the branch, around its pin: how far its team goes.
   const location = details?.location ?? settings?.hub ?? null;
   const saveRadius = async (km: number) => {
     if (!location) return setRadiusError('Pin the branch on the map first.');
@@ -215,42 +204,6 @@ export function BranchProfileScreen({ navigation }: Props) {
     }
   };
 
-  const addArea = async () => {
-    const area = areaName.trim();
-    if (area.length < 2) return setAreaError('Enter the area name.');
-    if (pincode.trim() && !/^\d{6}$/.test(pincode.trim())) return setAreaError('A pincode has 6 digits.');
-    setAreaError(null);
-    setAddingArea(true);
-    try {
-      const res = await api['service-area'].areas.$post({ json: { name: area, pincode: pincode.trim() || null } });
-      if (!res.ok) throw new Error(await apiErrorMessage(res));
-      setAreaName('');
-      setPincode('');
-      showToast(`${area} added`);
-      await load();
-    } catch (err) {
-      setAreaError(failure(err));
-    } finally {
-      setAddingArea(false);
-    }
-  };
-
-  const toggleArea = async (area: Area) => {
-    setTogglingId(area.id);
-    try {
-      const res = await api['service-area'].areas[':id'].$patch({
-        param: { id: area.id },
-        json: { active: !area.active },
-      });
-      if (!res.ok) throw new Error(await apiErrorMessage(res));
-      await load();
-    } catch (err) {
-      showToast(failure(err), 'error');
-    } finally {
-      setTogglingId(null);
-    }
-  };
-
   const contact = settings?.contact;
   const hours = contact?.opensAt && contact.closesAt ? `${formatAmPm(contact.opensAt)} – ${formatAmPm(contact.closesAt)}` : 'Not set';
   const savedOff = contact?.weeklyOffDays ?? [];
@@ -264,7 +217,6 @@ export function BranchProfileScreen({ navigation }: Props) {
   const openDays = WEEK.filter((d) => !offDays.includes(d));
   const status = details?.status ?? info?.status ?? 'active';
   const code = details?.code ?? info?.code ?? '—';
-  const activeAreas = settings?.areas.filter((a) => a.active).length ?? 0;
 
   return (
     <ScreenContainer noPadding>
@@ -291,7 +243,6 @@ export function BranchProfileScreen({ navigation }: Props) {
               chips={[
                 { label: 'Hours', value: hours },
                 { label: 'Holiday', value: holiday },
-                { label: 'In the app', value: settings.inCustomerApp ? 'Live' : 'Pending' },
               ]}
             />
 
@@ -316,7 +267,7 @@ export function BranchProfileScreen({ navigation }: Props) {
             </ScrollView>
 
             {tab === 'name' ? (
-              <Card icon={<IconStore size={18} color={colors.indigo} />} tint={colors.indigoPale} title="The name customers see" subtitle="On WhatsApp messages, bills, reports and in the app.">
+              <Card icon={<IconStore size={18} color={colors.indigo} />} tint={colors.indigoPale} title="The name customers see" subtitle="On WhatsApp messages, bills and reports.">
                 <TextField
                   label="Branch name"
                   placeholder="e.g. Kovur"
@@ -350,7 +301,7 @@ export function BranchProfileScreen({ navigation }: Props) {
 
             {tab === 'contact' ? (
               <>
-                <Card icon={<IconPhone size={18} color={colors.tealDeep} />} tint="#CCFBF1" title="How customers reach you" subtitle="On your branch page in the Mana Wash app, with Call and WhatsApp buttons.">
+                <Card icon={<IconPhone size={18} color={colors.tealDeep} />} tint="#CCFBF1" title="How customers reach you" subtitle="On WhatsApp replies and bills, so customers can find and call you.">
                   <TextField
                     label="Address"
                     placeholder="Main Road, near Bus Stand, Kovur"
@@ -374,7 +325,7 @@ export function BranchProfileScreen({ navigation }: Props) {
                     hint="Customers call this number, or message it on WhatsApp."
                   />
                 </Card>
-                <Card icon={<IconClock size={18} color={colors.amberDeep} />} tint="#FEF3C7" title="Opening hours" subtitle="What customers see in the app. Washes can still be added at any time.">
+                <Card icon={<IconClock size={18} color={colors.amberDeep} />} tint="#FEF3C7" title="Opening hours" subtitle="What customers see on WhatsApp. Washes can still be added at any time.">
                   <View style={styles.row}>
                     <TimeField
                       label="Opens at"
@@ -448,7 +399,7 @@ export function BranchProfileScreen({ navigation }: Props) {
                     }}
                   />
                 </View>
-                <Card icon={<IconMapPin size={18} color={TONE.community.main} />} tint={TONE.community.pale} title="How far you serve customers" subtitle="Around the pin above: people this far away find you in the app, and your team goes this far.">
+                <Card icon={<IconMapPin size={18} color={TONE.community.main} />} tint={TONE.community.pale} title="How far you serve customers" subtitle="Around the pin above: how far your team goes.">
                   <View style={styles.pills}>
                     {REACH_KM.map((km) => (
                       <ChoicePill
@@ -511,69 +462,6 @@ export function BranchProfileScreen({ navigation }: Props) {
                     variant={googleReviewUrl ? 'secondary' : 'primary'}
                     onPress={() => setReviewOpen(true)}
                   />
-                </Card>
-              </>
-            ) : null}
-
-            {tab === 'app' ? (
-              <>
-                <View style={[styles.status, settings.inCustomerApp ? styles.statusLive : styles.statusPending]}>
-                  <View style={[styles.statusDot, { backgroundColor: settings.inCustomerApp ? colors.teal : colors.amber }]} />
-                  <View style={styles.flex}>
-                    <Text style={styles.statusTitle}>{settings.inCustomerApp ? 'Listed in the Mana Wash app' : 'Not listed yet'}</Text>
-                    <Text style={styles.statusBody}>
-                      {settings.inCustomerApp
-                        ? 'People nearby find this branch, see your starting prices and join a community near them.'
-                        : 'Fill in your contact, location and areas; Sprixia lists the branch when it’s ready.'}
-                    </Text>
-                  </View>
-                </View>
-                <Card
-                  icon={<IconMapPin size={18} color={colors.waterDeep} />}
-                  tint={colors.waterPale}
-                  title={`Areas · ${activeAreas} on`}
-                  subtitle="For people who don’t share their location: they pick their area from this list. Tap one to switch it off or on."
-                  flush
-                >
-                  {settings.areas.length > 0 ? (
-                    settings.areas.map((a, i) => (
-                      <BandRow
-                        key={a.id}
-                        icon={<IconMapPin size={18} color={a.active ? colors.waterDeep : colors.slate} />}
-                        title={a.name}
-                        subtitle={a.pincode ? `Pincode ${a.pincode}` : undefined}
-                        muted={!a.active}
-                        right={togglingId === a.id ? <ActivityIndicator color={colors.water} /> : <Pill label={a.active ? 'ON' : 'OFF'} tone={a.active ? 'teal' : 'slate'} />}
-                        last={i === settings.areas.length - 1}
-                        onPress={() => void toggleArea(a)}
-                      />
-                    ))
-                  ) : (
-                    <Text style={[styles.help, styles.cardPad]}>No areas yet. Add the first one below.</Text>
-                  )}
-                </Card>
-                <Card icon={<IconPlus size={18} color={colors.indigo} />} tint={colors.indigoPale} title="Add an area">
-                  <TextField
-                    label="Area name"
-                    placeholder="Kovur"
-                    value={areaName}
-                    onChangeText={(t) => {
-                      setAreaName(t);
-                      if (areaError) setAreaError(null);
-                    }}
-                    maxLength={SERVICE_AREA_NAME_MAX}
-                    autoCapitalize="words"
-                  />
-                  <TextField
-                    label="Pincode"
-                    optional
-                    placeholder="524137"
-                    value={pincode}
-                    onChangeText={(t) => setPincode(t.replace(/\D/g, '').slice(0, 6))}
-                    keyboardType="number-pad"
-                    error={areaError}
-                  />
-                  <Button label="Add area" variant="secondary" onPress={() => void addArea()} loading={addingArea} />
                 </Card>
               </>
             ) : null}
@@ -684,18 +572,12 @@ const styles = StyleSheet.create({
   cardSub: { ...typography.caption, fontSize: 12.5, color: colors.slateDeep, letterSpacing: 0, lineHeight: 17, marginTop: 2 },
   cardBody: { paddingHorizontal: spacing.md, paddingBottom: spacing.md, paddingTop: spacing.xs, gap: spacing.md },
   cardList: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
-  cardPad: { padding: spacing.md },
 
   preview: { borderRadius: radius.lg, backgroundColor: colors.surface, padding: spacing.sm + 4, gap: 2 },
   previewLabel: { ...typography.caption, fontSize: 11.5, color: colors.slate, letterSpacing: 0.3, fontWeight: '700' },
   previewValue: { ...typography.bodyStrong, fontSize: 15.5, fontWeight: '800', color: colors.waterInk },
 
-  status: { marginHorizontal: spacing.md, flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm + 2, padding: spacing.md, borderRadius: radius.xl, borderWidth: 1 },
-  statusLive: { backgroundColor: '#F0FDFA', borderColor: '#99F6E4' },
-  statusPending: { backgroundColor: '#FFFBEB', borderColor: '#FDE68A' },
   statusDot: { width: 10, height: 10, borderRadius: 5, marginTop: 5 },
-  statusTitle: { ...typography.bodyStrong, fontSize: 15.5, fontWeight: '800', color: colors.waterInk },
-  statusBody: { ...typography.caption, fontSize: 12.5, color: colors.slateDeep, letterSpacing: 0, lineHeight: 17, marginTop: 2 },
 
   pressed: { opacity: 0.8 },
   weekHead: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },

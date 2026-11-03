@@ -9,8 +9,8 @@
 //   - Columns: snake_case via @map, with `_id` for foreign keys and `_at` for timestamps.
 //   - Money: stored as an Int in paise (1 rupee = 100 paise) to avoid float rounding.
 //
-// Multi-shop: every model except Shop, PlatformSetting, SignupCode, RateLimit, WhatsApp*, BillingEvent,
-// CustomerAccount and the business-level service network models (bottom of this file) has `shopId`. Queries never set it by
+// Multi-shop: every model except Shop, PlatformSetting, SignupCode, RateLimit, WhatsApp*, BillingEvent
+// and the business-level service network models (bottom of this file) has `shopId`. Queries never set it by
 // hand — the shop-scoped client (src/client.ts) adds it to every read and write. Its
 // `@default("")` only exists so create inputs don't demand it; the database has no default, so
 // a row that somehow skipped the scoped client fails to insert instead of landing shopless.
@@ -27,50 +27,48 @@ datasource db {
 
 /// One car wash on the platform. Plan: trial | active | past_due | read_only | cancelled | free.
 model Shop {
-  id               String    @id @default(uuid())
+  id              String    @id @default(uuid())
   /// 6-digit shop ID staff type to ask to join. Not a secret — the owner still approves.
-  code             String    @unique
-  name             String
-  city             String?
-  createdAt        DateTime  @default(now()) @map("created_at")
-  /// Listed in the Mana Wash app. Set by Sprixia for MANA's own branches, never by an owner.
-  inCustomerApp    Boolean   @default(false) @map("in_customer_app")
-  /// The hub, and how far from it the branch washes (null = only its service areas).
-  latitude         Float?
-  longitude        Float?
-  serviceRadiusKm  Float?    @map("service_radius_km")
+  code            String    @unique
+  name            String
+  city            String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  /// The hub, and how far from it the branch washes.
+  latitude        Float?
+  longitude       Float?
+  serviceRadiusKm Float?    @map("service_radius_km")
   /// Contact details and opening hours shown in the app. Hours are "HH:MM" IST, both or neither.
-  address          String?
-  contactPhone     String?   @map("contact_phone")
-  opensAt          String?   @map("opens_at")
-  closesAt         String?   @map("closes_at")
+  address         String?
+  contactPhone    String?   @map("contact_phone")
+  opensAt         String?   @map("opens_at")
+  closesAt        String?   @map("closes_at")
   /// Day of the week the branch is closed: Sunday = 0 … Saturday = 6.
-  weeklyOff        Int?      @map("weekly_off")
+  weeklyOff       Int?      @map("weekly_off")
   /// Every day it closes, "0,6" (Sunday = 0); weeklyOff is the first of them, for older apps.
-  weeklyOffDays    String?   @map("weekly_off_days")
+  weeklyOffDays   String?   @map("weekly_off_days")
   /// "hq": the business's HQ home, where HQ people who work at no branch sign in. Never a branch.
-  kind             String    @default("branch")
+  kind            String    @default("branch")
   /// The business this branch belongs to (service network), and how it is priced: its price book
   /// (null = the business's default) and zone (null = none).
-  businessId       String?   @map("business_id")
-  priceBookId      String?   @map("price_book_id")
-  priceZoneId      String?   @map("price_zone_id")
+  businessId      String?   @map("business_id")
+  priceBookId     String?   @map("price_book_id")
+  priceZoneId     String?   @map("price_zone_id")
   /// The business catalog_version this branch's menu was last generated from.
-  menuVersion      Int       @default(0) @map("menu_version")
+  menuVersion     Int       @default(0) @map("menu_version")
   /// Set only by Mana Wash HQ: "active" | "paused" | "closed" (BranchStatus in @mana/domain).
-  status           String    @default("active")
-  statusReason     String?   @map("status_reason")
-  statusChangedAt  DateTime? @map("status_changed_at")
+  status          String    @default("active")
+  statusReason    String?   @map("status_reason")
+  statusChangedAt DateTime? @map("status_changed_at")
   /// Its town (the code's 3 letters, for good) and pincode, from opening it.
-  townId           String?   @map("town_id")
-  pincode          String?
+  townId          String?   @map("town_id")
+  pincode         String?
   /// What the branch offers: head office allows (its agreement), the owner switches on (now).
-  allowHub         Boolean   @default(true) @map("allow_hub")
-  allowCommunity   Boolean   @default(true) @map("allow_community")
-  allowDoorstep    Boolean   @default(true) @map("allow_doorstep")
-  offerHub         Boolean   @default(true) @map("offer_hub")
-  offerCommunity   Boolean   @default(false) @map("offer_community")
-  offerDoorstep    Boolean   @default(false) @map("offer_doorstep")
+  allowHub        Boolean   @default(true) @map("allow_hub")
+  allowCommunity  Boolean   @default(true) @map("allow_community")
+  allowDoorstep   Boolean   @default(true) @map("allow_doorstep")
+  offerHub        Boolean   @default(true) @map("offer_hub")
+  offerCommunity  Boolean   @default(false) @map("offer_community")
+  offerDoorstep   Boolean   @default(false) @map("offer_doorstep")
 
   @@index([businessId])
   @@map("shops")
@@ -78,13 +76,13 @@ model Shop {
 
 /// A phone that proved it holds a number with a WhatsApp code; the PIN works only on these.
 model TrustedDevice {
-  id         String   @id @default(uuid())
-  phone      String
-  deviceHash String   @map("device_hash")
-  createdAt  DateTime @default(now()) @map("created_at")
-  lastUsedAt DateTime @default(now()) @map("last_used_at")
+  id             String    @id @default(uuid())
+  phone          String
+  deviceHash     String    @map("device_hash")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  lastUsedAt     DateTime  @default(now()) @map("last_used_at")
   /// Make and model, shown in More → Your phones.
-  label      String?
+  label          String?
   /// When the right PIN was last used here; seniors can only self-reset on such a phone.
   pinConfirmedAt DateTime? @map("pin_confirmed_at")
 
@@ -209,9 +207,6 @@ model User {
   rewardClaims       RewardClaim[]
   rewardGiftItems    RewardGiftItem[]
   rewardGiftsGiven   RewardGift[]
-  serviceRequests    ServiceRequest[]  @relation("ServiceRequestHandledBy")
-  vehicleRequests    VehicleRequest[]  @relation("VehicleRequestHandledBy")
-  problemsResolved   WashProblem[]     @relation("WashProblemResolvedBy")
 
   @@index([shopId])
   @@index([phone])
@@ -236,7 +231,6 @@ model VehicleType {
   servicePrices   ServicePrice[]
   commissionRates CommissionRate[]
   vehicles        Vehicle[]
-  vehicleRequests VehicleRequest[]
   priceOverrides  BranchPriceOverride[]
   memberVehicles  MemberVehicle[]
 
@@ -394,40 +388,33 @@ model Customer {
   homeLatitude     Float?   @map("home_latitude")
   homeLongitude    Float?   @map("home_longitude")
 
-  vehicles        Vehicle[]
-  jobs            Job[]
-  coupons         Coupon[]
-  rewardGifts     RewardGift[]
-  requests        ServiceRequest[]
-  vehicleRequests VehicleRequest[]
-  washRatings     WashRating[]
-  problems        WashProblem[]
-  referredBy      Referral?         @relation("ReferralReferred")
-  referrals       Referral[]        @relation("ReferralReferrer")
-  placeMembers    PlaceMember[]
-  placeOrders     PlaceOrder[]
-  payments        CustomerPayment[]
+  vehicles     Vehicle[]
+  jobs         Job[]
+  coupons      Coupon[]
+  rewardGifts  RewardGift[]
+  referredBy   Referral?         @relation("ReferralReferred")
+  referrals    Referral[]        @relation("ReferralReferrer")
+  placeMembers PlaceMember[]
+  placeOrders  PlaceOrder[]
+  payments     CustomerPayment[]
 
   @@unique([shopId, phone])
   @@map("customers")
 }
 
 model Vehicle {
-  id                 String    @id @default(uuid())
-  shopId             String    @default("") @map("shop_id")
-  customerId         String    @map("customer_id")
-  registrationNumber String    @map("registration_number")
+  id                 String   @id @default(uuid())
+  shopId             String   @default("") @map("shop_id")
+  customerId         String   @map("customer_id")
+  registrationNumber String   @map("registration_number")
   make               String?
   model              String?
-  vehicleTypeId      String    @map("vehicle_type_id")
+  vehicleTypeId      String   @map("vehicle_type_id")
   /// Sync cursor for the phones' offline customer directory — see apps/api/schema.sql.
-  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at")
-  /// The customer removed it from their list in the Mana Wash app. Only hides it there.
-  appHiddenAt        DateTime? @map("app_hidden_at")
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at")
 
   customer       Customer         @relation(fields: [customerId], references: [id])
   vehicleType    VehicleType      @relation(fields: [vehicleTypeId], references: [id])
-  requests       VehicleRequest[]
   jobs           Job[]
   coupons        Coupon[]
   reminder       VehicleReminder?
@@ -473,19 +460,17 @@ model Job {
   /// A bill a wash plan was sold on: money in, not a wash.
   planSaleId      String?   @map("plan_sale_id")
 
-  customer    Customer      @relation(fields: [customerId], references: [id])
-  vehicle     Vehicle       @relation(fields: [vehicleId], references: [id])
-  createdBy   User          @relation("JobCreatedBy", fields: [createdByUserId], references: [id])
-  paidBy      User?         @relation("JobPaidBy", fields: [paidByUserId], references: [id])
-  voidedBy    User?         @relation("JobVoidedBy", fields: [voidedByUserId], references: [id])
+  customer    Customer     @relation(fields: [customerId], references: [id])
+  vehicle     Vehicle      @relation(fields: [vehicleId], references: [id])
+  createdBy   User         @relation("JobCreatedBy", fields: [createdByUserId], references: [id])
+  paidBy      User?        @relation("JobPaidBy", fields: [paidByUserId], references: [id])
+  voidedBy    User?        @relation("JobVoidedBy", fields: [voidedByUserId], references: [id])
   jobServices JobService[]
   events      JobEvent[]
   washers     JobWasher[]
   sellers     JobSeller[]
   photos      JobPhoto[]
   rewardGifts RewardGift[]
-  rating      WashRating?
-  problems    WashProblem[]
 
   @@index([shopId, status])
   @@index([shopId, createdAt])
@@ -707,140 +692,6 @@ model SignupCode {
   @@map("signup_codes")
 }
 
-/// A named place a branch serves ("Kovur") — the backup when a customer doesn't share a location.
-/// One live area per name — a partial unique index in schema.sql.
-model ServiceArea {
-  id        String   @id @default(uuid())
-  shopId    String   @default("") @map("shop_id")
-  name      String
-  nameKey   String   @map("name_key")
-  pincode   String?
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now()) @map("created_at")
-
-  requests ServiceRequest[]
-
-  @@unique([shopId, id])
-  @@index([shopId])
-  @@map("service_areas")
-}
-
-/// A phone number signed in to the Mana Wash app. Platform-level: the branches it belongs to
-/// are the listed shops with a customer on this number, worked out on each request.
-model CustomerAccount {
-  id             String    @id @default(uuid())
-  phone          String    @unique
-  /// In every customer token; bumping it signs the app out on every phone.
-  sessionVersion Int       @default(0) @map("session_version")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  lastSeenAt     DateTime? @map("last_seen_at")
-
-  @@map("customer_accounts")
-}
-
-/// "Request service" from the app. One open request per phone — a partial unique index in schema.sql.
-model ServiceRequest {
-  id              String    @id @default(uuid())
-  shopId          String    @default("") @map("shop_id")
-  phone           String
-  name            String?
-  latitude        Float?
-  longitude       Float?
-  areaId          String?   @map("area_id")
-  /// Landmark or address line, as typed (optional).
-  address         String?
-  placeKind       String?   @map("place_kind") // apartment | house | small_building | office | other
-  placeName       String?   @map("place_name")
-  homeText        String?   @map("home_text")
-  cars            Int       @default(0)
-  bikes           Int       @default(0)
-  preferredTime   String?   @map("preferred_time") // early_morning | morning | evening | any
-  notes           String?
-  status          String    @default("pending") // pending | out_of_area | approved | rejected | cancelled
-  handledByUserId String?   @map("handled_by_user_id")
-  handledAt       DateTime? @map("handled_at")
-  reason          String?
-  customerId      String?   @map("customer_id")
-  /// A place started near this request: the person can join it in one tap.
-  invitedPlaceId  String?   @map("invited_place_id")
-  createdAt       DateTime  @default(now()) @map("created_at")
-
-  area      ServiceArea? @relation(fields: [areaId], references: [id])
-  handledBy User?        @relation("ServiceRequestHandledBy", fields: [handledByUserId], references: [id])
-  customer  Customer?    @relation(fields: [customerId], references: [id])
-
-  @@index([shopId, status, createdAt])
-  @@index([phone, createdAt])
-  @@map("service_requests")
-}
-
-/// "Add my vehicle" from the app. One pending request per plate per branch — a partial unique
-/// index in schema.sql.
-model VehicleRequest {
-  id                 String    @id @default(uuid())
-  shopId             String    @default("") @map("shop_id")
-  customerId         String    @map("customer_id")
-  registrationNumber String    @map("registration_number")
-  vehicleTypeId      String    @map("vehicle_type_id")
-  make               String?
-  model              String?
-  status             String    @default("pending") // pending | approved | rejected | cancelled
-  vehicleId          String?   @map("vehicle_id")
-  handledByUserId    String?   @map("handled_by_user_id")
-  handledAt          DateTime? @map("handled_at")
-  reason             String?
-  createdAt          DateTime  @default(now()) @map("created_at")
-
-  customer    Customer    @relation(fields: [customerId], references: [id])
-  vehicleType VehicleType @relation(fields: [vehicleTypeId], references: [id])
-  vehicle     Vehicle?    @relation(fields: [vehicleId], references: [id])
-  handledBy   User?       @relation("VehicleRequestHandledBy", fields: [handledByUserId], references: [id])
-
-  @@index([shopId, status, createdAt])
-  @@index([customerId, createdAt])
-  @@map("vehicle_requests")
-}
-
-/// A customer's rating of one of their paid washes.
-model WashRating {
-  jobId      String   @id @map("job_id")
-  shopId     String   @default("") @map("shop_id")
-  customerId String   @map("customer_id")
-  stars      Int
-  comment    String?
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @default(now()) @map("updated_at")
-
-  job      Job      @relation(fields: [jobId], references: [id])
-  customer Customer @relation(fields: [customerId], references: [id])
-
-  @@index([shopId, updatedAt])
-  @@map("wash_ratings")
-}
-
-/// A problem a customer reported from the app, about one wash or the branch in general.
-model WashProblem {
-  id               String    @id @default(uuid())
-  shopId           String    @default("") @map("shop_id")
-  customerId       String    @map("customer_id")
-  jobId            String?   @map("job_id")
-  kind             String // not_clean | damage | missed_service | billing | staff | other
-  details          String
-  status           String    @default("open") // open | resolved
-  resolution       String?
-  resolvedByUserId String?   @map("resolved_by_user_id")
-  resolvedAt       DateTime? @map("resolved_at")
-  createdAt        DateTime  @default(now()) @map("created_at")
-
-  customer   Customer @relation(fields: [customerId], references: [id])
-  job        Job?     @relation(fields: [jobId], references: [id])
-  resolvedBy User?    @relation("WashProblemResolvedBy", fields: [resolvedByUserId], references: [id])
-
-  @@index([shopId, status, createdAt])
-  @@index([customerId, createdAt])
-  @@map("wash_problems")
-}
-
 /// `shopId` is null for platform errors (e.g. a failed nightly job, a request before sign-in).
 model AppError {
   id         String   @id @default(uuid())
@@ -966,8 +817,8 @@ model Expense {
   voidedAt        DateTime? @map("voided_at")
   createdAt       DateTime  @default(now()) @map("created_at")
 
-  createdBy  User        @relation("ExpenseCreatedBy", fields: [createdByUserId], references: [id])
-  voidedBy   User?       @relation("ExpenseVoidedBy", fields: [voidedByUserId], references: [id])
+  createdBy  User          @relation("ExpenseCreatedBy", fields: [createdByUserId], references: [id])
+  voidedBy   User?         @relation("ExpenseVoidedBy", fields: [voidedByUserId], references: [id])
   stockMoves StockMove[]
   edits      ExpenseEdit[]
 
@@ -977,13 +828,13 @@ model Expense {
 
 /// An edit of an expense, append-only: who, why, and each field's old and new value (JSON).
 model ExpenseEdit {
-  id              String   @id @default(uuid())
-  shopId          String   @default("") @map("shop_id")
-  expenseId       String   @map("expense_id")
-  editedByUserId  String   @map("edited_by_user_id")
-  reason          String
-  changes         String // JSON: [{ field, from, to }]
-  createdAt       DateTime @default(now()) @map("created_at")
+  id             String   @id @default(uuid())
+  shopId         String   @default("") @map("shop_id")
+  expenseId      String   @map("expense_id")
+  editedByUserId String   @map("edited_by_user_id")
+  reason         String
+  changes        String // JSON: [{ field, from, to }]
+  createdAt      DateTime @default(now()) @map("created_at")
 
   expense  Expense @relation(fields: [expenseId], references: [id])
   editedBy User    @relation("ExpenseEditedBy", fields: [editedByUserId], references: [id])
@@ -1155,18 +1006,18 @@ model WhatsAppContact {
 
 /// Every WhatsApp message in and out, by Meta's message id. Platform-level.
 model WhatsAppMessage {
-  id        String  @id
-  direction String
-  phone     String
-  kind      String
-  body      String?
-  purpose   String  @default("chat")
-  status    String
-  error     String?
-  shopId    String? @map("shop_id")
-  jobId     String? @map("job_id")
-  createdAt String  @map("created_at")
-  updatedAt String  @map("updated_at")
+  id           String  @id
+  direction    String
+  phone        String
+  kind         String
+  body         String?
+  purpose      String  @default("chat")
+  status       String
+  error        String?
+  shopId       String? @map("shop_id")
+  jobId        String? @map("job_id")
+  createdAt    String  @map("created_at")
+  updatedAt    String  @map("updated_at")
   /// A teammate's reply from the inbox.
   sentByUserId String? @map("sent_by_user_id")
 
@@ -1405,14 +1256,14 @@ model PriceBook {
 
 /// Base price (paise) of a catalog service for one vehicle size.
 model PriceBookEntry {
-  businessId  String   @map("business_id")
-  priceBookId String   @map("price_book_id")
-  serviceId   String   @map("service_id")
-  sizeId      String   @map("size_id")
-  price       Int
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+  businessId    String   @map("business_id")
+  priceBookId   String   @map("price_book_id")
+  serviceId     String   @map("service_id")
+  sizeId        String   @map("size_id")
+  price         Int
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
   /// Its own community (doorstep) price; null = base price + the doorstep rule.
-  doorstepPrice Int?   @map("doorstep_price")
+  doorstepPrice Int?     @map("doorstep_price")
 
   priceBook PriceBook      @relation(fields: [priceBookId], references: [id])
   service   CatalogService @relation(fields: [serviceId], references: [id])
@@ -1455,27 +1306,27 @@ model PriceZone {
 
 /// A building, gated colony or street a branch's team washes at on fixed days.
 model Place {
-  id              String   @id @default(uuid())
-  shopId          String   @default("") @map("shop_id")
+  id               String    @id @default(uuid())
+  shopId           String    @default("") @map("shop_id")
   /// On the QR poster and in invite links (7 unambiguous characters).
-  code            String   @unique
-  type            String // building | colony | street
-  name            String?
-  label           String
-  latitude        Float
-  longitude       Float
-  photoKey        String?  @map("photo_key")
+  code             String    @unique
+  type             String // building | colony | street
+  name             String?
+  label            String
+  latitude         Float
+  longitude        Float
+  photoKey         String?   @map("photo_key")
   /// Weekdays, Sunday = 0: "2" or "2,5".
-  washDays        String   @map("wash_days")
+  washDays         String    @map("wash_days")
   /// "HH:MM" IST.
-  washTime        String   @map("wash_time")
-  needsApproval   Boolean  @default(false) @map("needs_approval")
+  washTime         String    @map("wash_time")
+  needsApproval    Boolean   @default(false) @map("needs_approval")
   /// Vehicles per wash day; null = no limit.
-  capacity        Int?
-  status          String   @default("active") // active | paused | closed
-  createdByUserId String?  @map("created_by_user_id")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at")
+  capacity         Int?
+  status           String    @default("active") // active | paused | closed
+  createdByUserId  String?   @map("created_by_user_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
   /// Setup: draft (being inspected) | review (sent to the owner) | live.
   stage            String    @default("live")
   /// JSON (packages/domain communities.ts).
@@ -1657,11 +1508,11 @@ model ShopPlanOrder {
 
 /// One wash a shop plan paid for (one a day).
 model ShopPlanUse {
-  id        String   @id @default(uuid())
-  shopId    String   @default("") @map("shop_id")
-  orderId   String   @map("order_id")
-  jobId     String   @map("job_id")
-  day       String
+  id               String   @id @default(uuid())
+  shopId           String   @default("") @map("shop_id")
+  orderId          String   @map("order_id")
+  jobId            String   @map("job_id")
+  day              String
   /// "base" (an everyday wash of the pack) or "upgrade" (one of its better washes). Legacy:
   /// catalogServiceId says which wash it took.
   kind             String   @default("base")

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   addDaysTo,
-  clusterPoints,
   compareUnits,
   dayDiff,
   describeWashDays,
@@ -166,18 +165,6 @@ describe('flats and houses', () => {
     expect(unitTitle('House', 'H.NO 14-2')).toBe('H.NO 14-2');
     expect(unitTitle('Flat', 'flat 204 ')).toBe('flat 204');
     expect(unitTitle('House', 'Hno 5')).toBe('Hno 5');
-  });
-});
-
-describe('interest clusters', () => {
-  it('groups nearby requests, biggest group first', () => {
-    const a = { latitude: 17.385, longitude: 78.4867, id: 'a' };
-    const b = { latitude: 17.3851, longitude: 78.4868, id: 'b' }; // ~15 m from a
-    const far = { latitude: 17.4, longitude: 78.5, id: 'far' };
-    const c = { latitude: 17.3852, longitude: 78.4866, id: 'c' };
-    const groups = clusterPoints([far, a, b, c], 250);
-    expect(groups.map((g) => g.items.map((i) => i.id))).toEqual([['a', 'b', 'c'], ['far']]);
-    expect(groups[0]!.center).toEqual({ latitude: 17.385, longitude: 78.4867 });
   });
 });
 

@@ -2,12 +2,10 @@ import {
   addDaysTo,
   BRANCH_SERVICES_SELECT,
   branchServicesOf,
-  beforeCutoff,
   cancelRefund,
   dayDiff,
   distanceMeters,
   firstWashDay,
-  formatClock,
   installmentPlan,
   isDueOn,
   isUpgradeWash,
@@ -19,12 +17,9 @@ import {
   normalizeUnit,
   parseWashDays,
   payDeadline,
-  predictedLastWash,
-  rangeDays,
   SINGLE_PER_WEEK,
   UNIT_TEXT_MAX,
   unitLabel,
-  upcomingWashes,
   type GeoPoint,
   type JoinedVia,
   type MemberCheck,
@@ -39,7 +34,6 @@ import { createPlatformDb, createShopDb, type D1Database, type DbClient } from '
 import { newId } from '../ids';
 import { isUniqueClash } from '../retryOnClash';
 import { insertRows, runStatements, SQL_NOW, type SqlStatement } from '../sql';
-import type { CustomerLink } from './customerAppRepo';
 import { planRepo, type PlaceMenu } from './planRepo';
 import {
   orderStateSelect,
@@ -64,7 +58,6 @@ const LIVE_ORDER = { in: ['waitlist', 'awaiting_payment', 'active'] };
 const CAPACITY_LOOKAHEAD = 16;
 /** Visits can be recorded (or undone) for wash days this far back, in case the phone was offline. */
 const VISIT_BACKDATE_DAYS = 3;
-const MAX_PAUSE_DAYS = 60;
 
 export type WashChoice =
   | { kind: 'plan'; planId: string; payMode: PayMode }
@@ -608,90 +601,6 @@ export const placeOrderRepo = {
     }));
   },
 
-  /** One of this customer's orders, from whichever of their branches has it. */
-  async findForCustomer(d1: D1Database, links: CustomerLink[], orderId: string) {
-    for (const link of links) {
-      const o = await createShopDb(d1, link.shopId).placeOrder.findFirst({
-        where: { id: orderId, customerId: link.customerId },
-        select: { id: true },
-      });
-      if (o) return link;
-    }
-    return null;
-  },
-
-  /** A customer skipping one wash (before the cut-off the evening before). */
-  async skip(d1: D1Database, shopId: string, orderId: string, day: string, now: Date) {
-    const db = createShopDb(d1, shopId);
-    const o = await loadOrder(db, orderId);
-    if (!o || o.status !== 'active') return placeFail('not_allowed', 'Only a running plan can skip a wash.');
-    const { rules } = await shopContext(createPlatformDb(d1), shopId);
-    const view = orderDetailView(o, rules, now);
-    if (o.kind !== 'plan') return placeFail('not_allowed', 'A one-time wash can be cancelled instead.');
-    const today = istDay(now);
-    const upcoming = upcomingWashes(scheduleOf(o, parseWashDays(o.member.place.washDays), today), today, 8);
-    if (!upcoming.includes(day)) return placeFail('invalid', 'That isn’t one of your wash days.');
-    if (!beforeCutoff(day, now, rules)) return placeFail('not_allowed', `Washes can be skipped until ${formatClock(rules.skipCutoffTime)} the evening before.`);
-    if (view.skipsLeft <= 0) return placeFail('not_allowed', 'You’ve used all the skips on this plan. You can pause it instead.');
-    try {
-      await runStatements(d1, [
-        {
-          sql: `INSERT INTO place_visits (id, shop_id, place_id, order_id, member_vehicle_id, date, outcome, by_customer)
-                VALUES (?, ?, ?, ?, ?, ?, 'skipped', 1)`,
-          params: [newId(), shopId, o.member.placeId, o.id, o.memberVehicleId, day],
-        },
-      ]);
-    } catch (e) {
-      if (!isUniqueClash(e)) throw e;
-    }
-  },
-
-  async unskip(d1: D1Database, shopId: string, orderId: string, day: string, now: Date) {
-    const { rules } = await shopContext(createPlatformDb(d1), shopId);
-    if (!beforeCutoff(day, now, rules)) return placeFail('not_allowed', 'It’s too late to change this wash.');
-    await createShopDb(d1, shopId).placeVisit.deleteMany({ where: { orderId, date: day, outcome: 'skipped', byCustomer: true } });
-  },
-
-  /** A holiday: no washes between the two days; the plan runs on after. */
-  async pause(d1: D1Database, shopId: string, orderId: string, range: { fromOn: string; toOn: string }, now: Date) {
-    const db = createShopDb(d1, shopId);
-    const o = await loadOrder(db, orderId);
-    if (!o || o.status !== 'active' || o.kind !== 'plan') return placeFail('not_allowed', 'Only a running plan can be paused.');
-    const { rules } = await shopContext(createPlatformDb(d1), shopId);
-    if (range.toOn < range.fromOn) return placeFail('invalid', 'The pause ends before it starts.');
-    if (!beforeCutoff(range.fromOn, now, rules)) {
-      return placeFail('not_allowed', `A pause can start from a day after ${formatClock(rules.skipCutoffTime)} today.`);
-    }
-    const days = rangeDays(range);
-    const view = orderDetailView(o, rules, now);
-    if (days > Math.min(MAX_PAUSE_DAYS, view.pauseDaysLeft)) {
-      return placeFail('not_allowed', `You can pause for up to ${view.pauseDaysLeft} more days on this plan.`);
-    }
-    if (o.pauses.some((p) => p.fromOn <= range.toOn && range.fromOn <= p.toOn)) {
-      return placeFail('conflict', 'This overlaps a pause you already have.');
-    }
-    await runStatements(d1, [
-      {
-        sql: 'INSERT INTO order_pauses (id, shop_id, order_id, from_on, to_on) VALUES (?, ?, ?, ?, ?)',
-        params: [newId(), shopId, o.id, range.fromOn, range.toOn],
-      },
-    ]);
-  },
-
-  /** Ends a pause: one not started yet is dropped; a running one ends today. */
-  async endPause(d1: D1Database, shopId: string, orderId: string, pauseId: string, now: Date) {
-    const db = createShopDb(d1, shopId);
-    const pause = await db.orderPause.findFirst({ where: { id: pauseId, orderId, cancelledAt: null } });
-    if (!pause) return placeFail('not_found', 'Pause not found.');
-    const { rules } = await shopContext(createPlatformDb(d1), shopId);
-    const today = istDay(now);
-    if (beforeCutoff(pause.fromOn, now, rules)) {
-      await db.orderPause.updateMany({ where: { id: pauseId }, data: { cancelledAt: now } });
-    } else if (pause.toOn > today) {
-      await db.orderPause.updateMany({ where: { id: pauseId }, data: { toOn: today } });
-    }
-  },
-
   /**
    * Cancels an order. Before any wash everything paid comes back; after, the washes given are
    * charged by the refund rule. Returns what to refund — the caller sends it through Razorpay.
@@ -728,60 +637,6 @@ export const placeOrderRepo = {
       { sql: `DELETE FROM place_visits WHERE shop_id = ? AND order_id = ? AND outcome = 'skipped' AND date >= ?`, params: [shopId, orderId, istDay(data.now)] },
     ]);
     return { refund, charged };
-  },
-
-  /** A new order for the same vehicle and plan, starting after the current one's last wash. */
-  async renew(d1: D1Database, shopId: string, orderId: string, payMode: PayMode, now: Date) {
-    const db = createShopDb(d1, shopId);
-    const o = await loadOrder(db, orderId);
-    if (!o || o.kind !== 'plan' || !o.planId || !['active', 'ended'].includes(o.status)) {
-      return placeFail('not_allowed', 'Only a plan can be renewed.');
-    }
-    if (o.member.status !== 'active' || o.member.place.status !== 'active') return placeFail('not_allowed', 'This place isn’t taking renewals right now.');
-    const existing = await db.placeOrder.count({ where: { renewalOf: o.id, status: { not: 'cancelled' } } });
-    if (existing) return placeFail('conflict', 'This plan is already renewed.');
-    const pdb = createPlatformDb(d1);
-    const { shop, rules } = await shopContext(pdb, shopId);
-    const menu = await planRepo.menu(pdb, shopId, shop.businessId, rules.priceMode, o.member.placeId);
-    const priced = priceChoice(menu, rules, o.memberVehicle.vehicleTypeId, { kind: 'plan', planId: o.planId, payMode });
-    const today = istDay(now);
-    const after = o.status === 'active' ? predictedLastWash(scheduleOf(o, parseWashDays(o.member.place.washDays), today), today) : null;
-    const counter = await loadCounter(db, o.member.place);
-    const firstWashOn = counter.pick(priced.perWeek, now, rules, after);
-    const id = newId();
-    try {
-      await runStatements(d1, [
-        {
-          sql: `INSERT INTO place_orders (id, shop_id, customer_id, member_id, member_vehicle_id, kind, plan_id, title, snapshot,
-                  washes_total, months, per_week, single_price, total, pay_mode, status, first_wash_on, renewal_of)
-                VALUES (?, ?, ?, ?, ?, 'plan', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          params: [
-            id,
-            shopId,
-            o.customerId,
-            o.memberId,
-            o.memberVehicleId,
-            priced.planId,
-            priced.title,
-            priced.snapshot,
-            priced.washesTotal,
-            priced.months,
-            priced.perWeek,
-            priced.singlePrice,
-            priced.total,
-            priced.payMode,
-            firstWashOn ? 'awaiting_payment' : 'waitlist',
-            firstWashOn,
-            o.id,
-          ],
-        },
-        ...(firstWashOn ? installmentRows(shopId, id, priced, firstWashOn, rules) : []),
-      ]);
-    } catch (e) {
-      if (isUniqueClash(e)) return placeFail('conflict', 'This plan is already renewed.');
-      throw e;
-    }
-    return id;
   },
 
   /**

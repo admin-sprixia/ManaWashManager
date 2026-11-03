@@ -1,35 +1,27 @@
-import { areaNameKey, formatOffDays, offDaysOf, parseOffDays, type ServiceBranch } from '@mana/domain';
+import { formatOffDays, offDaysOf, parseOffDays } from '@mana/domain';
 import type { DbClient } from '../client';
-import { isUniqueClash } from '../retryOnClash';
 
-const areaSelect = { id: true, name: true, pincode: true, active: true } as const;
-
-/** Where a shop washes: its hub and radius (on the shop row) and its named areas. */
+/** Where a shop washes (its hub and radius) and its contact details and hours, on the shop row. */
 export const serviceAreaRepo = {
   /** Shop-scoped client. The shop row is platform data, so it's addressed by id explicitly. */
   async get(db: DbClient) {
     const shopId = db.$shopId();
-    const [shop, areas] = await Promise.all([
-      db.shop.findUnique({
-        where: { id: shopId },
-        select: {
-          inCustomerApp: true,
-          latitude: true,
-          longitude: true,
-          serviceRadiusKm: true,
-          address: true,
-          contactPhone: true,
-          opensAt: true,
-          closesAt: true,
-          weeklyOff: true,
-          weeklyOffDays: true,
-        },
-      }),
-      db.serviceArea.findMany({ orderBy: [{ active: 'desc' }, { name: 'asc' }], select: areaSelect }),
-    ]);
+    const shop = await db.shop.findUnique({
+      where: { id: shopId },
+      select: {
+        latitude: true,
+        longitude: true,
+        serviceRadiusKm: true,
+        address: true,
+        contactPhone: true,
+        opensAt: true,
+        closesAt: true,
+        weeklyOff: true,
+        weeklyOffDays: true,
+      },
+    });
     const offDays = shop ? offDaysOf({ weeklyOff: shop.weeklyOff, weeklyOffDays: shop.weeklyOffDays ? parseOffDays(shop.weeklyOffDays) : undefined }) : [];
     return {
-      inCustomerApp: shop?.inCustomerApp ?? false,
       hub: shop?.latitude != null && shop.longitude != null ? { latitude: shop.latitude, longitude: shop.longitude } : null,
       radiusKm: shop?.serviceRadiusKm ?? null,
       contact: {
@@ -40,11 +32,10 @@ export const serviceAreaRepo = {
         weeklyOff: offDays[0] ?? null,
         weeklyOffDays: offDays,
       },
-      areas,
     };
   },
 
-  /** What customers see on the branch page: address, phone and opening hours. */
+  /** What customers see on WhatsApp and bills: address, phone and opening hours. */
   async setContact(
     db: DbClient,
     data: { address: string | null; phone: string | null; opensAt: string | null; closesAt: string | null; weeklyOffDays: number[] },
@@ -64,12 +55,6 @@ export const serviceAreaRepo = {
     });
   },
 
-  /** Shop-scoped client: whether Sprixia has listed this branch in the Mana Wash app and HQ has it open. */
-  async isListed(db: DbClient): Promise<boolean> {
-    const shop = await db.shop.findUnique({ where: { id: db.$shopId() }, select: { inCustomerApp: true, status: true } });
-    return (shop?.inCustomerApp ?? false) && shop?.status === 'active';
-  },
-
   /**
    * Where the branch is and how far it serves customers: one distance for the branch, so its hub
    * and its team (which starts from the branch) go as far.
@@ -82,117 +67,5 @@ export const serviceAreaRepo = {
     if (data.radiusKm != null) {
       await db.servicePoint.updateMany({ where: { latitude: { not: null } }, data: { radiusKm: data.radiusKm } });
     }
-  },
-
-  /** Null when a live area already has this name. */
-  async createArea(db: DbClient, data: { name: string; pincode: string | null }) {
-    try {
-      return await db.serviceArea.create({
-        data: { name: data.name, nameKey: areaNameKey(data.name), pincode: data.pincode },
-        select: areaSelect,
-      });
-    } catch (e) {
-      if (isUniqueClash(e)) return null;
-      throw e;
-    }
-  },
-
-  /** 'not_found' | 'name_taken' | the updated area. */
-  async updateArea(db: DbClient, id: string, data: { name?: string; pincode?: string | null; active?: boolean }) {
-    const existing = await db.serviceArea.findUnique({ where: { id }, select: { id: true } });
-    if (!existing) return 'not_found' as const;
-    try {
-      return await db.serviceArea.update({
-        where: { id },
-        data: {
-          ...(data.name !== undefined ? { name: data.name, nameKey: areaNameKey(data.name) } : {}),
-          ...(data.pincode !== undefined ? { pincode: data.pincode } : {}),
-          ...(data.active !== undefined ? { active: data.active } : {}),
-        },
-        select: areaSelect,
-      });
-    } catch (e) {
-      if (isUniqueClash(e)) return 'name_taken' as const;
-      throw e;
-    }
-  },
-
-  // ---------- Across branches (platform client) ----------
-
-  /** Every branch listed in the customer app, with what `branchFor` needs. */
-  async listBranches(platform: DbClient): Promise<(ServiceBranch & { name: string; city: string | null })[]> {
-    const shops = await platform.shop.findMany({
-      where: { inCustomerApp: true, status: 'active' },
-      select: { id: true, name: true, city: true, latitude: true, longitude: true, serviceRadiusKm: true },
-    });
-    if (shops.length === 0) return [];
-    const shopIds = shops.map((s) => s.id);
-    const [areas, teams] = await Promise.all([
-      platform.serviceArea.findMany({
-        where: { shopId: { in: shopIds }, active: true },
-        select: { id: true, shopId: true },
-      }),
-      platform.servicePoint.findMany({
-        where: { shopId: { in: shopIds }, active: true, kind: 'doorstep', latitude: { not: null }, radiusKm: { not: null } },
-        select: { shopId: true, latitude: true, longitude: true, radiusKm: true },
-      }),
-    ]);
-    return shops.map((s) => ({
-      shopId: s.id,
-      name: s.name,
-      city: s.city,
-      hub: s.latitude != null && s.longitude != null ? { latitude: s.latitude, longitude: s.longitude } : null,
-      radiusKm: s.serviceRadiusKm,
-      areaIds: areas.filter((a) => a.shopId === s.id).map((a) => a.id),
-      reach: teams
-        .filter((t) => t.shopId === s.id && t.latitude != null && t.longitude != null && t.radiusKm != null)
-        .map((t) => ({ center: { latitude: t.latitude!, longitude: t.longitude! }, radiusKm: t.radiusKm! })),
-    }));
-  },
-
-  /** The area picker in the app: every live area of every listed branch. */
-  async listPublicAreas(platform: DbClient) {
-    const shops = await platform.shop.findMany({
-      where: { inCustomerApp: true, status: 'active' },
-      select: { id: true, name: true, city: true },
-    });
-    if (shops.length === 0) return [];
-    const byId = new Map(shops.map((s) => [s.id, s]));
-    const areas = await platform.serviceArea.findMany({
-      where: { shopId: { in: [...byId.keys()] }, active: true },
-      orderBy: { name: 'asc' },
-      select: { id: true, name: true, pincode: true, shopId: true },
-    });
-    return areas.map((a) => ({
-      id: a.id,
-      name: a.name,
-      pincode: a.pincode,
-      branch: { name: byId.get(a.shopId)!.name, city: byId.get(a.shopId)!.city },
-    }));
-  },
-
-  /**
-   * "Car wash from ₹X": the lowest active price per vehicle category across listed branches,
-   * from services offered for that category on active vehicle sizes.
-   */
-  async lowestPrices(platform: DbClient): Promise<{ car: number | null; bike: number | null }> {
-    const shops = await platform.shop.findMany({ where: { inCustomerApp: true, status: 'active' }, select: { id: true } });
-    if (shops.length === 0) return { car: null, bike: null };
-    const shopIds = shops.map((s) => s.id);
-    const lowest = async (category: 'car' | 'bike') => {
-      const row = await platform.servicePrice.findFirst({
-        where: {
-          shopId: { in: shopIds },
-          price: { gt: 0 },
-          vehicleType: { active: true, category },
-          service: { active: true, appliesTo: { in: [category, 'both'] } },
-        },
-        orderBy: { price: 'asc' },
-        select: { price: true },
-      });
-      return row?.price ?? null;
-    };
-    const [car, bike] = await Promise.all([lowest('car'), lowest('bike')]);
-    return { car, bike };
   },
 };

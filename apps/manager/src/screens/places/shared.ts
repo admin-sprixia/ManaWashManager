@@ -11,7 +11,6 @@ export type PlaceDetail = InferResponseType<(typeof api)['places'][':id']['$get'
 export type PlaceMember = InferResponseType<(typeof api)['places'][':id']['members']['$get'], 200>['members'][number];
 export type WashDay = InferResponseType<(typeof api)['places'][':id']['day'][':day']['$get'], 200>;
 export type WashDayRow = WashDay['rows'][number];
-export type Demand = InferResponseType<(typeof api)['places']['demand']['$get'], 200>;
 export type StaffMenu = InferResponseType<(typeof api)['places']['menu']['$get'], 200>;
 export type StaffJoin = InferResponseType<(typeof api)['places'][':id']['members']['$post'], 201>;
 export type Overview = InferResponseType<(typeof api)['places']['overview']['$get'], 200>;

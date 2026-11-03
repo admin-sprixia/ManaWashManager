@@ -4,7 +4,7 @@ import ReactNativeBlobUtil from 'react-native-blob-util';
 import Share from 'react-native-share';
 import { BRAND_MARK, BRAND_SRI } from '@mana/ui';
 import type { Lane } from '../components/board/lanes';
-import { CUSTOMER_APP_LINK } from '../config/app';
+import { CUSTOMER_WHATSAPP_LINK, CUSTOMER_WHATSAPP_NUMBER } from '../config/app';
 import { formatRupees } from './format';
 import { bytesToBase64 } from './shareReportPdf';
 import { visitChargeLine, type LaneMenu, type MenuItem, type MenuVehicleType } from './branchMenu';
@@ -15,7 +15,7 @@ import { RUPEE_GLYPH, type DoorstepVisitRules } from '@mana/domain';
  * the page, the glass mark with శ్రీ in sandalwood gold over MANA WASH, then the menu. For one
  * vehicle it's a list with one price a line; for all vehicles, a table per kind of vehicle with a
  * column for each size. Plans sit first, in a gold-framed card. It ends with a card that sends
- * customers to the app for their model's exact price (link and QR code). Every mark, the QR code
+ * customers to WhatsApp for their model's exact price (number and QR code). Every mark, the QR code
  * and the ₹ sign are drawn as shapes, so it prints the same anywhere with no fonts.
  */
 
@@ -448,11 +448,11 @@ export async function buildMenuPdf(input: MenuPdfInput): Promise<Uint8Array> {
     y -= 18;
   }
 
-  // ── The exact price for your model: the app, its link and a QR code ─────────
+  // ── The exact price for your model: WhatsApp, its number and a QR code ──────
   /** The QR code on a white tile, with the mark in its centre (high error correction keeps it readable). */
   const qrTile = (tx: number, ty: number, tile: number) => {
     const qr = qrcode(0, 'H');
-    qr.addData(CUSTOMER_APP_LINK);
+    qr.addData(CUSTOMER_WHATSAPP_LINK);
     qr.make();
     const n = qr.getModuleCount();
     const quiet = tile * 0.07;
@@ -466,9 +466,9 @@ export async function buildMenuPdf(input: MenuPdfInput): Promise<Uint8Array> {
     page.drawSvgPath(roundedRect(hole, hole, hole * 0.2), { x: tx + (tile - hole) / 2, y: ty - (tile - hole) / 2, color: WHITE });
     mark(tx + tile / 2, ty - (tile - hole) / 2 - hole * 0.04, hole * 0.9);
   };
-  const link = CUSTOMER_APP_LINK.replace(/^https?:\/\//, '');
+  const link = `WhatsApp ${CUSTOMER_WHATSAPP_NUMBER}`;
   const pitch =
-    'Open the Sri Mana Wash app, pick your company and model, and see your price at our hub, your community or your doorstep. Book in a tap.';
+    'Send Hi to our WhatsApp, pick your company and model, and see your exact price. Plans, bills and reminders come on WhatsApp too.';
   const cardH = 150;
   if (y - cardH - 10 >= FOOTER_H + 16) {
     // Room on this page: a card along the bottom, just above the footer.
@@ -487,7 +487,7 @@ export async function buildMenuPdf(input: MenuPdfInput): Promise<Uint8Array> {
       .forEach((l, i) => text(l, lx, top - 66 - i * 12, { size: 9, color: LAVENDER }));
     const linkW = text(link, lx, top - cardH + 34, { size: 11, font: bold, color: GOLD_LIGHT });
     page.drawLine({ start: { x: lx, y: top - cardH + 31 }, end: { x: lx + linkW, y: top - cardH + 31 }, thickness: 0.6, color: GOLD_LIGHT, opacity: 0.7 });
-    text('Or scan the code with your phone camera', lx, top - cardH + 18, { size: 8, font: italic, color: MIST });
+    text('Or scan the code to open the chat', lx, top - cardH + 18, { size: 8, font: italic, color: MIST });
   } else {
     // No room: a back cover of its own, like a poster.
     newPage(true);
@@ -496,7 +496,7 @@ export async function buildMenuPdf(input: MenuPdfInput): Promise<Uint8Array> {
     spaced('MANA WASH', cx, H - 246, 20, bold, WHITE, 6);
     text('Your car, our care.', cx, H - 266, { size: 12, font: italic, color: GOLD_LIGHT, align: 'center' });
     ornament(cx, H - 282, 80);
-    text('Your exact price, in a tap', cx, H - 330, { size: 26, font: italic, color: GOLD_LIGHT, align: 'center' });
+    text('Your exact price, on WhatsApp', cx, H - 330, { size: 26, font: italic, color: GOLD_LIGHT, align: 'center' });
     wrap(pitch, 360, 10.5, regular).forEach((l, i) => text(l, cx, H - 356 - i * 15, { size: 10.5, color: LAVENDER, align: 'center' }));
     const tile = 200;
     const tTop = H - 420;
@@ -507,7 +507,7 @@ export async function buildMenuPdf(input: MenuPdfInput): Promise<Uint8Array> {
     const linkY = tTop - tile - 46;
     const linkW = text(link, cx, linkY, { size: 15, font: bold, color: GOLD_LIGHT, align: 'center' });
     page.drawLine({ start: { x: cx - linkW / 2, y: linkY - 4 }, end: { x: cx + linkW / 2, y: linkY - 4 }, thickness: 0.7, color: GOLD_LIGHT, opacity: 0.7 });
-    text('Scan with your phone camera, or open the link', cx, linkY - 22, { size: 9, font: italic, color: MIST, align: 'center' });
+    text('Scan with your phone camera, or send Hi to this number', cx, linkY - 22, { size: 9, font: italic, color: MIST, align: 'center' });
   }
 
   // ── Footers, now the page count is known ───────────────────────────────────

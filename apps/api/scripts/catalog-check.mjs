@@ -1,7 +1,7 @@
 // Service network end to end: the business catalog (services, base prices by size, doorstep
 // extra, zones, policy), branch menus built from it, service points (hub and doorstep teams),
-// branch prices within the policy, hiding services, hub and doorstep washes, the customer app's
-// branch list, importing a branch's menu and adopting same-named services. Run against the local
+// branch prices within the policy, hiding services, hub and doorstep washes, importing a
+// branch's menu and adopting same-named services. Run against the local
 // API:
 //   cd apps/api && npm run db:reset:local && npm run dev      (in one terminal)
 //   cd apps/api && npm run test:catalog                       (in another)
@@ -154,9 +154,9 @@ check(
   show(r),
 );
 check(
-  'The HQ home is out of the customer app and has no menu',
-  d1Rows(`SELECT s.in_customer_app AS listed, (SELECT COUNT(*) FROM services v WHERE v.shop_id = s.id) AS services
-          FROM shops s WHERE s.business_id = '${BIZ}' AND s.kind = 'hq'`).every((s) => Number(s.listed) === 0 && Number(s.services) === 0),
+  'The HQ home has no menu',
+  d1Rows(`SELECT (SELECT COUNT(*) FROM services v WHERE v.shop_id = s.id) AS services
+          FROM shops s WHERE s.business_id = '${BIZ}' AND s.kind = 'hq'`).every((s) => Number(s.services) === 0),
 );
 const hqHome = d1Rows(`SELECT id FROM shops WHERE business_id = '${BIZ}' AND kind = 'hq'`)[0]?.id;
 r = await call(OA, 'PATCH', `/business/branches/${hqHome}/status`, { status: 'paused', reason: 'Test' });
@@ -377,10 +377,6 @@ r = await call(OA, 'POST', '/business/vehicle-models/reset', { make: 'Maruti Suz
 check('…and puts it back', r.status === 200 && !modelIn(await guideModels(), 'Maruti Suzuki', 'Alto 800'), show(r));
 r = await call(OA, 'POST', '/business/vehicle-models/reset', { make: 'Maruti Suzuki', model: 'Kovur K2' });
 check('Only a model from the original list can be put back', r.status === 400, show(r));
-d1Run(`UPDATE shops SET in_customer_app = 1 WHERE id = '${A}';`);
-r = await call(null, 'GET', '/c/branches');
-check('The customer app gets the changes for “add your vehicle”', modelIn(r.body?.vehicleModels ?? [], 'Maruti Suzuki', 'Kovur K2')?.bodyKey === 'suvMini', JSON.stringify(r.body?.vehicleModels));
-d1Run(`UPDATE shops SET in_customer_app = 0 WHERE id = '${A}';`);
 r = await call(OA, 'DELETE', '/business/vehicle-models', { make: 'Maruti Suzuki', model: 'Kovur K2', category: 'car' });
 check('Taking an added model off deletes it', r.status === 200 && !modelIn(await guideModels(), 'Maruti Suzuki', 'Kovur K2'), show(r));
 
@@ -604,26 +600,6 @@ r = await call(OB, 'POST', '/jobs/start', {
   mode: 'doorstep',
 });
 check('A branch without a doorstep team can’t take doorstep washes', r.status === 400 && r.body?.error === 'mode_not_offered', show(r));
-
-// ─── Customer app ────────────────────────────────────────────────────────────
-
-d1Run(`UPDATE shops SET in_customer_app = 1 WHERE id = '${A}';`);
-await call(OA, 'PUT', '/branch/types', { hub: true, community: true, doorstep: false });
-r = await call(null, 'GET', '/c/branches');
-check('With washing at homes off, the app offers no wash at home', (r.body?.branches ?? []).find((b) => b.id === A)?.modes?.join() === 'hub', show(r));
-await call(OA, 'PUT', '/branch/types', { hub: true, community: true, doorstep: true });
-r = await call(null, 'GET', '/c/branches');
-const listed = (r.body?.branches ?? []).find((b) => b.id === A);
-const fullListed = listed?.services?.find((s) => s.name === 'Full Wash');
-const hatchListed = listed?.vehicleTypes?.find((v) => v.name === 'Hatchback');
-check('The customer app lists how the branch washes', listed?.modes?.join() === 'hub,doorstep', show(r));
-check('…with hub prices, the same at the door', fullListed?.prices?.some((p) => p.vehicleTypeId === hatchListed?.id && p.price === 42000) && fullListed?.doorstepPrices?.some((p) => p.vehicleTypeId === hatchListed?.id && p.price === 42000), JSON.stringify(fullListed));
-check('…plus the visit charge rules for a wash at home', listed?.visit?.visitFeePaise === 9900 && listed?.visit?.maxKm === 15, JSON.stringify(listed?.visit));
-check('…and a tractor is on the shop’s list and at the door', fullListed?.prices?.some((p) => p.vehicleTypeId === tractor?.id) && fullListed?.doorstepPrices?.some((p) => p.vehicleTypeId === tractor?.id), JSON.stringify(fullListed));
-check('…and each vehicle type’s body type for its picture', hatchListed?.bodyKey === 'hatch', JSON.stringify(hatchListed));
-r = await call(null, 'POST', '/c/service-area/check', { location: { latitude: 15.7, longitude: 80.06 } });
-check('A place only the doorstep team reaches is served', r.status === 200 && r.body?.served === true && r.body?.branch?.name === 'Catalog Hub', show(r));
-d1Run(`UPDATE shops SET in_customer_app = 0 WHERE id = '${A}';`);
 
 // ─── Switching a point off ───────────────────────────────────────────────────
 

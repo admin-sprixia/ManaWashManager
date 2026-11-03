@@ -401,27 +401,14 @@ cd apps/api && npm run test:races       # double taps and parallel requests can'
 cd apps/api && npm run test:cash        # cash drawer: shop cash, doorstep handovers, carry-over, undo
 cd apps/api && npm run test:stock       # inventory: items, use/add/count, never below zero, replays
 cd apps/api && npm run test:reports     # reports, staff report, corrections feed, attendance, team cash guard
-cd apps/api && npm run test:services    # HQ services: places, sizes and prices, details, branch menus, app, plans
-cd apps/api && npm run test:customer-app  # the Mana Wash app (customers): sign-in, branches, vehicles, washes, requests
+cd apps/api && npm run test:services    # HQ services: places, sizes and prices, details, branch menus, plans
 cd apps/api && npm run test:catalog     # business price list, vehicle sizes, branches and service points
 cd apps/api && npm run test:pricing     # community rule and volume discount, doorstep visit charge, same visit, too far
-cd apps/api && npm run test:places      # places, joining (flows A–E), plans, payments, receipts, refunds, nightly
 ```
 
 These expect a fresh local database: run `npm run db:reset:local` first, and `npm run db:seed:demo`
-afterwards to get the demo data back. `test:places` checks the signed payment webhook when
-`RAZORPAY_WEBHOOK_SECRET` is set in the shell to the same value the local API uses (CI does this).
-It runs a stand-in Razorpay on port 8799; start the API pointed at it to include the payment-link
-checks:
-
-```bash
-npx wrangler dev --var RAZORPAY_WEBHOOK_SECRET:local --var RAZORPAY_KEY_ID:rzp_test_standin \
-  --var RAZORPAY_KEY_SECRET:standin --var RAZORPAY_API_BASE:http://127.0.0.1:8799/v1
-RAZORPAY_WEBHOOK_SECRET=local npm run test:places
-```
-
-`RAZORPAY_API_BASE` is ignored unless the key id starts with `rzp_test_`. Places, plans and
-payments are described in `docs/old-plan/MANA-Registration-and-Plans.md`. The scripts sign in
+afterwards to get the demo data back. `RAZORPAY_API_BASE` is ignored unless the key id starts
+with `rzp_test_`. Places, plans and payments are described in `docs/old-plan/MANA-Registration-and-Plans.md`. The scripts sign in
 with a fixed device key kept in `apps/api/.wrangler/script-device-key`, so they trust the local
 API once like a real phone.
 

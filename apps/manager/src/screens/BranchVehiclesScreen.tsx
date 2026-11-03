@@ -16,7 +16,7 @@ type Data = InferResponseType<(typeof api)['branch']['vehicles']['$get'], 200>;
 
 /**
  * The kinds of vehicle this branch washes, on the same screen and the same list as Mana Wash HQ's
- * page for the branch: a switch here shows there, in New Wash and in the customer app. Owner only.
+ * page for the branch: a switch here shows there, in New Wash and on WhatsApp. Owner only.
  */
 export function BranchVehiclesScreen({ navigation }: Props) {
   const { info } = useShop();

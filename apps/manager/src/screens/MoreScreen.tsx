@@ -25,14 +25,12 @@ import {
   IconDrawer,
   IconEdit,
   IconGift,
-  IconStar,
   IconReceipt,
   IconRupee,
   IconShield,
   IconSparkle,
   IconStore,
   IconSync,
-  IconUserPlus,
   IconUsers,
   colors,
   radius,
@@ -67,13 +65,6 @@ function timeAgo(ts: number | null): string {
   return `${Math.round(mins / 60)} h ago`;
 }
 
-function feedbackSubtitle(problems: number, vehicles: number): string {
-  const parts: string[] = [];
-  if (problems) parts.push(`${problems} ${problems === 1 ? 'problem' : 'problems'} to sort out`);
-  if (vehicles) parts.push(`${vehicles} ${vehicles === 1 ? 'vehicle' : 'vehicles'} to add`);
-  return parts.join(' · ') || 'Problems, ratings and vehicles from customers';
-}
-
 export function MoreScreen({ navigation }: Props) {
   const { user, isOwner, isManager, canManageTeam } = useAuth();
   const {
@@ -99,7 +90,6 @@ export function MoreScreen({ navigation }: Props) {
     myShops,
     rewards,
     rewardsOn,
-    customerApp,
   } = useShop();
   const giftsOwed = rewards?.giftsOwed ?? 0;
   const [businessAdmin, setBusinessAdmin] = useState(false);
@@ -475,54 +465,14 @@ export function MoreScreen({ navigation }: Props) {
           />
         </EdgeGroup>
 
-        {customerApp.listed || myShops.length > 1 ? (
+        {myShops.length > 1 ? (
           <EdgeGroup>
-            {customerApp.listed ? (
-              <EdgeRow
-                icon={<IconUserPlus size={19} color={colors.waterDeep} />}
-                title="People asking"
-                subtitle={
-                  customerApp.openRequests > 0
-                    ? `${customerApp.openRequests} waiting for a call`
-                    : 'People who want us in their area'
-                }
-                right={
-                  customerApp.openRequests > 0 ? (
-                    <Pill label={String(customerApp.openRequests)} tone="danger" />
-                  ) : undefined
-                }
-                onPress={() => navigation.navigate('ServiceRequests')}
-              />
-            ) : null}
-            {customerApp.listed ? (
-              <EdgeRow
-                icon={<IconStar size={19} color={colors.amberDeep} />}
-                iconBg="#FEF3C7"
-                title="Customer feedback"
-                subtitle={feedbackSubtitle(customerApp.openProblems, customerApp.pendingVehicles)}
-                right={
-                  customerApp.openProblems + customerApp.pendingVehicles > 0 ? (
-                    <Pill
-                      label={String(customerApp.openProblems + customerApp.pendingVehicles)}
-                      tone="danger"
-                    />
-                  ) : undefined
-                }
-                onPress={() =>
-                  navigation.navigate('AppFeedback', {
-                    tab: !customerApp.openProblems && customerApp.pendingVehicles ? 'vehicles' : 'problems',
-                  })
-                }
-              />
-            ) : null}
-            {myShops.length > 1 ? (
-              <EdgeRow
-                icon={<IconSync size={18} color={colors.waterDeep} />}
-                title="Switch branch"
-                subtitle={`You work at ${myShops.length} branches · also at the top of the home screen`}
-                onPress={() => setBranchesOpen(true)}
-              />
-            ) : null}
+            <EdgeRow
+              icon={<IconSync size={18} color={colors.waterDeep} />}
+              title="Switch branch"
+              subtitle={`You work at ${myShops.length} branches · also at the top of the home screen`}
+              onPress={() => setBranchesOpen(true)}
+            />
           </EdgeGroup>
         ) : null}
 

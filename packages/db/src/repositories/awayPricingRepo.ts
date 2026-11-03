@@ -121,7 +121,7 @@ export const awayPricingRepo = {
 
   /**
    * Where a customer lives, for a visit started without the phone's location: their home from
-   * their last doorstep wash, else where they asked for a wash in the Mana Wash app.
+   * their last doorstep wash.
    */
   async savedHome(db: DbClient, who: { phone: string } | { customerId: string }): Promise<GeoPoint | null> {
     const customer = await db.customer.findFirst({
@@ -131,14 +131,7 @@ export const awayPricingRepo = {
     if (customer?.homeLatitude != null && customer.homeLongitude != null) {
       return { latitude: customer.homeLatitude, longitude: customer.homeLongitude };
     }
-    const phone = 'phone' in who ? who.phone : customer?.phone;
-    if (!phone) return null;
-    const asked = await db.serviceRequest.findFirst({
-      where: { phone, latitude: { not: null }, longitude: { not: null } },
-      orderBy: { createdAt: 'desc' },
-      select: { latitude: true, longitude: true },
-    });
-    return asked?.latitude != null && asked.longitude != null ? { latitude: asked.latitude, longitude: asked.longitude } : null;
+    return null;
   },
 
   /** The home measured on this visit is where they live now. */

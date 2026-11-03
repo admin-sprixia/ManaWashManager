@@ -1,14 +1,11 @@
 import type { Prisma } from '@prisma/client';
 import {
   addDaysTo,
-  clusterPoints,
   compareUnits,
-  distanceMeters,
   formatInspection,
   formatSlots,
   formatTeam,
   formatWashDays,
-  INTEREST_RADIUS_M,
   isDueOn,
   istDay,
   MAX_PLACE_PHOTOS,
@@ -21,17 +18,13 @@ import {
   type PlacePhotoKind,
   type PlaceStage,
   type ProposedSlot,
-  NEARBY_PLACES_KM,
-  NEARBY_PLACES_MAX,
   nextWashDays,
   normalizeUnit,
-  OPEN_REQUEST_STATUSES,
   parseMemberChecks,
   parseWashDays,
   PLACE_CODE_LENGTH,
   placeCodeFrom,
   unitLabel,
-  type GeoPoint,
   type JoinedVia,
   type MemberCheck,
   type MemberStatus,
@@ -43,9 +36,7 @@ import { createPlatformDb, createShopDb, type D1Database, type DbClient } from '
 import { newId } from '../ids';
 import { isUniqueClash } from '../retryOnClash';
 import { insertRows, runStatements, SQL_NOW, type SqlStatement } from '../sql';
-import type { CustomerLink } from './customerAppRepo';
 import {
-  businessRules,
   orderStateSelect,
   orderSummary,
   phaseOf,
@@ -682,11 +673,6 @@ export const placeRepo = {
     return db.place.findUnique({ where: { id }, select: placeSelect });
   },
 
-  async photoKey(pdb: DbClient, id: string): Promise<string | null> {
-    const place = await pdb.place.findUnique({ where: { id }, select: { photoKey: true, status: true, stage: true } });
-    return place && place.status !== 'closed' && place.stage === 'live' ? place.photoKey : null;
-  },
-
   async units(db: DbClient, placeId: string) {
     const units = await db.placeUnit.findMany({
       where: { placeId, archivedAt: null },
@@ -948,147 +934,14 @@ export const placeRepo = {
     };
   },
 
-  /**
-   * Open "Call me back" requests grouped by where they are: where people want us, biggest group
-   * first. Requests already invited to a place are left out.
-   */
-  async demand(d1: D1Database, shopId: string) {
-    const db = createShopDb(d1, shopId);
-    const requests = await db.serviceRequest.findMany({
-      where: { status: { in: [...OPEN_REQUEST_STATUSES] }, invitedPlaceId: null },
-      orderBy: { createdAt: 'desc' },
-      take: 1000,
-      select: {
-        id: true,
-        latitude: true,
-        longitude: true,
-        cars: true,
-        bikes: true,
-        address: true,
-        placeName: true,
-        createdAt: true,
-        area: { select: { name: true } },
-      },
-    });
-    const located = requests.flatMap((r) =>
-      r.latitude != null && r.longitude != null ? [{ ...r, latitude: r.latitude, longitude: r.longitude }] : [],
-    );
-    return {
-      clusters: clusterPoints(located, INTEREST_RADIUS_M).map((g) => ({
-        center: g.center,
-        requests: g.items.length,
-        cars: g.items.reduce((n, r) => n + r.cars, 0),
-        bikes: g.items.reduce((n, r) => n + r.bikes, 0),
-        landmarks: [...new Set(g.items.map((r) => r.placeName || r.address).filter((x): x is string => !!x))].slice(0, 5),
-        latestAt: g.items[0]!.createdAt.toISOString(),
-        requestIds: g.items.map((r) => r.id),
-      })),
-      /** Requests that only picked an area. */
-      byArea: Object.entries(
-        requests
-          .filter((r) => r.latitude == null)
-          .reduce<Record<string, number>>((acc, r) => {
-            const key = r.area?.name ?? 'No location';
-            acc[key] = (acc[key] ?? 0) + 1;
-            return acc;
-          }, {}),
-      )
-        .map(([area, count]) => ({ area, requests: count }))
-        .sort((a, b) => b.requests - a.requests),
-    };
-  },
-
-  /** Open requests near a place get invited to join it in one tap. Returns how many. */
-  async invite(d1: D1Database, shopId: string, placeId: string, radiusM = INTEREST_RADIUS_M): Promise<number> {
-    const db = createShopDb(d1, shopId);
-    const place = await db.place.findUnique({ where: { id: placeId }, select: { latitude: true, longitude: true, status: true, stage: true } });
-    if (!place) return placeFail('not_found', 'Place not found.');
-    if (place.status !== 'active' || place.stage !== 'live') return 0;
-    const span = radiusM / 111_000 + 0.001;
-    const nearby = await db.serviceRequest.findMany({
-      where: {
-        status: { in: [...OPEN_REQUEST_STATUSES] },
-        invitedPlaceId: null,
-        latitude: { gte: place.latitude - span, lte: place.latitude + span },
-        longitude: { gte: place.longitude - span * 1.2, lte: place.longitude + span * 1.2 },
-      },
-      select: { id: true, latitude: true, longitude: true },
-    });
-    const ids = nearby
-      .filter((r) => distanceMeters(place, { latitude: r.latitude!, longitude: r.longitude! }) <= radiusM)
-      .map((r) => r.id);
-    if (!ids.length) return 0;
-    const { count } = await db.serviceRequest.updateMany({ where: { id: { in: ids }, invitedPlaceId: null }, data: { invitedPlaceId: placeId } });
-    return count;
-  },
 
   // ---------- Before joining (platform client: public) ----------
-
-  /** Active places of listed branches near a point, nearest first. */
-  async nearby(pdb: DbClient, point: GeoPoint, now: Date) {
-    const span = NEARBY_PLACES_KM / 111 + 0.005;
-    const lngSpan = span / Math.max(0.2, Math.cos((point.latitude * Math.PI) / 180));
-    const places = await pdb.place.findMany({
-      where: {
-        ...PUBLIC_PLACE,
-        latitude: { gte: point.latitude - span, lte: point.latitude + span },
-        longitude: { gte: point.longitude - lngSpan, lte: point.longitude + lngSpan },
-      },
-      select: placeSelect,
-      take: 300,
-    });
-    const shops = await pdb.shop.findMany({
-      where: { id: { in: [...new Set(places.map((p) => p.shopId))] }, inCustomerApp: true, status: 'active' },
-      select: { id: true, name: true },
-    });
-    const listed = new Map(shops.map((s) => [s.id, s.name]));
-    return places
-      .filter((p) => listed.has(p.shopId))
-      .map((p) => ({ ...placeView(p, now), distanceM: distanceMeters(point, p), branchName: listed.get(p.shopId)! }))
-      .filter((p) => p.distanceM <= NEARBY_PLACES_KM * 1000)
-      .sort((a, b) => a.distanceM - b.distanceM)
-      .slice(0, NEARBY_PLACES_MAX);
-  },
 
   /** A place from its QR poster or invite link; null when unknown or closed. */
   async byCode(pdb: DbClient, code: string) {
     const place = await pdb.place.findUnique({ where: { code }, select: placeSelect });
     if (!place || place.status === 'closed' || place.stage !== 'live') return null;
-    const shop = await pdb.shop.findUnique({ where: { id: place.shopId }, select: { inCustomerApp: true, status: true, name: true } });
-    return shop?.inCustomerApp && shop.status === 'active' ? { place, branchName: shop.name } : null;
-  },
-
-  async publicFind(pdb: DbClient, id: string) {
-    const place = await pdb.place.findUnique({ where: { id }, select: placeSelect });
-    if (!place || place.status === 'closed' || place.stage !== 'live') return null;
-    const shop = await pdb.shop.findUnique({ where: { id: place.shopId }, select: { inCustomerApp: true, status: true, name: true } });
-    return shop?.inCustomerApp && shop.status === 'active' ? { place, branchName: shop.name } : null;
-  },
-
-  // ---------- The customer (their own memberships) ----------
-
-  /** Every live membership of this customer across their branches, with each vehicle's orders. */
-  async mine(d1: D1Database, links: CustomerLink[], now: Date) {
-    const pdb = createPlatformDb(d1);
-    const out = [];
-    for (const link of links) {
-      const db = createShopDb(d1, link.shopId);
-      const rows = (await db.placeMember.findMany({
-        where: { customerId: link.customerId, status: LIVE_MEMBER },
-        orderBy: { createdAt: 'asc' },
-        select: { ...memberSelect, place: { select: placeSelect } },
-      })) as (MemberRow & { place: PlaceRow })[];
-      if (!rows.length) continue;
-      const shop = await pdb.shop.findUnique({ where: { id: link.shopId }, select: { businessId: true, contactPhone: true } });
-      const rules = await businessRules(pdb, shop?.businessId ?? null);
-      for (const m of rows) {
-        out.push({
-          ...memberView(m, m.place.washDays, rules, now),
-          place: placeView(m.place, now),
-          branch: { id: link.shopId, name: link.shopName, phone: shop?.contactPhone ?? null },
-        });
-      }
-    }
-    return out;
+    const shop = await pdb.shop.findUnique({ where: { id: place.shopId }, select: { status: true, name: true } });
+    return shop?.status === 'active' ? { place, branchName: shop.name } : null;
   },
 };

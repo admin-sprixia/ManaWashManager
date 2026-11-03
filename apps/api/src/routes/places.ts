@@ -222,10 +222,6 @@ export const placeRoutes = new Hono<{ Bindings: Env }>()
     const plans = await placeOrderRepo.shopPlans(c.env.DB, c.get('session').shopId, c.req.valid('query').phone, new Date());
     return c.json({ plans });
   })
-  /** Where people are asking for us: "Call me back" requests grouped by place. */
-  .get('/demand', async (c) => {
-    return c.json(await placeRepo.demand(c.env.DB, c.get('session').shopId));
-  })
   /** What a member can buy here (plans and washes per vehicle type), for adding someone (Flow E). */
   .get('/menu', zValidator('query', z.object({ placeId: idSchema.optional() })), async (c) => {
     const shopId = c.get('session').shopId;
@@ -306,14 +302,14 @@ export const placeRoutes = new Hono<{ Bindings: Env }>()
       }
     },
   )
-  /** The owner makes a community live; nearby people who asked for us are invited. */
+  /** The owner makes a community live. */
   .post('/:id/go-live', requireRole('owner'), zValidator('param', placeParam), zValidator('json', goLiveSchema), async (c) => {
     const session = c.get('session');
     const id = c.req.valid('param').id;
     const body = c.req.valid('json');
     try {
       await placeRepo.goLive(c.env.DB, session.shopId, id, { ...body, capacity: body.capacity ?? null }, session.sub);
-      return c.json({ ok: true as const, invited: await placeRepo.invite(c.env.DB, session.shopId, id) });
+      return c.json({ ok: true as const });
     } catch (e) {
       return placeError(c, e);
     }
@@ -388,15 +384,6 @@ export const placeRoutes = new Hono<{ Bindings: Env }>()
     const ok = await placeRepo.archiveUnit(c.env.DB, c.get('session').shopId, id, unitId);
     return ok ? c.json({ ok: true as const }) : c.json({ error: 'not_found' as const, message: 'Flat not found.' }, 404);
   })
-  .post('/:id/invite', requireRole('owner'), zValidator('param', placeParam), async (c) => {
-    try {
-      return c.json({ invited: await placeRepo.invite(c.env.DB, c.get('session').shopId, c.req.valid('param').id) });
-    } catch (e) {
-      return placeError(c, e);
-    }
-  })
-
-  // ---------- Members ----------
   .get(
     '/:id/members',
     zValidator('param', placeParam),

@@ -14,7 +14,7 @@
 -- comparisons and ordering stay correct whichever side wrote the row.
 --
 -- Multi-shop: every table except shops, platform_settings, signup_codes, rate_limits, whatsapp_*,
--- billing_events, customer_accounts and the business-level service network tables (which carry a
+-- billing_events and the business-level service network tables (which carry a
 -- business_id instead) has a shop_id. Each parent table
 -- has UNIQUE (shop_id, id), and every link to it is a composite foreign key on (shop_id, x_id),
 -- so the database itself refuses a row that points at another shop's customer, vehicle,
@@ -30,14 +30,11 @@ CREATE TABLE shops (
   name TEXT NOT NULL,
   city TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
-  -- Listed in the Mana Wash app. Set by Sprixia for MANA's own branches, never by an owner, so
-  -- other car washes on the platform never show up there and their customers can't sign in to it.
-  in_customer_app INTEGER NOT NULL DEFAULT 0 CHECK (in_customer_app IN (0, 1)),
-  -- The hub and how far from it the branch washes. No radius = only its service_areas.
+  -- The hub and how far from it the branch washes.
   latitude REAL CHECK (latitude IS NULL OR latitude BETWEEN -90 AND 90),
   longitude REAL CHECK (longitude IS NULL OR longitude BETWEEN -180 AND 180),
   service_radius_km REAL CHECK (service_radius_km IS NULL OR service_radius_km BETWEEN 0.5 AND 50),
-  -- Contact details and opening hours shown in the app. Hours are "HH:MM" IST, both or neither;
+  -- Contact details and opening hours shown on WhatsApp. Hours are "HH:MM" IST, both or neither;
   -- weekly_off is the day the branch is closed (Sunday = 0 … Saturday = 6).
   address TEXT CHECK (address IS NULL OR length(address) BETWEEN 5 AND 300),
   contact_phone TEXT CHECK (contact_phone IS NULL OR length(contact_phone) = 10),
@@ -268,8 +265,6 @@ CREATE TABLE vehicles (
   -- (the vehicle, its owner's name/phone, or a job for that owner). Phones sync their offline
   -- customer directory by pulling rows changed since their last cursor.
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
-  -- The customer removed it from their list in the Mana Wash app. Only hides it there.
-  app_hidden_at TEXT,
   UNIQUE (shop_id, registration_number),
   UNIQUE (shop_id, id),
   FOREIGN KEY (shop_id, customer_id) REFERENCES customers(shop_id, id),
@@ -600,120 +595,6 @@ CREATE TABLE signup_codes (
   expires_at TEXT NOT NULL,
   used_at TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now'))
-);
-
--- Named places a branch serves ("Kovur", "Nellore"): the backup when a customer of the MANA Car
--- Wash app doesn't share their location. Switching one off keeps the row (requests point at it).
-CREATE TABLE service_areas (
-  id TEXT PRIMARY KEY,
-  shop_id TEXT NOT NULL REFERENCES shops(id),
-  name TEXT NOT NULL,
-  name_key TEXT NOT NULL,            -- lower-cased, single-spaced name; one live area per name
-  pincode TEXT CHECK (pincode IS NULL OR length(pincode) = 6),
-  active INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
-  UNIQUE (shop_id, id)
-);
-
--- One per phone number that has signed in to the Mana Wash app — platform-level, because one
--- person can be a customer of several branches. Which branches is never stored: it's every listed
--- shop with a customer on this number, so registering (or removing) them takes effect at once.
-CREATE TABLE customer_accounts (
-  id TEXT PRIMARY KEY,
-  phone TEXT NOT NULL UNIQUE,
-  -- In every customer token; bumping it signs the app out on every phone.
-  session_version INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
-  last_seen_at TEXT
-);
-
--- "Request service" from the app, by a phone proved with a WhatsApp code. shop_id is the branch
--- that serves the place, or for out_of_area the nearest one, so somebody always sees it.
--- Approving registers a customer on that phone (customer_id), which is what lets them sign in.
--- Only the location, vehicles and when are required; invited_place_id is a place started near it.
-CREATE TABLE service_requests (
-  id TEXT PRIMARY KEY,
-  shop_id TEXT NOT NULL REFERENCES shops(id),
-  phone TEXT NOT NULL,
-  name TEXT,
-  latitude REAL CHECK (latitude IS NULL OR latitude BETWEEN -90 AND 90),
-  longitude REAL CHECK (longitude IS NULL OR longitude BETWEEN -180 AND 180),
-  area_id TEXT,
-  address TEXT,
-  place_kind TEXT CHECK (place_kind IS NULL OR place_kind IN ('apartment', 'house', 'small_building', 'office', 'other')),
-  place_name TEXT,
-  home_text TEXT,
-  cars INTEGER NOT NULL DEFAULT 0 CHECK (cars BETWEEN 0 AND 20),
-  bikes INTEGER NOT NULL DEFAULT 0 CHECK (bikes BETWEEN 0 AND 20),
-  preferred_time TEXT CHECK (preferred_time IS NULL OR preferred_time IN ('early_morning', 'morning', 'evening', 'any')),
-  notes TEXT,
-  status TEXT NOT NULL DEFAULT 'pending'
-    CHECK (status IN ('pending', 'out_of_area', 'approved', 'rejected', 'cancelled')),
-  handled_by_user_id TEXT,
-  handled_at TEXT,
-  reason TEXT,
-  customer_id TEXT,
-  invited_place_id TEXT,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
-  CHECK (cars + bikes >= 1),
-  FOREIGN KEY (shop_id, area_id) REFERENCES service_areas(shop_id, id),
-  FOREIGN KEY (shop_id, handled_by_user_id) REFERENCES users(shop_id, id),
-  FOREIGN KEY (shop_id, customer_id) REFERENCES customers(shop_id, id),
-  FOREIGN KEY (shop_id, invited_place_id) REFERENCES places(shop_id, id)
-);
-
--- "Add my vehicle" from the app. The team approves (which creates the vehicle for this customer)
--- or declines with a reason the customer sees. One open request per plate per branch.
-CREATE TABLE vehicle_requests (
-  id TEXT PRIMARY KEY,
-  shop_id TEXT NOT NULL REFERENCES shops(id),
-  customer_id TEXT NOT NULL,
-  registration_number TEXT NOT NULL,
-  vehicle_type_id TEXT NOT NULL,
-  make TEXT,
-  model TEXT,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled')),
-  vehicle_id TEXT,                   -- set on approval
-  handled_by_user_id TEXT,
-  handled_at TEXT,
-  reason TEXT,                       -- why it was declined, shown to the customer
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
-  FOREIGN KEY (shop_id, customer_id) REFERENCES customers(shop_id, id),
-  FOREIGN KEY (shop_id, vehicle_type_id) REFERENCES vehicle_types(shop_id, id),
-  FOREIGN KEY (shop_id, vehicle_id) REFERENCES vehicles(shop_id, id),
-  FOREIGN KEY (shop_id, handled_by_user_id) REFERENCES users(shop_id, id)
-);
-
--- A customer's rating of one of their paid washes; they can change it for a while after.
-CREATE TABLE wash_ratings (
-  job_id TEXT PRIMARY KEY,
-  shop_id TEXT NOT NULL REFERENCES shops(id),
-  customer_id TEXT NOT NULL,
-  stars INTEGER NOT NULL CHECK (stars BETWEEN 1 AND 5),
-  comment TEXT,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
-  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
-  FOREIGN KEY (shop_id, job_id) REFERENCES jobs(shop_id, id),
-  FOREIGN KEY (shop_id, customer_id) REFERENCES customers(shop_id, id)
-);
-
--- A problem a customer reported from the app, about one wash (job_id) or the branch in general.
--- The team resolves it with a note the customer sees.
-CREATE TABLE wash_problems (
-  id TEXT PRIMARY KEY,
-  shop_id TEXT NOT NULL REFERENCES shops(id),
-  customer_id TEXT NOT NULL,
-  job_id TEXT,
-  kind TEXT NOT NULL CHECK (kind IN ('not_clean', 'damage', 'missed_service', 'billing', 'staff', 'other')),
-  details TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved')),
-  resolution TEXT,
-  resolved_by_user_id TEXT,
-  resolved_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
-  FOREIGN KEY (shop_id, customer_id) REFERENCES customers(shop_id, id),
-  FOREIGN KEY (shop_id, job_id) REFERENCES jobs(shop_id, id),
-  FOREIGN KEY (shop_id, resolved_by_user_id) REFERENCES users(shop_id, id)
 );
 
 -- Crashes from the app and unhandled API errors. Each owner sees their own shop's; shop_id is
@@ -1608,18 +1489,6 @@ CREATE INDEX idx_app_errors_created_at ON app_errors(created_at);
 CREATE INDEX idx_login_codes_user_created ON login_codes(user_id, created_at);
 CREATE INDEX idx_signup_codes_phone_created ON signup_codes(phone, created_at);
 CREATE INDEX idx_signup_codes_ip_created ON signup_codes(ip, created_at);
-CREATE INDEX idx_service_areas_shop ON service_areas(shop_id);
-CREATE UNIQUE INDEX idx_service_areas_name_live ON service_areas(shop_id, name_key) WHERE active = 1;
-CREATE INDEX idx_service_requests_shop_status ON service_requests(shop_id, status, created_at);
-CREATE INDEX idx_service_requests_phone ON service_requests(phone, created_at);
--- One open service request per number, across every branch; asking again replaces it.
-CREATE UNIQUE INDEX idx_service_requests_one_open ON service_requests(phone) WHERE status IN ('pending', 'out_of_area');
-CREATE INDEX idx_vehicle_requests_shop_status ON vehicle_requests(shop_id, status, created_at);
-CREATE INDEX idx_vehicle_requests_customer ON vehicle_requests(customer_id, created_at);
-CREATE UNIQUE INDEX idx_vehicle_requests_one_pending ON vehicle_requests(shop_id, registration_number) WHERE status = 'pending';
-CREATE INDEX idx_wash_ratings_shop ON wash_ratings(shop_id, updated_at);
-CREATE INDEX idx_wash_problems_shop_status ON wash_problems(shop_id, status, created_at);
-CREATE INDEX idx_wash_problems_customer ON wash_problems(customer_id, created_at);
 
 CREATE INDEX idx_business_admins_phone ON business_admins(phone);
 CREATE INDEX idx_catalog_services_business ON catalog_services(business_id, sort_order);
@@ -1660,7 +1529,6 @@ CREATE INDEX idx_customer_payments_shop_paid ON customer_payments(shop_id, paid_
 CREATE UNIQUE INDEX idx_customer_payments_one_paid ON customer_payments(installment_id) WHERE status = 'paid';
 CREATE INDEX idx_customer_refunds_payment ON customer_refunds(payment_id);
 CREATE INDEX idx_customer_refunds_pending ON customer_refunds(status) WHERE status = 'pending';
-CREATE INDEX idx_service_requests_invited ON service_requests(invited_place_id) WHERE invited_place_id IS NOT NULL;
 
 CREATE TABLE shop_plan_orders (
   id TEXT PRIMARY KEY,

@@ -204,7 +204,7 @@ export const branchRoutes = new Hono<{ Bindings: Env }>()
   })
   /**
    * The kinds of vehicle this branch washes: the same list Mana Wash HQ switches on the branch's
-   * page, so a change on either side shows on both, in New Wash and in the customer app.
+   * page, so a change on either side shows on both, in New Wash and on WhatsApp.
    */
   .get('/vehicles', requireRole('owner'), async (c) => {
     const shopId = c.get('session').shopId;

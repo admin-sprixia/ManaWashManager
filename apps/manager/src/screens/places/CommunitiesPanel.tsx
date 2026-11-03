@@ -4,10 +4,9 @@ import { useNavigation } from '@react-navigation/native';
 import { Button, Notice, colors, spacing } from '@mana/ui';
 import { api } from '../../api/client';
 import { useAuth } from '../../api/auth';
-import { useApiData, type Demand, type Overview, type PlaceListItem } from './shared';
+import { useApiData, type Overview, type PlaceListItem } from './shared';
 import { AllCommunitiesSection } from './panel/AllCommunitiesSection';
 import { NeedsYouSection } from './panel/NeedsYouSection';
-import { PeopleAskingSection } from './panel/PeopleAskingSection';
 import { TodaySection } from './panel/TodaySection';
 import { WeekSection } from './panel/WeekSection';
 import type { Nav } from './panel/types';
@@ -18,7 +17,7 @@ export interface CommunitiesPanelHandle {
 
 /**
  * The Communities tab, in the order people need it: what's waiting on someone, today's wash
- * days, the days coming up, every community, and where people are asking for us. Lives in the
+ * days, the days coming up and every community. Lives in the
  * home screen's tab and on the Communities screen; the parent owns scrolling and refresh.
  */
 export const CommunitiesPanel = forwardRef<CommunitiesPanelHandle>(function CommunitiesPanel(_props, ref) {
@@ -26,16 +25,15 @@ export const CommunitiesPanel = forwardRef<CommunitiesPanelHandle>(function Comm
   const { isOwner } = useAuth();
   const overview = useApiData<Overview>(() => api.places.overview.$get({ query: {} }), 'Couldn’t load this week.');
   const list = useApiData<{ places: PlaceListItem[] }>(() => api.places.$get(), 'Couldn’t load your communities.');
-  const demand = useApiData<Demand>(() => api.places.demand.$get(), 'Couldn’t load the requests.');
 
   useImperativeHandle(
     ref,
     () => ({
       refresh: async () => {
-        await Promise.all([overview.refresh(), list.refresh(), demand.refresh()]);
+        await Promise.all([overview.refresh(), list.refresh()]);
       },
     }),
-    [overview, list, demand],
+    [overview, list],
   );
 
   if (!list.data && !list.error) {
@@ -64,7 +62,6 @@ export const CommunitiesPanel = forwardRef<CommunitiesPanelHandle>(function Comm
       <TodaySection today={today} next={coming.find((d) => d.places.length)} nav={nav} />
       <WeekSection days={coming} nav={nav} />
       <AllCommunitiesSection live={places.filter((p) => p.stage === 'live')} nav={nav} />
-      <PeopleAskingSection demand={demand.data} nav={nav} />
     </View>
   );
 });

@@ -31,9 +31,6 @@ export const PARKING_NOTE_MAX = 120;
 export const PLACE_CAPACITY_MAX = 500;
 /** Units added in one go ("101-150, 201-250"). */
 export const MAX_UNITS_PER_ADD = 400;
-/** How far around the customer the app looks for served places. */
-export const NEARBY_PLACES_KM = 3;
-export const NEARBY_PLACES_MAX = 12;
 
 // ─── Codes for QR posters and invite links ───────────────────────────────────
 
@@ -225,26 +222,6 @@ export { weekStart };
 // ─── Joining ─────────────────────────────────────────────────────────────────
 
 export const distanceMeters = (a: GeoPoint, b: GeoPoint) => Math.round(distanceKm(a, b) * 1000);
-
-/** "Call me back" requests this close together count as one place's interest. */
-export const INTEREST_RADIUS_M = 250;
-
-/**
- * Groups points that lie within `radiusM` of a group's first point, biggest group first (ties:
- * the order the points came in). Greedy and good enough for a branch's few hundred requests.
- */
-export function clusterPoints<T extends GeoPoint>(points: readonly T[], radiusM: number): { center: GeoPoint; items: T[] }[] {
-  const groups: { center: GeoPoint; items: T[] }[] = [];
-  for (const p of points) {
-    const near = groups.find((g) => distanceMeters(g.center, p) <= radiusM);
-    if (near) near.items.push(p);
-    else groups.push({ center: { latitude: p.latitude, longitude: p.longitude }, items: [p] });
-  }
-  return groups
-    .map((g, i) => ({ g, i }))
-    .sort((a, b) => b.g.items.length - a.g.items.length || a.i - b.i)
-    .map(({ g }) => g);
-}
 
 export interface JoinCheckInput {
   /** From the place's pin; null when the customer didn't share their location. */

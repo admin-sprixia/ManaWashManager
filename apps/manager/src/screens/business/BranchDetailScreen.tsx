@@ -922,7 +922,7 @@ function PricesPane({
   return (
     <View style={styles.pane}>
       <Text style={styles.sectionTitle}>How this branch prices</Text>
-      <Text style={styles.hint}>The price book its menu is built from, for New Wash and the customer app.</Text>
+      <Text style={styles.hint}>The price book its menu is built from, for New Wash and WhatsApp.</Text>
       <Text style={styles.hint}>
         {ownPrices > 0
           ? `Its owner set their own shop price for ${ownPrices} ${ownPrices === 1 ? 'vehicle' : 'vehicles'}, within your pricing rules; the rest are the book’s.`

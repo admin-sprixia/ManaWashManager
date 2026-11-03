@@ -23,14 +23,10 @@ import { cashRoutes } from './routes/cash';
 import { photoRoutes } from './routes/photo';
 import { stockRoutes } from './routes/stock';
 import { rewardRoutes } from './routes/reward';
-import { serviceRequestRoutes } from './routes/serviceRequest';
 import { serviceAreaRoutes } from './routes/serviceArea';
-import { customerAppRoutes } from './routes/customerApp';
-import { appFeedbackRoutes } from './routes/appFeedback';
 import { businessRoutes } from './routes/business';
 import { branchRoutes } from './routes/branch';
 import { placeRoutes } from './routes/places';
-import { customerPlaceRoutes } from './routes/customerPlaces';
 import { payRoutes } from './routes/pay';
 import { placeLinkRoutes } from './routes/placeLinks';
 import { whatsappRoutes } from './routes/whatsapp';
@@ -49,16 +45,6 @@ app.use('/auth/pin/login', rateLimit('pin', 40, TEN_MIN));
 app.use('/auth/code/*', rateLimit('code', 20, TEN_MIN));
 app.use('/auth/me/phone', rateLimit('phone', 10, TEN_MIN));
 app.use('/auth/me/phone/code', rateLimit('phone-code', 10, TEN_MIN));
-app.use('/c/auth/*', rateLimit('c-auth', 30, TEN_MIN));
-const serviceRequestLimit = rateLimit('c-request', 30, TEN_MIN);
-app.use('/c/*', (c, next) =>
-  c.req.path.startsWith('/c/service-requests')
-    ? serviceRequestLimit(c as Context<{ Bindings: Env }, string>, next)
-    : next(),
-);
-app.use('/c/service-area/check', rateLimit('c-area', 60, TEN_MIN));
-app.use('/c/join', rateLimit('c-join', 20, TEN_MIN));
-app.use('/c/places/near', rateLimit('c-near', 120, TEN_MIN));
 app.use('/places/:id/members/code', rateLimit('place-code', 30, TEN_MIN));
 app.use('/pay/test/*', rateLimit('pay-test', 60, TEN_MIN));
 
@@ -125,23 +111,18 @@ const routes = app
   .route('/photos', photoRoutes)
   .route('/stock', stockRoutes)
   .route('/rewards', rewardRoutes)
-  .route('/service-requests', serviceRequestRoutes)
   .route('/service-area', serviceAreaRoutes)
-  .route('/app-feedback', appFeedbackRoutes)
   .route('/business', businessRoutes)
   .route('/branch', branchRoutes)
   .route('/places', placeRoutes)
-  .route('/c', customerAppRoutes)
-  .route('/c', customerPlaceRoutes)
   .route('/pay', payRoutes)
   .route('/p', placeLinkRoutes)
   .route('/whatsapp/inbox', whatsappInboxRoutes)
   .route('/whatsapp', whatsappRoutes)
   .route('/legal', legalRoutes);
 
-// Hono RPC: both apps import this type (via hc<AppType>) to get a fully typed API client with
-// zero codegen — this is what "tRPC or Hono RPC" in the build plan resolved to. The customer app
-// only ever calls `/c/*`; the team app everything else.
+// Hono RPC: the manager app imports this type (via hc<AppType>) to get a fully typed API client
+// with zero codegen — this is what "tRPC or Hono RPC" in the build plan resolved to.
 export type AppType = typeof routes;
 
 // The Worker entry (fetch + cron) lives in worker.ts, so this file — which the apps import for

@@ -5,7 +5,7 @@
  *   npm run version:set -- 2.1.0   write it everywhere
  *   npm run version:check          fail if anything has drifted
  *
- * The build number (Android versionCode, iOS CURRENT_PROJECT_VERSION) is derived
+ * The build number (Android versionCode) is derived
  * (MAJOR*10000 + MINOR*100 + PATCH), so it always increases with the version and never needs
  * hand-editing. MINOR and PATCH must stay below 100.
  */
@@ -14,11 +14,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const WORKSPACES = ['apps/api', 'apps/manager', 'apps/customer', 'packages/db', 'packages/domain', 'packages/ui'];
+const WORKSPACES = ['apps/api', 'apps/manager', 'packages/db', 'packages/domain', 'packages/ui'];
 const PACKAGES = ['package.json', ...WORKSPACES.map((w) => `${w}/package.json`)];
 const LOCK_KEYS = ['', ...WORKSPACES];
-const GRADLES = ['apps/manager/android/app/build.gradle', 'apps/customer/android/app/build.gradle'];
-const XCODE = 'apps/customer/ios/ManaCarWash.xcodeproj/project.pbxproj';
+const GRADLES = ['apps/manager/android/app/build.gradle'];
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)$/;
 
 const read = (file) => readFileSync(join(root, file), 'utf8');
@@ -40,14 +39,6 @@ function current() {
     const gradle = read(file);
     found.push([`${file}#versionName`, gradle.match(/versionName "([^"]+)"/)?.[1], 'version']);
     found.push([`${file}#versionCode`, gradle.match(/versionCode (\d+)/)?.[1], 'build']);
-  }
-  // Each Xcode build configuration (Debug, Release, tests) carries its own copy; all must agree.
-  const xcode = read(XCODE);
-  for (const [i, m] of [...xcode.matchAll(/MARKETING_VERSION = ([^;]+);/g)].entries()) {
-    found.push([`${XCODE}#MARKETING_VERSION[${i}]`, m[1], 'version']);
-  }
-  for (const [i, m] of [...xcode.matchAll(/CURRENT_PROJECT_VERSION = ([^;]+);/g)].entries()) {
-    found.push([`${XCODE}#CURRENT_PROJECT_VERSION[${i}]`, m[1], 'build']);
   }
   return found;
 }
@@ -75,10 +66,6 @@ function set(version) {
       .replace(/versionName "[^"]+"/, `versionName "${version}"`);
     writeFileSync(join(root, file), gradle);
   }
-  const xcode = read(XCODE)
-    .replace(/MARKETING_VERSION = [^;]+;/g, `MARKETING_VERSION = ${version};`)
-    .replace(/CURRENT_PROJECT_VERSION = [^;]+;/g, `CURRENT_PROJECT_VERSION = ${build};`);
-  writeFileSync(join(root, XCODE), xcode);
   check();
 }
 

@@ -7,7 +7,6 @@ import {
   isValidClock,
   MAX_WEEKLY_OFF_DAYS,
   normalizePhone,
-  SERVICE_AREA_NAME_MAX,
   SERVICE_RADIUS_MAX_KM,
   SERVICE_RADIUS_MIN_KM,
 } from '@mana/domain';
@@ -26,27 +25,6 @@ const hubSchema = z
   })
   .refine((h) => (h.latitude == null) === (h.longitude == null), 'Set both latitude and longitude, or neither')
   .refine((h) => h.radiusKm == null || h.latitude != null, 'Set the hub location before a radius');
-
-const pincodeSchema = z
-  .string()
-  .trim()
-  .regex(/^\d{6}$/, 'A pincode has 6 digits')
-  .nullish()
-  .transform((v) => v ?? null);
-const areaSchema = z.object({
-  name: z.string().trim().min(2, 'Enter the area name').max(SERVICE_AREA_NAME_MAX),
-  pincode: pincodeSchema,
-});
-const areaPatchSchema = z.object({
-  name: z.string().trim().min(2, 'Enter the area name').max(SERVICE_AREA_NAME_MAX).optional(),
-  pincode: z
-    .string()
-    .trim()
-    .regex(/^\d{6}$/, 'A pincode has 6 digits')
-    .nullable()
-    .optional(),
-  active: z.boolean().optional(),
-});
 
 const clockSchema = z
   .string()
@@ -79,10 +57,8 @@ const contactSchema = z
     'Closing time must be after opening time',
   );
 
-const nameTaken = { error: 'name_taken' as const, message: 'You already have an area with this name.' };
-
-// This branch in the Mana Wash app: its contact details and hours, and where it washes (the hub
-// with a radius, and named areas as the backup). Owner only. Being listed in the app at all is decided by Sprixia (in_customer_app).
+// This branch's contact details and hours (shown on WhatsApp and bills), and where it washes (the
+// hub with a radius). Owner only.
 export const serviceAreaRoutes = new Hono<{ Bindings: Env }>()
   .use('*', requireAuth, requireRole('owner'))
   .get('/', async (c) => c.json(await serviceAreaRepo.get(c.get('db'))))
@@ -98,20 +74,4 @@ export const serviceAreaRoutes = new Hono<{ Bindings: Env }>()
     if (new Set(days).size > MAX_WEEKLY_OFF_DAYS) return c.json({ error: 'invalid' as const, message: 'Leave at least one day open.' }, 400);
     await serviceAreaRepo.setContact(db, { ...rest, weeklyOffDays: days });
     return c.json(await serviceAreaRepo.get(db));
-  })
-  .post('/areas', zValidator('json', areaSchema), async (c) => {
-    const area = await serviceAreaRepo.createArea(c.get('db'), c.req.valid('json'));
-    if (!area) return c.json(nameTaken, 409);
-    return c.json({ area }, 201);
-  })
-  .patch(
-    '/areas/:id',
-    zValidator('param', z.object({ id: z.string().min(1).max(64) })),
-    zValidator('json', areaPatchSchema),
-    async (c) => {
-      const result = await serviceAreaRepo.updateArea(c.get('db'), c.req.valid('param').id, c.req.valid('json'));
-      if (result === 'not_found') return c.json({ error: 'not_found' as const }, 404);
-      if (result === 'name_taken') return c.json(nameTaken, 409);
-      return c.json({ area: result });
-    },
-  );
+  });

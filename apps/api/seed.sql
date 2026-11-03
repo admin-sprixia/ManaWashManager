@@ -9,15 +9,11 @@
 
 INSERT INTO shops (id, code, name, city) VALUES ('shop_mana', 'NLR-01', 'Mana Wash Nellore City', 'Nellore');
 
--- Listed in the Mana Wash app, washing within 8 km of the Kovur hub, plus two named areas
--- for customers who don't share their location. Contact details and hours for the branch page.
-UPDATE shops SET in_customer_app = 1, latitude = 14.4936, longitude = 79.9884, service_radius_km = 8,
+-- Washing within 8 km of the Kovur hub. Contact details and hours for WhatsApp and bills.
+UPDATE shops SET latitude = 14.4936, longitude = 79.9884, service_radius_km = 8,
   address = 'Main Road, near Bus Stand, Kovur, Nellore 524137', contact_phone = '9888626111',
   opens_at = '07:00', closes_at = '20:00', weekly_off = NULL
 WHERE id = 'shop_mana';
-INSERT INTO service_areas (id, shop_id, name, name_key, pincode) VALUES
-  ('area_kovur',   'shop_mana', 'Kovur',   'kovur',   '524137'),
-  ('area_nellore', 'shop_mana', 'Nellore', 'nellore', '524001');
 
 -- ─── Seed: vehicle types ────────────────────────────────────────────────────
 

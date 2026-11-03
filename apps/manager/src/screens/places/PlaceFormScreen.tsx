@@ -208,7 +208,7 @@ export function PlaceFormScreen({ navigation, route }: Props) {
     if (!result.ok) return;
     leaving.current = true;
     if (settings.live) navigation.goBack();
-    else navigation.replace('PlaceLive', { placeId, invited: result.invited ?? 0 });
+    else navigation.replace('PlaceLive', { placeId });
   };
 
   return (

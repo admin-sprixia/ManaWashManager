@@ -136,8 +136,6 @@ interface ShopContextValue extends ShopSnapshot {
   /** Owner only: errors logged since the error log was last opened. */
   unseenErrors: number;
   markErrorsSeen: () => void;
-  /** Listed in the Mana Wash app (set by Sprixia), and what's waiting from its customers. */
-  customerApp: CustomerAppSummary;
   /** Inventory, cached for offline, with unsynced entries from this phone applied. */
   stock: StockItemView[];
   /** Items at or under their alert level, or out. */
@@ -152,15 +150,6 @@ interface ShopContextValue extends ShopSnapshot {
   setRewards: (next: RewardSettings) => void;
 }
 
-export interface CustomerAppSummary {
-  listed: boolean;
-  openRequests: number;
-  openProblems: number;
-  pendingVehicles: number;
-}
-
-const NO_CUSTOMER_APP: CustomerAppSummary = { listed: false, openRequests: 0, openProblems: 0, pendingVehicles: 0 };
-
 const ShopContext = createContext<ShopContextValue | null>(null);
 
 /**
@@ -174,7 +163,6 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
   const { online, shopItems: outbox, version } = useSync();
   const [snapshot, setSnapshot] = useState<ShopSnapshot>(EMPTY);
   const [unseenErrors, setUnseenErrors] = useState(0);
-  const [customerApp, setCustomerApp] = useState<CustomerAppSummary>(NO_CUSTOMER_APP);
   const [serverStock, setServerStock] = useState<StockItemView[]>([]);
   const [rewards, setRewardsState] = useState<RewardSettings | null>(null);
   const userId = user?.id ?? null;
@@ -286,20 +274,6 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
     } else {
       setUnseenErrors(0);
     }
-    api['service-requests'].summary
-      .$get()
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body) => {
-        if (body) {
-          setCustomerApp({
-            listed: body.listed,
-            openRequests: body.open,
-            openProblems: body.openProblems,
-            pendingVehicles: body.pendingVehicles,
-          });
-        }
-      })
-      .catch(() => undefined);
     try {
       const [infoRes, settingsRes, rosterRes, shopsRes] = await Promise.all([
         api.shop.info.$get(),
@@ -373,7 +347,6 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
       setUpiId,
       unseenErrors,
       markErrorsSeen,
-      customerApp,
       stock,
       lowStock,
       refreshStock,
@@ -389,7 +362,6 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
       setUpiId,
       unseenErrors,
       markErrorsSeen,
-      customerApp,
       stock,
       lowStock,
       refreshStock,

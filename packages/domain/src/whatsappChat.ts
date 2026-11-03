@@ -1,4 +1,4 @@
-import { clockMinutes, formatClock, offDaysOf, WEEKDAY_LABELS, type OpeningHours } from './customerApp';
+import { clockMinutes, formatClock, offDaysOf, WEEKDAY_LABELS, type OpeningHours } from './openingHours';
 import type { VehicleCategory } from './types';
 import { PRICE_SIZES, priceSize, priceSizeOfBody, type PriceSize } from './priceSizes';
 import { buildPlan, PLAN_GRACE_DAYS, PLAN_LENGTHS, PLAN_WASHES_A_MONTH, upgradeWashes } from './washPlans';

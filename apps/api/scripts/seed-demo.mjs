@@ -971,187 +971,6 @@ await runWash(wash(friend2, minutesBack(20), { referralToken: quote2.token, serv
   });
 }
 
-// ─── Customer feedback (Mana Wash app → team inbox) ───────────────────────
-
-step('Customer feedback: problems, ratings and vehicle-add requests');
-{
-  // Recent paid washes give us real customers and jobs to hang ratings and problems on.
-  const jobs = query(`
-    SELECT j.id AS job_id, j.customer_id, v.vehicle_type_id, v.registration_number
-    FROM jobs j
-    JOIN vehicles v ON v.id = j.vehicle_id AND v.shop_id = j.shop_id
-    WHERE j.shop_id = '${SHOP}' AND j.status = 'paid' AND j.payment_status = 'paid'
-    ORDER BY j.created_at DESC
-    LIMIT 14
-  `);
-  const sql = [];
-  const job = (i) => jobs[i];
-
-  // Ratings — mix of stars so the 30-day summary looks real.
-  const ratingRows = [
-    [0, 5, 'Spotless — mats and dash too. Will come every week.'],
-    [1, 5, null],
-    [2, 4, 'Good wash, a bit slow at peak hour.'],
-    [3, 5, 'Bike looks brand new.'],
-    [4, 3, 'Exterior fine, interior still dusty near the seat belts.'],
-    [5, 2, 'Water spots on the black panels after drying.'],
-    [6, 5, null],
-    [7, 4, 'Friendly staff. Foam wash smelled great.'],
-    [8, 1, 'Scratch on the rear bumper we didn’t have before.'],
-    [9, 5, 'Best in Nellore.'],
-  ];
-  for (const [i, stars, comment] of ratingRows) {
-    const j = job(i);
-    if (!j) continue;
-    const when = ts(at(i === 0 || i === 1 ? 0 : Math.min(i, 12), 18, 10 + i));
-    sql.push(
-      insert('wash_ratings', {
-        job_id: j.job_id,
-        shop_id: SHOP,
-        customer_id: j.customer_id,
-        stars,
-        comment,
-        created_at: when,
-        updated_at: when,
-      }),
-    );
-  }
-
-  // Problems — a few open for the team, one already resolved.
-  const problems = [
-    {
-      i: 4,
-      kind: 'not_clean',
-      details: 'Seat belts and cup holders still had dust after the interior wash. Please check next time.',
-      status: 'open',
-      hoursAgo: 5,
-    },
-    {
-      i: 5,
-      kind: 'damage',
-      details: 'Small scratch on the left rear door — wasn’t there when I dropped the car.',
-      status: 'open',
-      hoursAgo: 28,
-    },
-    {
-      i: 2,
-      kind: 'billing',
-      details: 'App showed combo price but the bill charged AC hygiene separately. Can you check?',
-      status: 'open',
-      hoursAgo: 9,
-    },
-    {
-      i: 8,
-      kind: 'staff',
-      details: 'Washer was on a phone call while drying. Felt rushed.',
-      status: 'resolved',
-      hoursAgo: 72,
-      resolution: 'Spoke with the washer — apologised to the customer and offered a free exterior next visit.',
-    },
-    {
-      i: null,
-      kind: 'other',
-      details: 'Hard to find parking near the gate on Sundays. Any overflow spot we can use?',
-      status: 'open',
-      hoursAgo: 40,
-      customerId: job(6)?.customer_id,
-    },
-  ];
-  for (const [n, p] of problems.entries()) {
-    const j = p.i != null ? job(p.i) : null;
-    const customerId = j?.customer_id ?? p.customerId;
-    if (!customerId) continue;
-    const created = ts(addMin(NOW, -p.hoursAgo * 60));
-    sql.push(
-      insert('wash_problems', {
-        id: `prob_demo_${n + 1}`,
-        shop_id: SHOP,
-        customer_id: customerId,
-        job_id: j?.job_id ?? null,
-        kind: p.kind,
-        details: p.details,
-        status: p.status,
-        resolution: p.resolution ?? null,
-        resolved_by_user_id: p.status === 'resolved' ? OWNER.id : null,
-        resolved_at: p.status === 'resolved' ? ts(addMin(NOW, -(p.hoursAgo - 20) * 60)) : null,
-        created_at: created,
-      }),
-    );
-  }
-
-  // Vehicle-add requests — two waiting, one already added, one declined.
-  const vtSedan = 'vt_sedan';
-  const vtScooter = 'vt_scooter';
-  const asker = job(0);
-  const asker2 = job(3);
-  const asker3 = job(7);
-  if (asker) {
-    sql.push(
-      insert('vehicle_requests', {
-        id: 'vreq_demo_1',
-        shop_id: SHOP,
-        customer_id: asker.customer_id,
-        registration_number: 'AP39BM4410',
-        vehicle_type_id: vtSedan,
-        make: 'Hyundai',
-        model: 'Venue',
-        status: 'pending',
-        created_at: ts(addMin(NOW, -3 * 60)),
-      }),
-    );
-  }
-  if (asker2) {
-    sql.push(
-      insert('vehicle_requests', {
-        id: 'vreq_demo_2',
-        shop_id: SHOP,
-        customer_id: asker2.customer_id,
-        registration_number: 'AP39SK2208',
-        vehicle_type_id: vtScooter,
-        make: 'Honda',
-        model: 'Activa',
-        status: 'pending',
-        created_at: ts(addMin(NOW, -26 * 60)),
-      }),
-    );
-  }
-  if (asker3) {
-    sql.push(
-      insert('vehicle_requests', {
-        id: 'vreq_demo_3',
-        shop_id: SHOP,
-        customer_id: asker3.customer_id,
-        registration_number: 'AP39CK1199',
-        vehicle_type_id: vtSedan,
-        make: 'Maruti',
-        model: 'Baleno',
-        status: 'approved',
-        handled_by_user_id: ravi.id,
-        handled_at: ts(addMin(NOW, -48 * 60)),
-        created_at: ts(addMin(NOW, -50 * 60)),
-      }),
-    );
-    sql.push(
-      insert('vehicle_requests', {
-        id: 'vreq_demo_4',
-        shop_id: SHOP,
-        customer_id: asker3.customer_id,
-        registration_number: 'AP39XX0001',
-        vehicle_type_id: vtSedan,
-        make: 'Tata',
-        model: 'Nexon',
-        status: 'rejected',
-        reason: 'We haven’t washed this vehicle yet',
-        handled_by_user_id: OWNER.id,
-        handled_at: ts(addMin(NOW, -60 * 60)),
-        created_at: ts(addMin(NOW, -70 * 60)),
-      }),
-    );
-  }
-
-  if (sql.length) runSql(sql, 'customer-feedback');
-}
-
 // ─── Cash drawer ──────────────────────────────────────────────────────────
 
 step('Cash drawer: the last 30 days counted and closed, today open');
@@ -1384,48 +1203,6 @@ const placesDemo = {};
     form.set('file', vehiclePhoto('vt_sedan', 'AP39CK4821', 'after'));
     await call(RAVI, 'POST', `/places/${towers.id}/visits/${visit.visitId}/photo`, form);
   }
-
-  // Someone joined Sri Ram Nagar from the app, from home: the team confirms them first.
-  // App codes per network address are capped hourly; moving each back keeps re-seeding possible.
-  const appTicket = async (phone) => {
-    await call(null, 'POST', '/c/auth/code', { phone });
-    runSql([`UPDATE signup_codes SET created_at = strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now', '-2 hours') WHERE phone = ${q(phone)};`], `code-${phone}`);
-    return (await call(null, 'POST', '/c/auth/verify', { phone, code: DEV_CODE })).ticket;
-  };
-  const colonyMenu = await call(null, 'GET', `/c/places/${colony.id}`);
-  const hatch = colonyMenu.menu.vehicleTypes.find((t) => t.name === 'Hatchback');
-  const pending = await call(null, 'POST', '/c/join', {
-    ticket: await appTicket('9440011005'),
-    placeId: colony.id,
-    name: 'Ramesh G',
-    unit: { text: 'H.No 14-2' },
-    location: { latitude: 14.4521, longitude: 79.9811 },
-    via: 'app',
-    vehicles: [{ vehicleTypeId: hatch.id, choice: plan('wp_mana_weekly') }],
-  });
-  placesDemo.pending = pending.memberStatus === 'pending' ? 1 : 0;
-
-  // People asking where we don't wash yet: two near Green Park (waiting for approval), and five
-  // neighbours in one Dargamitta lane, enough to start a community there.
-  const asking = [
-    ['9440011006', 14.4612, 79.9724, 'Vedayapalem, 3rd cross', 1, 0],
-    ['9440011007', 14.4616, 79.9726, 'Vedayapalem, 3rd cross', 1, 1],
-    ['9440011008', 14.4352, 79.9688, 'Dargamitta, Vivekananda Street', 1, 0],
-    ['9440011009', 14.4354, 79.9690, 'Dargamitta, Vivekananda Street', 2, 0],
-    ['9440011010', 14.4351, 79.9686, 'Dargamitta, Vivekananda Street', 1, 1],
-    ['9440011011', 14.4356, 79.9689, 'Dargamitta, Vivekananda Street', 1, 0],
-    ['9440011012', 14.4353, 79.9692, 'Dargamitta, Vivekananda Street', 1, 2],
-  ];
-  for (const [phone, latitude, longitude, address, cars, bikes] of asking) {
-    await call(null, 'POST', '/c/service-requests', {
-      ticket: await appTicket(phone),
-      location: { latitude, longitude },
-      address,
-      cars,
-      bikes,
-    });
-  }
-  placesDemo.asking = asking.length;
 }
 
 // ─── Timestamps the API sets to "now" ─────────────────────────────────────
@@ -1468,19 +1245,15 @@ const [counts] = query(`SELECT
   (SELECT COUNT(*) FROM cash_days WHERE shop_id = '${SHOP}') AS cash_days,
   (SELECT COUNT(*) FROM reward_claims WHERE shop_id = '${SHOP}') AS free_washes,
   (SELECT COUNT(*) FROM reward_gifts WHERE shop_id = '${SHOP}' AND status = 'given') AS gifts_given,
-  (SELECT COUNT(*) FROM reward_gifts WHERE shop_id = '${SHOP}' AND status = 'owed') AS gifts_owed,
-  (SELECT COUNT(*) FROM wash_problems WHERE shop_id = '${SHOP}' AND status = 'open') AS open_problems,
-  (SELECT COUNT(*) FROM vehicle_requests WHERE shop_id = '${SHOP}' AND status = 'pending') AS pending_vehicles,
-  (SELECT COUNT(*) FROM wash_ratings WHERE shop_id = '${SHOP}') AS ratings`);
+  (SELECT COUNT(*) FROM reward_gifts WHERE shop_id = '${SHOP}' AND status = 'owed') AS gifts_owed`);
 console.log(`
 Done. Mana Wash Nellore City, branch code NLR-01:
   ${counts.customers} customers · ${counts.vehicles} vehicles · ${counts.jobs} washes · ${counts.expenses} expenses
   ${counts.photos} wash photos · ${counts.coupons} coupons · ${counts.cash_days} cash drawer days
   Rewards: ${counts.free_washes} free wash${counts.free_washes === 1 ? '' : 'es'} used · ${counts.gifts_given} welcome gifts given · ${counts.gifts_owed} owed
-  Feedback: ${counts.open_problems} open problem${counts.open_problems === 1 ? '' : 's'} · ${counts.pending_vehicles} vehicle${counts.pending_vehicles === 1 ? '' : 's'} to add · ${counts.ratings} rating${counts.ratings === 1 ? '' : 's'}
   Communities: ${placesDemo.towers.name} (code ${placesDemo.towers.code}, ${placesDemo.towers.units} flats) and ${placesDemo.colony.name} (code ${placesDemo.colony.code}) live
     Green Park Residency waiting for approval · Sai Krupa Apartments still a draft
-    ${placesDemo.paid} plan${placesDemo.paid === 1 ? '' : 's'} paid · ${placesDemo.unpaid} not paid · ${placesDemo.pending} member waiting for the team · ${placesDemo.asking} people asking
+    ${placesDemo.paid} plan${placesDemo.paid === 1 ? '' : 's'} paid · ${placesDemo.unpaid} not paid
   ${canDraw ? '' : '(photos are a sample picture — bills are only drawn on macOS)\n  '}
 Sign in (PIN ${PIN} for everyone):
   Owner   Hrushikesh   ${OWNER.phone}   (also head office: HQ in More)

@@ -21,10 +21,8 @@ import { AttendanceScreen } from '../screens/AttendanceScreen';
 import { ErrorLogScreen } from '../screens/ErrorLogScreen';
 import { InventoryScreen } from '../screens/InventoryScreen';
 import { RewardsScreen } from '../screens/RewardsScreen';
-import { AppFeedbackScreen } from '../screens/AppFeedbackScreen';
 import { BranchProfileScreen } from '../screens/BranchProfileScreen';
 import { BranchVehiclesScreen } from '../screens/BranchVehiclesScreen';
-import { ServiceRequestsScreen } from '../screens/ServiceRequestsScreen';
 import { ServicePointsScreen } from '../screens/ServicePointsScreen';
 import { BusinessScreen } from '../screens/business/BusinessScreen';
 import { CatalogServicesScreen } from '../screens/business/CatalogServicesScreen';
@@ -41,7 +39,6 @@ import { AddMemberScreen } from '../screens/places/AddMemberScreen';
 import { CommunitiesScreen } from '../screens/places/CommunitiesScreen';
 import { CommunitySetupScreen } from '../screens/places/CommunitySetupScreen';
 import { PlaceDayScreen } from '../screens/places/PlaceDayScreen';
-import { PlaceDemandScreen } from '../screens/places/PlaceDemandScreen';
 import { PlaceFormScreen } from '../screens/places/PlaceFormScreen';
 import { PlaceLiveScreen } from '../screens/places/PlaceLiveScreen';
 import { PlaceScreen } from '../screens/places/PlaceScreen';
@@ -74,11 +71,9 @@ export type RootStackParamList = {
   ErrorLog: undefined;
   Inventory: undefined;
   Rewards: undefined;
-  ServiceRequests: undefined;
-  /** The owner's branch details: name, contact, hours, holiday, location, the app's area. */
+  /** The owner's branch details: name, contact, hours, holiday, location, how far it washes. */
   BranchProfile: undefined;
   BranchVehicles: undefined;
-  AppFeedback: { tab?: 'problems' | 'vehicles' | 'ratings' } | undefined;
   ServicePoints: undefined;
   Business: undefined;
   BusinessServices: { tab?: 'services' | 'plans' } | undefined;
@@ -102,10 +97,9 @@ export type RootStackParamList = {
   /** The owner reviews a draft and makes it live, or changes a live community's wash settings. */
   PlaceForm: { placeId: string };
   /** Shown once, straight after a community is approved. */
-  PlaceLive: { placeId: string; invited: number };
+  PlaceLive: { placeId: string };
   PlaceDay: { placeId: string; day?: string };
   AddMember: { placeId: string };
-  PlaceDemand: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -168,8 +162,6 @@ export function RootNavigator() {
         <Stack.Screen name="Cash" component={CashScreen} options={slide} />
         <Stack.Screen name="Inventory" component={InventoryScreen} options={slide} />
         <Stack.Screen name="Rewards" component={RewardsScreen} options={slide} />
-        <Stack.Screen name="ServiceRequests" component={ServiceRequestsScreen} options={slide} />
-        <Stack.Screen name="AppFeedback" component={AppFeedbackScreen} options={slide} />
         <Stack.Screen name="Menu" component={MenuScreen} options={slide} />
         {/* Business admins are picked by phone, so the API decides who may use these. */}
         <Stack.Screen name="Business" component={BusinessScreen} options={slide} />
@@ -188,7 +180,6 @@ export function RootNavigator() {
         <Stack.Screen name="Place" component={PlaceScreen} options={slide} />
         <Stack.Screen name="PlaceDay" component={PlaceDayScreen} options={slide} />
         <Stack.Screen name="AddMember" component={AddMemberScreen} options={slide} />
-        <Stack.Screen name="PlaceDemand" component={PlaceDemandScreen} options={slide} />
         {/* Screens a role can't use aren't even registered for it — the API enforces the same
             rules, this just keeps them out of reach in the UI. Managers run the team and its
             attendance only. */}

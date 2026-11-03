@@ -1,6 +1,6 @@
 // Builds the MANA services board (30 ft × 3 ft) for inside the shop, as a print-ready SVG, full and
 // half-scale PDFs, and a PNG preview. It's a marketing board, not the name board: what we do, with no
-// prices, and how to reach us.
+// prices, and how to reach us. Only what the shop sells (doorstep and community washes are parked).
 //   PYTHON=/path/to/python-with-fonttools node branding/flex/build-services-flex.mjs
 //
 // The brand's look on pearl, like the visiting cards' backs (the glass mark, indigo and deep gold, Didot and Avenir Next outlined
@@ -59,13 +59,13 @@ const n = (v) => String(Math.round(v * 100) / 100);
 
 // ---------- what we offer ----------
 const CARDS = [
-  { id: 'express', title: 'EXPRESS WASH', line: 'Quick shine in 20–30 min', points: ['Snow foam & hand wash', 'Tyre shine & outside glass', 'Rubber mats washed'], icon: 'watch' },
+  { id: 'express', title: 'EXPRESS WASH', line: 'Quick shine in 25 min', points: ['Snow foam & hand wash', 'Tyre shine & outside glass', 'Rubber mats washed'], icon: 'watch' },
   { id: 'basic', title: 'BASIC WASH', line: 'Inside and out', points: ['Everything in Express', 'Full vacuum: seats, floor, boot', 'Dashboard & door shine'], icon: 'car', popular: true },
-  { id: 'premium', title: 'PREMIUM WASH', line: 'The full treatment', points: ['Everything in Basic', 'Spray wax on all paint', 'Deep interior + rain repellent', 'Windshield cleaner liquid'], icon: 'gem' },
-  { id: 'doorstep', title: 'DOORSTEP WASH', line: 'We come to your home', points: ['At your home or office', 'Book a time that suits you', 'Same care, no travel'], icon: 'home' },
-  { id: 'plans', title: 'MONTHLY PLANS', line: 'One wash every week', points: ['Save every month', '3 months: a bonus wash free', '12 months: 1 month free'], icon: 'calendar' },
-  { id: 'community', title: 'COMMUNITY WASH', line: 'We come to your apartment', points: ['Weekly wash days', 'Special community price', 'Pay easily online'], icon: 'building' },
-  { id: 'rust', title: 'ANTI-RUST COATING', line: 'Protect it for years', points: ['Underbody rust protection', 'For new and old cars', 'Free pick-up for communities'], icon: 'shield' },
+  { id: 'premium', title: 'PREMIUM WASH', line: 'The full treatment', points: ['Everything in Basic', 'Seats, steering & vents cleaned', 'Spray wax & black trim shine', 'Rain repellent on the windscreen'], icon: 'gem' },
+  { id: 'care', title: 'PREMIUM CARE', line: 'Add it to any wash', points: ['Thick yellow snow foam', 'Wash & wax lather', 'Deep gloss, water beads off'], icon: 'sparkle' },
+  { id: 'interior', title: 'DEEP INTERIOR', line: 'Every surface inside', points: ['Seats shampooed or conditioned', 'Carpets, roof & AC vents', 'Express Wash + Premium Care free'], icon: 'seat' },
+  { id: 'plans', title: 'MONTHLY PLANS', line: '4 washes a month, any order', points: ['Save on every wash', 'Build your own, less 8%', '3 & 12 months save more'], icon: 'calendar' },
+  { id: 'rust', title: 'ANTI-RUST COATING', line: 'Protect it for years', points: ['Underbody rust protection', 'For new and old cars', 'Underbody wash included'], icon: 'shield' },
 ];
 
 // ---------- lettering ----------
@@ -218,6 +218,8 @@ const ICONS = {
   building: '<rect x="28" y="16" width="44" height="70" rx="4"/><path d="M40 30h6M54 30h6M40 44h6M54 44h6M40 58h6M54 58h6M44 86V72h12v14"/>',
   home: '<path d="M14 50L50 20l36 30"/><path d="M24 42v42h52V42"/><path d="M42 84V62h16v22"/>',
   shield: '<path d="M50 14l32 12v24q0 26-32 38Q18 76 18 50V26z"/><path d="M36 52l10 10 18-20"/>',
+  sparkle: '<path d="M46 14l7 22 22 7-22 7-7 22-7-22-22-7 22-7z"/><path d="M76 62l3 9 9 3-9 3-3 9-3-9-9-3 9-3z"/>',
+  seat: '<path d="M34 16h22q8 0 8 9l-4 37H38l-8-36q-2-10 4-10z"/><path d="M26 62h50l4 16H22z"/><path d="M32 78v10M70 78v10"/>',
 };
 function icon(name, cx, cy, size) {
   const k = size / 100;

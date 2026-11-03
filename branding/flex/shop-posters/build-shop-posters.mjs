@@ -115,7 +115,7 @@ const servicesIn = (section, kind) => [...new Set(products.filter((p) => p.secti
 const titleOf = (service, section) => cardOf(service, section)?.title ?? service;
 /** Shorter lines where a service's description is too long for the price board's name column. */
 const BOARD_LINES = {
-  'deep-interior-cleaning': 'Seats, carpets, roof & AC vents · Express Wash free',
+  'deep-interior-cleaning': 'Seats, carpets, roof & AC vents · Express Wash + Premium Care free',
   'premium-care': 'Thick yellow snow foam & wash-and-wax lather · deep gloss',
 };
 /** A service's one-line description, without anything about communities (not offered yet). */

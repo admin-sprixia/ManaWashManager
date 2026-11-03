@@ -10,6 +10,9 @@
   "scripts": {
     "posters": "node branding/flex/shop-posters/build-shop-posters.mjs",
     "banners": "node branding/flex/street-banners/build-street-banners.mjs",
+    "posters:training": "node branding/flex/training-posters/build-training-posters.mjs",
+    "menu": "node branding/flex/menu-booklet/build-menu-booklet.mjs",
+    "signs": "node branding/flex/shop-signs/build-shop-signs.mjs",
     "postinstall": "patch-package",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",

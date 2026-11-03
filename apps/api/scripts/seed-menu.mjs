@@ -99,40 +99,42 @@ const BIKE = 'twoWheeler';
 const SERVICES = [
   {
     name: 'Express Wash',
-    description: 'A quick, careful outside wash.',
+    description: 'A quick, careful outside wash, on the ground: foam, a hand wash and a towel dry.',
     durationMin: 25,
-    checklist: ['Wheels & tyres', 'Snow foam', 'Two-bucket hand wash', 'Towel dry & door edges', 'Outside glass', 'Tyre shine', 'Rubber mats'],
+    checklist: ['Wheels & tyres scrubbed', 'Pre-rinse & thick snow foam', 'Two-bucket hand wash', 'Towel dry & door edges', 'Outside glass polished', 'Tyre shine', 'Rubber mats washed'],
     prices: car([299, 349, 419], [269, 319, 379]),
   },
   {
     name: 'Basic Wash',
-    description: 'Outside and inside: our most popular wash.',
+    description: 'Outside and inside, on the lift: our most popular wash.',
     durationMin: 45,
     popular: true,
-    checklist: ['Everything in Express', 'Inside glass', 'Full vacuum', 'Dashboard & door panel shine'],
+    // Basic and Premium go on the lift, so the underbody and wheel arches get rinsed from below.
+    checklist: ['Everything in Express', 'Underbody & wheel arches rinsed', 'Air blow & full vacuum', 'Seats, floor, boot & cloth mats', 'Dashboard & door panel shine', 'Glass inside & out'],
     prices: car([499, 599, 799], [449, 549, 729]),
   },
   {
     name: 'Premium Wash',
-    description: 'The full treatment, inside and out.',
-    durationMin: 80,
+    description: 'The full treatment, inside and out: two of us on your car at once.',
+    // Two people at once, one outside and one inside.
+    durationMin: 50,
     // "Seats, steering & vents cleaned", not "deep clean": Deep Interior Cleaning is its own service.
-    checklist: ['Everything in Basic', 'Seats, steering & vents cleaned', 'Spray wax', 'Black trim shine', 'Rain repellent on the windscreen'],
+    checklist: ['Everything in Basic', 'Seats, steering & vents cleaned', 'Spray wax on the paint', 'Black trim shine', 'Rain repellent on the windscreen', 'Windscreen washer topped up'],
     prices: car([899, 1099, 1399], [819, 999, 1279]),
   },
   // Coming soon: shown on WhatsApp and the price board without a price; not sold yet. Their prices
   // stay in the catalog, ready for the day they start (set comingSoon to false and run again).
   {
     name: 'Anti-Rust Protection',
-    description: 'Underbody wash and anti-rust coating.',
+    description: 'An underbody wash on the lift, then an anti-rust coating under the car to protect it for years.',
     kind: 'protection',
     comingSoon: true,
-    checklist: ['Underbody wash', 'Anti-rust coating under the car'],
+    checklist: ['Underbody washed on the lift', 'Dried before coating', 'Anti-rust coating under the car', 'For new and old cars'],
     prices: car(4500, 4050),
   },
   {
     name: 'Deep Interior Cleaning',
-    description: 'Every surface inside, deep cleaned: seats shampooed or leather conditioned, carpets, roof and AC vents. Express Wash free.',
+    description: 'Every surface inside, deep cleaned: seats shampooed or leather conditioned, carpets, roof and AC vents. Express Wash + Premium Care free.',
     kind: 'protection',
     comingSoon: true,
     // Seats and carpets are shampooed and extracted at the shop, then dried: about 3½ hours of work plus drying.
@@ -146,7 +148,7 @@ const SERVICES = [
       'AC vents cleaned',
       'Dashboard, doors, steering & pedals',
       'Door edges, seat rails & seat belts',
-      'Express Wash free',
+      'Express Wash + Premium Care free',
     ],
     prices: car([2499, 2999, 3499], [2499, 2999, 3499]),
   },
@@ -158,7 +160,7 @@ const SERVICES = [
     kind: 'addon',
     comingSoon: true,
     durationMin: 15,
-    checklist: ['Thick yellow snow foam', 'Wash & wax lather', 'Deep gloss, water beads off', 'Soft microfiber hand-dry'],
+    checklist: ['Thick yellow snow foam', 'Wash & wax hand wash', 'Plush microfiber dry with gloss', 'Deep gloss, water beads off'],
     // Sized like every wash: a bigger car takes more foam, shampoo and time.
     prices: { ...car([249, 299, 349], [249, 299, 349]), ...bike(99, 99) },
   },
@@ -167,9 +169,9 @@ const SERVICES = [
   {
     id: 'cs_bike_exterior',
     name: 'Bike Express Wash',
-    description: 'A quick foam wash.',
+    description: 'A quick foam wash for any bike or scooter.',
     durationMin: 15,
-    checklist: ['Foam wash', 'Rinse', 'Towel dry'],
+    checklist: ['Foam wash', 'Gentle rinse', 'Towel dry'],
     prices: bike(99, 89),
   },
   {
@@ -178,14 +180,14 @@ const SERVICES = [
     description: 'Our most popular bike wash.',
     durationMin: 25,
     popular: true,
-    checklist: ['Everything in Express', 'Wheels & rims', 'Chain area cleaned', 'Tyre shine', 'Seat & meter wiped'],
+    checklist: ['Everything in Express', 'Wheels & rims cleaned', 'Chain area cleaned', 'Tyre shine', 'Seat & meter wiped'],
     prices: bike(149, 129),
   },
   {
     name: 'Bike Premium Wash',
     description: 'The full treatment for your bike.',
     durationMin: 40,
-    checklist: ['Everything in Basic', 'Body polish', 'Chain clean & lube (bikes with a chain)', 'Engine degrease', 'Seat protect'],
+    checklist: ['Everything in Basic', 'Engine degrease', 'Chain clean & lube (bikes with a chain)', 'Body polish', 'Seat protect'],
     prices: bike(249, 229),
   },
 ];

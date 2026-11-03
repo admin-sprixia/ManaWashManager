@@ -4,14 +4,19 @@
 // bucket as catalog/<id>.jpg, where GET /whatsapp/catalog/<id>.jpg serves it. Run after the menu
 // changes (a new service, a renamed one, a new checklist).
 //   node scripts/build-catalog-cards.mjs --staging     (or local; --dry writes them to .wrangler/catalog-cards only)
+//   node scripts/build-catalog-cards.mjs --production  (pictures only: reads the live menu, writes to mana-files)
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
-import { API, apiFetch, API_DIR, STAGING } from './lib/target.mjs';
+import { API as TARGET_API, apiFetch, API_DIR, STAGING } from './lib/target.mjs';
 
 const DRY = process.argv.includes('--dry');
+/** Pictures, not data: production is a target here (the menu itself only changes through the app). */
+const PRODUCTION = process.argv.includes('--production');
+const API = PRODUCTION ? 'https://api.manawashmanager.com' : TARGET_API;
 const BUCKET = STAGING ? 'mana-files-staging' : 'mana-files';
+const REMOTE = STAGING || PRODUCTION;
 const OUT = fileURLToPath(new URL('../.wrangler/catalog-cards/', import.meta.url));
 const LOGO = fileURLToPath(new URL('../../../branding/sri-mana-wash-logo/sri-mana-wash-name-on-dark.png', import.meta.url));
 const S = 1080;
@@ -104,7 +109,7 @@ for (const p of products) {
     .toBuffer();
   writeFileSync(file, jpg);
   if (!DRY) {
-    execFileSync('npx', ['wrangler', 'r2', 'object', 'put', `${BUCKET}/catalog/${p.id}.jpg`, '--file', file, '--content-type', 'image/jpeg', ...(STAGING ? [] : ['--local'])], {
+    execFileSync('npx', ['wrangler', 'r2', 'object', 'put', `${BUCKET}/catalog/${p.id}.jpg`, '--file', file, '--content-type', 'image/jpeg', ...(REMOTE ? [] : ['--local'])], {
       cwd: API_DIR,
       stdio: ['ignore', 'ignore', 'pipe'],
       env: { ...process.env, CI: '1', WRANGLER_SEND_METRICS: 'false' },

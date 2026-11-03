@@ -480,8 +480,8 @@ describe('WhatsApp assistant: coming soon', () => {
       kind: 'protection' as const,
       comingSoon: true,
       durationMin: 240,
-      description: 'Every surface inside, deep cleaned: seats shampooed or leather conditioned, carpets, roof and AC vents. Express Wash free.',
-      checklist: ['Fabric seats shampooed & extracted', 'AC vents cleaned', 'Express Wash free'],
+      description: 'Every surface inside, deep cleaned: seats shampooed or leather conditioned, carpets, roof and AC vents. Express Wash + Premium Care free.',
+      checklist: ['Fabric seats shampooed & extracted', 'AC vents cleaned', 'Express Wash + Premium Care free'],
       prices: car(2499, 2999, 3499),
     };
     // Listed first in the catalog, it still comes after the washes (care keeps the catalog's order).
@@ -495,7 +495,7 @@ describe('WhatsApp assistant: coming soon', () => {
     const four = as(only(reply({ kind: 'text', text: '4' }, seen).messages), 'buttons');
     expectValid([four]);
     expect(four.text).toContain('4️⃣ *Deep Interior Cleaning*\n🚗 Hatchback · *₹2,499* (🔜 Coming soon)');
-    expect(four.text).toContain('• Express Wash free');
+    expect(four.text).toContain('• Express Wash + Premium Care free');
     expect(four.text).toContain('⏱️ Takes about 4 hours');
     expect(four.text).not.toContain('pH-neutral');
     const halfway = { ...withDeep, branches: [{ ...soonHub, services: [{ ...deep, durationMin: 210 }, ...soonHub.services] }] };

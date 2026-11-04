@@ -17,19 +17,22 @@ export function upiLink(upiId: string, payee: string, amount: number, note: stri
   return `upi://pay?${params.join('&')}`;
 }
 
+/** A QR code's dark modules as one SVG path, and its size in modules. */
+export function qrPath(data: string): { path: string; count: number } {
+  const qr = qrcode(0, 'M');
+  qr.addData(data);
+  qr.make();
+  const n = qr.getModuleCount();
+  let d = '';
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) if (qr.isDark(r, c)) d += `M${c} ${r}h1v1h-1z`;
+  }
+  return { path: d, count: n };
+}
+
 /** A QR code the customer scans with GPay, PhonePe or Paytm to pay this exact amount. */
 export function UpiQr({ upiId, payee, amount, note, size = 196 }: { upiId: string; payee: string; amount: number; note: string; size?: number }) {
-  const { path, count } = useMemo(() => {
-    const qr = qrcode(0, 'M');
-    qr.addData(upiLink(upiId, payee, amount, note));
-    qr.make();
-    const n = qr.getModuleCount();
-    let d = '';
-    for (let r = 0; r < n; r++) {
-      for (let c = 0; c < n; c++) if (qr.isDark(r, c)) d += `M${c} ${r}h1v1h-1z`;
-    }
-    return { path: d, count: n };
-  }, [upiId, payee, amount, note]);
+  const { path, count } = useMemo(() => qrPath(upiLink(upiId, payee, amount, note)), [upiId, payee, amount, note]);
   const quiet = 2;
 
   return (

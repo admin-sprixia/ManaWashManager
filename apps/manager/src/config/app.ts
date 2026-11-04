@@ -14,6 +14,13 @@ export const TEAM_APP_LINK = 'https://play.google.com/store/apps/details?id=com.
 export const CUSTOMER_WHATSAPP_LINK = 'https://wa.me/919154752999?text=Hi';
 export const CUSTOMER_WHATSAPP_NUMBER = '91547 52999';
 
+/**
+ * MANA Pay: the shop's HDFC Vyapar UPI QR, the same one on the counter card, so the sound box
+ * announces the payment. The customer enters the amount themselves (merchant QRs don't take one).
+ * Replace it if the bank issues a new QR (also in branding/flex/shop-posters/build-shop-posters.mjs).
+ */
+export const MANA_PAY_QR = 'upi://pay?pa=Vyapar.178760059376@hdfcbank&pn=Default&mc=8999&tr=STQU178760059376&cu=INR';
+
 /** Where "Send to support" in the error log goes. */
 export const SUPPORT_EMAIL = 'support@sprixia.com';
 

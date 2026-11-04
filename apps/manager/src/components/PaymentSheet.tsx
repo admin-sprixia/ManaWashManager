@@ -13,8 +13,7 @@ import {
   IconWallet,
 } from '@mana/ui';
 import { formatRupees } from '../utils/format';
-import { useShop } from '../offline/ShopProvider';
-import { UpiQr } from './UpiQr';
+import { ManaPayCard } from './ManaPayCard';
 
 const METHODS: { key: PaymentMethod; hint: string; Icon: typeof IconCash; accent: string; tint: string }[] = [
   { key: 'cash', hint: 'Notes & coins', Icon: IconCash, accent: colors.teal, tint: '#CCFBF1' },
@@ -35,7 +34,6 @@ interface PaymentSheetProps {
 /** "How did they pay?" — three big tiles, then one confirm. Also used for owner corrections. */
 export function PaymentSheet({ visible, amount, subtitle, onClose, onConfirm, currentMethod }: PaymentSheetProps) {
   const correcting = currentMethod !== undefined;
-  const { upiId, info } = useShop();
   const [method, setMethod] = useState<PaymentMethod>('cash');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -118,13 +116,10 @@ export function PaymentSheet({ visible, amount, subtitle, onClose, onConfirm, cu
       </View>
 
       {!correcting && method === 'upi' && amount > 0 ? (
-        upiId ? (
-          <UpiQr upiId={upiId} payee={info?.name ?? 'Car wash'} amount={amount} note={subtitle} />
-        ) : (
-          <Text style={styles.qrHint}>
-            Add your shop’s UPI ID in More → Branch details → UPI & review to show a QR the customer can scan here.
-          </Text>
-        )
+        <>
+          <ManaPayCard amount={amount} />
+          <Text style={styles.qrHint}>Tap Collect once the sound box announces the payment.</Text>
+        </>
       ) : null}
 
       {correcting ? (

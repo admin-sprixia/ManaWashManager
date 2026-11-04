@@ -1,4 +1,4 @@
-package com.sprixia.srimanawashpartner
+package com.sprixia.srimanawash
 
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.NativeModule

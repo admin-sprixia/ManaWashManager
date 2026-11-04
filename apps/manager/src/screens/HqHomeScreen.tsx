@@ -199,7 +199,7 @@ export function HqHomeScreen({ navigation }: Props) {
           This is Mana Wash HQ, not a branch, so washes, cash and the team board aren’t here.
           {myShops.length > 1 ? ' Switch branch above to work at your branch.' : ''}
         </Text>
-        <Text style={styles.version}>Sri Mana Wash Partner · v{APP_VERSION}</Text>
+        <Text style={styles.version}>Sri Mana Wash · v{APP_VERSION}</Text>
       </ScrollView>
 
       <EditProfileSheet visible={profileOpen} onClose={() => setProfileOpen(false)} />

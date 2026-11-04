@@ -1,4 +1,4 @@
-package com.sprixia.srimanawashpartner
+package com.sprixia.srimanawash
 
 import android.app.Application
 import com.facebook.react.PackageList

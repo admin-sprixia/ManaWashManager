@@ -5,7 +5,7 @@ import release from './release.json';
 export const APP_VERSION: string = pkg.version;
 
 /** Where a new teammate installs this app; sent in the WhatsApp invite from Team. */
-export const PARTNER_APP_LINK = 'https://play.google.com/store/apps/details?id=com.sprixia.srimanawashpartner';
+export const TEAM_APP_LINK = 'https://play.google.com/store/apps/details?id=com.sprixia.srimanawash';
 
 /**
  * Where a customer gets their exact price: the business WhatsApp number, printed (with a QR code)

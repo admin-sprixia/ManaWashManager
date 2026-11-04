@@ -486,7 +486,7 @@ export function MoreScreen({ navigation }: Props) {
         <SectionTitle>Account</SectionTitle>
         <AccountGroup onEditProfile={() => setProfileOpen(true)} senior={user.role !== 'staff' || businessAdmin} />
 
-        <Text style={styles.version}>Sri Mana Wash Partner · v{APP_VERSION}</Text>
+        <Text style={styles.version}>Sri Mana Wash · v{APP_VERSION}</Text>
       </ScrollView>
 
       <EditProfileSheet visible={profileOpen} onClose={() => setProfileOpen(false)} />

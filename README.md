@@ -1,4 +1,4 @@
-# Mana Wash Partner
+# Sri Mana Wash
 
 MANA's own operations app: job tracking, customer history, payments — built per the
 [app build plan](./docs/old-plan/MANA-Wash-Manager-App-Build-Plan.md). Release 0.2.0: job board and new
@@ -71,7 +71,7 @@ that covers the two most common causes.
 
 ```text
 apps/
-  mobile/     React Native CLI app (TypeScript) — the Mana Wash Partner app (team app)
+  mobile/     React Native CLI app (TypeScript) — the Sri Mana Wash app (team app)
   api/        Cloudflare Worker (Hono) — mana-api, backed by D1 (mana_db)
 packages/
   domain/     Pure business rules: pricing calculation, job status transitions (unit tested)
@@ -366,7 +366,7 @@ npm run android
 If you ever do need an iOS build, the native `ios/` folder was never generated (CocoaPods
 isn't installed on this machine and MANA doesn't need it) — generate it the same way `android/`
 was: extract the `template/ios` folder from the `react-native` npm package and rename the
-`HelloWorld` placeholders to `SriManaWashPartner` / `com.sprixia.srimanawashpartner`.
+`HelloWorld` placeholders to `SriManaWash` / `com.sprixia.srimanawash`.
 
 ### 7. Deploy the API
 

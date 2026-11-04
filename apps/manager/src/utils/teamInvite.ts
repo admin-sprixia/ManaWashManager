@@ -1,5 +1,5 @@
 import { USER_ROLE_LABEL, type UserRole } from '@mana/domain';
-import { PARTNER_APP_LINK } from '../config/app';
+import { TEAM_APP_LINK } from '../config/app';
 import { openWhatsApp } from './whatsapp';
 
 /** Who the WhatsApp invite is for. */
@@ -26,18 +26,18 @@ export function inviteMessage(a: Invitee, branch: string | null): string {
     ? `Hi ${first}, I’ve added you to Mana Wash HQ. You’ll look after services, prices and every branch.`
     : `Hi ${first}, I’ve added you to ${at} at Sri Mana Wash as ${USER_ROLE_LABEL[a.role]}.`;
   if (a.hasPin && a.hq) {
-    return [hello, 'Open Sri Mana Wash Partner and sign in with your number and your usual PIN.'].join('\n\n');
+    return [hello, 'Open Sri Mana Wash and sign in with your number and your usual PIN.'].join('\n\n');
   }
   if (a.hasPin) {
     return [
       hello,
-      `Open Sri Mana Wash Partner and sign in with your number and your usual PIN, then pick ${branch ?? 'this branch'} at the top of the home screen.`,
+      `Open Sri Mana Wash and sign in with your number and your usual PIN, then pick ${branch ?? 'this branch'} at the top of the home screen.`,
     ].join('\n\n');
   }
   return [
     hello,
     '',
-    `1. Install the Sri Mana Wash Partner app: ${PARTNER_APP_LINK}`,
+    `1. Install the Sri Mana Wash app: ${TEAM_APP_LINK}`,
     `2. Open it and type this number: +91 ${spaced(a.phone)}`,
     '3. Type the code it sends you on WhatsApp.',
     '4. Choose your own PIN. Don’t share it with anyone, not even me.',

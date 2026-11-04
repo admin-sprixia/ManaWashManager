@@ -8,7 +8,7 @@ import type { Env } from '../types';
  */
 
 const CONTACT = 'support@sprixia.com';
-const UPDATED = '28 October 2026';
+const UPDATED = '4 November 2026';
 
 const DOC_STYLE = `<style>
   .doc { background: #fff; border-radius: 20px; padding: 28px 22px; box-shadow: 0 1px 3px rgba(15,23,42,.08); }
@@ -24,11 +24,11 @@ const doc = (title: string, html: string) => page(title, `${DOC_STYLE}<main><art
 const PRIVACY = doc(
   'Privacy policy',
   `<h1>Privacy policy</h1>
-<p class="small">Sri Mana Wash and the Mana Wash apps · Last updated ${UPDATED}</p>
+<p class="small">Sri Mana Wash · Last updated ${UPDATED}</p>
 <p>Sri Mana Wash is a car and bike wash in Kovur, SPSR Nellore District, Andhra Pradesh, run with
 software from Sprixia Labs Private Limited ("we"). This policy explains what we collect when you
-wash with us, use the Mana Wash or Mana Wash Partner apps, or message us on WhatsApp, and what we
-do with it.</p>
+wash with us or message us on WhatsApp (our team records your washes in the Sri Mana Wash app),
+and what we do with it.</p>
 
 <h2>What we collect</h2>
 <ul>
@@ -86,13 +86,11 @@ Andhra Pradesh 524137 · <a href="mailto:${CONTACT}">${CONTACT}</a></p>`,
 const DATA_DELETION = doc(
   'Delete your data',
   `<h1>Delete your data</h1>
-<p class="small">Sri Mana Wash and the Mana Wash apps · Last updated ${UPDATED}</p>
+<p class="small">Sri Mana Wash · Last updated ${UPDATED}</p>
 <p>You can ask us to delete the details we hold about you: your name, number, vehicles, photos,
-WhatsApp messages and app account.</p>
+and WhatsApp messages.</p>
 <h2>How to ask</h2>
 <ul>
-  <li>In the <b>Mana Wash app</b>: Profile → <b>Delete app account</b> removes your app sign-in
-    straight away. To remove your wash records too, ask as below.</li>
   <li>Email <a href="mailto:${CONTACT}">${CONTACT}</a> from any address, with the mobile number
     you use with us and the words "Delete my data".</li>
   <li>Or tell the team at the branch.</li>

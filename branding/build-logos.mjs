@@ -173,7 +173,7 @@ function horizontal(kind, idp) {
   const height = 242 * s - 14 * s + pad * 2;
   return doc({
     viewBox: `${n(minX)} ${n(top)} ${n(width)} ${n(height)}`,
-    title: 'Mana Wash Partner',
+    title: 'Sri Mana Wash',
     defs: mark.defs,
     body: `<g transform="scale(${s})">${mark.body}</g>${word.svg}${desc.svg}`,
   });
@@ -195,7 +195,7 @@ function stacked(kind, idp) {
   const H = descBase + 24;
   return doc({
     viewBox: `0 0 ${W} ${n(H)}`,
-    title: 'Mana Wash Partner',
+    title: 'Sri Mana Wash',
     defs: mark.defs,
     body: `<g transform="translate(${markTx} ${markTy})">${mark.body}</g>${word.svg}${desc.svg}`,
   });
@@ -223,7 +223,7 @@ function appIcon() {
     `<path d="${SHELL}" fill="url(#ic-shell)"/>` +
     `<path d="${CORE}" fill="url(#ic-core)"/>` +
     `</g>`;
-  return doc({ viewBox: '0 0 512 512', title: 'Mana Wash Partner app icon', defs, body });
+  return doc({ viewBox: '0 0 512 512', title: 'Sri Mana Wash app icon', defs, body });
 }
 
 // ─── Circular badge / seal: for stamps, uniforms, receipts and stickers ──────────
@@ -275,7 +275,7 @@ function badge(kind, idp) {
     `<g transform="translate(${n(C0 - 128 * s)} ${n(C0 - 128 * s)}) scale(${s})">${mark.body}</g>`;
   return doc({
     viewBox: '0 0 400 400',
-    title: 'Mana Wash Partner badge',
+    title: 'Sri Mana Wash badge',
     defs: mark.defs,
     body,
   });

@@ -64,7 +64,7 @@ export function BeforePhotos({ photos, onChange }: { photos: PendingPhoto[]; onC
       <View style={styles.head}>
         <Text style={styles.title}>Before photos</Text>
         <Text style={styles.count}>
-          {photos.length > 0 ? `${photos.length}/${MAX_PHOTOS_PER_KIND}` : 'Optional · before the wash starts'}
+          {photos.length > 0 ? `${photos.length}/${MAX_PHOTOS_PER_KIND}` : 'Required · at least one before the wash starts'}
         </Text>
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tiles}>

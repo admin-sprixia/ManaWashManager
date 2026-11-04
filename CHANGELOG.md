@@ -1,12 +1,45 @@
 # Changelog
 
-All notable changes to Mana Wash Partner and Mana Wash. One version number is shared by every app and package
+All notable changes to Sri Mana Wash. One version number is shared by every app and package
 (`npm run version:set -- X.Y.Z`); the Android `versionCode` follows it automatically.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-11-05
+
+**The first public version**, the day Sri Mana Wash opens in Kovur. The team runs the shop on
+the **Sri Mana Wash** app (`com.sprixia.srimanawash`, installed as a signed APK on the shop's
+Android tablet). Customers deal with the shop only on **WhatsApp** (91547 52999). The server
+is `mana-api` at api.manawashmanager.com.
+
+### Highlights
+
+- **New Wash in three taps.** The vehicle size is four buttons (Hatchback, Sedan / Compact SUV,
+  SUV / 7-seater, Bike / Scooter), each with example models. The company and model are optional,
+  and the company list shows only car and bike makes, with real logos for 17 more of them.
+- **Before and after photos are compulsory.** Start opens the camera for the before photo, and
+  Ready for the after photo. It's the camera only, and works offline.
+- **MANA Pay at Collect.** Choosing UPI shows the shop's HDFC Vyapar QR, so the sound box
+  announces the payment.
+- **A new bill.** A white invoice with the full-colour logo, the plate and size, a PAID pill,
+  the total in an indigo band and before/after thumbnails, sent on WhatsApp when a wash is paid.
+- **WhatsApp.**
+  - Ready and bill messages go out on their own. A bill message without "Rate us" is used until
+    the Google profile has a review link.
+  - Company logos are in the booking flow.
+- **Logo.** The red centre drop now appears on the app icon, the splash, the sign-in screen and
+  the menu PDF.
+- **Welcome gift from stock.** A new car's first paid wash takes it out of inventory (Dry Tissues
+  at launch).
+- **WhatsApp only for customers.** The customer app and everything built only for it is removed,
+  including its API, its screens, service requests, app feedback and service areas (migration
+  `0002_remove_customer_app`).
+- **One fresh baseline.** Production, staging and local start from one `0001_init` migration,
+  holding only the business, the Kovur branch, the owner, the menu and the pincodes.
+
 
 ### Added
 
@@ -990,7 +1023,8 @@ build was labelled 2.0.0.
   a customer profile.
 - **One shared MAJOR.MINOR.PATCH version** across every app and package.
 
-[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.5.1...v1.0.0
 [0.5.1]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.4.0...v0.4.1

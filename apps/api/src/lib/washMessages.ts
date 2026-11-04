@@ -1,4 +1,4 @@
-import { createPlatformDb, createShopDb, jobRepo, shopPlanRepo } from '@mana/db';
+import { createPlatformDb, createShopDb, jobRepo, settingsRepo, shopPlanRepo } from '@mana/db';
 import { planUseBy, planWashMessage, rateChoiceId, washTemplateMessage, type ChatLang, type PaymentMethod, type WashTemplateKind } from '@mana/domain';
 import type { Env } from '../types';
 import { billPdf } from './washBill';
@@ -73,10 +73,14 @@ export async function sendWashMessage(env: Env, shopId: string, jobId: string, k
       buttonPayload: kind === 'ready' ? `loc|${shopId}` : rateChoiceId(shopId),
     };
     const languages = lang === 'te' ? (['te', 'en'] as const) : (['en'] as const);
+    // "Rate us" only once the branch has its Google review link; until then the plain bill, or the
+    // one with the button while Meta hasn't approved the plain one yet.
+    const reviewUrl = kind === 'bill' ? (await settingsRepo.listPublic(createShopDb(env.DB, shopId))).google_review_url : null;
+    const plainFirst = kind === 'bill' && !reviewUrl ? [true, false] : [false];
     /** One template in one language; a Telugu one Meta hasn't approved yet falls back to English. */
     const send = async (which: WashTemplateKind, document: { id: string; filename: string } | null) => {
-      for (const l of languages) {
-        const m = washTemplateMessage(which, input, l);
+      for (const plain of plainFirst) for (const l of languages) {
+        const m = washTemplateMessage(which, input, l, { plain });
         const sent = await graphSend(env, {
           recipient_type: 'individual',
           to: waId(phone),
@@ -87,7 +91,7 @@ export async function sendWashMessage(env: Env, shopId: string, jobId: string, k
             components: [
               ...(document ? [{ type: 'header', parameters: [{ type: 'document', document }] }] : []),
               { type: 'body', parameters: m.params.map((text) => ({ type: 'text', text })) },
-              { type: 'button', sub_type: 'quick_reply', index: '0', parameters: [{ type: 'payload', payload: m.buttonPayload }] },
+              ...(m.hasButton ? [{ type: 'button', sub_type: 'quick_reply', index: '0', parameters: [{ type: 'payload', payload: m.buttonPayload }] }] : []),
             ],
           },
         });

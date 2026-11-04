@@ -45,6 +45,16 @@ describe('WhatsApp wash templates', () => {
     expect(m.params).toEqual(['Ravi', 'Maruti Suzuki Swift (AP39AB1234)', 'Sri Mana Wash, Kovur', '₹699']);
     expect(m.preview).toContain('Hi Ravi, your Maruti Suzuki Swift (AP39AB1234) is washed and ready for pickup at Sri Mana Wash, Kovur.');
     expect(washTemplateMessage('ready', { ...wash, total: 0 }, 'en').params[3]).toBe('Nothing');
+  });
+
+  it('has a plain bill without the Rate us button, with the same words', () => {
+    const plain = washTemplateMessage('invoice', wash, 'en', { plain: true });
+    const rated = washTemplateMessage('invoice', wash, 'en');
+    expect(plain.name).toBe('wash_invoice_plain');
+    expect(plain.hasButton).toBe(false);
+    expect(rated.hasButton).toBe(true);
+    expect(plain.preview).toBe(rated.preview);
+    expect(washTemplateMessage('ready', wash, 'en', { plain: true }).name).toBe('wash_ready');
     expect(washTemplateMessage('ready', { ...wash, registrationNumber: 'WALK-IN-1730100000' }, 'en').params[1]).toBe('Maruti Suzuki Swift');
   });
 

@@ -28,7 +28,7 @@ export interface WaTemplateDefinition {
 
 export const WA_TEMPLATE_NAMES: Record<WashTemplateKind, string> = { ready: 'wash_ready', bill: 'wash_bill', invoice: 'wash_invoice' };
 
-export const WA_TEMPLATES: WaTemplateDefinition[] = [
+const BASE_TEMPLATES: WaTemplateDefinition[] = [
   {
     name: 'wash_ready',
     language: 'en',
@@ -278,6 +278,14 @@ export const WA_TEMPLATES: WaTemplateDefinition[] = [
   },
 ];
 
+/** The bill without its "Rate us" button: sent while the branch has no Google review link yet. */
+export const PLAIN_SUFFIX = '_plain';
+const PLAIN_BILLS = BASE_TEMPLATES.filter((t) => t.name === WA_TEMPLATE_NAMES.bill || t.name === WA_TEMPLATE_NAMES.invoice).map(
+  (t): WaTemplateDefinition => ({ ...t, name: `${t.name}${PLAIN_SUFFIX}`, buttons: [] }),
+);
+
+export const WA_TEMPLATES: WaTemplateDefinition[] = [...BASE_TEMPLATES, ...PLAIN_BILLS];
+
 /** What one wash's message needs. Amounts in paise. */
 export interface WashMessageInput {
   customerName: string | null;
@@ -302,6 +310,8 @@ export interface WashTemplateMessage {
   language: ChatLang;
   params: string[];
   buttonPayload: string;
+  /** False for the plain bill, which has no button to fill. */
+  hasButton: boolean;
   /** A plain-text copy for the message log. */
   preview: string;
 }
@@ -341,8 +351,14 @@ function fill(def: WaTemplateDefinition, params: string[]): string {
 }
 
 /** The message for one wash, in the customer's language. */
-export function washTemplateMessage(kind: WashTemplateKind, input: WashMessageInput, lang: ChatLang): WashTemplateMessage {
-  const templateName = WA_TEMPLATE_NAMES[kind];
+export function washTemplateMessage(
+  kind: WashTemplateKind,
+  input: WashMessageInput,
+  lang: ChatLang,
+  opts: { plain?: boolean } = {},
+): WashTemplateMessage {
+  const plain = Boolean(opts.plain) && kind !== 'ready';
+  const templateName = `${WA_TEMPLATE_NAMES[kind]}${plain ? PLAIN_SUFFIX : ''}`;
   const def = WA_TEMPLATES.find((t) => t.name === templateName && t.language === lang)!;
   let params: string[];
   // The invoice is the bill with the PDF on top: the same words.
@@ -356,7 +372,7 @@ export function washTemplateMessage(kind: WashTemplateKind, input: WashMessageIn
     params = [name(input, lang), input.place, vehicleLine(input), services || 'Wash', `${rupees(input.total)}${saved}`, method, washMessageDate(input.at)];
   }
   params = params.map(clean);
-  return { name: templateName, language: lang, params, buttonPayload: input.buttonPayload, preview: fill(def, params) };
+  return { name: templateName, language: lang, params, buttonPayload: input.buttonPayload, hasButton: def.buttons.length > 0, preview: fill(def, params) };
 }
 
 export type FollowUpKind = 'reminder' | 'comeback' | 'referral' | 'plan_ending';

@@ -72,7 +72,7 @@ for (const t of WA_TEMPLATES) {
     components: [
       ...(t.header === 'DOCUMENT' ? [{ type: 'HEADER', format: 'DOCUMENT', example: { header_handle: [await sampleDocumentHandle()] } }] : []),
       { type: 'BODY', text: t.body, example: { body_text: [t.example] } },
-      { type: 'BUTTONS', buttons: t.buttons.map((text) => ({ type: 'QUICK_REPLY', text })) },
+      ...(t.buttons.length ? [{ type: 'BUTTONS', buttons: t.buttons.map((text) => ({ type: 'QUICK_REPLY', text })) }] : []),
     ],
   };
   const r = await fetch(GRAPH, { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });

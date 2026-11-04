@@ -1,5 +1,5 @@
 import { createPlatformDb, createShopDb, jobRepo, settingsRepo } from '@mana/db';
-import { hoursSummary, parseOffDays } from '@mana/domain';
+import { bodyTypeForName, hoursSummary, parseOffDays, priceSizeOfBody } from '@mana/domain';
 import type { Env } from '../types';
 import { buildBillPdf, type BillInput, type BillPhoto } from './billPdf';
 
@@ -55,6 +55,11 @@ async function readAll(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> 
   return out;
 }
 
+/** The size the vehicle is priced as ("Sedan / Compact SUV"), or its type's own name. */
+function sizeName(type: { name: string }): string {
+  return priceSizeOfBody(bodyTypeForName(type.name)?.key)?.name ?? type.name;
+}
+
 /** The bill of a paid wash, or null when it isn't paid (or isn't there). */
 export async function loadBill(env: Env, shopId: string, jobId: string): Promise<BillInput | null> {
   const db = createShopDb(env.DB, shopId);
@@ -95,7 +100,7 @@ export async function loadBill(env: Env, shopId: string, jobId: string): Promise
     at: paidAt,
     paymentMethod: job.paymentMethod,
     customer: { name: job.customer.name, phone: job.customer.phone },
-    vehicle: { label: model || job.vehicle.vehicleType.name, registration: walkIn ? null : job.vehicle.registrationNumber },
+    vehicle: { label: [model, sizeName(job.vehicle.vehicleType)].filter(Boolean).join(' · '), registration: walkIn ? null : job.vehicle.registrationNumber },
     lines: job.jobServices.map((l) => ({
       name: l.service.name,
       quantity: l.quantity,

@@ -349,7 +349,7 @@ export function LoginScreen() {
         keyboardShouldPersistTaps="handled"
         bounces={false}
       >
-        <AuthHero product="Wash Partner" {...hero} />
+        <AuthHero product="Wash" {...hero} />
 
         <View style={styles.panel}>
           {sessionNotice ? (

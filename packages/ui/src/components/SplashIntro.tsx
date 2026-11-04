@@ -171,7 +171,7 @@ interface Stroke {
 }
 
 interface SplashIntroProps {
-  /** The line under MANA, in capitals from the logo lettering: "WASH PARTNER" or "WASH". */
+  /** The line under MANA, in capitals from the logo lettering: "WASH". */
   product: string;
   /** Called once the lines are drawn (or straight away when skipped): start rendering the app then. */
   onReveal: () => void;

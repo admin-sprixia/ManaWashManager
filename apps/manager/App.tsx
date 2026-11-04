@@ -67,7 +67,7 @@ export default function App() {
         </AuthProvider>
       ) : null}
       {splash ? (
-        <SplashIntro product="WASH PARTNER" onReveal={() => setRevealed(true)} onDone={() => setSplash(false)} />
+        <SplashIntro product="WASH" onReveal={() => setRevealed(true)} onDone={() => setSplash(false)} />
       ) : null}
     </SafeAreaProvider>
   );

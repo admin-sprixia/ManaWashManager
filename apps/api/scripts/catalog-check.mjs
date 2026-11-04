@@ -241,7 +241,8 @@ check('…linked to the catalog, the combo bundling both', svcA['Full Wash']?.ca
 r = await call(OA, 'GET', '/services/vehicle-types');
 const vtA = Object.fromEntries((r.body ?? []).map((v) => [v.name, v]));
 check('Vehicle types the branch can price were added (Hatchback, Sedan, SUV, Scooter)', ['Hatchback', 'Sedan', 'SUV', 'Scooter'].every((n) => vtA[n]?.bodyTypeId), Object.keys(vtA).join(', '));
-check('…but none for sizes without a price (no Luxury car, no Bus)', !vtA['Luxury car'] && !vtA['Bus']);
+// A luxury car is priced as a Large car (its real size), so only unpriced sizes like a bus stay out.
+check('…but none for sizes without a price (no Bus)', !vtA['Bus'], Object.keys(vtA).join(', '));
 r = await call(OA, 'GET', '/branch/points');
 check('The branch got its hub as its first service point', r.status === 200 && r.body?.points?.length === 1 && r.body.points[0].kind === 'hub', show(r));
 const classesA = r.body?.classes ?? [];

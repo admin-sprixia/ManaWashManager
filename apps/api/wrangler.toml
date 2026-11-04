@@ -8,6 +8,12 @@ routes = [{ pattern = "api.manawashmanager.com", custom_domain = true }]
 [vars]
 ENVIRONMENT = "production"
 
+# `wrangler dev` keeps requests addressed to localhost (not the production route above), so the
+# fixed test codes and dev-only helpers stay local-only and the end-to-end checks can sign in.
+[dev]
+port = 8787
+host = "localhost:8787"
+
 # Pictures bundled into the worker (the WhatsApp banner), imported as bytes.
 [[rules]]
 type = "Data"

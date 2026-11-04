@@ -8,27 +8,36 @@ export { BRAND_MARK, BRAND_MARK_BOX, BRAND_SRI, BRAND_SRI_GOLD } from '@mana/dom
 
 interface BrandMarkProps {
   size?: number;
-  /** 'glass': an indigo glass drop with white arms and centre (for light surfaces).
-   *  'onDark': a white drop with indigo arms and centre (for the gradient hero).
+  /** 'glass': an indigo glass drop with white arms and a red centre (for light surfaces).
+   *  'onDark': a white drop with indigo arms and a red centre (for the gradient hero).
    *  'ghost': three translucent whites, for use as a watermark. */
   variant?: 'glass' | 'onDark' | 'ghost';
 }
+
+/** The centre drop's red, top to bottom: the same as the printed logo. */
+export const BRAND_CENTRE_TOP = '#F0483C';
+export const BRAND_CENTRE_BOTTOM = '#B8141F';
 
 /** The logo mark as an SVG, drawn from the same shapes as the app icon. */
 export function BrandMark({ size = 28, variant = 'glass' }: BrandMarkProps) {
   const gid = React.useId().replace(/[^a-zA-Z0-9]/g, '');
   const id = `mark${gid}`;
+  const centreId = `markCentre${gid}`;
   return (
     <Svg width={size} height={size} viewBox={`0 0 ${BRAND_MARK_BOX} ${BRAND_MARK_BOX}`}>
-      {variant === 'glass' ? (
-        <Defs>
+      <Defs>
+        {variant === 'glass' ? (
           <LinearGradient id={id} x1="0.2" y1="0" x2="0.8" y2="1">
             <Stop offset="0" stopColor="#9BAEF5" />
             <Stop offset="0.45" stopColor="#4458CC" />
             <Stop offset="1" stopColor={colors.indigoDeep} />
           </LinearGradient>
-        </Defs>
-      ) : null}
+        ) : null}
+        <LinearGradient id={centreId} x1="0" y1="0" x2="0" y2="1">
+          <Stop offset="0" stopColor={BRAND_CENTRE_TOP} />
+          <Stop offset="1" stopColor={BRAND_CENTRE_BOTTOM} />
+        </LinearGradient>
+      </Defs>
       {variant === 'ghost' ? (
         <>
           <Path d={BRAND_MARK.drop} fill="#FFFFFF" fillOpacity={0.09} />
@@ -39,7 +48,7 @@ export function BrandMark({ size = 28, variant = 'glass' }: BrandMarkProps) {
         <>
           <Path d={BRAND_MARK.drop} fill={variant === 'glass' ? `url(#${id})` : '#FFFFFF'} />
           <Path d={BRAND_MARK.arms} fill={variant === 'glass' ? '#FFFFFF' : '#4458CC'} />
-          <Path d={BRAND_MARK.centre} fill={variant === 'glass' ? '#FFFFFF' : '#4458CC'} />
+          <Path d={BRAND_MARK.centre} fill={`url(#${centreId})`} />
         </>
       )}
     </Svg>

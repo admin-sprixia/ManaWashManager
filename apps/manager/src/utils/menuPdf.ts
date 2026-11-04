@@ -48,6 +48,8 @@ const LAVENDER = hex('#B9C6FF');
 const MIST = hex('#8F9CD6');
 const WHITE = rgb(1, 1, 1);
 const GLASS = hex('#4458CC');
+/** The logo's red centre drop. */
+const CENTRE_RED = hex('#D62B2E');
 const GLASS_DEEP = hex('#0A1034');
 
 const LANE_TITLE: Record<Lane, string> = { hub: 'Hub menu', community: 'Community menu', doorstep: 'Doorstep menu' };
@@ -193,7 +195,8 @@ export async function buildMenuPdf(input: MenuPdfInput): Promise<Uint8Array> {
       page.drawEllipse({ x: x + 100 * k, y: top - 118 * k, xScale: 20 * k, yScale: 30 * k, color: WHITE, opacity: 0.14 });
     }
     page.drawSvgPath(BRAND_MARK.arms, { x, y: top, scale: k, color: WHITE, opacity: opacity === 1 ? 1 : opacity * 1.4 });
-    page.drawSvgPath(BRAND_MARK.centre, { x, y: top, scale: k, color: WHITE, opacity: opacity === 1 ? 1 : opacity * 1.8 });
+    // The centre drop is red on the full mark, as on the printed logo; a faint watermark stays white.
+    page.drawSvgPath(BRAND_MARK.centre, { x, y: top, scale: k, color: opacity === 1 ? CENTRE_RED : WHITE, opacity: opacity === 1 ? 1 : opacity * 1.8 });
   };
 
   const sri = (cx: number, top: number, height: number) => {

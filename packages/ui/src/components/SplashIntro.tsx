@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import Svg, { ClipPath, Defs, G, LinearGradient, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { colors } from '../theme';
-import { BRAND_MARK, BRAND_MARK_BOX, BRAND_SRI, BRAND_SRI_GOLD } from './BrandMark';
+import { BRAND_CENTRE_BOTTOM, BRAND_CENTRE_TOP, BRAND_MARK, BRAND_MARK_BOX, BRAND_SRI, BRAND_SRI_GOLD } from './BrandMark';
 
 /**
  * The opening animation of both apps, on the app icon's night-indigo tile:
@@ -239,7 +239,7 @@ export function SplashIntro({ product, onReveal, onDone }: SplashIntroProps) {
     let run: Animated.CompositeAnimation | null = null;
     let hold: ReturnType<typeof setTimeout> | undefined;
     let revealTimer: ReturnType<typeof setTimeout> | undefined;
-    AccessibilityInfo.isReduceMotionEnabled()
+    void AccessibilityInfo.isReduceMotionEnabled()
       .catch(() => false)
       .then((reduced) => {
         if (cancelled) return;
@@ -544,7 +544,7 @@ export function SplashIntro({ product, onReveal, onDone }: SplashIntroProps) {
                         key={d}
                         d={d}
                         fill="none"
-                        stroke="#FFFFFF"
+                        stroke={BRAND_CENTRE_TOP}
                         strokeWidth={2.6}
                         strokeLinecap="round"
                         {...dash(strokes.centre, 2.6)}
@@ -560,9 +560,13 @@ export function SplashIntro({ product, onReveal, onDone }: SplashIntroProps) {
                         <Stop offset="0" stopColor="#FFFFFF" />
                         <Stop offset="1" stopColor="#C4CCF0" />
                       </LinearGradient>
+                      <LinearGradient id="splashCentre" x1="0" y1="0" x2="0" y2="1">
+                        <Stop offset="0" stopColor={BRAND_CENTRE_TOP} />
+                        <Stop offset="1" stopColor={BRAND_CENTRE_BOTTOM} />
+                      </LinearGradient>
                     </Defs>
                     <Path d={BRAND_MARK.arms} fill="url(#splashRim)" />
-                    <Path d={BRAND_MARK.centre} fill="#FFFFFF" />
+                    <Path d={BRAND_MARK.centre} fill="url(#splashCentre)" />
                   </>,
                 )}
 

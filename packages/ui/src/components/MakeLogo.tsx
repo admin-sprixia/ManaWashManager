@@ -5,12 +5,12 @@ import { MAKE_LOGOS } from '../makeLogos';
 
 /** Brand colours for the lettered badge of makes with no logo in MAKE_LOGOS. */
 const BADGE_COLORS: Record<string, string> = {
-  Ather: '#1B9E4B',
-  'Simple Energy': '#111827',
-  LML: '#1D4ED8',
-  Oben: '#0F172A',
+  Oben: '#E4572E',
   Tork: '#D7262E',
   Okaya: '#0E7A3E',
+  'Hero Honda': '#D7262E',
+  Lotus: '#0B6E3B',
+  Reva: '#16A34A',
 };
 const PALETTE = ['#4F5BD5', '#0E7490', '#B45309', '#047857', '#7C3AED', '#BE123C', '#1D4ED8'];
 

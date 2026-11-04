@@ -18,7 +18,10 @@ import LinearGradient from 'react-native-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
+  bodyTypeForName,
   calculatePrice,
+  PRICE_SIZES,
+  priceSizeOfBody,
   couponDiscount,
   formatDuration,
   isValidPhone,
@@ -165,6 +168,9 @@ function normalizeServices(rows: CachedCatalog['services']): Service[] {
 /** A branch vehicle type, with the body type a company and model find it by. */
 type WashVehicleType = VehicleType & { bodyKey: string | null };
 
+/** A vehicle type's catalog body key: saved on it, or matched from its name for older types. */
+const typeKeyOf = (vt: { name: string; bodyKey?: string | null }) => vt.bodyKey ?? bodyTypeForName(vt.name)?.key ?? null;
+
 function normalizeVehicleTypes(rows: CachedCatalog['vehicleTypes']): WashVehicleType[] {
   return rows.map((vt) => ({ ...vt, category: parseVehicleCategory(vt.category), bodyKey: vt.bodyKey ?? null }));
 }
@@ -290,6 +296,8 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   const [model, setModel] = useState<string | null>(null);
   /** The type is being picked by hand (model not listed, or the suggestion overridden). */
   const [manualType, setManualType] = useState(false);
+  /** The optional company and model picker under the sizes. */
+  const [modelOpen, setModelOpen] = useState(false);
   const modelEdits = useModelEdits(opened);
   /** Before photos taken here; they go up with the wash when it's started. */
   const [beforePhotos, setBeforePhotos] = useState<PendingPhoto[]>([]);
@@ -476,6 +484,20 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     [vehicleTypes, vehicleTypeId],
   );
 
+  // The four sizes the menu is priced by. Each stands for the branch's first priced vehicle type
+  // of that size (as on WhatsApp), so one tap gives the same prices as picking the model.
+  const sizeChoices = useMemo(() => {
+    const priced = new Set(prices.map((p) => p.vehicleTypeId));
+    return PRICE_SIZES.flatMap((size) => {
+      for (const key of size.bodyKeys) {
+        const vt = vehicleTypes.find((v) => typeKeyOf(v) === key && priced.has(v.id));
+        if (vt) return [{ size, vt }];
+      }
+      return [];
+    });
+  }, [vehicleTypes, prices]);
+  const selectedSize = selectedVehicle ? priceSizeOfBody(typeKeyOf(selectedVehicle)) : null;
+
   // A service is offered for exactly the vehicles the owner priced it for.
   const servicesForVehicle = useMemo(() => {
     if (!selectedVehicle) return [];
@@ -519,6 +541,15 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     setMake(null);
     setModel(null);
     setManualType(false);
+    setModelOpen(false);
+  };
+
+  // One tap on a size: its prices open. A model picked earlier of another size is dropped.
+  const pickSize = (vt: WashVehicleType) => {
+    if (make && model && priceSizeOfBody(typeKeyOf(vt))?.key !== selectedSize?.key) clearModel();
+    setManualType(false);
+    if (vehicleTypeId === vt.id) return;
+    selectVehicle(vt, { scroll: true });
   };
 
   // A new company starts over: its models (and so the type) are different.
@@ -1258,7 +1289,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
             : conflict && !ownership
               ? 'Confirm who owns this vehicle'
               : !vehicleTypeId
-                ? 'Choose a vehicle type'
+                ? 'Choose the vehicle size'
                 : selectedServiceIds.size === 0
                   ? 'Pick at least one service'
                   : onlyAddons
@@ -1639,10 +1670,10 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
           {/* 2 · Vehicle type */}
           <StepHeader
             index={2}
-            title="Vehicle type"
+            title="Vehicle size"
             state={stepState(1)}
-            summary={selectedVehicle ? (make && model ? `${model} · ${selectedVehicle.name}` : selectedVehicle.name) : null}
-            hint={selectedVehicle ? undefined : 'Pick the company and model'}
+            summary={selectedVehicle ? (make && model ? `${model} · ${selectedSize?.name ?? selectedVehicle.name}` : (selectedSize?.name ?? selectedVehicle.name)) : null}
+            hint={selectedVehicle ? undefined : 'Tap the size; the model is optional'}
           />
           {mode === 'known' && selectedVehicle && !vehiclePickerOpen ? (
             <View style={styles.group}>
@@ -1674,71 +1705,127 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
             </View>
           ) : (
             <>
-              <VehicleModelPicker
-                types={vehicleTypes}
-                edits={modelEdits}
-                make={make}
-                model={model}
-                onMake={pickMake}
-                onPick={pickModel}
-              />
-              {model && selectedVehicle && !manualType ? (
+              {catalogLoading && vehicleTypes.length === 0 ? (
+                <View style={styles.notice}>
+                  <ActivityIndicator color={colors.water} />
+                  <Text style={styles.noticeText}>Loading sizes…</Text>
+                </View>
+              ) : catalogError && vehicleTypes.length === 0 ? (
+                <View style={styles.notice}>
+                  <Text style={styles.noticeError}>{catalogError}</Text>
+                  <Pressable onPress={() => void loadCatalog()} style={styles.retryBtn}>
+                    <Text style={styles.retryText}>Retry</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <View style={styles.sizeGrid}>
+                  {sizeChoices.map(({ size, vt }) => {
+                    const on = !manualType && selectedSize?.key === size.key;
+                    return (
+                      <Pressable
+                        key={size.key}
+                        onPress={() => pickSize(vt)}
+                        style={({ pressed }) => [styles.sizeCard, on && styles.sizeCardOn, pressed && styles.sizeCardPressed]}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: on }}
+                        accessibilityLabel={`${size.name}, like ${size.examples}`}
+                      >
+                        <VehicleArt name={vt.name} bodyKey={vt.bodyKey} category={vt.category} style={styles.sizeArt} />
+                        <View style={styles.flex}>
+                          <Text style={[styles.sizeName, on && styles.sizeNameOn]} numberOfLines={2}>
+                            {size.name}
+                          </Text>
+                          <Text style={styles.sizeExamples} numberOfLines={2}>
+                            {size.examples}
+                          </Text>
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )}
+
+              {make && model && selectedVehicle && !manualType ? (
                 <View style={styles.group}>
                   <View style={styles.savedVehicle}>
-                    <VehicleArt name={selectedVehicle.name} bodyKey={selectedVehicle.bodyKey} style={styles.savedVehicleImg} />
+                    <MakeLogo make={make} height={34} />
                     <View style={styles.flex}>
-                      <Text style={styles.savedVehicleName}>{selectedVehicle.name}</Text>
-                      <Text style={styles.savedVehicleHint}>
-                        Picked from the model · {servicesForVehicle.length}{' '}
-                        {servicesForVehicle.length === 1 ? 'service' : 'services'} on its menu
-                      </Text>
+                      <Text style={styles.savedVehicleName}>{`${make} ${model}`}</Text>
+                      <Text style={styles.savedVehicleHint}>{`${selectedSize?.name ?? selectedVehicle.name} · from the model`}</Text>
                     </View>
                     <Pressable
                       onPress={() => {
                         animate();
-                        setManualType(true);
+                        setMake(null);
+                        setModel(null);
+                        setModelOpen(true);
                       }}
                       hitSlop={8}
                       accessibilityRole="button"
-                      accessibilityLabel="Pick a different vehicle type"
+                      accessibilityLabel="Change the model"
                     >
                       <Text style={styles.linkText}>Change</Text>
                     </Pressable>
                   </View>
                 </View>
+              ) : modelOpen || make ? (
+                <VehicleModelPicker
+                  types={vehicleTypes}
+                  edits={modelEdits}
+                  make={make}
+                  model={model}
+                  onMake={pickMake}
+                  onPick={pickModel}
+                />
               ) : null}
               {model && manualType && !modelTypeId ? (
                 <View style={styles.notice}>
                   <Text style={styles.noticeText}>
-                    This branch has no vehicle type for {make} {model}. Pick the closest one below.
+                    This branch has no vehicle type for {make} {model}. Pick the closest size above.
                   </Text>
                 </View>
               ) : null}
-              {!manualType && !(model && selectedVehicle) ? (
+
+              <View style={styles.sizeLinks}>
+                {!modelOpen && !make ? (
+                  <Pressable
+                    onPress={() => {
+                      animate();
+                      setModelOpen(true);
+                    }}
+                    hitSlop={6}
+                    style={({ pressed }) => [styles.guideLink, pressed && { opacity: 0.7 }]}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.guideLinkText}>+ Add the model (optional)</Text>
+                  </Pressable>
+                ) : null}
                 <Pressable
-                  onPress={() => {
-                    animate();
-                    setManualType(true);
-                  }}
+                  onPress={() => navigation.navigate('VehicleGuide', { category: selectedVehicle?.category === 'bike' ? 'bike' : 'car' })}
                   hitSlop={6}
                   style={({ pressed }) => [styles.guideLink, pressed && { opacity: 0.7 }]}
                   accessibilityRole="button"
                 >
-                  <Text style={styles.guideLinkText}>Model not in the list? Pick the vehicle type yourself ›</Text>
+                  <Text style={styles.guideLinkText}>Size guide ›</Text>
                 </Pressable>
-              ) : null}
+                {!manualType ? (
+                  <Pressable
+                    onPress={() => {
+                      animate();
+                      setManualType(true);
+                    }}
+                    hitSlop={6}
+                    style={({ pressed }) => [styles.guideLink, pressed && { opacity: 0.7 }]}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.guideLinkText}>Other vehicle ›</Text>
+                  </Pressable>
+                ) : null}
+              </View>
             </>
           )}
           {manualType && !(mode === 'known' && selectedVehicle && !vehiclePickerOpen) ? (
             <>
-              <Pressable
-                onPress={() => navigation.navigate('VehicleGuide', { category: vehicleFamily === 'bike' ? 'bike' : 'car' })}
-                hitSlop={6}
-                style={({ pressed }) => [styles.guideLink, pressed && { opacity: 0.7 }]}
-                accessibilityRole="button"
-              >
-                <Text style={styles.guideLinkText}>Not sure which size? Look it up in the size guide ›</Text>
-              </Pressable>
               <View style={styles.segmentWrap}>
                 <View style={styles.segment} accessibilityRole="tablist">
                   {VEHICLE_FAMILIES.map((f) => {
@@ -1817,7 +1904,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
               summary={selectedServiceIds.size > 0 ? `${selectedServiceIds.size} selected` : null}
               hint={
                 !selectedVehicle
-                  ? 'Choose a vehicle type to see its menu'
+                  ? 'Choose the size to see its menu'
                   : `${selectedVehicle.category === 'bike' ? 'Bike' : 'Car'} menu with ${washMode === 'doorstep' ? 'doorstep ' : ''}prices for ${selectedVehicle.name}`
               }
             />
@@ -2335,6 +2422,27 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm + 2,
   },
   savedVehicleImg: { width: 64, height: 46, borderRadius: radius.sm + 2 },
+  sizeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, paddingHorizontal: spacing.md, paddingTop: spacing.sm },
+  sizeCard: {
+    flexBasis: '47%',
+    flexGrow: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    minHeight: 84,
+    padding: spacing.sm + 2,
+    borderRadius: radius.lg,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+  },
+  sizeCardOn: { borderColor: colors.indigo, backgroundColor: colors.indigoPale },
+  sizeCardPressed: { opacity: 0.85 },
+  sizeArt: { width: 72, height: 52, borderRadius: radius.sm + 2 },
+  sizeName: { ...typography.bodyStrong, color: colors.waterInk, fontSize: 16 },
+  sizeNameOn: { color: colors.indigo },
+  sizeExamples: { ...typography.caption, color: colors.slate, letterSpacing: 0, marginTop: 2 },
+  sizeLinks: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, paddingHorizontal: spacing.md, paddingTop: spacing.sm },
   savedVehicleName: { ...typography.bodyStrong, color: colors.waterInk, fontSize: 16 },
   savedVehicleHint: { ...typography.caption, color: colors.slate, letterSpacing: 0 },
   error: {

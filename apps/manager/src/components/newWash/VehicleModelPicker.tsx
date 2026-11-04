@@ -74,7 +74,11 @@ export function VehicleModelPicker({
   onMake: (make: string) => void;
   onPick: (model: string, typeId: string | null) => void;
 }) {
-  const makes = useMemo(() => vehicleMakeNames(null, edits), [edits]);
+  // Only companies with a model this branch washes: no tractors or trucks at a car wash.
+  const makes = useMemo(
+    () => vehicleMakeNames(null, edits).filter((mk) => vehicleModelNames(mk, null, edits).some((m) => suggestedTypeId(types, mk, m, edits))),
+    [types, edits],
+  );
   const makeOptions = useMemo(
     () => makes.map((m) => ({ value: m, label: m, leading: <MakeLogo make={m} height={24} /> })),
     [makes],

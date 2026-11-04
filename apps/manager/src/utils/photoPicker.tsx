@@ -4,7 +4,7 @@ import { PHOTO_MAX_EDGE_PX } from '@mana/domain';
 import { showAlert, IconCamera, IconImage, colors } from '@mana/ui';
 
 /** Shrunk on the phone before upload, so a photo stays well under the server's size limit. */
-const PICKER_OPTIONS = {
+export const PICKER_OPTIONS = {
   mediaType: 'photo' as const,
   maxWidth: PHOTO_MAX_EDGE_PX,
   maxHeight: PHOTO_MAX_EDGE_PX,

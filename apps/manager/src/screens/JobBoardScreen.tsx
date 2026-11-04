@@ -45,6 +45,7 @@ import { useInboxCount } from '../offline/useInboxCount';
 import { useJobActions } from '../offline/useJobActions';
 import { useShop } from '../offline/ShopProvider';
 import type { BoardJob } from '../offline/types';
+import { useAfterPhotoGate } from '../components/useAfterPhotoGate';
 import { activityAt, customerLine, firstName, isToday, NEXT_STATUS, vehicleHeadline } from '../utils/jobs';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { MAX_WASHERS_PER_JOB } from '@mana/domain';
@@ -70,6 +71,7 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
   const insets = useSafeAreaInsets();
   const { jobs, loading, error, refresh } = useBoardJobs();
   const actions = useJobActions();
+  const requireAfterPhoto = useAfterPhotoGate();
   const reminderCount = useReminderCount();
   // The WhatsApp inbox is for owners and managers.
   const canInbox = user?.role === 'owner' || user?.role === 'manager';
@@ -147,13 +149,14 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
       }
       const next = NEXT_STATUS[job.status];
       if (!next || busyId) return;
+      if (next === 'ready' && !(await requireAfterPhoto(job.id, job.afterPhotos ?? 0))) return;
       setBusyId(job.id);
       const message = await actions.advance(job.id, next);
       setBusyId(null);
       if (message) showToast(message, 'error');
       else if (next === 'ready') showToast('Ready. The customer gets a WhatsApp to come pick it up.');
     },
-    [actions, busyId],
+    [actions, busyId, requireAfterPhoto],
   );
 
   // One handler for every row, so a row only redraws when its own wash changes.

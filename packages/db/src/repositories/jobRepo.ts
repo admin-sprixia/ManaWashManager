@@ -79,6 +79,8 @@ export type BoardRow = Prisma.JobGetPayload<{ include: typeof boardInclude }> & 
   gifts: BoardGift[];
   /** Gifts this car is still owed from any visit, so staff can hand them over at pickup. */
   giftsOwedForCar: BoardGift[];
+  /** After photos taken so far: a wash can't be marked ready without one. */
+  afterPhotos: number;
 };
 export type JobDetail = Omit<Prisma.JobGetPayload<{ include: typeof detailInclude }>, keyof BoardRow> & BoardRow;
 
@@ -112,7 +114,7 @@ async function loadBoard(
 ): Promise<BoardRow[]> {
   const viaJob = { job: where };
   const owedForCar = { status: 'owed', vehicle: { jobs: { some: where } } };
-  const [jobs, customers, vehicles, lines, washers, sellers, vehicleTypes, services, people, claims, gifts, owed, giftItems] = await Promise.all([
+  const [jobs, customers, vehicles, lines, washers, sellers, vehicleTypes, services, people, claims, gifts, owed, giftItems, afterPhotos] = await Promise.all([
     db.job.findMany({ where, orderBy }),
     db.customer.findMany({ where: { jobs: { some: where } } }),
     db.vehicle.findMany({ where: { jobs: { some: where } } }),
@@ -143,6 +145,7 @@ async function loadBoard(
       where: { rewardGifts: { some: { OR: [viaJob, owedForCar] } } },
       select: { id: true, name: true, unit: true },
     }),
+    db.jobPhoto.findMany({ where: { ...viaJob, kind: 'after', deletedAt: null }, select: { jobId: true } }),
   ]);
   if (!jobs.length) return [];
   const customerById = byId(customers);
@@ -155,6 +158,7 @@ async function loadBoard(
   const sellersByJob = groupByJob(sellers);
   const claimsByJob = groupByJob(claims);
   const giftsByJob = groupByJob(gifts);
+  const afterByJob = groupByJob(afterPhotos);
   const giftItemById = byId(giftItems);
   const owedByVehicle = new Map<string, typeof owed>();
   for (const g of owed) {
@@ -188,6 +192,7 @@ async function loadBoard(
       freeServiceIds: (claimsByJob.get(job.id) ?? []).map((c) => c.serviceId),
       gifts: (giftsByJob.get(job.id) ?? []).map(toBoardGift),
       giftsOwedForCar: (owedByVehicle.get(job.vehicleId) ?? []).map(toBoardGift),
+      afterPhotos: afterByJob.get(job.id)?.length ?? 0,
     };
   });
 }

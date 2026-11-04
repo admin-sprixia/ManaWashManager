@@ -87,6 +87,8 @@ export interface BoardJob {
   washers?: { user: { id: string; name: string } }[];
   /** Who got the customer to take a commission service; they share its commission. */
   sellers?: { user: { id: string; name: string } }[];
+  /** After photos on the server; missing on rows saved by older builds or still on this phone. */
+  afterPhotos?: number;
   /** Set only on the phone: this row (or its latest change) hasn't reached the server yet. */
   syncState?: 'pending' | 'failed';
 }

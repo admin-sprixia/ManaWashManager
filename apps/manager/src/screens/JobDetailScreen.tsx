@@ -74,6 +74,7 @@ import {
   vehicleModelLine,
 } from '../utils/jobs';
 import type { RootStackParamList } from '../navigation/RootNavigator';
+import { useAfterPhotoGate } from '../components/useAfterPhotoGate';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'JobDetail'>;
 
@@ -144,6 +145,7 @@ export function JobDetailScreen({ navigation, route }: Props) {
   const { shopItems: items, version, online } = useSync();
   const [selling, setSelling] = useState(false);
   const actions = useJobActions();
+  const requireAfterPhoto = useAfterPhotoGate();
 
   const [serverJob, setServerJob] = useState<JobDetail | null>(null);
   // The board's copy first: the page opens filled in, before the server answers.
@@ -273,6 +275,11 @@ export function JobDetailScreen({ navigation, route }: Props) {
       return;
     }
     if (!next) return;
+    if (next === 'ready') {
+      const onServer = serverJob?.photos?.filter((p) => p.kind === 'after').length ?? job.afterPhotos ?? 0;
+      if (!(await requireAfterPhoto(job.id, onServer))) return;
+      if (serverJob) void load();
+    }
     setBusy(true);
     const message = await actions.advance(job.id, next);
     setBusy(false);

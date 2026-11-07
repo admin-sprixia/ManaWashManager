@@ -49,7 +49,8 @@ export async function sendWashMessage(env: Env, shopId: string, jobId: string, k
     if (kind === 'ready' && (job.status !== 'ready' || job.deliveryMode !== 'hub')) return;
     if (kind === 'bill' && job.status !== 'paid') return;
     const phone = job.customer.phone;
-    if (!/^\d{10}$/.test(phone) || (await alreadySent(env, jobId, kind))) return;
+    // No number given: no WhatsApp.
+    if (!phone || !/^\d{10}$/.test(phone) || (await alreadySent(env, jobId, kind))) return;
 
     const pdb = createPlatformDb(env.DB);
     const shop = await pdb.shop.findUnique({ where: { id: shopId }, select: { name: true, city: true, businessId: true } });
@@ -157,7 +158,7 @@ export async function sendPlanWashMessage(env: Env, shopId: string, jobId: strin
     const [order, job] = await Promise.all([db.shopPlanOrder.findUnique({ where: { id: use.orderId } }), jobRepo.findBoardRow(db, jobId)]);
     if (!order || !job) return;
     const phone = job.customer.phone;
-    if (!/^\d{10}$/.test(phone)) return;
+    if (!phone || !/^\d{10}$/.test(phone)) return;
     const sentBefore = await d1(env)
       .prepare(`SELECT 1 AS sent FROM whatsapp_messages WHERE job_id = ?1 AND purpose = 'plan_wash' AND direction = 'out' AND status != 'failed' LIMIT 1`)
       .bind(jobId)

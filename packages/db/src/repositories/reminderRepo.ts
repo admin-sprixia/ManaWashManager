@@ -14,6 +14,8 @@ export const reminderRepo = {
   lapsedWhere(dueBefore: Date, seenAfter: Date): Prisma.VehicleWhereInput {
     return {
       NOT: { registrationNumber: { startsWith: 'WALK-IN' } },
+      // A customer without a number can't be reminded.
+      customer: { phone: { not: null } },
       jobs: {
         some: { ...liveJob, createdAt: { gt: seenAfter, lte: dueBefore } },
         none: { ...liveJob, createdAt: { gt: dueBefore } },

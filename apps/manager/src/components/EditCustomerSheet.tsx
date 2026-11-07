@@ -7,7 +7,7 @@ import { NetworkError } from '../api/network';
 
 interface Props {
   visible: boolean;
-  customer: { id: string; name: string | null; phone: string };
+  customer: { id: string; name: string | null; phone: string | null };
   vehicles: { id: string; registrationNumber: string }[];
   onClose: () => void;
   /** After a save: reload the profile and the offline customer list. */
@@ -28,20 +28,21 @@ export function EditCustomerSheet({ visible, customer, vehicles, onClose, onSave
   useEffect(() => {
     if (!visible) return;
     setName(customer.name ?? '');
-    setPhone(customer.phone.replace(/\D/g, '').slice(-10));
+    setPhone((customer.phone ?? '').replace(/\D/g, '').slice(-10));
     setPlates(Object.fromEntries(vehicles.map((v) => [v.id, v.registrationNumber])));
     setError(null);
     setBusy(false);
   }, [visible, customer, vehicles]);
 
   const nameChanged = name.trim() !== (customer.name ?? '').trim();
-  const phoneChanged = phone !== customer.phone.replace(/\D/g, '').slice(-10);
+  const phoneChanged = phone !== (customer.phone ?? '').replace(/\D/g, '').slice(-10);
   const changedPlates = vehicles.filter((v) => normalizeRegistration(plates[v.id] ?? '') !== v.registrationNumber);
   const nothing = !nameChanged && !phoneChanged && changedPlates.length === 0;
 
   const save = async () => {
     if (!name.trim()) return setError('Enter the customer’s name.');
-    if (!isValidPhone(phone)) return setError('Enter a valid 10-digit mobile number.');
+    // An empty number means the customer didn't give one (no WhatsApp messages).
+    if (phone && !isValidPhone(phone)) return setError('Enter a valid 10-digit mobile number, or leave it empty.');
     const bad = changedPlates.find((v) => !isValidRegistration(normalizeRegistration(plates[v.id] ?? '')));
     if (bad) return setError(`“${plates[bad.id]}” isn’t a valid vehicle number.`);
     setBusy(true);
@@ -50,7 +51,7 @@ export function EditCustomerSheet({ visible, customer, vehicles, onClose, onSave
       if (nameChanged || phoneChanged) {
         const res = await api.customers[':id'].$patch({
           param: { id: customer.id },
-          json: { ...(nameChanged ? { name: name.trim() } : {}), ...(phoneChanged ? { phone } : {}) },
+          json: { ...(nameChanged ? { name: name.trim() } : {}), ...(phoneChanged ? { phone: phone || null } : {}) },
         });
         if (!res.ok) return setError(await apiErrorMessage(res, 'Couldn’t save.'));
       }
@@ -80,7 +81,12 @@ export function EditCustomerSheet({ visible, customer, vehicles, onClose, onSave
       footer={<Button label="Save changes" size="lg" loading={busy} disabled={nothing} onPress={() => void save()} />}
     >
       <TextField label="Name" value={name} onChangeText={setName} autoCapitalize="words" maxLength={60} />
-      <PhoneField digits={phone} onChangeDigits={setPhone} normalize={normalizePhone} />
+      <PhoneField
+        digits={phone}
+        onChangeDigits={setPhone}
+        normalize={normalizePhone}
+        hint={phone ? undefined : 'Empty: no number, so no WhatsApp messages.'}
+      />
       {vehicles.length > 0 ? (
         <View style={styles.vehicles}>
           {vehicles.map((v, i) => (

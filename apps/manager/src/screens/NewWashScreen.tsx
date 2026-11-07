@@ -289,6 +289,8 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   const [vehiclePickerOpen, setVehiclePickerOpen] = useState(false);
   const [registration, setRegistration] = useState('');
   const [phone, setPhone] = useState('');
+  /** The customer didn't give a number: the vehicle number identifies them, no WhatsApp. */
+  const [noPhone, setNoPhone] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [vehicleFamily, setVehicleFamily] = useState<VehicleCategory>('car');
   const [vehicleTypeId, setVehicleTypeId] = useState<string | null>(null);
@@ -688,7 +690,10 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   const reg = normalizeReg(registration);
   const phoneDigits = normalizePhone(phone);
   const regOk = reg.length >= 4;
-  const phoneOk = isValidPhone(phoneDigits);
+  /** A real number was given (offers, plans, referrals and WhatsApp all need one). */
+  const hasPhone = !noPhone && isValidPhone(phoneDigits);
+  /** The customer step can be finished: a valid number, or "didn't give one". */
+  const phoneOk = noPhone || hasPhone;
   const nameOk = customerName.trim().length > 0;
 
   const vehicleTypeName = useCallback(
@@ -712,8 +717,8 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     [mode, regOk, reg, directory.entries],
   );
   const dirPhone = useMemo(
-    () => (mode === 'form' && phoneOk ? findByPhone(directory.entries, phoneDigits) : null),
-    [mode, phoneOk, phoneDigits, directory.entries],
+    () => (mode === 'form' && hasPhone ? findByPhone(directory.entries, phoneDigits) : null),
+    [mode, hasPhone, phoneDigits, directory.entries],
   );
   const lookupReg =
     mode === 'search'
@@ -750,7 +755,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     return fromServer.map((entry) => ({
       entry,
       field: server.plateEntry === entry ? ('plate' as const) : ('phone' as const),
-      needle: server.plateEntry === entry ? entry.registrationNumber : entry.customerPhone,
+      needle: server.plateEntry === entry ? entry.registrationNumber : (entry.customerPhone ?? ""),
     }));
   }, [localHits, mode, server.plateEntry, server.phoneEntries]);
 
@@ -765,7 +770,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   // Known plate + a different phone: the operator has to say who owns the vehicle now.
   const baseline = known && known.registrationNumber === reg ? known : plateEntry;
   const conflict =
-    mode === 'form' && Boolean(baseline) && phoneOk && phoneDigits !== baseline?.customerPhone;
+    mode === 'form' && Boolean(baseline) && hasPhone && phoneDigits !== baseline?.customerPhone;
   const holder =
     conflict && phoneEntry && phoneEntry.customerId !== baseline?.customerId ? phoneEntry : null;
   const conflictKey = conflict
@@ -834,7 +839,8 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     setOwnership(null);
     setVehiclePickerOpen(false);
     setRegistration(entry.registrationNumber);
-    setPhone(entry.customerPhone);
+    setPhone(entry.customerPhone ?? '');
+    setNoPhone(entry.customerPhone == null);
     setCustomerName(entry.customerName);
     clearOrder();
     setMake(entry.make ?? null);
@@ -904,6 +910,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     setOwnership(null);
     setRegistration('');
     setPhone('');
+    setNoPhone(false);
     setCustomerName('');
     setVehicleTypeId(null);
     setVehiclePickerOpen(false);
@@ -923,7 +930,8 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     setMode('known');
     setOwnership(null);
     setRegistration(known.registrationNumber);
-    setPhone(known.customerPhone);
+    setPhone(known.customerPhone ?? '');
+    setNoPhone(known.customerPhone == null);
     setCustomerName(known.customerName);
   };
 
@@ -1009,7 +1017,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
 
   // ---------- Community plan members ----------
 
-  const planPhone = mode !== 'search' && phoneOk && online ? phoneDigits : null;
+  const planPhone = mode !== 'search' && hasPhone && online ? phoneDigits : null;
   useEffect(() => {
     setShopPlans([]);
     setPlanOrderId(null);
@@ -1169,7 +1177,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   const couponSaving = offer ? couponDiscount(subtotal, offer.percent) : 0;
   // Referrals are for genuinely new customers only: neither the phone nor the plate is on file.
   const isNewCustomer =
-    mode === 'form' && !known && regOk && phoneOk && !plateEntry && !phoneEntry && !server.looking;
+    mode === 'form' && !known && regOk && hasPhone && !plateEntry && !phoneEntry && !server.looking;
   const referral = useReferralQuote(referrerPhone, phoneDigits, reg, isNewCustomer && online);
   const referralActive = isNewCustomer && referral.quote != null && !freeActive && !planActive;
   const referralSaving = referral.quote ? couponDiscount(subtotal, referral.quote.percent) : 0;
@@ -1195,7 +1203,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
 
   // A live comeback coupon for the customer at the counter. Asked only for a picked (known)
   // customer and only online — redemption is always re-checked by the server.
-  const offerKey = mode === 'known' && online ? `${reg}|${phoneDigits}` : null;
+  const offerKey = mode === 'known' && online && hasPhone ? `${reg}|${phoneDigits}` : null;
   useEffect(() => {
     setOffer(null);
     setCouponApplied(false);
@@ -1284,7 +1292,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
       : !regOk
         ? 'Add the vehicle number'
         : !phoneOk
-          ? 'Add a valid 10-digit mobile number'
+          ? 'Add a valid 10-digit mobile number, or tap “Customer didn’t give a number”'
           : !nameOk
             ? 'Add the customer’s name'
             : conflict && !ownership
@@ -1333,6 +1341,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     setOwnership(null);
     setRegistration('');
     setPhone('');
+    setNoPhone(false);
     setCustomerName('');
     setVehicleTypeId(null);
     clearModel();
@@ -1378,7 +1387,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
           payload: {
             id: jobId,
             occurredAt,
-            customer: { phone: phoneDigits, name },
+            customer: { phone: hasPhone ? phoneDigits : null, name },
             registrationNumber: reg,
             ownership: conflict && ownership ? ownership : undefined,
             vehicleTypeId,
@@ -1441,7 +1450,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
         make: make && model ? make : undefined,
         model: make && model ? model : undefined,
         customerName: name,
-        customerPhone: phoneDigits,
+        customerPhone: hasPhone ? phoneDigits : null,
         services: lineItems,
         samePersonAs: conflict && ownership === 'same_person' ? baseline : null,
         at: occurredAt,
@@ -1599,21 +1608,56 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
                     ) : undefined
                   }
                 />
-                <FieldRow
-                  ref={phoneRef}
-                  icon={<IconPhone size={17} color={colors.waterDeep} />}
-                  label="Mobile number"
-                  prefix="+91"
-                  value={phone}
-                  onChangeText={(t) => setPhone(t.replace(/[^\d+ ]/g, ''))}
-                  placeholder="98765 43210"
-                  keyboardType="phone-pad"
-                  returnKeyType="next"
-                  onSubmitEditing={() => nameRef.current?.focus()}
-                  blurOnSubmit={false}
-                  maxLength={14}
-                  valid={phoneOk}
-                />
+                {noPhone ? (
+                  <View style={styles.noPhoneRow}>
+                    <IconPhone size={17} color={colors.slate} />
+                    <View style={styles.flex}>
+                      <Text style={styles.noPhoneTitle}>No mobile number</Text>
+                      <Text style={styles.noPhoneHint}>Known by the vehicle number. No WhatsApp ready message or bill.</Text>
+                    </View>
+                    <Pressable
+                      onPress={() => {
+                        animate();
+                        setNoPhone(false);
+                        setTimeout(() => phoneRef.current?.focus(), 50);
+                      }}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                    >
+                      <Text style={styles.linkText}>Add number</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <FieldRow
+                    ref={phoneRef}
+                    icon={<IconPhone size={17} color={colors.waterDeep} />}
+                    label="Mobile number"
+                    prefix="+91"
+                    value={phone}
+                    onChangeText={(t) => setPhone(t.replace(/[^\d+ ]/g, ''))}
+                    placeholder="98765 43210"
+                    keyboardType="phone-pad"
+                    returnKeyType="next"
+                    onSubmitEditing={() => nameRef.current?.focus()}
+                    blurOnSubmit={false}
+                    maxLength={14}
+                    valid={hasPhone}
+                  />
+                )}
+                {!noPhone && !phone.trim() ? (
+                  <Pressable
+                    onPress={() => {
+                      animate();
+                      setNoPhone(true);
+                      setOwnership(null);
+                      nameRef.current?.focus();
+                    }}
+                    style={({ pressed }) => [styles.noPhoneLink, pressed && { opacity: 0.7 }]}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.guideLinkText}>Customer didn’t give a number ›</Text>
+                  </Pressable>
+                ) : null}
                 <FieldRow
                   ref={nameRef}
                   icon={<IconPerson size={18} color={colors.waterDeep} />}
@@ -1642,7 +1686,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
                   <OwnershipQuestion
                     plate={baseline.registrationNumber}
                     ownerName={baseline.customerName}
-                    ownerPhone={baseline.customerPhone}
+                    ownerPhone={baseline.customerPhone ?? ''}
                     newPhone={phoneDigits}
                     holderName={holder ? holder.customerName || 'another customer' : null}
                     value={ownership}
@@ -1969,7 +2013,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
             />
           ) : null}
 
-          {washMode === 'hub' && selectedVehicle && regOk && phoneOk && online && mode !== 'search' ? (
+          {washMode === 'hub' && selectedVehicle && regOk && hasPhone && online && mode !== 'search' ? (
             <Pressable
               onPress={() => setSelling(true)}
               style={({ pressed }) => [styles.sellPlan, pressed && styles.sellPlanPressed]}
@@ -2434,6 +2478,18 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm + 2,
   },
   savedVehicleImg: { width: 64, height: 46, borderRadius: radius.sm + 2 },
+  noPhoneRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm + 2,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  noPhoneTitle: { ...typography.bodyStrong, color: colors.slateDeep, fontSize: 15 },
+  noPhoneHint: { ...typography.caption, color: colors.slate, letterSpacing: 0 },
+  noPhoneLink: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   sizeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, paddingHorizontal: spacing.md, paddingTop: spacing.sm },
   sizeCard: {
     flexBasis: '47%',

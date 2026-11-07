@@ -440,6 +440,7 @@ step(`Writing the team and ${visits.filter((v) => v.daysAgo > API_DAYS).length} 
         id: c.id,
         shop_id: SHOP,
         name: c.name,
+        number_key: c.id,
         phone: c.phone,
         source: c.source,
         created_at: ts(c.createdAt),

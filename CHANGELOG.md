@@ -8,6 +8,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-11-07
+
+### Added
+
+- **The mobile number is optional.** In New Wash, **"Customer didn't give a number ›"** under
+  Mobile number starts the wash without one. The vehicle number then identifies the customer,
+  so history, size, stamps and the welcome gift all work. There are no WhatsApp ready messages,
+  bills, reminders or offers, and coupons, referrals and plans need a number. The bill PDF still
+  opens on the tablet.
+- **Edit on the customer profile.** Owner and manager can fix the name, add, change or remove
+  the mobile number, and fix a mistyped vehicle number. A number or plate another customer has
+  is refused.
+
+### Changed
+
+- Database `0003_customer_phone_optional`: the number moves to a new optional `phone` column,
+  and the old required column is renamed `number_key`, an internal key. D1 won't rebuild a
+  table other tables point at, so it is renamed and added instead. Still one customer per
+  number.
+
 ## [1.0.1] - 2026-11-07
 
 ### Changed
@@ -1032,7 +1052,8 @@ build was labelled 2.0.0.
   a customer profile.
 - **One shared MAJOR.MINOR.PATCH version** across every app and package.
 
-[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.5.1...v1.0.0
 [0.5.1]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.5.0...v0.5.1

@@ -61,10 +61,12 @@ const createCustomerSchema = z.object({
 const editCustomerSchema = z
   .object({
     name: z.string().trim().min(1, 'Enter the customer’s name').max(60).optional(),
+    /** null removes the number (the customer is then known by their vehicle number). */
     phone: z
       .string()
-      .transform(normalizePhone)
-      .refine(isValidPhone, 'Enter a valid 10-digit mobile number')
+      .nullable()
+      .transform((p) => (p ? normalizePhone(p) : null))
+      .refine((p) => p === null || isValidPhone(p), 'Enter a valid 10-digit mobile number')
       .optional(),
   })
   .refine((b) => b.name !== undefined || b.phone !== undefined, 'Nothing to change');

@@ -288,7 +288,9 @@ export function JobDetailScreen({ navigation, route }: Props) {
     else if (next === 'ready') showToast('Ready. The customer gets a WhatsApp to come pick it up.');
   };
 
-  const call = () => void Linking.openURL(`tel:${job.customer.phone}`).catch(() => undefined);
+  const call = () => {
+    if (job.customer.phone) void Linking.openURL(`tel:${job.customer.phone}`).catch(() => undefined);
+  };
 
   /** The same PDF bill the customer gets on WhatsApp, to open, print or forward. */
   const shareBill = async () => {
@@ -309,7 +311,9 @@ export function JobDetailScreen({ navigation, route }: Props) {
       setSharingBill(false);
     }
   };
-  const whatsapp = () => void openWhatsApp(job.customer.phone, `Hi ${job.customer.name?.trim() ?? ''}, `);
+  const whatsapp = () => {
+    if (job.customer.phone) void openWhatsApp(job.customer.phone, `Hi ${job.customer.name?.trim() ?? ''}, `);
+  };
 
   const model = vehicleModelLine(job.vehicle);
   const make = job.vehicle.make?.trim() || null;
@@ -325,10 +329,11 @@ export function JobDetailScreen({ navigation, route }: Props) {
       : job.status === 'ready'
         ? 'To collect now'
         : 'To collect when it’s ready';
-  const phone = job.customer.phone.replace(/\D/g, '').slice(-10);
+  const phone = job.customer.phone?.replace(/\D/g, '').slice(-10) ?? null;
   // A customer who asks for a plan while their car is here: sign them up; it starts next visit.
   const vehicleTypeId = (job.vehicle as { vehicleTypeId?: string }).vehicleTypeId ?? null;
-  const canSellPlan = !isVoid && !walkIn && !doorstep && online && vehicleTypeId != null && !job.syncState;
+  // A plan's messages go on WhatsApp, so selling one needs the customer's number.
+  const canSellPlan = !isVoid && !walkIn && !doorstep && online && vehicleTypeId != null && !job.syncState && phone != null;
 
   return (
     <ScreenContainer noPadding edges={['bottom']}>
@@ -378,19 +383,23 @@ export function JobDetailScreen({ navigation, route }: Props) {
             accessibilityRole="button"
             accessibilityLabel={`${customerLine(job)}, open profile`}
           >
-            <Avatar name={customerLine(job)} id={job.customer.id || job.customer.phone} size={46} />
+            <Avatar name={customerLine(job)} id={job.customer.id || job.customer.phone || job.id} size={46} />
             <View style={styles.flex}>
               <Text style={styles.customerName} numberOfLines={1}>
                 {customerLine(job)}
               </Text>
-              <Text style={styles.customerPhone}>+91 {formatPhone(phone)}</Text>
+              <Text style={styles.customerPhone}>{phone ? `+91 ${formatPhone(phone)}` : 'No number · no WhatsApp messages'}</Text>
             </View>
-            <Pressable onPress={call} hitSlop={6} style={styles.contact} accessibilityLabel="Call customer">
-              <IconPhone size={17} color={colors.indigo} />
-            </Pressable>
-            <Pressable onPress={whatsapp} hitSlop={6} style={[styles.contact, styles.contactWa]} accessibilityLabel="WhatsApp customer">
-              <IconWhatsApp size={19} />
-            </Pressable>
+            {phone ? (
+              <>
+                <Pressable onPress={call} hitSlop={6} style={styles.contact} accessibilityLabel="Call customer">
+                  <IconPhone size={17} color={colors.indigo} />
+                </Pressable>
+                <Pressable onPress={whatsapp} hitSlop={6} style={[styles.contact, styles.contactWa]} accessibilityLabel="WhatsApp customer">
+                  <IconWhatsApp size={19} />
+                </Pressable>
+              </>
+            ) : null}
           </Pressable>
 
           {/* Receipt */}
@@ -699,7 +708,7 @@ export function JobDetailScreen({ navigation, route }: Props) {
           visible={selling}
           vehicleTypeId={vehicleTypeId}
           vehicleName={job.vehicle.vehicleType.name}
-          customer={{ phone: job.customer.phone, name: job.customer.name?.trim() || 'Customer' }}
+          customer={{ phone: phone ?? '', name: job.customer.name?.trim() || 'Customer' }}
           registrationNumber={job.vehicle.registrationNumber}
           onClose={() => setSelling(false)}
           onSold={() => void load()}

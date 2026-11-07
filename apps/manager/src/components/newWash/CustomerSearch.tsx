@@ -158,7 +158,7 @@ export const CustomerSearch = forwardRef<TextInput, Props>(function CustomerSear
                   needle={hit?.field === 'name' ? hit.needle : null}
                   style={styles.rowName}
                 />
-                {hit?.field === 'phone' ? (
+                {hit?.field === 'phone' && entry.customerPhone ? (
                   <Highlight
                     text={entry.customerPhone}
                     needle={hit.needle}

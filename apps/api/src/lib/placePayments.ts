@@ -72,7 +72,8 @@ export async function startPayment(
       referenceId: id,
       amountPaise: installment.amount,
       description: `${shop.name} · ${order.title} · ${order.member.place.label}${installment.seq > 1 ? ` (part ${installment.seq})` : ''}`,
-      customer: { name: order.customer.name, phone: order.customer.phone },
+      // Community members always join with a number.
+      customer: { name: order.customer.name, phone: order.customer.phone ?? '' },
       callbackUrl: `${origin}/pay/return`,
       expiresAt,
       notes: { payment_id: id, shop_id: shopId, order_id: orderId },

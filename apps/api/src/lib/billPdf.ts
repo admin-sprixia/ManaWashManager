@@ -22,7 +22,8 @@ export interface BillInput {
   /** When it was paid. */
   at: Date;
   paymentMethod: string | null;
-  customer: { name: string | null; phone: string };
+  /** phone: null when the customer didn't give a number. */
+  customer: { name: string | null; phone: string | null };
   vehicle: { label: string; registration: string | null };
   lines: { name: string; quantity: number; unitPrice: number; amount: number; note?: string | null }[];
   /** Paise. */
@@ -139,11 +140,11 @@ export async function buildBillPdf(input: BillInput): Promise<Uint8Array> {
   const tableW = W - M * 2;
   const colW = tableW / 3;
   const customerName = safe(input.customer.name ?? '') || 'Customer';
-  const phone = input.customer.phone.replace(/^(\d{5})(\d{5})$/, '$1 $2');
+  const phone = input.customer.phone ? `+91 ${input.customer.phone.replace(/^(\d{5})(\d{5})$/, '$1 $2')}` : null;
   const label = (s: string, x: number) => text(s.toUpperCase(), x, top, 7, bold, SLATE_LIGHT, { spacing: 1.3 });
   label('Billed to', M);
   text(customerName, M, top + 13, 11.5, bold, INK);
-  text(`+91 ${phone}`, M, top + 29, 9, regular, SLATE);
+  if (phone) text(phone, M, top + 29, 9, regular, SLATE);
   label('Vehicle', M + colW);
   text(input.vehicle.registration ? spacedPlate(input.vehicle.registration) : input.vehicle.label, M + colW, top + 13, 11.5, bold, INK);
   if (input.vehicle.registration) text(input.vehicle.label, M + colW, top + 29, 9, regular, SLATE);

@@ -38,7 +38,8 @@ const notSetUp = { error: 'whatsapp_unavailable' as const, message: 'WhatsApp is
 const validTill = (d: Date) => washMessageDate(d).split(',')[0]!;
 
 /** Sends a reminder or offer from the business number now; the error message when it couldn't. */
-async function sendNow(env: Env, phone: string, shopId: string, input: FollowUpInput, purpose: string): Promise<string | null> {
+async function sendNow(env: Env, phone: string | null, shopId: string, input: FollowUpInput, purpose: string): Promise<string | null> {
+  if (!phone) return 'This customer didn’t give a mobile number.';
   if (!whatsappConfigured(env)) return notSetUp.message;
   const contact = await followUpContact(env, phone);
   if (contact.stopped) return stoppedOffers.message;

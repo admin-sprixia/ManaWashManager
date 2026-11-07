@@ -362,11 +362,13 @@ export const placeOrderRepo = {
     let customer = await db.customer.findFirst({ where: { phone: input.phone }, select: { id: true, name: true } });
     const newCustomer = !customer;
     if (!customer) {
+      // number_key is the internal key every customer row needs (see schema.sql): its own id here.
+      const id = newId();
       await runStatements(d1, [
         {
-          sql: `INSERT INTO customers (id, shop_id, name, phone, source) VALUES (?, ?, ?, ?, ?)
+          sql: `INSERT INTO customers (id, shop_id, name, number_key, phone, source) VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT (shop_id, phone) DO NOTHING`,
-          params: [newId(), shopId, input.name, input.phone, input.via === 'staff' ? 'community' : 'community_app'],
+          params: [id, shopId, input.name, id, input.phone, input.via === 'staff' ? 'community' : 'community_app'],
         },
       ]);
       customer = await db.customer.findFirst({ where: { phone: input.phone }, select: { id: true, name: true } });

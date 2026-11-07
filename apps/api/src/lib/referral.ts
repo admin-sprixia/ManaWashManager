@@ -109,7 +109,8 @@ export async function evaluateReferral(
     newVehicleKnown: Boolean(newVehicle),
   });
   if (problem || !referrer) return { problem: problem ?? 'referrer_unknown' };
-  return { problem: null, referrer };
+  // Found by this number, so it has one.
+  return { problem: null, referrer: { ...referrer, phone: input.referrerPhone } };
 }
 
 /**

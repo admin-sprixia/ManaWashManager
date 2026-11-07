@@ -80,7 +80,7 @@ d1Run(
     `INSERT INTO users (id, shop_id, name, phone, role) VALUES ('${U.owner}', '${SHOP}', 'Owner', '${phone.owner}', 'owner'), ('${U.manager}', '${SHOP}', 'Manager', '${phone.manager}', 'manager'), ('${U.ravi}', '${SHOP}', 'Ravi', '${phone.ravi}', 'staff'), ('${U.sita}', '${SHOP}', 'Sita', '${phone.sita}', 'staff');` +
     `INSERT INTO vehicle_types (id, shop_id, name, category, sort_order) VALUES ('${VT}', '${SHOP}', 'Hatchback', 'car', 0);` +
     `INSERT INTO services (id, shop_id, name, applies_to, sort_order) VALUES ('${SVC}', '${SHOP}', 'Rust coat', 'car', 0);` +
-    `INSERT INTO customers (id, shop_id, name, phone) VALUES ('${CUST}', '${SHOP}', 'Customer', '98${rand(8)}');` +
+    `INSERT INTO customers (id, shop_id, name, number_key, phone) VALUES ('${CUST}', '${SHOP}', 'Customer', '${CUST}', '98${rand(8)}');` +
     `INSERT INTO vehicles (id, shop_id, customer_id, registration_number, vehicle_type_id) VALUES ('${VEH}', '${SHOP}', '${CUST}', 'AP39RC${rand(4)}', '${VT}');` +
     // A: started last night by Sita, paid just after midnight today in cash, with a commission line she sold; Ravi washed it.
     jobRow(job('a'), { by: U.sita, status: 'paid', total: 40000, created: at(YESTERDAY, '23:50'), paid: at(TODAY, '00:30'), method: 'cash', paidBy: U.sita }) +

@@ -60,7 +60,8 @@ export interface BoardJob {
   /** Where the car is washed; rows saved before doorstep washing have none (the hub). */
   deliveryMode?: string;
   paymentMethod: PaymentMethod | null;
-  customer: { id: string; name: string | null; phone: string };
+  /** phone: null when the customer didn't give a number. */
+  customer: { id: string; name: string | null; phone: string | null };
   vehicle: {
     registrationNumber: string;
     /** Company and model, when known. */
@@ -96,7 +97,8 @@ export interface BoardJob {
 export interface StartJobPayload {
   id: string;
   occurredAt: string;
-  customer: { phone: string; name: string };
+  /** phone: null when the customer didn't give a number (the vehicle number identifies them). */
+  customer: { phone: string | null; name: string };
   registrationNumber: string;
   /** Known plate, different phone: whether the owner changed numbers or the vehicle changed hands. */
   ownership?: 'new_owner' | 'same_person';

@@ -173,6 +173,7 @@ export async function runFollowUps(env: Env, now = new Date(), opts: { onlyPhone
       take: 50,
     });
     for (const r of rewards) {
+      if (!r.customer.phone) continue;
       const ok = await send(r.customer.phone, shop.id, {
         ...base,
         kind: 'referral',
@@ -222,14 +223,15 @@ export async function runFollowUps(env: Env, now = new Date(), opts: { onlyPhone
     const owner = await db.user.findFirst({ where: { role: 'owner', active: true }, select: { id: true } });
     for (const v of vehicles) {
       const last = v.jobs[0];
-      if (!last) continue;
+      const phone = v.customer.phone;
+      if (!last || !phone) continue;
       const days = daysBetween(last.createdAt, now);
       const bucket = reminderBucket(days);
       const state = v.reminder && v.reminder.lastVisitAt.getTime() === last.createdAt.getTime() ? v.reminder : null;
       if (!bucket || state?.dismissedAt || (state?.snoozedUntil && state.snoozedUntil > now)) continue;
       const vehicle = [v.make, v.model].filter(Boolean).join(' ') || v.vehicleType.name;
       if (bucket === 'due' && !state?.remindedAt) {
-        const ok = await send(v.customer.phone, shop.id, {
+        const ok = await send(phone, shop.id, {
           ...base,
           kind: 'reminder',
           customerName: v.customer.name,
@@ -239,7 +241,7 @@ export async function runFollowUps(env: Env, now = new Date(), opts: { onlyPhone
         }, 'reminder');
         if (ok) await reminderRepo.record(db, { vehicleId: v.id, lastVisitAt: last.createdAt, action: 'reminded', userId: null, now });
       } else if (bucket === 'comeback' && v.coupons.length === 0 && owner && days >= COMEBACK_DAYS) {
-        if (!wanted(v.customer.phone) || messaged.has(v.customer.phone) || report.sent >= MAX_PER_RUN) continue;
+        if (!wanted(phone) || messaged.has(phone) || report.sent >= MAX_PER_RUN) continue;
         const coupon = await couponRepo.issue(db, {
           vehicleId: v.id,
           customerId: v.customerId,
@@ -249,7 +251,7 @@ export async function runFollowUps(env: Env, now = new Date(), opts: { onlyPhone
           issuedByUserId: owner.id,
           now,
         });
-        const ok = await send(v.customer.phone, shop.id, {
+        const ok = await send(phone, shop.id, {
           ...base,
           kind: 'comeback',
           customerName: v.customer.name,

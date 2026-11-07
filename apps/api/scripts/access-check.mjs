@@ -180,6 +180,50 @@ check('The owner fixes a mistyped vehicle number', r.status === 200 && r.body?.v
 r = await call(owner, 'PATCH', `/customers/${otherCust}/vehicles/${vehId}`, { registrationNumber: plate() });
 check('…only through the vehicle’s own customer', r.status === 404, show(r));
 
+// ─── A customer who doesn't give a number ─────────────────────────────────
+
+async function startNoNumber(token, registrationNumber, name) {
+  const types = await call(token, 'GET', '/services/vehicle-types');
+  for (const vt of types.body ?? []) {
+    const prices = await call(token, 'GET', `/services/prices?vehicleTypeId=${vt.id}&mode=hub`);
+    const p = (prices.body ?? []).find((x) => x.price > 0);
+    if (!p) continue;
+    return call(token, 'POST', '/jobs/start', {
+      id: id('job'),
+      customer: { phone: null, name },
+      registrationNumber,
+      vehicleTypeId: vt.id,
+      services: [{ serviceId: p.serviceId, quantity: 1 }],
+      discount: 0,
+    });
+  }
+}
+const quietPlate = plate();
+r = await startNoNumber(staff, quietPlate, 'No Number One');
+check('Staff start a wash for a customer who gave no number', r.status === 201 || r.status === 200, show(r));
+const firstQuiet = d1Rows(`SELECT c.id, c.phone IS NULL AS none FROM jobs j JOIN customers c ON c.id = j.customer_id WHERE j.id = '${r.body?.id}'`)[0];
+check('…saved with no number', Number(firstQuiet?.none) === 1, JSON.stringify(firstQuiet));
+r = await startNoNumber(staff, quietPlate, 'No Number One');
+const again = d1Rows(`SELECT customer_id FROM jobs WHERE id = '${r.body?.id}'`)[0];
+check('…and the same car next time is the same customer, by its vehicle number', again?.customer_id === firstQuiet?.id, JSON.stringify(again));
+r = await startNoNumber(staff, plate(), 'No Number Two');
+check('Two customers can both have no number', r.status === 201 || r.status === 200, show(r));
+const addedNumber = newPhone();
+r = await call(owner, 'PATCH', `/customers/${firstQuiet?.id}`, { phone: addedNumber });
+check('A number given later is added from Edit', r.status === 200 && r.body?.customer?.phone === addedNumber, show(r));
+r = await call(owner, 'PATCH', `/customers/${firstQuiet?.id}`, { phone: null });
+check('…and can be removed again', r.status === 200 && r.body?.customer?.phone === null, show(r));
+r = await call(staff, 'POST', '/jobs/start', {
+  id: id('job'),
+  customer: { phone: null, name: 'Coupon Try' },
+  registrationNumber: plate(),
+  vehicleTypeId: 'none',
+  services: [],
+  discount: 0,
+  couponCode: 'NOPE1234',
+});
+check('A coupon can’t be used without a number', r.status >= 400, show(r));
+
 // ─── Attendance ───────────────────────────────────────────────────────────
 
 const istDay = (daysAgo) => new Date(Date.now() + 5.5 * 3600_000 - daysAgo * 86_400_000).toISOString().slice(0, 10);

@@ -380,7 +380,11 @@ model Customer {
   id               String   @id @default(uuid())
   shopId           String   @default("") @map("shop_id")
   name             String?
-  phone            String
+  /// An internal key (the column first held the number): a random value for every new customer.
+  numberKey        String   @default(uuid()) @map("number_key")
+  /// The mobile number; null when the customer didn't give one (known by their vehicle number,
+  /// no WhatsApp messages).
+  phone            String?
   source           String? // google | friend | board | instagram | other | app (Mana Wash request)
   marketingConsent Boolean  @default(false) @map("marketing_consent")
   createdAt        DateTime @default(now()) @map("created_at")
@@ -398,6 +402,7 @@ model Customer {
   placeOrders  PlaceOrder[]
   payments     CustomerPayment[]
 
+  @@unique([shopId, numberKey])
   @@unique([shopId, phone])
   @@map("customers")
 }

@@ -57,7 +57,7 @@ d1Run(
     `INSERT INTO shops (id, code, name, business_id, menu_version) VALUES ('${SHOP}', '${rand(6)}', 'Cash Hub', '${BIZ}', 1), ('${OTHER}', '${rand(6)}', 'Cash Other', '${BIZ}', 1);` +
     `INSERT INTO users (id, shop_id, name, phone, role) VALUES ('${OWNER}', '${SHOP}', 'Owner', '${phone.owner}', 'owner'), ('${RAVI}', '${SHOP}', 'Ravi', '${phone.ravi}', 'staff'), ('${SITA}', '${SHOP}', 'Sita', '${phone.sita}', 'staff'), ('${OTHER_OWNER}', '${OTHER}', 'Other Owner', '${phone.other}', 'owner');` +
     `INSERT INTO vehicle_types (id, shop_id, name, category, sort_order) VALUES ('${VT}', '${SHOP}', 'Hatchback', 'car', 0);` +
-    `INSERT INTO customers (id, shop_id, name, phone) VALUES ('${CUST}', '${SHOP}', 'Door Customer', '98${rand(8)}');` +
+    `INSERT INTO customers (id, shop_id, name, number_key, phone) VALUES ('${CUST}', '${SHOP}', 'Door Customer', '${CUST}', '98${rand(8)}');` +
     `INSERT INTO vehicles (id, shop_id, customer_id, registration_number, vehicle_type_id) VALUES ('${VEH}', '${SHOP}', '${CUST}', 'AP39CC${rand(4)}', '${VT}');`,
 );
 

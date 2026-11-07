@@ -63,7 +63,7 @@ export function vehicleHeadline(job: Pick<BoardJob, 'vehicle'>): { title: string
 }
 
 export function customerLine(job: Pick<BoardJob, 'customer'>): string {
-  return job.customer.name?.trim() || job.customer.phone;
+  return job.customer.name?.trim() || job.customer.phone || 'Customer';
 }
 
 export function firstName(name: string | null | undefined): string {

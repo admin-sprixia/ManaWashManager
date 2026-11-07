@@ -243,13 +243,18 @@ CREATE TABLE customers (
   id TEXT PRIMARY KEY,
   shop_id TEXT NOT NULL REFERENCES shops(id),
   name TEXT,
-  phone TEXT NOT NULL,
+  -- An internal key since 1.0.2 (the column first held the number): the number for customers
+  -- from before, a random value for new ones. The mobile number is `phone` below.
+  number_key TEXT NOT NULL,
   source TEXT,
   marketing_consent INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
   home_latitude REAL CHECK (home_latitude IS NULL OR home_latitude BETWEEN -90 AND 90), -- from their last doorstep wash
   home_longitude REAL CHECK (home_longitude IS NULL OR home_longitude BETWEEN -180 AND 180),
-  UNIQUE (shop_id, phone),
+  -- Optional: a customer who didn't give a number is known by their vehicle number and gets no
+  -- WhatsApp messages. One customer per number (idx_customers_phone).
+  phone TEXT CHECK (phone IS NULL OR length(phone) = 10),
+  UNIQUE (shop_id, number_key),
   UNIQUE (shop_id, id)
 );
 
@@ -1484,6 +1489,7 @@ CREATE INDEX idx_rate_limits_window ON rate_limits(window_start);
 CREATE INDEX idx_branch_status_events_shop ON branch_status_events(shop_id, created_at);
 CREATE INDEX idx_billing_payments_shop_paid ON billing_payments(shop_id, paid_at);
 CREATE INDEX idx_billing_events_received ON billing_events(received_at);
+CREATE UNIQUE INDEX idx_customers_phone ON customers(shop_id, phone);
 CREATE INDEX idx_app_errors_shop_created_at ON app_errors(shop_id, created_at);
 CREATE INDEX idx_app_errors_created_at ON app_errors(created_at);
 CREATE INDEX idx_login_codes_user_created ON login_codes(user_id, created_at);

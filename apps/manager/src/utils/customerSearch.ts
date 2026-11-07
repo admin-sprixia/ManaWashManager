@@ -59,8 +59,8 @@ export function searchDirectory(entries: DirectoryEntry[], query: string, limit 
       else if (plate.includes(reg)) consider('plate', reg, 55);
     }
 
-    if (!hasLetters && phone.length >= 3) {
-      const p = entry.customerPhone;
+    const p = entry.customerPhone;
+    if (!hasLetters && phone.length >= 3 && p) {
       if (p === phone) consider('phone', phone, 95);
       else if (p.startsWith(phone)) consider('phone', phone, 62);
       else if (p.endsWith(phone)) consider('phone', phone, 58);

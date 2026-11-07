@@ -60,7 +60,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Rewards'>;
 type OwedGift = RewardGift & {
   registrationNumber: string;
   customerName: string | null;
-  customerPhone: string;
+  customerPhone: string | null;
 };
 
 interface ServiceOption {

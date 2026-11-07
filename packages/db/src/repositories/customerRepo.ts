@@ -25,7 +25,7 @@ export const customerRepo = {
   },
 
   /** The profile's Edit: a new name and/or number. 'phone_taken' when another customer has it. */
-  async updateDetails(db: DbClient, id: string, data: { name?: string; phone?: string }) {
+  async updateDetails(db: DbClient, id: string, data: { name?: string; phone?: string | null }) {
     const existing = await db.customer.findUnique({ where: { id }, select: { id: true } });
     if (!existing) return 'not_found' as const;
     try {
@@ -50,12 +50,13 @@ export const customerRepo = {
    * (past jobs stay with whoever brought the car at the time) — unless the operator confirmed
    * it's the same person with a new number, in which case the owner's phone is updated instead.
    * The vehicle's size is updated to what the operator just picked, since that's what the
-   * job is priced on.
+   * job is priced on. With no number (the customer didn't give one) the plate alone decides: a
+   * known vehicle stays with its customer, a new one gets a new customer without a number.
    */
   async ensureWithVehicle(
     db: DbClient,
     data: {
-      phone: string;
+      phone: string | null;
       name: string;
       registrationNumber: string;
       vehicleTypeId: string;
@@ -69,21 +70,33 @@ export const customerRepo = {
     const existing = await db.vehicle.findFirst({
       where: { registrationNumber: data.registrationNumber },
     });
+    const phone = data.phone;
+
+    if (!phone) {
+      let customer = existing ? await db.customer.findUnique({ where: { id: existing.customerId } }) : null;
+      if (!customer) {
+        customer = await db.customer.create({ data: { phone: null, name: data.name, source: data.source } });
+      } else if (customer.name !== data.name) {
+        customer = await db.customer.update({ where: { id: customer.id }, data: { name: data.name } });
+        await directoryRepo.touchCustomer(db, customer.id);
+      }
+      return { customer, vehicle: await this.keepVehicle(db, existing, customer.id, data) };
+    }
 
     if (existing && data.ownership === 'same_person') {
       const owner = await db.customer.findUnique({ where: { id: existing.customerId } });
-      if (owner && owner.phone !== data.phone) {
-        const holder = await db.customer.findFirst({ where: { phone: data.phone } });
+      if (owner && owner.phone !== phone) {
+        const holder = await db.customer.findFirst({ where: { phone } });
         if (holder) return { error: 'phone_taken' as const, holderName: holder.name };
-        await db.customer.update({ where: { id: owner.id }, data: { phone: data.phone } });
+        await db.customer.update({ where: { id: owner.id }, data: { phone } });
         await directoryRepo.touchCustomer(db, owner.id);
       }
     }
 
-    let customer = await db.customer.findFirst({ where: { phone: data.phone } });
+    let customer = await db.customer.findFirst({ where: { phone } });
     if (!customer) {
       customer = await db.customer.create({
-        data: { phone: data.phone, name: data.name, source: data.source },
+        data: { phone, name: data.name, source: data.source },
       });
     } else if (customer.name !== data.name) {
       customer = await db.customer.update({
@@ -93,34 +106,47 @@ export const customerRepo = {
       await directoryRepo.touchCustomer(db, customer.id);
     }
 
+    return { customer, vehicle: await this.keepVehicle(db, existing, customer.id, data) };
+  },
+
+  /**
+   * The vehicle for New Wash's find-or-create: created for the customer when the plate is new,
+   * otherwise moved to them and given the size (and company and model) just picked.
+   */
+  async keepVehicle(
+    db: DbClient,
+    existing: Awaited<ReturnType<DbClient['vehicle']['findFirst']>>,
+    customerId: string,
+    data: { registrationNumber: string; vehicleTypeId: string; make?: string; model?: string },
+  ) {
     const makeModel = data.make && data.model ? { make: data.make, model: data.model } : {};
     let vehicle;
     if (!existing) {
       vehicle = await db.vehicle.create({
         data: {
-          customerId: customer.id,
+          customerId,
           registrationNumber: data.registrationNumber,
           vehicleTypeId: data.vehicleTypeId,
           ...makeModel,
         },
       });
     } else if (
-      existing.customerId !== customer.id ||
+      existing.customerId !== customerId ||
       existing.vehicleTypeId !== data.vehicleTypeId ||
       (makeModel.make != null && (existing.make !== makeModel.make || existing.model !== makeModel.model))
     ) {
       vehicle = await db.vehicle.update({
         where: { id: existing.id },
-        data: { customerId: customer.id, vehicleTypeId: data.vehicleTypeId, ...makeModel },
+        data: { customerId, vehicleTypeId: data.vehicleTypeId, ...makeModel },
       });
-      if (existing.customerId !== customer.id) {
+      if (existing.customerId !== customerId) {
         await couponRepo.cancelActiveForVehicle(db, existing.id, 'owner_changed', new Date());
       }
     } else {
       vehicle = existing;
     }
 
-    return { customer, vehicle };
+    return vehicle;
   },
 
   /** One page of a customer's jobs for their profile, newest first, before `before` if given. */

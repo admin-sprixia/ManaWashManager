@@ -12,7 +12,8 @@ export interface DirectoryEntry {
   model?: string | null;
   customerId: string;
   customerName: string;
-  customerPhone: string;
+  /** Null when the customer didn't give a number. */
+  customerPhone: string | null;
   visitCount: number;
   lastVisit: string | null;
   lastServices: { serviceId: string; quantity: number }[];
@@ -145,7 +146,8 @@ export interface LocalVisit {
   make?: string;
   model?: string;
   customerName: string;
-  customerPhone: string;
+  /** Null when the customer didn't give a number. */
+  customerPhone: string | null;
   services: { serviceId: string; quantity: number }[];
   /** Set when the operator said a known vehicle's owner simply changed numbers. */
   samePersonAs?: DirectoryEntry | null;
@@ -168,8 +170,11 @@ export function applyLocalVisit(snapshot: DirectorySnapshot, visit: LocalVisit):
     }
   }
 
-  const sibling = Object.values(entries).find((e) => e.customerPhone === visit.customerPhone);
-  const customerId = sibling?.customerId ?? `local:${visit.customerPhone}`;
+  // The same customer: by number, or with no number (as on the server) the plate's own customer.
+  const sibling = visit.customerPhone
+    ? Object.values(entries).find((e) => e.customerPhone === visit.customerPhone)
+    : entries[visit.registrationNumber];
+  const customerId = sibling?.customerId ?? `local:${visit.customerPhone ?? visit.registrationNumber}`;
   const visitCount = (sibling?.visitCount ?? 0) + 1;
 
   for (const e of Object.values(entries)) {
@@ -192,7 +197,8 @@ export function applyLocalVisit(snapshot: DirectorySnapshot, visit: LocalVisit):
     model: visit.make ? (visit.model ?? null) : (existing?.model ?? null),
     customerId,
     customerName: visit.customerName,
-    customerPhone: visit.customerPhone,
+    // No number given keeps the one a known vehicle's customer already has (the server does too).
+    customerPhone: visit.customerPhone ?? existing?.customerPhone ?? null,
     visitCount,
     lastVisit: visit.at,
     lastServices: visit.services,

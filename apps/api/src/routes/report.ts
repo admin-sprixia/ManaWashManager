@@ -118,7 +118,7 @@ export const reportRoutes = new Hono<{ Bindings: Env }>()
         reason: e.reason,
         amount: e.job.total,
         title: e.job.vehicle.registrationNumber,
-        subtitle: e.job.customer.name ?? e.job.customer.phone,
+        subtitle: e.job.customer.name ?? e.job.customer.phone ?? 'No number',
         fromValue: e.fromValue,
         toValue: e.toValue,
         jobId: e.job.id,

@@ -113,7 +113,7 @@ export function WelcomeCard({
         <View style={styles.details}>
           <PlateBadge plate={entry.registrationNumber} tone="glass" />
           <Text style={styles.detailText} numberOfLines={1}>
-            {vehicleTypeName} · {maskPhone(entry.customerPhone)}
+            {vehicleTypeName} · {entry.customerPhone ? maskPhone(entry.customerPhone) : 'No number'}
           </Text>
           <Pressable
             onPress={onEdit}

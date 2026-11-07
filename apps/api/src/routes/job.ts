@@ -148,10 +148,12 @@ const startJobSchema = z
     id: clientIdSchema,
     occurredAt: occurredAtSchema,
     customer: z.object({
+      /** Null (or missing) when the customer didn't give a number: the vehicle number identifies them. */
       phone: z
         .string()
-        .transform(normalizePhone)
-        .refine((p) => /^[6-9]\d{9}$/.test(p), 'Enter a valid 10-digit mobile number'),
+        .nullish()
+        .transform((p) => (p ? normalizePhone(p) : null))
+        .refine((p) => p === null || /^[6-9]\d{9}$/.test(p), 'Enter a valid 10-digit mobile number'),
       name: z.string().trim().min(1, 'Customer name is required').max(80),
     }),
     registrationNumber: z
@@ -256,7 +258,8 @@ interface VisitContext {
   d1: D1Database;
   shopId: string;
   at: Date;
-  customer: { phone: string } | { customerId: string };
+  /** Null for a customer who didn't give a number (and isn't known yet). */
+  customer: { phone: string } | { customerId: string } | null;
   jobId?: string;
 }
 
@@ -368,7 +371,7 @@ async function priceJob(
     // The distance is measured, never typed: from the branch's pin to the home.
     let km = 0;
     if (doorstep.perKmPaise > 0 || doorstep.maxKm < 100) {
-      visitPoint = body.visitPoint ?? (await awayPricingRepo.savedHome(db, visit.customer));
+      visitPoint = body.visitPoint ?? (visit.customer ? await awayPricingRepo.savedHome(db, visit.customer) : null);
       if (!visitPoint) {
         return {
           error: 'location_needed' as const,
@@ -389,7 +392,7 @@ async function priceJob(
       };
     }
     visitKm = charge.km;
-    const shared = await awayPricingRepo.sameVisit(db, visit.customer, visit.at, visit.jobId);
+    const shared = visit.customer ? await awayPricingRepo.sameVisit(db, visit.customer, visit.at, visit.jobId) : false;
     visitAmount = shared ? 0 : charge.total;
     if (visitAmount > 0) {
       lineItems.push({
@@ -543,9 +546,10 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       d1: c.env.DB,
       shopId: session.shopId,
       at: createdAt,
-      customer: { phone: body.customer.phone },
+      customer: body.customer.phone ? { phone: body.customer.phone } : null,
       jobId: body.id,
     };
+    const phone = body.customer.phone;
     const existing = await jobRepo.findBoardRow(db, body.id);
     if (existing) return c.json(await finishReplayedJob(db, existing, body, session.sub, visit), 200);
 
@@ -570,10 +574,13 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
           409,
         );
       }
+      if (!phone) {
+        return c.json({ error: 'coupon_invalid' as const, message: 'A coupon needs the customer’s mobile number.' }, 409);
+      }
       const check = await couponRepo.checkRedeemable(db, {
         code: body.couponCode,
         registrationNumber: body.registrationNumber,
-        phone: body.customer.phone,
+        phone,
         jobId: body.id,
         now,
       });
@@ -588,6 +595,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       const referralInvalid = (message: string) =>
         c.json({ error: 'referral_invalid' as const, message }, 409);
       if (body.ownership) return referralInvalid('Referral offers are only for new customers.');
+      if (!phone) return referralInvalid('A referral offer needs the new customer’s mobile number.');
       const quote = await verifyReferralQuote(body.referralToken, c.env.JWT_SECRET);
       if (!quote || quote.shopId !== session.shopId) {
         return referralInvalid('This referral offer expired. Remove it and check the referral again.');
@@ -625,7 +633,8 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     let planWash: { discount: number; reason: string; serviceId: string; wash?: string } | null = null;
     if (body.planOrderId) {
       if (body.ownership) return planInvalid('A plan wash can’t be used while the vehicle’s owner is being changed.');
-      const plans = await placeOrderRepo.shopPlans(c.env.DB, session.shopId, body.customer.phone, now);
+      if (!phone) return planInvalid('A community plan wash needs the member’s mobile number.');
+      const plans = await placeOrderRepo.shopPlans(c.env.DB, session.shopId, phone, now);
       const found = plans.find((p) => p.orderId === body.planOrderId);
       if (!found) return planInvalid('This plan isn’t running for this customer any more.');
       if (found.problem) return planInvalid(found.problem);
@@ -728,11 +737,11 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     }
     const { customer, vehicle } = ensured;
 
-    if (planWash && body.planOrderId) {
+    if (planWash && body.planOrderId && phone) {
       const used = await placeOrderRepo.useAtShop(c.env.DB, session.shopId, {
         orderId: body.planOrderId,
         jobId: body.id,
-        phone: body.customer.phone,
+        phone,
         byUserId: session.sub,
         now,
       });

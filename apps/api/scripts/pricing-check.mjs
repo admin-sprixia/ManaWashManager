@@ -246,7 +246,7 @@ const flatsJoin = (n) => {
   for (let i = 0; i < n; i++) {
     const id = `${run}_${rand(6)}_${joinedSoFar}`;
     sql +=
-      `INSERT INTO customers (id, shop_id, phone, name) VALUES ('cu_${id}', '${A}', '97${rand(8)}', 'Member');` +
+      `INSERT INTO customers (id, shop_id, number_key, phone, name) VALUES ('cu_${id}', '${A}', 'cu_${id}', '97${rand(8)}', 'Member');` +
       `INSERT INTO place_members (id, shop_id, place_id, customer_id, unit_id, status, joined_via) VALUES ('pm_${id}', '${A}', '${PLACE}', 'cu_${id}', '${flatIds[joinedSoFar]}', 'active', 'staff');` +
       `INSERT INTO member_vehicles (id, shop_id, member_id, customer_id, vehicle_type_id) VALUES ('mv_${id}', '${A}', 'pm_${id}', 'cu_${id}', '${hatch}');` +
       `INSERT INTO place_orders (id, shop_id, customer_id, member_id, member_vehicle_id, kind, title, snapshot, washes_total, single_price, total, status) VALUES ('po_${id}', '${A}', 'cu_${id}', 'pm_${id}', 'mv_${id}', 'single', 'Basic Wash', '{}', 1, 54900, 54900, 'active');`;

@@ -78,7 +78,8 @@ interface ProfileData {
   customer: {
     id: string;
     name: string | null;
-    phone: string;
+    /** Null when the customer didn't give a number. */
+    phone: string | null;
     source?: string | null;
     marketingConsent?: boolean;
     createdAt: string;
@@ -304,9 +305,9 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
     .flatMap((m) => m.orders.flatMap((o) => o.receipts))
     .reduce((sum, r) => sum + r.amount - r.refunded, 0);
   const firstName = customer.name?.trim().split(/\s+/)[0] ?? null;
-  const displayName = customer.name?.trim() || formatPhoneIntl(customer.phone);
+  const displayName = customer.name?.trim() || (customer.phone ? formatPhoneIntl(customer.phone) : 'Customer');
   const initials = customerInitials(customer.name);
-  const phoneDisplay = formatPhoneIntl(customer.phone);
+  const phoneDisplay = customer.phone ? formatPhoneIntl(customer.phone) : 'No mobile number';
   const washableVehicles = vehicles.filter((v) => !isWalkIn(v.registrationNumber));
   const primaryReg =
     history.find((j) => !isWalkIn(j.vehicle.registrationNumber))?.vehicle.registrationNumber ??
@@ -409,16 +410,21 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
           </View>
 
           <View style={styles.quickRow}>
-            <QuickAction label="Call" onPress={() => callPhone(customer.phone)}>
-              <IconPhone size={20} color={colors.white} />
-            </QuickAction>
-            <QuickAction
-              label="WhatsApp"
-              onPress={() => openWhatsApp(customer.phone, greetingMessage)}
-            >
-              <IconWhatsApp size={20} variant="mono" color={colors.white} />
-            </QuickAction>
-            {online ? (
+            {customer.phone ? (
+              <>
+                <QuickAction label="Call" onPress={() => callPhone(customer.phone!)}>
+                  <IconPhone size={20} color={colors.white} />
+                </QuickAction>
+                <QuickAction
+                  label="WhatsApp"
+                  onPress={() => openWhatsApp(customer.phone!, greetingMessage)}
+                >
+                  <IconWhatsApp size={20} variant="mono" color={colors.white} />
+                </QuickAction>
+              </>
+            ) : null}
+            {/* A plan's messages go on WhatsApp, so selling one needs the number. */}
+            {online && customer.phone ? (
               <QuickAction label="Sell plan" onPress={() => setPickingVehicle(true)}>
                 <IconTag size={20} color={colors.white} />
               </QuickAction>
@@ -651,7 +657,7 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
       </ScrollView>
       <PlanVehicleSheet
         visible={pickingVehicle}
-        customerPhone={data.customer.phone}
+        customerPhone={data.customer.phone ?? ''}
         vehicles={vehicles}
         onClose={() => setPickingVehicle(false)}
         onPicked={(v) => {
@@ -664,7 +670,7 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
           visible
           vehicleTypeId={planFor.vehicleTypeId}
           vehicleName={planFor.vehicleName}
-          customer={{ phone: data.customer.phone, name: data.customer.name?.trim() || 'Customer' }}
+          customer={{ phone: data.customer.phone ?? '', name: data.customer.name?.trim() || 'Customer' }}
           registrationNumber={planFor.registrationNumber}
           ownership={planFor.ownership}
           make={planFor.make}

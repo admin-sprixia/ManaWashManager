@@ -302,6 +302,8 @@ function VisitSheet({
     const name = row.customer.name?.trim().split(/\s+/)[0];
     const vehicle = row.vehicle.registrationNumber ?? row.vehicle.typeName;
     const when = row.visit && !row.visit.byCustomer ? ` at ${formatTime(row.visit.at)}` : '';
+    // Community members always join with a number.
+    if (!row.customer.phone) return;
     void openWhatsApp(
       row.customer.phone,
       `Hi${name ? ` ${name}` : ''}, your ${vehicle} at ${placeName} was washed today${when}. Thank you! — Mana Wash`,
@@ -355,7 +357,7 @@ function VisitSheet({
       const res = await api.places.orders[':id']['payment-link'].$post({ param: { id: row.orderId } });
       const body = (await res.json()) as { message?: string; phone?: string | null };
       if (!res.ok || !body.message) setError(body.message ?? 'Couldn’t make the payment link.');
-      else await openWhatsApp(body.phone ?? row.customer.phone, body.message);
+      else if (body.phone ?? row.customer.phone) await openWhatsApp((body.phone ?? row.customer.phone)!, body.message);
     } catch (e) {
       setError(failure(e));
     } finally {

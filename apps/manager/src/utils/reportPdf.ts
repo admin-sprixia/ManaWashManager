@@ -16,7 +16,8 @@ export interface ReportExportJob {
   /** A wash plan sold at the counter: money in, not a car washed. */
   planSale?: boolean;
   customerName: string | null;
-  customerPhone: string;
+  /** Null when the customer didn't give a number. */
+  customerPhone: string | null;
   registrationNumber: string;
   vehicleType: string;
   services: string[];
@@ -245,7 +246,7 @@ function buildInsights(jobs: ReportExportJob[], from: string, to: string) {
   const vehicleCount = new Map<string, number>();
   const dayCount = new Map<string, { key: string; label: string; n: number; revenue: number }>();
   const hourCount = new Map<number, { n: number; revenue: number }>();
-  const customerCount = new Map<string, { name: string; phone: string; n: number; revenue: number }>();
+  const customerCount = new Map<string, { name: string; phone: string | null; n: number; revenue: number }>();
   const collectorCount = new Map<string, { n: number; revenue: number }>();
 
   for (const j of live) {
@@ -272,9 +273,10 @@ function buildInsights(jobs: ReportExportJob[], from: string, to: string) {
       hourCount.set(hour, h);
     }
 
-    const custKey = j.customerPhone || j.customerName || j.id;
+    // A customer without a number is counted by their vehicle.
+    const custKey = j.customerPhone || `reg:${j.registrationNumber}`;
     const cust = customerCount.get(custKey) ?? {
-      name: j.customerName?.trim() || j.customerPhone,
+      name: j.customerName?.trim() || j.customerPhone || j.registrationNumber,
       phone: j.customerPhone,
       n: 0,
       revenue: 0,
@@ -853,7 +855,7 @@ export async function buildReportPdf(
       text(shortDay(job.createdAt), MARGIN + c0.x, top, { size: 8.5, font: bold, color: INK });
       text(shortTime(job.createdAt), MARGIN + c0.x, sub, { size: 7.5, color: FAINT });
 
-      text(job.customerName?.trim() || job.customerPhone, MARGIN + c1.x, top, {
+      text(job.customerName?.trim() || job.customerPhone || 'Customer', MARGIN + c1.x, top, {
         size: 9,
         font: bold,
         color: voided ? DANGER : INK,

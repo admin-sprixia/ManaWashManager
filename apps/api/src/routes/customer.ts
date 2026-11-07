@@ -8,7 +8,8 @@ import {
   vehicleRepo,
   type DirectoryCursor,
 } from '@mana/db';
-import { requireAuth } from '../middleware/auth';
+import { isValidPhone, isValidRegistration, normalizePhone, normalizeRegistration } from '@mana/domain';
+import { requireAuth, requireRole } from '../middleware/auth';
 import type { Env } from '../types';
 
 const lookupQuerySchema = z.object({
@@ -56,6 +57,21 @@ const createCustomerSchema = z.object({
     model: z.string().optional(),
   }),
 });
+
+const editCustomerSchema = z
+  .object({
+    name: z.string().trim().min(1, 'Enter the customer’s name').max(60).optional(),
+    phone: z
+      .string()
+      .transform(normalizePhone)
+      .refine(isValidPhone, 'Enter a valid 10-digit mobile number')
+      .optional(),
+  })
+  .refine((b) => b.name !== undefined || b.phone !== undefined, 'Nothing to change');
+const editVehicleSchema = z.object({
+  registrationNumber: z.string().transform(normalizeRegistration).refine(isValidRegistration, 'Enter a valid vehicle number'),
+});
+const idParam = z.object({ id: z.string().min(1).max(64) });
 
 // Chained in one expression, with every input declared via `zValidator` — see the comment
 // in routes/auth.ts for why both matter for Hono RPC's client typing.
@@ -142,6 +158,32 @@ export const customerRoutes = new Hono<{ Bindings: Env }>()
       ...summary,
     });
   })
+  // The profile's Edit (owner and manager): fix a name or a mistyped number. The number is where
+  // the WhatsApp ready message and bill go, so a typo there sends them to someone else.
+  .patch('/:id', requireRole('owner', 'manager'), zValidator('param', idParam), zValidator('json', editCustomerSchema), async (c) => {
+    const result = await customerRepo.updateDetails(c.get('db'), c.req.valid('param').id, c.req.valid('json'));
+    if (result === 'not_found') return c.json({ error: 'not_found' as const, message: 'Customer not found.' }, 404);
+    if (result === 'phone_taken') {
+      return c.json({ error: 'phone_taken' as const, message: 'Another customer already has this number.' }, 409);
+    }
+    return c.json({ customer: result });
+  })
+  // …and a mistyped vehicle number.
+  .patch(
+    '/:id/vehicles/:vehicleId',
+    requireRole('owner', 'manager'),
+    zValidator('param', z.object({ id: z.string().min(1).max(64), vehicleId: z.string().min(1).max(64) })),
+    zValidator('json', editVehicleSchema),
+    async (c) => {
+      const { id, vehicleId } = c.req.valid('param');
+      const result = await vehicleRepo.updateRegistration(c.get('db'), vehicleId, id, c.req.valid('json').registrationNumber);
+      if (result === 'not_found') return c.json({ error: 'not_found' as const, message: 'Vehicle not found.' }, 404);
+      if (result === 'taken') {
+        return c.json({ error: 'registration_taken' as const, message: 'Another vehicle already has this number.' }, 409);
+      }
+      return c.json({ vehicle: result });
+    },
+  )
   // Quick-add: a brand new customer and their first vehicle in one call (New Wash screen, step 2).
   .post('/', zValidator('json', createCustomerSchema), async (c) => {
     const body = c.req.valid('json');

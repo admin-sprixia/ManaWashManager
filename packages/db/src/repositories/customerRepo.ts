@@ -1,5 +1,6 @@
 import type { DbClient } from '../client';
 import { MAX_IN_LIST } from '../chunk';
+import { isUniqueClash } from '../retryOnClash';
 import { couponRepo } from './couponRepo';
 import { directoryRepo } from './directoryRepo';
 
@@ -21,6 +22,20 @@ export const customerRepo = {
 
   async create(db: DbClient, data: { phone: string; name: string | null; source?: string }) {
     return db.customer.create({ data });
+  },
+
+  /** The profile's Edit: a new name and/or number. 'phone_taken' when another customer has it. */
+  async updateDetails(db: DbClient, id: string, data: { name?: string; phone?: string }) {
+    const existing = await db.customer.findUnique({ where: { id }, select: { id: true } });
+    if (!existing) return 'not_found' as const;
+    try {
+      const customer = await db.customer.update({ where: { id }, data });
+      await directoryRepo.touchCustomer(db, id);
+      return customer;
+    } catch (e) {
+      if (isUniqueClash(e)) return 'phone_taken' as const;
+      throw e;
+    }
   },
 
   async updateName(db: DbClient, id: string, name: string) {

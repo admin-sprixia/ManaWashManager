@@ -162,6 +162,24 @@ d1Run(`UPDATE jobs SET completed_at = strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now',
 r = await call(manager, 'PATCH', `/jobs/${jobId}/payment-method`, { paymentMethod: 'cash', reason: 'Testing money fixes' });
 check('…but not after that', r.status === 403, show(r));
 
+// ─── Editing a customer ───────────────────────────────────────────────────
+
+const [{ customer_id: custId, vehicle_id: vehId }] = d1Rows(`SELECT customer_id, vehicle_id FROM jobs WHERE id = '${jobId}'`);
+const fixedPhone = newPhone();
+r = await call(staff, 'PATCH', `/customers/${custId}`, { name: 'Staff Edit' });
+check('Staff can’t edit a customer', r.status === 403, show(r));
+r = await call(manager, 'PATCH', `/customers/${custId}`, { name: 'Access Edited', phone: fixedPhone });
+check('The manager fixes a name and number', r.status === 200 && r.body?.customer?.name === 'Access Edited' && r.body.customer.phone === fixedPhone, show(r));
+const otherWash = await startWash(manager);
+const [{ customer_id: otherCust }] = d1Rows(`SELECT customer_id FROM jobs WHERE id = '${otherWash.body?.id ?? otherWash.body?.job?.id}'`);
+r = await call(owner, 'PATCH', `/customers/${otherCust}`, { phone: fixedPhone });
+check('…and a number another customer has is refused', r.status === 409 && r.body?.error === 'phone_taken', show(r));
+const fixedPlate = plate();
+r = await call(owner, 'PATCH', `/customers/${custId}/vehicles/${vehId}`, { registrationNumber: fixedPlate.toLowerCase().replace(/^(..)(..)/, '$1 $2 ') });
+check('The owner fixes a mistyped vehicle number', r.status === 200 && r.body?.vehicle?.registrationNumber === fixedPlate, show(r));
+r = await call(owner, 'PATCH', `/customers/${otherCust}/vehicles/${vehId}`, { registrationNumber: plate() });
+check('…only through the vehicle’s own customer', r.status === 404, show(r));
+
 // ─── Attendance ───────────────────────────────────────────────────────────
 
 const istDay = (daysAgo) => new Date(Date.now() + 5.5 * 3600_000 - daysAgo * 86_400_000).toISOString().slice(0, 10);

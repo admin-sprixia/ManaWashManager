@@ -45,6 +45,9 @@ import { SellPlanSheet } from '../components/newWash/SellPlanSheet';
 import { PlanVehicleSheet, type PlanVehicle } from '../components/plans/PlanVehicleSheet';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { CustomerRewards } from '../components/rewards/CustomerRewards';
+import { EditCustomerSheet } from '../components/EditCustomerSheet';
+import { useAuth } from '../api/auth';
+import { useDirectory } from '../offline/DirectoryProvider';
 import { CustomerCommunities, type CustomerCommunity } from '../components/CustomerCommunities';
 import type { JobStatus } from '@mana/domain';
 
@@ -181,6 +184,9 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
   const { online } = useSync();
   /** Selling a plan: first which vehicle, then the plans for it. */
   const [pickingVehicle, setPickingVehicle] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const { isOwner, isManager } = useAuth();
+  const directory = useDirectory();
   const [planFor, setPlanFor] = useState<PlanVehicle | null>(null);
 
   const load = useCallback(async () => {
@@ -362,6 +368,16 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
           >
             <IconChevronLeft size={22} color={colors.white} />
           </Pressable>
+          {(isOwner || isManager) && online ? (
+            <Pressable
+              onPress={() => setEditing(true)}
+              style={({ pressed }) => [styles.editOnHero, { top: insets.top + spacing.sm }, pressed && styles.pressed]}
+              accessibilityRole="button"
+              accessibilityLabel="Edit customer"
+            >
+              <Text style={styles.editOnHeroText}>Edit</Text>
+            </Pressable>
+          ) : null}
 
           <View style={styles.heroIdentity}>
             <View style={styles.avatarRing}>
@@ -658,6 +674,16 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
           formatMoney={formatRupees}
         />
       ) : null}
+      <EditCustomerSheet
+        visible={editing}
+        customer={customer}
+        vehicles={washableVehicles}
+        onClose={() => setEditing(false)}
+        onSaved={() => {
+          void load();
+          void directory.refresh({ force: true });
+        }}
+      />
     </ScreenContainer>
   );
 }
@@ -775,6 +801,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  editOnHero: {
+    position: 'absolute',
+    right: spacing.md,
+    height: 40,
+    paddingHorizontal: spacing.md,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editOnHeroText: { ...typography.bodyStrong, color: colors.white, fontSize: 15 },
   backOnLight: {
     width: 40,
     height: 40,

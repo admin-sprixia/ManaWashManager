@@ -59,12 +59,14 @@ interface CashDay {
   openingFloat: number | null;
   floatSetBy: string | null;
   suggestedFloat: number | null;
-  cashIn: number;
+  /** Null for managers and staff: they count the box blind (see the API's forRole). */
+  cashIn: number | null;
   cashJobs: number;
   cashExpenses: number;
   cashExpenseCount: number;
   doorstep: DoorstepDay;
-  expected: number;
+  /** Null for managers and staff (blind count). */
+  expected: number | null;
   counted: number | null;
   difference: number | null;
   note: string | null;
@@ -412,7 +414,8 @@ export function CashScreen({ navigation, route }: Props) {
 
   const dayTone = (d: string): DotTone | null => {
     if (d === date && day) {
-      if (day.status === 'closed') return (day.difference ?? 0) === 0 ? 'match' : 'off';
+      // A blind count has no difference to show, so no match/off dot.
+      if (day.status === 'closed') return day.difference == null ? null : day.difference === 0 ? 'match' : 'off';
       if (day.status === 'open') return 'open';
       return null;
     }
@@ -476,7 +479,9 @@ export function CashScreen({ navigation, route }: Props) {
 
   const counted = parseRupees(countText);
   const countOk = counted != null && !Number.isNaN(counted);
-  const diff = day && countOk ? cashDifference(day.expected, counted) : null;
+  /** Managers and staff count blind: the server leaves out what the box should hold. */
+  const blind = day != null && day.expected == null;
+  const diff = day && countOk && day.expected != null ? cashDifference(day.expected, counted) : null;
   const needsNote = diff != null && closeNeedsNote(diff);
   const noteOk = !needsNote || note.trim().length >= MIN_REASON_LENGTH;
   const held = day?.doorstep.held ?? 0;
@@ -492,7 +497,7 @@ export function CashScreen({ navigation, route }: Props) {
       return { ok: res.ok, res };
     }, 'Day closed');
 
-  const closedDiff = day?.status === 'closed' ? (day.difference ?? 0) : null;
+  const closedDiff = day?.status === 'closed' && day.difference != null ? day.difference : null;
   // While counting, or after close: tint the top card when the amount is short or over.
   const heroDiff = day?.status === 'closed' ? closedDiff : day?.status === 'open' ? diff : null;
   const g = brandGradients.hero;
@@ -639,17 +644,24 @@ export function CashScreen({ navigation, route }: Props) {
                 </View>
               ) : (
                 <>
-                  <View style={styles.heroBody}>
-                    <Text style={styles.heroLabel}>{day.status === 'open' ? 'Should be in the box now' : 'Counted at close'}</Text>
-                    <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit>
-                      {formatRupees(day.status === 'open' ? day.expected : (day.counted ?? 0))}
-                    </Text>
-                    {day.status === 'closed' ? (
-                      <Text style={styles.heroSub}>
-                        {differenceText(closedDiff ?? 0)} · expected {formatRupees(day.expected)}
+                  {blind && day.status === 'open' ? (
+                    <View style={styles.heroBody}>
+                      <Text style={styles.heroLabel}>At closing</Text>
+                      <Text style={styles.heroValueSmall}>Count every note and coin in the box. The owner checks the count.</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.heroBody}>
+                      <Text style={styles.heroLabel}>{day.status === 'open' ? 'Should be in the box now' : 'Counted at close'}</Text>
+                      <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit>
+                        {formatRupees(day.status === 'open' ? (day.expected ?? 0) : (day.counted ?? 0))}
                       </Text>
-                    ) : null}
-                  </View>
+                      {day.status === 'closed' && day.expected != null ? (
+                        <Text style={styles.heroSub}>
+                          {differenceText(closedDiff ?? 0)} · expected {formatRupees(day.expected)}
+                        </Text>
+                      ) : null}
+                    </View>
+                  )}
                   <View style={styles.sumRow}>
                     <SumChip
                       label="Morning"
@@ -657,8 +669,12 @@ export function CashScreen({ navigation, route }: Props) {
                       sub={day.floatSetBy ?? undefined}
                       onPress={day.status === 'open' ? () => setEditingFloat(true) : undefined}
                     />
-                    <Text style={styles.sumOp}>+</Text>
-                    <SumChip label={showDoorstep ? 'At shop' : 'Washes'} value={day.cashIn} sub={`${day.cashJobs} paid in cash`} />
+                    {day.cashIn != null ? (
+                      <>
+                        <Text style={styles.sumOp}>+</Text>
+                        <SumChip label={showDoorstep ? 'At shop' : 'Washes'} value={day.cashIn} sub={`${day.cashJobs} paid in cash`} />
+                      </>
+                    ) : null}
                     {showDoorstep ? (
                       <>
                         <Text style={styles.sumOp}>+</Text>
@@ -820,10 +836,12 @@ export function CashScreen({ navigation, route }: Props) {
             ) : (
               <View style={[styles.panel, shadow('sm')]}>
                 <View style={styles.closedGrid}>
-                  <View style={[styles.closedCell, { backgroundColor: colors.indigoPale }]}>
-                    <Text style={styles.closedLabel}>Should have been</Text>
-                    <Text style={styles.closedValue}>{formatRupees(day.expected)}</Text>
-                  </View>
+                  {day.expected != null ? (
+                    <View style={[styles.closedCell, { backgroundColor: colors.indigoPale }]}>
+                      <Text style={styles.closedLabel}>Should have been</Text>
+                      <Text style={styles.closedValue}>{formatRupees(day.expected)}</Text>
+                    </View>
+                  ) : null}
                   <View style={[styles.closedCell, { backgroundColor: colors.tealPale }]}>
                     <Text style={styles.closedLabel}>Counted</Text>
                     <Text style={styles.closedValue}>{formatRupees(day.counted ?? 0)}</Text>
@@ -834,8 +852,9 @@ export function CashScreen({ navigation, route }: Props) {
                     <Text style={styles.closedBy}>{day.closedBy ? `Closed by ${day.closedBy}` : 'Closed'}</Text>
                     {day.closedAt ? <Text style={styles.helper}>{formatDateTime(day.closedAt)}</Text> : null}
                   </View>
-                  <Pill label={differenceText(closedDiff ?? 0)} tone={differenceTone(closedDiff ?? 0)} />
+                  {closedDiff != null ? <Pill label={differenceText(closedDiff)} tone={differenceTone(closedDiff)} /> : null}
                 </View>
+                {blind ? <Text style={styles.helper}>Saved. The owner checks the count.</Text> : null}
                 {day.note ? <Text style={styles.noteQuote}>“{day.note}”</Text> : null}
                 {day.heldAtClose ? (
                   <View style={styles.diffBand}>

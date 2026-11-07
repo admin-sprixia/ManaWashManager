@@ -14,6 +14,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   canCorrectPayment,
+  canSeeWashAmount,
   PAYMENT_FIX_MINUTES,
   canVoidJob,
   jobCommission,
@@ -108,7 +109,7 @@ function methodLabel(value: string | null): string {
   return value && value in PAYMENT_METHOD_LABEL ? PAYMENT_METHOD_LABEL[value as PaymentMethod] : value ?? '—';
 }
 
-function describeEvent(e: JobEvent): string {
+function describeEvent(e: JobEvent, showAmount: boolean): string {
   const who = firstName(e.user.name);
   switch (e.action) {
     case 'created':
@@ -126,7 +127,9 @@ function describeEvent(e: JobEvent): string {
     case 'sellers_changed':
       return `${who} changed who got the service to ${e.toValue ?? '—'}`;
     case 'price_kept':
-      return `Kept the price ${who} quoted offline: ${formatRupees(Number(e.toValue))} (today ${formatRupees(Number(e.fromValue))})`;
+      return showAmount
+        ? `Kept the price ${who} quoted offline: ${formatRupees(Number(e.toValue))} (today ${formatRupees(Number(e.fromValue))})`
+        : `Kept the price ${who} quoted offline`;
   }
 }
 
@@ -242,6 +245,8 @@ export function JobDetailScreen({ navigation, route }: Props) {
   }
 
   const role = user?.role ?? 'staff';
+  /** A paid wash's amounts are the owner's after the 15-minute fix window (canSeeWashAmount). */
+  const showAmount = canSeeWashAmount(job.status, role, job.completedAt);
   const headline = vehicleHeadline(job);
   const next = NEXT_STATUS[job.status];
   const primaryLabel = actionLabel(job.status);
@@ -351,7 +356,7 @@ export function JobDetailScreen({ navigation, route }: Props) {
             make={make}
             title={model ?? plate}
             subtitle={[model ? plate : null, doorstep ? 'Doorstep' : 'At the shop'].filter(Boolean).join('  ·  ')}
-            amount={formatRupees(job.total)}
+            amount={showAmount ? formatRupees(job.total) : isVoid ? 'Voided' : 'Paid'}
             amountNote={amountNote}
             steps={isVoid ? null : STEPS.map((x) => x.label)}
             current={stepIndex}
@@ -415,11 +420,11 @@ export function JobDetailScreen({ navigation, route }: Props) {
                   </Text>
                   {free ? <Text style={styles.lineFree}>Free · stamp card</Text> : null}
                 </View>
-                <Text style={styles.lineAmount}>{formatRupees(line.priceAtTime * line.quantity)}</Text>
+                {showAmount ? <Text style={styles.lineAmount}>{formatRupees(line.priceAtTime * line.quantity)}</Text> : null}
               </View>
             );
           })}
-          {job.discount > 0 ? (
+          {showAmount && job.discount > 0 ? (
             <>
               <View style={styles.lineSmall}>
                 <Text style={[styles.lineMuted, styles.flex]}>Subtotal</Text>
@@ -433,10 +438,14 @@ export function JobDetailScreen({ navigation, route }: Props) {
               </View>
             </>
           ) : null}
-          <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Total</Text>
-            <Text style={[styles.total, isVoid && styles.strike]}>{formatRupees(job.total)}</Text>
-          </View>
+          {showAmount ? (
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Total</Text>
+              <Text style={[styles.total, isVoid && styles.strike]}>{formatRupees(job.total)}</Text>
+            </View>
+          ) : (
+            <Text style={styles.amountsNote}>Amounts of paid washes are visible to the owner.</Text>
+          )}
 
           {/* Details */}
           {canSellPlan ? (
@@ -468,7 +477,9 @@ export function JobDetailScreen({ navigation, route }: Props) {
               label="Got the service"
               value={sellers.length > 0 ? sellers.map((x) => x.name).join(', ') : 'Not recorded'}
               note={[
-                `${formatRupees(commission)} commission${sellers.length > 1 ? `, ${formatRupees(Math.floor(commission / sellers.length))} each` : ''}`,
+                showAmount
+                  ? `${formatRupees(commission)} commission${sellers.length > 1 ? `, ${formatRupees(Math.floor(commission / sellers.length))} each` : ''}`
+                  : 'commission',
                 isVoid ? 'not earned' : job.status === 'paid' ? null : 'earned once paid',
               ]
                 .filter(Boolean)
@@ -561,7 +572,7 @@ export function JobDetailScreen({ navigation, route }: Props) {
                     {i < events.length - 1 ? <View style={styles.railLine} /> : null}
                   </View>
                   <View style={styles.eventBody}>
-                    <Text style={styles.eventText}>{describeEvent(e)}</Text>
+                    <Text style={styles.eventText}>{describeEvent(e, showAmount)}</Text>
                     {e.reason && e.action !== 'created' ? <Text style={styles.eventReason}>“{e.reason}”</Text> : null}
                   </View>
                   <Text style={styles.eventTime}>
@@ -806,6 +817,7 @@ const styles = StyleSheet.create({
   voidLinkText: { ...typography.bodyStrong, color: colors.danger, fontSize: 15 },
   voidLinkNote: { ...typography.caption, color: colors.slate, fontSize: 12.5, letterSpacing: 0 },
   fixLink: { paddingVertical: spacing.sm, gap: 2 },
+  amountsNote: { ...typography.caption, color: colors.slate, letterSpacing: 0, paddingVertical: spacing.sm },
   fixLinkText: { ...typography.bodyStrong, color: colors.indigo, fontSize: 15 },
   ownerNote: {
     ...typography.caption,

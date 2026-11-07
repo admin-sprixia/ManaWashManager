@@ -179,6 +179,24 @@ async function daySummary(db: DbClient, date: string) {
   };
 }
 
+type DaySummary = Awaited<ReturnType<typeof daySummary>>;
+
+/**
+ * Blind count: managers and staff count the box without seeing what it should hold, what came in
+ * or the difference, so a count can't be made to match. The owner sees all of it.
+ */
+function forRole(s: DaySummary, role: UserRole) {
+  if (role === 'owner') return s;
+  return {
+    ...s,
+    expected: null,
+    difference: null,
+    cashIn: null,
+    changedSinceClose: 0,
+    earlierCloses: s.earlierCloses.map((e) => ({ ...e, expected: null, difference: null })),
+  };
+}
+
 /** Staff handle today and a forgotten yesterday; anything older, or in the future, is refused. */
 function checkDate(date: string, role: UserRole) {
   const today = formatIstDateOnly(new Date());
@@ -253,7 +271,7 @@ async function recordHandover(c: HandoverContext, body: z.infer<typeof handoverS
   if (!created) {
     return c.json({ error: 'handover_clash' as const, message: 'Someone just took this cash. Check the list again.' }, 409);
   }
-  return c.json(await daySummary(db, today), 201);
+  return c.json(forRole(await daySummary(db, today), c.get('session').role), 201);
 }
 
 // Online only: the expected figure has to come from the server's records at that moment.
@@ -264,7 +282,7 @@ export const cashRoutes = new Hono<{ Bindings: Env }>()
     const date = c.req.valid('query').date ?? formatIstDateOnly(new Date());
     const problem = checkDate(date, c.get('session').role);
     if (problem) return c.json({ error: 'date_not_allowed' as const, message: problem }, 403);
-    return c.json(await daySummary(db, date));
+    return c.json(forRole(await daySummary(db, date), c.get('session').role));
   })
   .put('/day/float', zValidator('json', floatSchema), async (c) => {
     const body = c.req.valid('json');
@@ -278,7 +296,7 @@ export const cashRoutes = new Hono<{ Bindings: Env }>()
         409,
       );
     }
-    return c.json(await daySummary(db, body.date));
+    return c.json(forRole(await daySummary(db, body.date), c.get('session').role));
   })
   // Anyone on shift can close. The expected figure is recomputed here, not taken from the phone,
   // and frozen with the count — a mismatch needs a reason.
@@ -312,7 +330,8 @@ export const cashRoutes = new Hono<{ Bindings: Env }>()
     }
     const difference = cashDifference(summary.expected, body.counted);
     const note = body.note?.trim() || null;
-    if (closeNeedsNote(difference) && (!note || note.length < MIN_REASON_LENGTH)) {
+    // Only the owner is asked to explain a mismatch: anyone else counts blind and never learns it.
+    if (c.get('session').role === 'owner' && closeNeedsNote(difference) && (!note || note.length < MIN_REASON_LENGTH)) {
       return c.json(
         {
           error: 'note_required' as const,
@@ -333,7 +352,7 @@ export const cashRoutes = new Hono<{ Bindings: Env }>()
     if (!closed) {
       return c.json({ error: 'day_closed' as const, message: 'This day was just closed by someone else.' }, 409);
     }
-    return c.json(await daySummary(db, body.date));
+    return c.json(forRole(await daySummary(db, body.date), c.get('session').role));
   })
   .post('/day/reopen', requireRole('owner'), zValidator('json', reopenSchema), async (c) => {
     const body = c.req.valid('json');

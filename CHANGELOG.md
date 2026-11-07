@@ -8,6 +8,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-11-07
+
+### Changed
+
+- **The day's takings are the owner's.** Managers and staff see a wash's price while it's open
+  (to quote and collect it) and for 15 minutes after collecting (to fix the method). After that
+  a paid wash shows only **"Paid"**, on the board, the wash page and the customer's history.
+  "Spent" and "Avg. ticket" on a customer's profile are owner-only. The owner sees everything as
+  before. Shared rule: `canSeeWashAmount`.
+- **Blind cash count.** Managers and staff count the cash box without seeing what it should
+  hold, the cash taken or the difference. The server leaves those figures out for them, and a
+  short or over count no longer asks them why. Only the owner sees *Should have been* vs
+  *Counted* and the difference, with who closed the day.
+
 ## [1.0.2] - 2026-11-07
 
 ### Added
@@ -1052,7 +1066,8 @@ build was labelled 2.0.0.
   a customer profile.
 - **One shared MAJOR.MINOR.PATCH version** across every app and package.
 
-[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.5.1...v1.0.0

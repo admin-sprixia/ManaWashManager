@@ -262,6 +262,7 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
               first={index === 0}
               onOpen={onOpen}
               onAction={onRowAction}
+              viewerRole={user?.role ?? 'staff'}
             />
           )}
           ListEmptyComponent={

@@ -125,6 +125,12 @@ check('…and the doorstep ₹480 still doesn’t', d.doorstep.handedIn === 0 &&
 r = await call(T.sita, 'POST', '/cash/day/close', { date: d.date, counted: 92000 });
 check('Closing while Ravi holds cash asks for it first', r.status === 409 && r.body?.error === 'cash_held' && r.body?.held === 48000 && r.body?.holders?.[0]?.name === 'Ravi', show(r));
 
+// ─── Blind count ─────────────────────────────────────────────────────────────
+
+const staffView = await day(T.sita);
+check('Staff see the drawer without what it should hold (blind count)', staffView.expected === null && staffView.cashIn === null && staffView.difference === null && staffView.openingFloat === 50000, JSON.stringify({ e: staffView.expected, c: staffView.cashIn }));
+check('…while the owner sees it all', (await day()).expected === 92000);
+
 // ─── Handovers ───────────────────────────────────────────────────────────────
 
 r = await take(T.sita, { collectorId: RAVI, due: 40000, received: 40000 });
@@ -135,7 +141,7 @@ r = await take(T.sita, { collectorId: RAVI, due: 48000, received: 0, rest: 'stil
 check('…and nothing handed in can’t be "the rest later"', r.status === 400 && r.body?.error === 'note_required', show(r));
 r = await take(T.sita, { collectorId: RAVI, due: 48000, received: 30000, rest: 'still_held' });
 check('Ravi hands in ₹300 now, the rest later: no note needed', r.status === 201 && r.body?.doorstep?.handedIn === 30000 && r.body?.doorstep?.held === 18000, show(r));
-check('…the ₹300 is in the box', r.body?.expected === 122000, String(r.body?.expected));
+check('…the ₹300 is in the box (staff count blind: the figure is the owner’s)', r.body?.expected === null && (await day()).expected === 122000, String(r.body?.expected));
 const first = r.body?.doorstep?.handovers?.[0];
 check('…recorded with who took it and no difference', first?.collector === 'Ravi' && first?.receivedBy === 'Sita' && first?.received === 30000 && first?.due === 30000 && first?.difference === 0, JSON.stringify(first));
 
@@ -163,7 +169,7 @@ check('Short with no reason is refused', r.status === 400 && r.body?.error === '
 r = await take(T.sita, { collectorId: RAVI, due: 30000, received: 25000, rest: 'missing', note: 'Spent on fuel' });
 const short = r.body?.doorstep?.handovers?.[0];
 check('Ravi is ₹50 short on a ₹300 wash: settled, with the reason and the shortfall kept', r.status === 201 && r.body?.doorstep?.held === 0 && short?.difference === -5000 && short?.note === 'Spent on fuel', show(r));
-check('…only the ₹250 received is in the box', r.body?.expected === 165000, String(r.body?.expected));
+check('…only the ₹250 received is in the box', (await day()).expected === 165000, String(r.body?.expected));
 
 // ─── Undo ────────────────────────────────────────────────────────────────────
 
@@ -178,7 +184,7 @@ check('…and can’t be undone twice', r.status === 409 && r.body?.error === 'a
 // ─── Closing with cash still out ─────────────────────────────────────────────
 
 r = await call(T.sita, 'POST', '/cash/day/close', { date: d.date, counted: 140000, leaveHeld: true });
-check('Sita closes anyway, saying the ₹300 carries over', r.status === 200 && r.body?.status === 'closed' && r.body?.difference === 0, show(r));
+check('Sita closes anyway, saying the ₹300 carries over', r.status === 200 && r.body?.status === 'closed' && r.body?.difference === null && (await day()).difference === 0, show(r));
 check('…the ₹300 still with Ravi is frozen with the close', r.body?.heldAtClose === 30000 && r.body?.doorstep?.held === 30000, show(r));
 r = await take(T.sita, { collectorId: RAVI, due: 30000, received: 30000 });
 check('Nothing goes into a closed box', r.status === 409 && r.body?.error === 'day_closed', show(r));
@@ -191,9 +197,9 @@ check('History shows the cash still with the team at close', r.body?.days?.find(
 r = await call(T.owner, 'POST', '/cash/day/reopen', { date: d.date, reason: 'Ravi came back with the cash' });
 check('The owner reopens: the earlier close keeps its held amount', r.status === 200 && r.body?.status === 'open' && r.body?.heldAtClose === null && r.body?.earlierCloses?.[0]?.heldAtClose === 30000, show(r));
 r = await take(T.sita, { collectorId: RAVI, due: 30000, received: 30000 });
-check('Ravi hands in the ₹300', r.status === 201 && r.body?.doorstep?.held === 0 && r.body?.expected === 170000, show(r));
+check('Ravi hands in the ₹300', r.status === 201 && r.body?.doorstep?.held === 0 && (await day()).expected === 170000, show(r));
 r = await call(T.sita, 'POST', '/cash/day/close', { date: d.date, counted: 170000 });
-check('…and the day closes with nothing out', r.status === 200 && r.body?.heldAtClose === 0 && r.body?.difference === 0, show(r));
+check('…and the day closes with nothing out', r.status === 200 && r.body?.heldAtClose === 0 && (await day()).difference === 0, show(r));
 
 // ─── Expenses paid from doorstep cash ────────────────────────────────────────
 
@@ -242,9 +248,14 @@ d = await day();
 check('Deleting a doorstep-cash expense gives the cash back to him', r.status === 200 && d.doorstep.held === 50000 && d.doorstep.spent === 0, `${show(r)} ${d.doorstep.held}`);
 
 r = await take(T.sita, { collectorId: RAVI, due: 50000, received: 50000 });
-check('Ravi hands in the ₹500 he holds', r.status === 201 && r.body?.doorstep?.held === 0 && r.body?.expected === before - 10000 + 50000, show(r));
+check('Ravi hands in the ₹500 he holds', r.status === 201 && r.body?.doorstep?.held === 0 && (await day()).expected === before - 10000 + 50000, show(r));
 r = await call(T.sita, 'POST', '/cash/day/close', { date: d.date, counted: before - 10000 + 50000 });
-check('…and the day closes matching', r.status === 200 && r.body?.difference === 0, show(r));
+check('…and the day closes matching', r.status === 200 && (await day()).difference === 0, show(r));
+
+r = await call(T.owner, 'POST', '/cash/day/reopen', { date: d.date, reason: 'Recount' });
+r = await call(T.sita, 'POST', '/cash/day/close', { date: d.date, counted: before - 10000 + 50000 - 2000 });
+check('A blind count ₹20 short closes without asking staff why (they never learn it)', r.status === 200 && r.body?.status === 'closed' && r.body?.difference === null, show(r));
+check('…and the owner sees the ₹20 short', (await day()).difference === -2000, String((await day()).difference));
 
 // ─── Another branch ──────────────────────────────────────────────────────────
 

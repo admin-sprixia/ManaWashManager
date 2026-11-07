@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
-import { PAYMENT_METHOD_LABEL } from '@mana/domain';
+import { PAYMENT_METHOD_LABEL, canSeeWashAmount, type UserRole } from '@mana/domain';
 import { IconCheck, IconGift, IconPlay, IconRupee, MakeLogo, colors, radius, spacing, statusColors, typography } from '@mana/ui';
 import type { BoardJob } from '../../offline/types';
 import { formatRupees } from '../../utils/format';
@@ -40,13 +40,16 @@ interface JobRowProps {
   first: boolean;
   onOpen: (job: BoardJob) => void;
   onAction: (job: BoardJob) => void;
+  /** Who's looking: a paid wash's amount is the owner's (see canSeeWashAmount). */
+  viewerRole: UserRole;
 }
 
 /**
  * One job on the board: a plain full-width row. The company and model (or the plate) and the
  * total, the plate, the services, who and when, and the single next step.
  */
-export const JobRow = memo(function JobRow({ job, busy, first, onOpen, onAction }: JobRowProps) {
+export const JobRow = memo(function JobRow({ job, busy, first, onOpen, onAction, viewerRole }: JobRowProps) {
+  const showAmount = canSeeWashAmount(job.status, viewerRole, job.completedAt);
   const isVoid = job.status === 'void';
   const action = actionLabel(job);
   const gift = giftNote(job);
@@ -74,7 +77,7 @@ export const JobRow = memo(function JobRow({ job, busy, first, onOpen, onAction 
       android_ripple={{ color: colors.surface }}
       style={({ pressed }) => [styles.row, first && styles.rowFirst, pressed && styles.rowPressed]}
       accessibilityRole="button"
-      accessibilityLabel={`${title}, ${make ?? ''}, ${walkIn ? 'walk-in' : job.vehicle.registrationNumber}, ${services}, ${customerLine(job)}, ${STATUS_LABEL[job.status]}, ${formatRupees(job.total)}${gift ? `, ${gift.text}` : ''}. Open details`}
+      accessibilityLabel={`${title}, ${make ?? ''}, ${walkIn ? 'walk-in' : job.vehicle.registrationNumber}, ${services}, ${customerLine(job)}, ${STATUS_LABEL[job.status]}${showAmount ? `, ${formatRupees(job.total)}` : ''}${gift ? `, ${gift.text}` : ''}. Open details`}
     >
       <View style={[styles.body, !first && styles.bodyDivider]}>
         <View style={styles.line}>
@@ -91,7 +94,11 @@ export const JobRow = memo(function JobRow({ job, busy, first, onOpen, onAction 
               </View>
             </View>
           )}
-          <Text style={[styles.price, isVoid && styles.voided]}>{formatRupees(job.total)}</Text>
+          {showAmount ? (
+            <Text style={[styles.price, isVoid && styles.voided]}>{formatRupees(job.total)}</Text>
+          ) : (
+            <Text style={[styles.paidTag, isVoid && styles.voided]}>{isVoid ? 'Voided' : 'Paid'}</Text>
+          )}
         </View>
 
         {model || doorstep ? (
@@ -192,6 +199,7 @@ const styles = StyleSheet.create({
   line: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   title: { ...typography.heading, color: colors.waterInk, fontSize: 16, letterSpacing: -0.2, flex: 1 },
   price: { ...typography.heading, color: colors.waterInk, fontSize: 16, letterSpacing: -0.2 },
+  paidTag: { ...typography.label, color: colors.tealDeep, fontSize: 13 },
   voided: { color: colors.slate, textDecorationLine: 'line-through' },
 
   vehicleLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },

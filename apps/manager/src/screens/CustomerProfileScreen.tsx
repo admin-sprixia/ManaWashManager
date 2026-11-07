@@ -49,7 +49,7 @@ import { EditCustomerSheet } from '../components/EditCustomerSheet';
 import { useAuth } from '../api/auth';
 import { useDirectory } from '../offline/DirectoryProvider';
 import { CustomerCommunities, type CustomerCommunity } from '../components/CustomerCommunities';
-import type { JobStatus } from '@mana/domain';
+import { canSeeWashAmount, type JobStatus } from '@mana/domain';
 
 type CustomerProfileScreenProps = NativeStackScreenProps<RootStackParamList, 'CustomerProfile'>;
 
@@ -70,6 +70,7 @@ interface HistoryJob {
   discountReason?: string | null;
   paymentMethod?: string | null;
   createdAt: string;
+  completedAt?: string | null;
   vehicle: { registrationNumber: string; vehicleType?: { name: string } | null };
   jobServices: { quantity?: number; service: { name: string } }[];
 }
@@ -186,7 +187,8 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
   /** Selling a plan: first which vehicle, then the plans for it. */
   const [pickingVehicle, setPickingVehicle] = useState(false);
   const [editing, setEditing] = useState(false);
-  const { isOwner, isManager } = useAuth();
+  const { user, isOwner, isManager } = useAuth();
+  const showAmountOf = (job: HistoryJob) => canSeeWashAmount(job.status, user?.role ?? 'staff', job.completedAt);
   const directory = useDirectory();
   const [planFor, setPlanFor] = useState<PlanVehicle | null>(null);
 
@@ -441,13 +443,18 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
               value={String(data.visitCount)}
               label={data.visitCount === 1 ? 'Visit' : 'Visits'}
             />
-            <View style={styles.statDivider} />
-            <Stat value={formatRupees(data.lifetimeSpend)} label="Spent" tone="teal" />
-            <View style={styles.statDivider} />
-            <Stat
-              value={insights.avgTicket != null ? formatRupees(insights.avgTicket) : '—'}
-              label="Avg. ticket"
-            />
+            {/* What a customer has spent is the owner's to see. */}
+            {isOwner ? (
+              <>
+                <View style={styles.statDivider} />
+                <Stat value={formatRupees(data.lifetimeSpend)} label="Spent" tone="teal" />
+                <View style={styles.statDivider} />
+                <Stat
+                  value={insights.avgTicket != null ? formatRupees(insights.avgTicket) : '—'}
+                  label="Avg. ticket"
+                />
+              </>
+            ) : null}
           </View>
           <View style={styles.statsFooter}>
             <InsightLine
@@ -605,7 +612,7 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
                               {pay ? ` · ${pay}` : ''}
                             </Text>
                           </View>
-                          {job.discount && job.discount > 0 ? (
+                          {showAmountOf(job) && job.discount && job.discount > 0 ? (
                             <Text style={styles.discountNote}>
                               {formatRupees(job.discount)} off
                               {job.discountReason ? ` · ${job.discountReason}` : ''}
@@ -613,9 +620,11 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
                           ) : null}
                         </View>
                         <View style={styles.historyRight}>
-                          <Text style={[styles.historyPrice, isVoid && styles.historyPriceVoid]}>
-                            {formatRupees(job.total)}
-                          </Text>
+                          {showAmountOf(job) ? (
+                            <Text style={[styles.historyPrice, isVoid && styles.historyPriceVoid]}>
+                              {formatRupees(job.total)}
+                            </Text>
+                          ) : null}
                           <StatusBadge status={job.status} />
                         </View>
                       </View>

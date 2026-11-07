@@ -151,7 +151,9 @@ check('The staff report shows Ravi ₹80 short, holding nothing', person(r, U.ra
 r = await call(T.owner, 'POST', `/cash/handover/${encodeURIComponent(handoverId)}/void`, { reason: 'Recounted: it was all there' });
 r = await call(T.sita, 'POST', '/cash/handover', { collectorId: U.ravi, due: 48000, received: 48000 });
 r = await call(T.sita, 'POST', '/cash/day/close', { date: TODAY, counted: 10000 + 40000 + 48000 });
-check('The drawer closes matching: float + shop cash + doorstep cash handed in', r.status === 200 && r.body?.difference === 0, show(r));
+// Sita counts blind; the owner's view of the day has the difference.
+const ownerDay = (await call(T.owner, 'GET', `/cash/day?date=${TODAY}`)).body;
+check('The drawer closes matching: float + shop cash + doorstep cash handed in', r.status === 200 && ownerDay?.difference === 0, show(r));
 await call(T.owner, 'POST', '/cash/day/reopen', { date: TODAY, reason: 'Late expense to add' });
 
 const EXP = `exp_rep_${run}`;

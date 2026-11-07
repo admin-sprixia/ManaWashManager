@@ -153,6 +153,23 @@ export function canCorrectPayment(
   return Number.isFinite(at) && now.getTime() - at <= PAYMENT_FIX_MINUTES * 60_000;
 }
 
+/**
+ * Whether someone sees a wash's amount. The owner always does. Anyone else sees it while the wash
+ * is open (they quote and collect it) and for PAYMENT_FIX_MINUTES after collecting (to fix the
+ * method), then only "Paid": the day's takings stay with the owner.
+ */
+export function canSeeWashAmount(
+  status: JobStatus,
+  role: UserRole,
+  paidAt?: Date | string | null,
+  now: Date = new Date(),
+): boolean {
+  if (role === 'owner') return true;
+  if (status === 'waiting' || status === 'washing' || status === 'ready') return true;
+  if (status === 'paid') return canCorrectPayment(status, role, paidAt, now);
+  return false;
+}
+
 export const PAYMENT_METHODS: readonly PaymentMethod[] = ['cash', 'upi', 'other'];
 
 export const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {

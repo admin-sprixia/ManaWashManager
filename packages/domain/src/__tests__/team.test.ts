@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   canCorrectPayment,
+  canSeeWashAmount,
   canManageMember,
   canVoidJob,
   checkPin,
@@ -117,6 +118,27 @@ describe('canCorrectPayment', () => {
   });
   it('is for paid washes only', () => {
     expect(canCorrectPayment('ready', 'owner')).toBe(false);
+  });
+});
+
+describe('canSeeWashAmount', () => {
+  const paidAt = new Date('2026-11-07T10:00:00.000Z');
+  const after = (min: number) => new Date(paidAt.getTime() + min * 60_000);
+  it('shows the owner every amount', () => {
+    expect(canSeeWashAmount('paid', 'owner', paidAt, after(600))).toBe(true);
+    expect(canSeeWashAmount('void', 'owner')).toBe(true);
+  });
+  it('shows staff and managers an open wash’s price', () => {
+    for (const status of ['waiting', 'washing', 'ready'] as const) {
+      expect(canSeeWashAmount(status, 'staff')).toBe(true);
+      expect(canSeeWashAmount(status, 'manager')).toBe(true);
+    }
+  });
+  it('hides a paid wash’s amount from them after 15 minutes', () => {
+    expect(canSeeWashAmount('paid', 'manager', paidAt, after(10))).toBe(true);
+    expect(canSeeWashAmount('paid', 'manager', paidAt, after(16))).toBe(false);
+    expect(canSeeWashAmount('paid', 'staff', null)).toBe(false);
+    expect(canSeeWashAmount('void', 'manager')).toBe(false);
   });
 });
 

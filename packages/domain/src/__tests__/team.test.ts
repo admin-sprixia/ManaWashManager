@@ -103,10 +103,19 @@ describe('canVoidJob', () => {
 });
 
 describe('canCorrectPayment', () => {
-  it('is owner-only and paid-only', () => {
+  const paidAt = new Date('2026-11-06T06:13:00.000Z');
+  const after = (min: number) => new Date(paidAt.getTime() + min * 60_000);
+  it('lets the owner fix a paid wash any time', () => {
+    expect(canCorrectPayment('paid', 'owner', paidAt, after(600))).toBe(true);
     expect(canCorrectPayment('paid', 'owner')).toBe(true);
+  });
+  it('lets staff and managers fix it for 15 minutes after collecting', () => {
+    expect(canCorrectPayment('paid', 'staff', paidAt, after(14))).toBe(true);
+    expect(canCorrectPayment('paid', 'manager', paidAt.toISOString(), after(15))).toBe(true);
+    expect(canCorrectPayment('paid', 'staff', paidAt, after(16))).toBe(false);
     expect(canCorrectPayment('paid', 'staff')).toBe(false);
-    expect(canCorrectPayment('paid', 'manager')).toBe(false);
+  });
+  it('is for paid washes only', () => {
     expect(canCorrectPayment('ready', 'owner')).toBe(false);
   });
 });

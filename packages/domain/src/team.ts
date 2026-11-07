@@ -132,9 +132,25 @@ export function canVoidJob(status: JobStatus, role: UserRole): boolean {
   return true;
 }
 
-/** Changing how a paid job was paid (cash ↔ UPI) moves money between reconciliation buckets. */
-export function canCorrectPayment(status: JobStatus, role: UserRole): boolean {
-  return status === 'paid' && role === 'owner';
+/** How long after collecting anyone on shift can still fix how a wash was paid. */
+export const PAYMENT_FIX_MINUTES = 15;
+
+/**
+ * Changing how a paid job was paid (cash ↔ UPI) moves money between reconciliation buckets. The
+ * owner can always; anyone else only within PAYMENT_FIX_MINUTES of collecting, for the everyday
+ * slip ("said cash, then paid by UPI"), so a wash is never voided just to change the method.
+ */
+export function canCorrectPayment(
+  status: JobStatus,
+  role: UserRole,
+  paidAt?: Date | string | null,
+  now: Date = new Date(),
+): boolean {
+  if (status !== 'paid') return false;
+  if (role === 'owner') return true;
+  if (!paidAt) return false;
+  const at = new Date(paidAt).getTime();
+  return Number.isFinite(at) && now.getTime() - at <= PAYMENT_FIX_MINUTES * 60_000;
 }
 
 export const PAYMENT_METHODS: readonly PaymentMethod[] = ['cash', 'upi', 'other'];

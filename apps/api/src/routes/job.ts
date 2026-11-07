@@ -26,6 +26,7 @@ import {
   applyDiscount,
   calculatePrice,
   canCorrectPayment,
+  PAYMENT_FIX_MINUTES,
   canTransition,
   canVoidJob,
   COUPON_CODE_PATTERN,
@@ -1351,10 +1352,10 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     await undoVoidedJobExtras(db, c.env.DB, id, session.sub);
     return c.json(voided, 200);
   })
-  // Owner correction: the job was paid by UPI but recorded as cash (or vice versa).
+  // The job was paid by UPI but recorded as cash (or vice versa): the owner any time, anyone on
+  // shift within PAYMENT_FIX_MINUTES of collecting.
   .patch(
     '/:id/payment-method',
-    requireRole('owner'),
     zValidator('json', paymentCorrectionSchema),
     async (c) => {
       const id = c.req.param('id');
@@ -1364,10 +1365,19 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
 
       const job = await jobRepo.findById(db, id);
       if (!job) return c.json({ error: 'job_not_found' as const }, 404);
-      if (!canCorrectPayment(job.status as JobStatus, session.role)) {
+      if (job.status !== 'paid') {
         return c.json(
           { error: 'not_paid' as const, message: 'Only paid jobs can be corrected.' },
           409,
+        );
+      }
+      if (!canCorrectPayment(job.status as JobStatus, session.role, job.completedAt)) {
+        return c.json(
+          {
+            error: 'forbidden' as const,
+            message: `It's more than ${PAYMENT_FIX_MINUTES} minutes since this was collected. Ask the owner to change it.`,
+          },
+          403,
         );
       }
       if (job.paymentMethod === body.paymentMethod)

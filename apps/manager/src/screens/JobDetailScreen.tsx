@@ -14,6 +14,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   canCorrectPayment,
+  PAYMENT_FIX_MINUTES,
   canVoidJob,
   jobCommission,
   MAX_OFFLINE_BACKDATE_MS,
@@ -247,7 +248,7 @@ export function JobDetailScreen({ navigation, route }: Props) {
   const isVoid = job.status === 'void';
   const pendingOnPhone = job.syncState === 'pending' && !serverJob;
   const allowVoid = canVoidJob(job.status, role);
-  const allowCorrect = canCorrectPayment(job.status, role) && !job.syncState;
+  const allowCorrect = canCorrectPayment(job.status, role, job.completedAt) && !job.syncState;
   const stepIndex = STEPS.findIndex((s) => s.status === job.status);
   const events = serverJob?.events ?? [];
   const washers = (job.washers ?? []).map((w) => w.user);
@@ -476,6 +477,20 @@ export function JobDetailScreen({ navigation, route }: Props) {
                 .join(' · ')}
               onPress={allowCorrect ? () => setSheet('correct') : undefined}
             />
+          ) : null}
+          {allowCorrect ? (
+            <Pressable
+              onPress={() => setSheet('correct')}
+              style={({ pressed }) => [styles.fixLink, pressed && styles.pressed]}
+              accessibilityRole="button"
+            >
+              <Text style={styles.fixLinkText}>Paid another way? Change payment</Text>
+              <Text style={styles.voidLinkNote}>
+                {role === 'owner'
+                  ? 'Cash ↔ UPI, with a reason. No need to void the wash.'
+                  : `Cash ↔ UPI, with a reason, within ${PAYMENT_FIX_MINUTES} minutes of collecting. No need to void the wash.`}
+              </Text>
+            </Pressable>
           ) : null}
           {job.status === 'paid' && !job.syncState ? (
             <FactRow
@@ -781,6 +796,8 @@ const styles = StyleSheet.create({
   voidLink: { marginTop: spacing.xl, paddingVertical: spacing.sm, gap: 2 },
   voidLinkText: { ...typography.bodyStrong, color: colors.danger, fontSize: 15 },
   voidLinkNote: { ...typography.caption, color: colors.slate, fontSize: 12.5, letterSpacing: 0 },
+  fixLink: { paddingVertical: spacing.sm, gap: 2 },
+  fixLinkText: { ...typography.bodyStrong, color: colors.indigo, fontSize: 15 },
   ownerNote: {
     ...typography.caption,
     color: colors.slate,

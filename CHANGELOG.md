@@ -8,6 +8,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-07
+
+### Changed
+
+- **Staff can fix the payment method for 15 minutes after collecting.** If a customer says cash
+  and then pays by UPI, anyone on shift can change Cash ↔ UPI (with a reason) on the wash page
+  for 15 minutes. After that only the owner can. A clear **"Paid another way? Change payment"**
+  button sits under Payment, so nobody voids a wash just to change how it was paid.
+
 ## [1.0.0] - 2026-11-05
 
 **The first public version**, the day Sri Mana Wash opens in Kovur. The team runs the shop on
@@ -1023,7 +1032,8 @@ build was labelled 2.0.0.
   a customer profile.
 - **One shared MAJOR.MINOR.PATCH version** across every app and package.
 
-[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.5.1...v1.0.0
 [0.5.1]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/admin-sprixia/ManaWashManager/compare/v0.4.1...v0.5.0

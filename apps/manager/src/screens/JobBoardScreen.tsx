@@ -46,6 +46,7 @@ import { useJobActions } from '../offline/useJobActions';
 import { useShop } from '../offline/ShopProvider';
 import type { BoardJob } from '../offline/types';
 import { useAfterPhotoGate } from '../components/useAfterPhotoGate';
+import { useMinute } from '../utils/useMinute';
 import { activityAt, customerLine, firstName, isToday, NEXT_STATUS, vehicleHeadline } from '../utils/jobs';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { MAX_WASHERS_PER_JOB } from '@mana/domain';
@@ -63,6 +64,7 @@ const COMPACT_BAR_HEIGHT = 58;
 
 export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
   const { user, isOwner } = useAuth();
+  const now = useMinute();
   // New Wash is opened all day: have its saved catalog in memory before the first tap.
   const boardShopId = user?.shopId;
   useEffect(() => {
@@ -263,6 +265,7 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
               onOpen={onOpen}
               onAction={onRowAction}
               viewerRole={user?.role ?? 'staff'}
+              now={now}
             />
           )}
           ListEmptyComponent={

@@ -77,6 +77,7 @@ import {
 } from '../utils/jobs';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { useAfterPhotoGate } from '../components/useAfterPhotoGate';
+import { useMinute } from '../utils/useMinute';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'JobDetail'>;
 
@@ -150,6 +151,7 @@ export function JobDetailScreen({ navigation, route }: Props) {
   const [selling, setSelling] = useState(false);
   const actions = useJobActions();
   const requireAfterPhoto = useAfterPhotoGate();
+  const now = useMinute();
 
   const [serverJob, setServerJob] = useState<JobDetail | null>(null);
   // The board's copy first: the page opens filled in, before the server answers.
@@ -246,14 +248,14 @@ export function JobDetailScreen({ navigation, route }: Props) {
 
   const role = user?.role ?? 'staff';
   /** A paid wash's amounts are the owner's after the 15-minute fix window (canSeeWashAmount). */
-  const showAmount = canSeeWashAmount(job.status, role, job.completedAt);
+  const showAmount = canSeeWashAmount(job.status, role, job.completedAt, now);
   const headline = vehicleHeadline(job);
   const next = NEXT_STATUS[job.status];
   const primaryLabel = actionLabel(job.status);
   const isVoid = job.status === 'void';
   const pendingOnPhone = job.syncState === 'pending' && !serverJob;
   const allowVoid = canVoidJob(job.status, role);
-  const allowCorrect = canCorrectPayment(job.status, role, job.completedAt) && !job.syncState;
+  const allowCorrect = canCorrectPayment(job.status, role, job.completedAt, now) && !job.syncState;
   const stepIndex = STEPS.findIndex((s) => s.status === job.status);
   const events = serverJob?.events ?? [];
   const washers = (job.washers ?? []).map((w) => w.user);

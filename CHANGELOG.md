@@ -8,6 +8,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-11-07
+
+### Fixed
+
+- **A paid wash's amount now hides on time for managers and staff.** The board, wash page and
+  customer history recheck every minute (and when the app comes back to the front). Before, the
+  amount could stay on screen past the 15 minutes until something else on the board changed.
+
 ## [1.0.3] - 2026-11-07
 
 ### Changed
@@ -1066,7 +1074,8 @@ build was labelled 2.0.0.
   a customer profile.
 - **One shared MAJOR.MINOR.PATCH version** across every app and package.
 
-[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.3...HEAD
+[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.4...HEAD
+[1.0.4]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.0...v1.0.1

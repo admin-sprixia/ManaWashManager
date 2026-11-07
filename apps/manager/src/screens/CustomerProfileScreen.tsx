@@ -46,6 +46,7 @@ import { PlanVehicleSheet, type PlanVehicle } from '../components/plans/PlanVehi
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import { CustomerRewards } from '../components/rewards/CustomerRewards';
 import { EditCustomerSheet } from '../components/EditCustomerSheet';
+import { useMinute } from '../utils/useMinute';
 import { useAuth } from '../api/auth';
 import { useDirectory } from '../offline/DirectoryProvider';
 import { CustomerCommunities, type CustomerCommunity } from '../components/CustomerCommunities';
@@ -188,7 +189,8 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
   const [pickingVehicle, setPickingVehicle] = useState(false);
   const [editing, setEditing] = useState(false);
   const { user, isOwner, isManager } = useAuth();
-  const showAmountOf = (job: HistoryJob) => canSeeWashAmount(job.status, user?.role ?? 'staff', job.completedAt);
+  const now = useMinute();
+  const showAmountOf = (job: HistoryJob) => canSeeWashAmount(job.status, user?.role ?? 'staff', job.completedAt, now);
   const directory = useDirectory();
   const [planFor, setPlanFor] = useState<PlanVehicle | null>(null);
 

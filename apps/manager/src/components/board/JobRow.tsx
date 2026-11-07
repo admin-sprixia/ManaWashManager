@@ -42,14 +42,16 @@ interface JobRowProps {
   onAction: (job: BoardJob) => void;
   /** Who's looking: a paid wash's amount is the owner's (see canSeeWashAmount). */
   viewerRole: UserRole;
+  /** The board's clock, ticking each minute, so an amount hides on time without a refresh. */
+  now: Date;
 }
 
 /**
  * One job on the board: a plain full-width row. The company and model (or the plate) and the
  * total, the plate, the services, who and when, and the single next step.
  */
-export const JobRow = memo(function JobRow({ job, busy, first, onOpen, onAction, viewerRole }: JobRowProps) {
-  const showAmount = canSeeWashAmount(job.status, viewerRole, job.completedAt);
+export const JobRow = memo(function JobRow({ job, busy, first, onOpen, onAction, viewerRole, now }: JobRowProps) {
+  const showAmount = canSeeWashAmount(job.status, viewerRole, job.completedAt, now);
   const isVoid = job.status === 'void';
   const action = actionLabel(job);
   const gift = giftNote(job);

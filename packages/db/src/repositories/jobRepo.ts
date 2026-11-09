@@ -470,6 +470,42 @@ export const jobRepo = {
   },
 
   /**
+   * The day's shop washes by how they were paid, for the owner's drawer: all cash, UPI + Cash
+   * (its cash part and kept extra come to the box, its UPI part goes to the bank), and all UPI or
+   * other. Amounts in paise.
+   */
+  async paymentBreakdown(db: DbClient, from: Date, to: Date) {
+    const rows = await db.job.findMany({
+      where: { status: 'paid', deliveryMode: 'hub', completedAt: { gte: from, lt: to } },
+      select: { total: true, paymentMethod: true, cashAmount: true, cashReceived: true },
+    });
+    const out = {
+      cash: { count: 0, amount: 0 },
+      split: { count: 0, cash: 0, upi: 0 },
+      upi: { count: 0, amount: 0 },
+      other: { count: 0, amount: 0 },
+    };
+    for (const j of rows) {
+      const s = paymentSplit(j);
+      if (j.paymentMethod === 'cash') {
+        out.cash.count++;
+        out.cash.amount += s.cash + s.extraCash;
+      } else if (s.cash > 0) {
+        out.split.count++;
+        out.split.cash += s.cash + s.extraCash;
+        out.split.upi += s.upi + s.other;
+      } else if (j.paymentMethod === 'upi') {
+        out.upi.count++;
+        out.upi.amount += s.upi;
+      } else {
+        out.other.count++;
+        out.other.amount += s.other;
+      }
+    }
+    return out;
+  },
+
+  /**
    * Doorstep cash by who collected it: in `[from, to)`, or ever when no window is given. It stays
    * with them until a handover brings it to the drawer.
    */

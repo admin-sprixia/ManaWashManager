@@ -147,6 +147,9 @@ check('More than ₹100 over is refused: give change instead', r.status === 400 
 r = await call(T.staff, 'POST', `/jobs/${s.id}/pay`, { paymentMethod: 'upi', cashAmount: 29900, cashReceived: 30000 });
 check('₹799 paid ₹500 by UPI and ₹300 cash for ₹299 (no change)', r.status === 200 && r.body?.status === 'paid' && r.body?.cashAmount === 29900 && r.body?.cashReceived === 30000, show(r));
 check('…the box counts the ₹300 actually taken', (await cashIn()) - before === 30000, `${before} → ${await cashIn()}`);
+const ownerDay = (await call(T.owner, 'GET', '/cash/day')).body;
+check('The owner’s drawer shows it under UPI + Cash: ₹300 to the box, ₹500 to the bank', ownerDay?.payments?.split?.count === 1 && ownerDay.payments.split.cash === 30000 && ownerDay.payments.split.upi === 50000, JSON.stringify(ownerDay?.payments));
+check('…while staff count blind (no breakdown)', (await call(T.staff, 'GET', '/cash/day')).body?.payments === null);
 const [row] = d1Rows(`SELECT payment_method AS m, cash_amount AS c, cash_received AS g FROM jobs WHERE id = '${s.id}'`);
 check('…stored as UPI with a ₹299 cash part and ₹300 received', row?.m === 'upi' && row?.c === 29900 && row?.g === 30000, JSON.stringify(row));
 job = await detail(s.id);

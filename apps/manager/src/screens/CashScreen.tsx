@@ -62,6 +62,13 @@ interface CashDay {
   /** Null for managers and staff: they count the box blind (see the API's forRole). */
   cashIn: number | null;
   cashJobs: number;
+  /** The day's shop washes by how they were paid (owner only; missing on older servers). */
+  payments?: {
+    cash: { count: number; amount: number };
+    split: { count: number; cash: number; upi: number };
+    upi: { count: number; amount: number };
+    other: { count: number; amount: number };
+  } | null;
   cashExpenses: number;
   cashExpenseCount: number;
   doorstep: DoorstepDay;
@@ -672,7 +679,7 @@ export function CashScreen({ navigation, route }: Props) {
                     {day.cashIn != null ? (
                       <>
                         <Text style={styles.sumOp}>+</Text>
-                        <SumChip label={showDoorstep ? 'At shop' : 'Washes'} value={day.cashIn} sub={`${day.cashJobs} paid in cash`} />
+                        <SumChip label={showDoorstep ? 'At shop' : 'Washes'} value={day.cashIn} sub={`${day.cashJobs} with cash`} />
                       </>
                     ) : null}
                     {showDoorstep ? (
@@ -687,6 +694,11 @@ export function CashScreen({ navigation, route }: Props) {
                 </>
               )}
             </LinearGradient>
+
+            {day.payments &&
+            day.payments.cash.count + day.payments.split.count + day.payments.upi.count + day.payments.other.count > 0 ? (
+              <PaidHowCard payments={day.payments} />
+            ) : null}
 
             {showDoorstep ? (
               <DoorstepCashCard
@@ -1037,7 +1049,61 @@ export function CashScreen({ navigation, route }: Props) {
   );
 }
 
+/** The owner's view of the day's shop washes by how they were paid, and where each part went. */
+function PaidHowCard({ payments }: { payments: NonNullable<CashDay['payments']> }) {
+  const washes = (n: number) => `${n} ${n === 1 ? 'wash' : 'washes'}`;
+  const rows = [
+    payments.cash.count > 0
+      ? { label: 'Cash', count: payments.cash.count, value: formatRupees(payments.cash.amount), where: 'in the box' }
+      : null,
+    payments.split.count > 0
+      ? {
+          label: 'UPI + Cash',
+          count: payments.split.count,
+          value: `${formatRupees(payments.split.cash)} cash + ${formatRupees(payments.split.upi)} UPI`,
+          where: 'cash part in the box, UPI part to the bank',
+        }
+      : null,
+    payments.upi.count > 0
+      ? { label: 'UPI', count: payments.upi.count, value: formatRupees(payments.upi.amount), where: 'to the bank' }
+      : null,
+    payments.other.count > 0
+      ? { label: 'Other', count: payments.other.count, value: formatRupees(payments.other.amount), where: 'not in the box' }
+      : null,
+  ].filter((r): r is NonNullable<typeof r> => r != null);
+  return (
+    <View style={styles.paidHow}>
+      <Text style={styles.paidHowTitle}>How the washes were paid</Text>
+      {rows.map((r, i) => (
+        <View key={r.label} style={[styles.paidHowRow, i > 0 && styles.paidHowDivider]}>
+          <View style={styles.paidHowLeft}>
+            <Text style={styles.paidHowLabel}>{r.label}</Text>
+            <Text style={styles.paidHowNote}>
+              {washes(r.count)} · {r.where}
+            </Text>
+          </View>
+          <Text style={styles.paidHowValue}>{r.value}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  paidHow: {
+    marginTop: spacing.md,
+    backgroundColor: colors.white,
+    borderRadius: 18,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  paidHowTitle: { ...typography.label, color: colors.slate, textTransform: 'none', paddingVertical: spacing.xs },
+  paidHowRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.sm, gap: spacing.sm },
+  paidHowDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  paidHowLeft: { flex: 1 },
+  paidHowLabel: { ...typography.bodyStrong, color: colors.ink },
+  paidHowNote: { ...typography.caption, color: colors.slate },
+  paidHowValue: { ...typography.bodyStrong, color: colors.ink, textAlign: 'right' },
   flex: { flex: 1 },
   pressed: { opacity: 0.75 },
   headerPad: { paddingHorizontal: spacing.md },

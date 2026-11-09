@@ -118,13 +118,14 @@ async function doorstepSummary(db: DbClient, date: string, from: Date, to: Date)
 async function daySummary(db: DbClient, date: string) {
   const from = parseIstDateOnly(date)!;
   const to = endOfIstDay(from);
-  const [row, cashIn, cashOut, previous, earlier, doorstep] = await Promise.all([
+  const [row, cashIn, cashOut, previous, earlier, doorstep, payments] = await Promise.all([
     opsRepo.findCashDay(db, date),
     jobRepo.cashCollected(db, from, to),
     expenseRepo.cashTotal(db, from, to),
     opsRepo.previousClosedDay(db, date),
     opsRepo.listEarlierCloses(db, date),
     doorstepSummary(db, date, from, to),
+    jobRepo.paymentBreakdown(db, from, to),
   ]);
   const openingFloat = row?.openingFloat ?? 0;
   const expectedNow = expectedCash({
@@ -147,6 +148,8 @@ async function daySummary(db: DbClient, date: string) {
     suggestedFloat: previous?.counted ?? null,
     cashIn: cashIn.total,
     cashJobs: cashIn.count,
+    /** The day's shop washes by how they were paid: Cash, UPI + Cash, UPI (owner only). */
+    payments,
     cashExpenses: cashOut.total,
     cashExpenseCount: cashOut.count,
     doorstep,
@@ -192,6 +195,7 @@ function forRole(s: DaySummary, role: UserRole) {
     expected: null,
     difference: null,
     cashIn: null,
+    payments: null,
     changedSinceClose: 0,
     earlierCloses: s.earlierCloses.map((e) => ({ ...e, expected: null, difference: null })),
   };

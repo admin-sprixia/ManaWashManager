@@ -8,6 +8,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.0.8] - 2026-11-09
+
+### Added
+
+- **"How the washes were paid" in the cash drawer** (owner): the day's shop washes as Cash,
+  UPI + Cash and UPI (and Other), each with how many washes, the amount, and where it went: in the
+  box or to the bank. A UPI + Cash bill shows its cash part (in the box) and its UPI part (bank)
+  separately. Managers and staff still count blind.
+
+### Changed
+
+- The drawer's Washes total says "N with cash" (it includes UPI + Cash bills' cash part), not
+  "N paid in cash".
+
 ## [1.0.7] - 2026-11-09
 
 ### Fixed
@@ -1136,7 +1150,8 @@ build was labelled 2.0.0.
   a customer profile.
 - **One shared MAJOR.MINOR.PATCH version** across every app and package.
 
-[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.7...HEAD
+[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.8...HEAD
+[1.0.8]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.7...v1.0.8
 [1.0.7]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.6...v1.0.7
 [1.0.6]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.4...v1.0.5

@@ -1,5 +1,5 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage, type RGB } from 'pdf-lib';
-import { RUPEE_GLYPH } from '@mana/domain';
+import { paymentSplit, RUPEE_GLYPH } from '@mana/domain';
 import billLogo from '../assets/bill-logo.json';
 
 /**
@@ -22,6 +22,9 @@ export interface BillInput {
   /** When it was paid. */
   at: Date;
   paymentMethod: string | null;
+  /** A split bill's cash part (the rest by paymentMethod); cash handed over beyond it. */
+  cashAmount?: number | null;
+  cashReceived?: number | null;
   /** phone: null when the customer didn't give a number. */
   customer: { name: string | null; phone: string | null };
   vehicle: { label: string; registration: string | null };
@@ -149,14 +152,24 @@ export async function buildBillPdf(input: BillInput): Promise<Uint8Array> {
   text(input.vehicle.registration ? spacedPlate(input.vehicle.registration) : input.vehicle.label, M + colW, top + 13, 11.5, bold, INK);
   if (input.vehicle.registration) text(input.vehicle.label, M + colW, top + 29, 9, regular, SLATE);
   label('Payment', M + colW * 2);
-  text(PAYMENT[input.paymentMethod ?? ''] ?? 'Paid', M + colW * 2, top + 13, 11.5, bold, INK);
+  const split = paymentSplit({ total: input.total, paymentMethod: input.paymentMethod, cashAmount: input.cashAmount, cashReceived: input.cashReceived });
+  const splitBill = input.paymentMethod !== 'cash' && split.cash > 0;
+  const methodText = splitBill ? `${PAYMENT[input.paymentMethod ?? ''] ?? 'Paid'} + Cash` : (PAYMENT[input.paymentMethod ?? ''] ?? 'Paid');
+  text(methodText, M + colW * 2, top + 13, 11.5, bold, INK);
   // A small PAID pill beside the method.
-  const methodW = bold.widthOfTextAtSize(safe(PAYMENT[input.paymentMethod ?? ''] ?? 'Paid'), 11.5);
+  const methodW = bold.widthOfTextAtSize(safe(methodText), 11.5);
   const pillX = M + colW * 2 + methodW + 8;
   page.drawRectangle({ x: pillX, y: H - top - 12 - 14, width: 38, height: 14, color: TEAL_PALE, borderColor: TEAL, borderWidth: 0.8 });
   text('PAID', pillX + 19, top + 15.5, 7.5, bold, TEAL, { align: 'center', spacing: 1.2 });
-  text(indiaTime(input.at), M + colW * 2, top + 29, 9, regular, SLATE);
-  top += 56;
+  if (splitBill) {
+    const other = split.upi + split.other;
+    text(`Rs ${amountText(other)} ${input.paymentMethod === 'upi' ? 'UPI' : 'card'} + Rs ${amountText(split.cash)} cash`, M + colW * 2, top + 29, 9, regular, SLATE);
+    text(indiaTime(input.at), M + colW * 2, top + 42, 9, regular, SLATE);
+    top += 69;
+  } else {
+    text(indiaTime(input.at), M + colW * 2, top + 29, 9, regular, SLATE);
+    top += 56;
+  }
 
   // ─── Services ──────────────────────────────────────────────────────────────
   const numX = M + 12;

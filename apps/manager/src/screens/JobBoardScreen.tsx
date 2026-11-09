@@ -17,6 +17,7 @@ import {
   Notice,
   ScreenContainer,
   showToast,
+  IconChevronRight,
   IconPlus,
   IconSparkle,
   colors,
@@ -188,6 +189,7 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
   }, [lane, laneJobs]);
 
   const goReports = useCallback(() => navigation.navigate('Reports'), [navigation]);
+  const goPastDays = useCallback(() => navigation.navigate('DayWashes'), [navigation]);
   const goMore = useCallback(() => navigation.navigate('More'), [navigation]);
   const goReminders = useCallback(() => navigation.navigate('Reminders'), [navigation]);
   const goInbox = useCallback(() => navigation.navigate('Inbox'), [navigation]);
@@ -251,6 +253,16 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
                   </View>
                 ) : null}
                 <SyncBanner onReview={goMore} />
+                {isOwner && lane !== 'community' ? (
+                  <Pressable
+                    onPress={goPastDays}
+                    style={({ pressed }) => [styles.pastDays, pressed && styles.pastDaysPressed]}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.pastDaysText}>Yesterday & earlier days</Text>
+                    <IconChevronRight size={16} color={colors.indigo} />
+                  </Pressable>
+                ) : null}
               </View>
               {lane === 'community' ? <CommunitiesPanel ref={panel} /> : null}
             </>
@@ -320,9 +332,9 @@ export function JobBoardScreen({ navigation }: JobBoardScreenProps) {
         amount={payJob?.total ?? 0}
         subtitle={payJob ? `${vehicleHeadline(payJob).title} · ${customerLine(payJob)}` : ''}
         onClose={() => setPayJob(null)}
-        onConfirm={async (method) => {
+        onConfirm={async (choice) => {
           if (!payJob) return null;
-          const message = await actions.pay(payJob.id, method);
+          const message = await actions.pay(payJob.id, choice);
           if (!message) setPayJob(null);
           return message;
         }}
@@ -362,6 +374,19 @@ const styles = StyleSheet.create({
   // Room for the floating New Wash button so the last row's action is never covered.
   list: { paddingBottom: 112, flexGrow: 1 },
   bannerWrap: { paddingTop: spacing.sm },
+  pastDays: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.xs,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: 12,
+    backgroundColor: colors.indigoPale,
+  },
+  pastDaysPressed: { opacity: 0.7 },
+  pastDaysText: { ...typography.label, color: colors.indigo, fontSize: 14, textTransform: 'none' },
   pausedWrap: { paddingHorizontal: spacing.md, paddingBottom: spacing.sm },
   sectionFooter: { height: spacing.xs },
   empty: { alignItems: 'center', marginTop: spacing.xxl, paddingHorizontal: spacing.lg },

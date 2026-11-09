@@ -7,6 +7,7 @@ import {
   type JobEventAction,
   type JobStatus,
   type PaymentMethod,
+  paymentSplit,
 } from '@mana/domain';
 import { directoryRepo } from './directoryRepo';
 
@@ -200,6 +201,9 @@ async function loadBoard(
 async function loadBoardRow(db: DbClient, id: string): Promise<BoardRow | null> {
   return (await loadBoard(db, { id }))[0] ?? null;
 }
+
+/** "₹1,299" for a paise amount. */
+const rupees = (paise: number) => `₹${(paise / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
 function event(
   userId: string,
@@ -444,15 +448,25 @@ export const jobRepo = {
     return rows.map((r) => r.userId);
   },
 
-  /** Cash actually taken in `[from, to)`: paid-in-cash jobs by when they were paid. */
-  /** Cash taken at the shop in `[from, to)`: it went straight into the drawer. */
+  /**
+   * Cash taken at the shop in `[from, to)`: it went straight into the drawer. A split bill counts
+   * its cash part, and a round-off (cash over the bill, no change given) is in the drawer too.
+   */
   async cashCollected(db: DbClient, from: Date, to: Date): Promise<{ total: number; count: number }> {
-    const result = await db.job.aggregate({
-      where: { status: 'paid', paymentMethod: 'cash', deliveryMode: 'hub', completedAt: { gte: from, lt: to } },
-      _sum: { total: true },
-      _count: true,
+    const rows = await db.job.findMany({
+      where: {
+        status: 'paid',
+        deliveryMode: 'hub',
+        completedAt: { gte: from, lt: to },
+        OR: [{ paymentMethod: 'cash' }, { cashAmount: { gt: 0 } }],
+      },
+      select: { total: true, paymentMethod: true, cashAmount: true, cashReceived: true },
     });
-    return { total: result._sum.total ?? 0, count: result._count };
+    const total = rows.reduce((sum, j) => {
+      const split = paymentSplit(j);
+      return sum + split.cash + split.extraCash;
+    }, 0);
+    return { total, count: rows.length };
   },
 
   /**
@@ -460,39 +474,64 @@ export const jobRepo = {
    * with them until a handover brings it to the drawer.
    */
   async doorstepCashByCollector(db: DbClient, window?: { from: Date; to: Date }) {
-    const rows = await db.job.groupBy({
-      by: ['paidByUserId'],
+    const rows = await db.job.findMany({
       where: {
         status: 'paid',
-        paymentMethod: 'cash',
         deliveryMode: 'doorstep',
         paidByUserId: { not: null },
+        OR: [{ paymentMethod: 'cash' }, { cashAmount: { gt: 0 } }],
         ...(window ? { completedAt: { gte: window.from, lt: window.to } } : {}),
       },
-      _sum: { total: true },
-      _count: { _all: true },
+      select: { paidByUserId: true, total: true, paymentMethod: true, cashAmount: true, cashReceived: true },
     });
-    return rows.map((r) => ({ userId: r.paidByUserId!, total: r._sum.total ?? 0, count: r._count._all }));
+    const byUser = new Map<string, { total: number; count: number }>();
+    for (const j of rows) {
+      const split = paymentSplit(j);
+      const row = byUser.get(j.paidByUserId!) ?? { total: 0, count: 0 };
+      row.total += split.cash + split.extraCash;
+      row.count += 1;
+      byUser.set(j.paidByUserId!, row);
+    }
+    return [...byUser].map(([userId, r]) => ({ userId, total: r.total, count: r.count }));
   },
 
   async markPaid(
     db: DbClient,
     id: string,
-    data: { from: JobStatus; paymentMethod: PaymentMethod; userId: string; at: Date },
+    data: {
+      from: JobStatus;
+      paymentMethod: PaymentMethod;
+      userId: string;
+      at: Date;
+      /** Split bill: its cash part (the rest by paymentMethod). */
+      cashAmount?: number | null;
+      /** Cash actually handed over, when more than the cash part (round-off kept). */
+      cashReceived?: number | null;
+    },
   ) {
     const moved = await db.job.updateMany({
       where: { id, status: data.from },
       data: {
         status: 'paid',
         paymentMethod: data.paymentMethod,
+        cashAmount: data.cashAmount ?? null,
+        cashReceived: data.cashReceived ?? null,
         paymentStatus: 'paid',
         paidByUserId: data.userId,
         completedAt: data.at,
       },
     });
     if (moved.count !== 1) return null;
+    // The history says how a split bill was paid, and any cash kept over it.
+    const split = paymentSplit({ total: (await db.job.findUnique({ where: { id }, select: { total: true } }))?.total ?? 0, ...data });
+    const note = [
+      data.cashAmount ? `${rupees(split.cash)} cash + ${rupees(split.upi + split.other)} ${data.paymentMethod === 'upi' ? 'UPI' : 'other'}` : null,
+      split.extraCash > 0 ? `${rupees(split.extraCash)} extra cash kept (no change)` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ');
     await db.jobEvent.create({
-      data: { jobId: id, ...event(data.userId, 'paid', data.at, { fromValue: data.from, toValue: data.paymentMethod }) },
+      data: { jobId: id, ...event(data.userId, 'paid', data.at, { fromValue: data.from, toValue: data.paymentMethod, reason: note || null }) },
     });
     return loadBoardRow(db, id);
   },
@@ -519,15 +558,86 @@ export const jobRepo = {
     return job;
   },
 
+  /**
+   * New services for a wash (the customer changed their mind). Only while the job is still in
+   * `from` with the bill `fromTotal`, so two changes can't cross. D1 has no transactions, so the
+   * new lines are written before the old ones go: a crash part-way never leaves a wash empty.
+   */
+  async changeServices(
+    db: DbClient,
+    id: string,
+    data: {
+      from: JobStatus;
+      fromTotal: number;
+      lineItems: { serviceId: string; priceAtTime: number; commissionAtTime: number; quantity: number }[];
+      subtotal: number;
+      discount: number;
+      discountReason: string | null;
+      total: number;
+      /** Who gets the commission when the new services earn some and nobody had it yet. */
+      sellerIds: string[];
+      userId: string;
+      fromNames: string;
+      toNames: string;
+      reason: string;
+    },
+  ) {
+    const moved = await db.job.updateMany({
+      where: { id, status: data.from, total: data.fromTotal },
+      data: {
+        subtotal: data.subtotal,
+        discount: data.discount,
+        discountReason: data.discountReason,
+        total: data.total,
+        // A paid bill changed: the cash handed over was for the old total, so no round-off is kept.
+        ...(data.from === 'paid' ? { cashReceived: null } : {}),
+      },
+    });
+    if (moved.count !== 1) return null;
+    const keep = data.lineItems.map((l) => l.serviceId);
+    for (const line of data.lineItems) {
+      await db.jobService.upsert({
+        where: { jobId_serviceId: { jobId: id, serviceId: line.serviceId } },
+        create: { jobId: id, ...line },
+        update: { priceAtTime: line.priceAtTime, commissionAtTime: line.commissionAtTime, quantity: line.quantity },
+      });
+    }
+    await db.jobService.deleteMany({ where: { jobId: id, serviceId: { notIn: keep } } });
+    if (data.sellerIds.length && (await db.jobSeller.count({ where: { jobId: id } })) === 0) {
+      await db.jobSeller.createMany({
+        data: data.sellerIds.map((userId) => ({ jobId: id, userId, assignedByUserId: data.userId })),
+      });
+    }
+    await db.jobEvent.create({
+      data: {
+        jobId: id,
+        ...event(data.userId, 'services_changed', new Date(), {
+          fromValue: data.fromNames.slice(0, 500),
+          toValue: data.toNames.slice(0, 500),
+          reason: data.reason.slice(0, 300),
+        }),
+      },
+    });
+    return loadBoardRow(db, id);
+  },
+
   /** Only while the job is still paid with `from`, so two corrections can't cross. */
   async changePaymentMethod(
     db: DbClient,
     id: string,
-    data: { from: PaymentMethod | null; to: PaymentMethod; userId: string; reason: string },
+    data: {
+      from: PaymentMethod | null;
+      to: PaymentMethod;
+      userId: string;
+      reason: string;
+      /** The new split, if any (a correction can split a bill, or make a split one whole again). */
+      cashAmount?: number | null;
+      cashReceived?: number | null;
+    },
   ) {
     const moved = await db.job.updateMany({
       where: { id, status: 'paid', paymentMethod: data.from },
-      data: { paymentMethod: data.to },
+      data: { paymentMethod: data.to, cashAmount: data.cashAmount ?? null, cashReceived: data.cashReceived ?? null },
     });
     if (moved.count !== 1) return null;
     await db.jobEvent.create({
@@ -563,6 +673,20 @@ export const jobRepo = {
     );
   },
 
+  /** One past day's washes for the owner: started that day, or paid that day. Newest first. */
+  async listDay(db: DbClient, from: Date, to: Date) {
+    return loadBoard(
+      db,
+      {
+        OR: [
+          { createdAt: { gte: from, lt: to } },
+          { status: 'paid', completedAt: { gte: from, lt: to } },
+        ],
+      },
+      { createdAt: 'desc' },
+    );
+  },
+
   /**
    * Cars currently in the shop right now — waiting, washing, or ready for pickup.
    * Deliberately not date-ranged: a car that arrived two days ago and is still sitting
@@ -586,7 +710,16 @@ export const jobRepo = {
     const [paid, voided, firstVisits, communityWashes] = await Promise.all([
       db.job.findMany({
         where: paidInWindow,
-        select: { total: true, discount: true, paymentMethod: true, customerId: true, deliveryMode: true, planSaleId: true },
+        select: {
+          total: true,
+          discount: true,
+          paymentMethod: true,
+          cashAmount: true,
+          cashReceived: true,
+          customerId: true,
+          deliveryMode: true,
+          planSaleId: true,
+        },
       }),
       db.job.count({ where: { status: 'void', createdAt: { gte: from, lt: to }, planSaleId: null } }),
       // First visit of every customer who paid in the window.
@@ -603,6 +736,8 @@ export const jobRepo = {
 
     const sumWhere = (pred: (j: (typeof paid)[number]) => boolean) =>
       paid.filter(pred).reduce((sum, j) => sum + j.total, 0);
+    const splits = paid.map((j) => paymentSplit(j));
+    const sumSplit = (key: 'cash' | 'upi' | 'other' | 'extraCash') => splits.reduce((sum, s) => sum + s[key], 0);
 
     const firstVisitAt = new Map(firstVisits.map((f) => [f.customerId, f._min.createdAt]));
 
@@ -622,9 +757,11 @@ export const jobRepo = {
     return {
       carsWashed: washes.length,
       revenue: paid.reduce((sum, j) => sum + j.total, 0),
-      cash: sumWhere((j) => j.paymentMethod === 'cash'),
-      upi: sumWhere((j) => j.paymentMethod === 'upi'),
-      other: sumWhere((j) => j.paymentMethod === 'other'),
+      cash: sumSplit('cash'),
+      upi: sumSplit('upi'),
+      other: sumSplit('other'),
+      /** Cash kept over bills (no change given): in the drawer, not wash revenue. */
+      roundOff: sumSplit('extraCash'),
       /** Washes at customers' homes, and what they brought in (part of carsWashed and revenue). */
       doorstepWashes: paid.filter((j) => j.deliveryMode === 'doorstep').length,
       doorstepRevenue: sumWhere((j) => j.deliveryMode === 'doorstep'),
@@ -759,9 +896,10 @@ export const jobRepo = {
         if (collector) {
           collector.jobsCollected += 1;
           collector.collected += job.total;
-          if (job.paymentMethod === 'cash') collector.cash += job.total;
-          else if (job.paymentMethod === 'upi') collector.upi += job.total;
-          else collector.other += job.total;
+          const split = paymentSplit(job);
+          collector.cash += split.cash;
+          collector.upi += split.upi;
+          collector.other += split.other;
         }
       }
       if (started && job.status === 'void' && job.voidedByUserId) {
@@ -839,6 +977,7 @@ export const jobRepo = {
         discount: true,
         discountReason: true,
         paymentMethod: true,
+        cashAmount: true,
         planSaleId: true,
         customer: { select: { name: true, phone: true } },
         vehicle: { select: { registrationNumber: true, vehicleType: { select: { name: true } } } },

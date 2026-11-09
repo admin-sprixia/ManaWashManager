@@ -6,6 +6,7 @@ import { NewWashScreen } from '../screens/NewWashScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { CustomerProfileScreen } from '../screens/CustomerProfileScreen';
 import { ReportsScreen } from '../screens/ReportsScreen';
+import { DayWashesScreen } from '../screens/DayWashesScreen';
 import { JobDetailScreen } from '../screens/JobDetailScreen';
 import { MoreScreen } from '../screens/MoreScreen';
 import { HqHomeScreen } from '../screens/HqHomeScreen';
@@ -51,7 +52,8 @@ export type RootStackParamList = {
   /** Home for Mana Wash HQ who work at no branch. */
   HqHome: undefined;
   /** `mode`: open on that menu (the home tab it was started from), when the branch offers it. */
-  NewWash: { registration?: string; mode?: DeliveryMode } | undefined;
+  /** `addVehicleFor`: a customer id, from their profile: a wash for a vehicle of theirs not saved yet. */
+  NewWash: { registration?: string; mode?: DeliveryMode; addVehicleFor?: string } | undefined;
   JobDetail: { jobId: string };
   CustomerProfile: { customerId: string };
   More: undefined;
@@ -60,6 +62,8 @@ export type RootStackParamList = {
   AddExpense: { edit?: ExpenseItem } | undefined;
   Settings: undefined;
   Reports: undefined;
+  /** The owner's look back at one day's washes (default: yesterday). */
+  DayWashes: { date?: string } | undefined;
   Team: undefined;
   StaffReport: undefined;
   Reminders: undefined;
@@ -192,6 +196,7 @@ export function RootNavigator() {
         {isOwner ? (
           <>
             <Stack.Screen name="Reports" component={ReportsScreen} options={slide} />
+            <Stack.Screen name="DayWashes" component={DayWashesScreen} options={slide} />
             <Stack.Screen name="Settings" component={SettingsScreen} options={slide} />
             <Stack.Screen name="StaffReport" component={StaffReportScreen} options={slide} />
             <Stack.Screen name="ErrorLog" component={ErrorLogScreen} options={slide} />

@@ -464,6 +464,10 @@ model Job {
   visitLongitude  Float?    @map("visit_longitude")
   /// A bill a wash plan was sold on: money in, not a wash.
   planSaleId      String?   @map("plan_sale_id")
+  /// Split payment: the bill's cash part (null = all by paymentMethod, which is then the rest's method).
+  cashAmount      Int?      @map("cash_amount")
+  /// Cash actually taken when more than the cash part (no change given): the extra is a round-off.
+  cashReceived    Int?      @map("cash_received")
 
   customer    Customer     @relation(fields: [customerId], references: [id])
   vehicle     Vehicle      @relation(fields: [vehicleId], references: [id])
@@ -720,7 +724,7 @@ model JobEvent {
   shopId    String   @default("") @map("shop_id")
   jobId     String   @map("job_id")
   userId    String   @map("user_id")
-  action    String // created | status_changed | paid | voided | payment_method_changed
+  action    String // created | status_changed | paid | voided | payment_method_changed | services_changed | …
   fromValue String?  @map("from_value")
   toValue   String?  @map("to_value")
   reason    String?

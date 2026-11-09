@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canChangeServices,
   canCorrectPayment,
   canSeeWashAmount,
+  paymentLabel,
+  paymentSplit,
   canManageMember,
   canVoidJob,
   checkPin,
@@ -142,6 +145,22 @@ describe('canSeeWashAmount', () => {
   });
 });
 
+describe('paymentSplit', () => {
+  it('puts a single-method bill in its method', () => {
+    expect(paymentSplit({ total: 59900, paymentMethod: 'cash' })).toEqual({ cash: 59900, upi: 0, other: 0, extraCash: 0 });
+    expect(paymentSplit({ total: 59900, paymentMethod: 'upi' })).toEqual({ cash: 0, upi: 59900, other: 0, extraCash: 0 });
+  });
+  it('splits ₹500 UPI + ₹299 cash, with ₹300 handed over', () => {
+    const job = { total: 79900, paymentMethod: 'upi', cashAmount: 29900, cashReceived: 30000 };
+    expect(paymentSplit(job)).toEqual({ cash: 29900, upi: 50000, other: 0, extraCash: 100 });
+    expect(paymentLabel(job)).toBe('UPI + Cash');
+  });
+  it('keeps the round-off on an all-cash bill', () => {
+    expect(paymentSplit({ total: 59900, paymentMethod: 'cash', cashReceived: 60000 }).extraCash).toBe(100);
+    expect(paymentLabel({ paymentMethod: 'cash' })).toBe('Cash');
+  });
+});
+
 describe('resolveOccurredAt', () => {
   const now = new Date('2026-09-25T10:00:00.000Z');
 
@@ -172,5 +191,18 @@ describe('resolveOccurredAt', () => {
     const longAgo = new Date(new Date('2026-09-25T09:00:00.000Z').getTime() - MAX_OFFLINE_BACKDATE_MS - 1000);
     expect(resolveOccurredAt(longAgo.toISOString(), now, '2026-09-25T09:00:00.000Z')).toBe(now);
     expect(resolveOccurredAt('2026-09-25T09:30:00.000Z', now, 'garbage').toISOString()).toBe('2026-09-25T09:30:00.000Z');
+  });
+});
+
+describe('canChangeServices', () => {
+  it('lets anyone change an unpaid wash, only the owner a paid one, nobody a voided one', () => {
+    for (const status of ['waiting', 'washing', 'ready'] as const) {
+      expect(canChangeServices(status, 'staff')).toBe(true);
+      expect(canChangeServices(status, 'manager')).toBe(true);
+    }
+    expect(canChangeServices('paid', 'staff')).toBe(false);
+    expect(canChangeServices('paid', 'manager')).toBe(false);
+    expect(canChangeServices('paid', 'owner')).toBe(true);
+    expect(canChangeServices('void', 'owner')).toBe(false);
   });
 });

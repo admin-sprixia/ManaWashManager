@@ -65,6 +65,11 @@ export const customerRepo = {
       /** Picked from the size guide's list; left as saved when not sent. */
       make?: string;
       model?: string;
+      /**
+       * A new vehicle for this saved customer (one with no number has nothing else to match on).
+       * Used only when the plate is new and no phone is given.
+       */
+      customerId?: string;
     },
   ) {
     const existing = await db.vehicle.findFirst({
@@ -73,7 +78,11 @@ export const customerRepo = {
     const phone = data.phone;
 
     if (!phone) {
-      let customer = existing ? await db.customer.findUnique({ where: { id: existing.customerId } }) : null;
+      let customer = existing
+        ? await db.customer.findUnique({ where: { id: existing.customerId } })
+        : data.customerId
+          ? await db.customer.findFirst({ where: { id: data.customerId, phone: null } })
+          : null;
       if (!customer) {
         customer = await db.customer.create({ data: { phone: null, name: data.name, source: data.source } });
       } else if (customer.name !== data.name) {

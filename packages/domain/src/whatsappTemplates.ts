@@ -298,6 +298,8 @@ export interface WashMessageInput {
   total: number;
   discount: number;
   paymentMethod: PaymentMethod | null;
+  /** A split bill's cash part (the rest by paymentMethod). */
+  cashAmount?: number | null;
   /** When it was paid. */
   at: Date;
   /** The quick-reply button's payload: directions for Ready, the review link for the bill. */
@@ -368,7 +370,11 @@ export function washTemplateMessage(
   } else {
     const services = input.services.map((s) => (s.quantity > 1 ? `${s.name} × ${s.quantity}` : s.name)).join(', ');
     const saved = input.discount > 0 ? (lang === 'te' ? ` (${rupees(input.discount)} ఆదా)` : ` (you saved ${rupees(input.discount)})`) : '';
-    const method = input.paymentMethod ? PAYMENT_LABEL[input.paymentMethod][lang] : lang === 'te' ? 'చెల్లించారు' : 'paid';
+    const single = input.paymentMethod ? PAYMENT_LABEL[input.paymentMethod][lang] : lang === 'te' ? 'చెల్లించారు' : 'paid';
+    const method =
+      input.paymentMethod && input.paymentMethod !== 'cash' && (input.cashAmount ?? 0) > 0
+        ? `${single} + ${PAYMENT_LABEL.cash[lang]}`
+        : single;
     params = [name(input, lang), input.place, vehicleLine(input), services || 'Wash', `${rupees(input.total)}${saved}`, method, washMessageDate(input.at)];
   }
   params = params.map(clean);

@@ -53,7 +53,12 @@ async function call(op: OutboxOp, asToken?: string): Promise<ApiResponse> {
     case 'job.pay':
       return api.jobs[':id'].pay.$post({
         param: { id: op.payload.jobId },
-        json: { paymentMethod: op.payload.paymentMethod, occurredAt: op.payload.occurredAt },
+        json: {
+          paymentMethod: op.payload.paymentMethod,
+          cashAmount: op.payload.cashAmount ?? null,
+          cashReceived: op.payload.cashReceived ?? null,
+          occurredAt: op.payload.occurredAt,
+        },
       }, as);
     case 'job.void':
       return api.jobs[':id'].void.$post({

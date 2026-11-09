@@ -132,6 +132,14 @@ export function canVoidJob(status: JobStatus, role: UserRole): boolean {
   return true;
 }
 
+/**
+ * The customer changed their mind (Express → Basic): anyone can change an unpaid wash's services;
+ * once paid, only the owner (the money is already counted).
+ */
+export function canChangeServices(status: JobStatus, role: UserRole): boolean {
+  return canVoidJob(status, role);
+}
+
 /** How long after collecting anyone on shift can still fix how a wash was paid. */
 export const PAYMENT_FIX_MINUTES = 15;
 
@@ -172,6 +180,47 @@ export function canSeeWashAmount(
 
 export const PAYMENT_METHODS: readonly PaymentMethod[] = ['cash', 'upi', 'other'];
 
+/** The most extra cash a wash can keep as a round-off (no change given): ₹100. */
+export const MAX_ROUND_OFF = 10000;
+
+/** A paid wash's money by method. All amounts in paise. */
+export interface PaymentSplit {
+  /** The bill's cash part. */
+  cash: number;
+  upi: number;
+  other: number;
+  /** Cash taken over the cash part, kept as a round-off (in the drawer, not wash revenue). */
+  extraCash: number;
+}
+
+/**
+ * How a paid wash's bill was paid. `paymentMethod` is the method of the whole bill, or of what
+ * wasn't paid in cash when `cashAmount` (the cash part) is set; `cashReceived` is the cash
+ * actually handed over when it was more than the cash part.
+ */
+export function paymentSplit(job: {
+  total: number;
+  paymentMethod: string | null;
+  cashAmount?: number | null;
+  cashReceived?: number | null;
+}): PaymentSplit {
+  const method = job.paymentMethod;
+  const cash = method === 'cash' ? job.total : Math.min(Math.max(job.cashAmount ?? 0, 0), job.total);
+  const rest = job.total - cash;
+  return {
+    cash,
+    upi: method === 'upi' ? rest : 0,
+    other: method === 'other' ? rest : 0,
+    extraCash: job.cashReceived != null ? Math.max(0, job.cashReceived - cash) : 0,
+  };
+}
+
+/** "UPI", "Cash", or for a split bill "UPI + Cash". */
+export function paymentLabel(job: { paymentMethod: string | null; cashAmount?: number | null }): string {
+  const method = PAYMENT_METHOD_LABEL[job.paymentMethod as PaymentMethod] ?? 'Paid';
+  return job.paymentMethod !== 'cash' && (job.cashAmount ?? 0) > 0 ? `${method} + Cash` : method;
+}
+
 export const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
   cash: 'Cash',
   upi: 'UPI',
@@ -187,7 +236,9 @@ export type JobEventAction =
   | 'washers_changed'
   | 'sellers_changed'
   /** A wash that waited offline kept the price the customer was quoted (from: today's, to: kept). */
-  | 'price_kept';
+  | 'price_kept'
+  /** The services changed (from/to: the service names; reason: why, with the old and new bill). */
+  | 'services_changed';
 
 export type ExpenseCategory =
   'chemicals' | 'labour' | 'electricity' | 'water' | 'maintenance' | 'other';

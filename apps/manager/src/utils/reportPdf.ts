@@ -1,3 +1,4 @@
+import { paymentLabel } from '@mana/domain';
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
 import { Image } from 'react-native';
 import { APP_VERSION } from '../config/app';
@@ -13,6 +14,8 @@ export interface ReportExportJob {
   discount: number;
   discountReason: string | null;
   paymentMethod: string | null;
+  /** A split bill's cash part (the rest by paymentMethod). */
+  cashAmount?: number | null;
   /** A wash plan sold at the counter: money in, not a car washed. */
   planSale?: boolean;
   customerName: string | null;
@@ -876,7 +879,7 @@ export async function buildReportPdf(
       const status = voided
         ? 'Void'
         : job.status === 'paid'
-          ? [job.paymentMethod ? (job.paymentMethod === 'upi' ? 'UPI' : job.paymentMethod[0]!.toUpperCase() + job.paymentMethod.slice(1)) : 'Paid', job.paidBy ? job.paidBy.split(/\s+/)[0] : null]
+          ? [job.paymentMethod ? paymentLabel(job) : 'Paid', job.paidBy ? job.paidBy.split(/\s+/)[0] : null]
               .filter(Boolean)
               .join(' · ')
           : 'Not paid yet';

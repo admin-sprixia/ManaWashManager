@@ -60,6 +60,9 @@ export interface BoardJob {
   /** Where the car is washed; rows saved before doorstep washing have none (the hub). */
   deliveryMode?: string;
   paymentMethod: PaymentMethod | null;
+  /** A split bill's cash part (the rest by paymentMethod), and cash handed over beyond it. */
+  cashAmount?: number | null;
+  cashReceived?: number | null;
   /** phone: null when the customer didn't give a number. */
   customer: { id: string; name: string | null; phone: string | null };
   vehicle: {
@@ -99,6 +102,8 @@ export interface StartJobPayload {
   occurredAt: string;
   /** phone: null when the customer didn't give a number (the vehicle number identifies them). */
   customer: { phone: string | null; name: string };
+  /** Another vehicle for this saved customer (matters when they have no number). */
+  customerId?: string;
   registrationNumber: string;
   /** Known plate, different phone: whether the owner changed numbers or the vehicle changed hands. */
   ownership?: 'new_owner' | 'same_person';
@@ -212,7 +217,8 @@ export type OutboxOp =
     }
   | {
       kind: 'job.pay';
-      payload: { jobId: string; paymentMethod: PaymentMethod; occurredAt: string };
+      /** cashAmount: a split bill's cash part; cashReceived: cash handed over beyond it (paise). */
+      payload: { jobId: string; paymentMethod: PaymentMethod; cashAmount?: number | null; cashReceived?: number | null; occurredAt: string };
     }
   | { kind: 'job.void'; payload: { jobId: string; reason: string; occurredAt: string } }
   | { kind: 'photo.upload'; payload: PhotoPayload }

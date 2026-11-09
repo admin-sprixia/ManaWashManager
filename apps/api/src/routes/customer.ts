@@ -186,6 +186,21 @@ export const customerRoutes = new Hono<{ Bindings: Env }>()
       return c.json({ vehicle: result });
     },
   )
+  // The owner moves a vehicle saved under the wrong customer (or a duplicate profile) to the
+  // right one; its washes go with it.
+  .post(
+    '/:id/vehicles/:vehicleId/move',
+    requireRole('owner'),
+    zValidator('param', z.object({ id: z.string().min(1).max(64), vehicleId: z.string().min(1).max(64) })),
+    zValidator('json', z.object({ toCustomerId: z.string().min(1).max(64) })),
+    async (c) => {
+      const { id, vehicleId } = c.req.valid('param');
+      const result = await vehicleRepo.moveToCustomer(c.get('db'), vehicleId, id, c.req.valid('json').toCustomerId);
+      if (result === 'same') return c.json({ error: 'same_customer' as const, message: 'It’s already this customer’s vehicle.' }, 400);
+      if (result === 'not_found') return c.json({ error: 'not_found' as const, message: 'Vehicle or customer not found.' }, 404);
+      return c.json({ ok: true as const, washes: result.washes });
+    },
+  )
   // Quick-add: a brand new customer and their first vehicle in one call (New Wash screen, step 2).
   .post('/', zValidator('json', createCustomerSchema), async (c) => {
     const body = c.req.valid('json');

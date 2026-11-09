@@ -13,8 +13,11 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
+  canChangeServices,
   canCorrectPayment,
   canSeeWashAmount,
+  paymentLabel,
+  paymentSplit,
   PAYMENT_FIX_MINUTES,
   canVoidJob,
   jobCommission,
@@ -42,6 +45,7 @@ import {
 import { FactRow, JobHero, SheetHeading } from '../components/jobDetail/JobDetailParts';
 import { SellPlanSheet } from '../components/newWash/SellPlanSheet';
 import { PaymentSheet } from '../components/PaymentSheet';
+import { ChangeServicesSheet } from '../components/jobDetail/ChangeServicesSheet';
 import { ReasonSheet } from '../components/ReasonSheet';
 import { PeoplePickerSheet } from '../components/PeoplePickerSheet';
 import { JobPhotos, type JobPhoto } from '../components/JobPhotos';
@@ -127,6 +131,15 @@ function describeEvent(e: JobEvent, showAmount: boolean): string {
       return e.toValue ? `${who} changed washers to ${e.toValue}` : `${who} cleared who washed it`;
     case 'sellers_changed':
       return `${who} changed who got the service to ${e.toValue ?? '—'}`;
+    case 'services_changed': {
+      const [fromNames, fromTotal] = (e.fromValue ?? '').split('|');
+      const [toNames, toTotal] = (e.toValue ?? '').split('|');
+      const amounts =
+        showAmount && fromTotal && toTotal
+          ? ` (${formatRupees(Number(fromTotal))} → ${formatRupees(Number(toTotal))})`
+          : '';
+      return `${who} changed services ${fromNames || '—'} → ${toNames || '—'}${amounts}`;
+    }
     case 'price_kept':
       return showAmount
         ? `Kept the price ${who} quoted offline: ${formatRupees(Number(e.toValue))} (today ${formatRupees(Number(e.fromValue))})`
@@ -136,7 +149,13 @@ function describeEvent(e: JobEvent, showAmount: boolean): string {
 
 function eventTone(action: JobEventAction): { dot: string; bg: string } {
   if (action === 'voided') return { dot: colors.danger, bg: '#FEE2E2' };
-  if (action === 'payment_method_changed' || action === 'washers_changed' || action === 'sellers_changed' || action === 'price_kept') {
+  if (
+    action === 'payment_method_changed' ||
+    action === 'washers_changed' ||
+    action === 'sellers_changed' ||
+    action === 'price_kept' ||
+    action === 'services_changed'
+  ) {
     return { dot: colors.amber, bg: '#FEF3C7' };
   }
   if (action === 'paid') return { dot: colors.teal, bg: '#CCFBF1' };
@@ -163,7 +182,9 @@ export function JobDetailScreen({ navigation, route }: Props) {
   const [notFound, setNotFound] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [sheet, setSheet] = useState<'pay' | 'void' | 'correct' | 'start' | 'washers' | 'sellers' | null>(null);
+  const [sheet, setSheet] = useState<
+    'pay' | 'void' | 'correct' | 'start' | 'washers' | 'sellers' | 'services' | null
+  >(null);
   const [sharingBill, setSharingBill] = useState(false);
 
   // Each answer is applied in one go: the old architecture would redraw the page per update.
@@ -249,6 +270,19 @@ export function JobDetailScreen({ navigation, route }: Props) {
   const role = user?.role ?? 'staff';
   /** A paid wash's amounts are the owner's after the 15-minute fix window (canSeeWashAmount). */
   const showAmount = canSeeWashAmount(job.status, role, job.completedAt, now);
+  // "₹500 UPI + ₹299 cash · ₹1 kept": how a split bill (or a round-off) was paid, when amounts show.
+  const split = paymentSplit(job);
+  const splitNote =
+    showAmount && job.status === 'paid'
+      ? [
+          job.paymentMethod !== 'cash' && split.cash > 0
+            ? `${formatRupees(split.upi + split.other)} ${job.paymentMethod === 'upi' ? 'UPI' : 'other'} + ${formatRupees(split.cash)} cash`
+            : null,
+          split.extraCash > 0 ? `${formatRupees(split.extraCash)} kept, no change` : null,
+        ]
+          .filter(Boolean)
+          .join(' · ') || null
+      : null;
   const headline = vehicleHeadline(job);
   const next = NEXT_STATUS[job.status];
   const primaryLabel = actionLabel(job.status);
@@ -256,6 +290,16 @@ export function JobDetailScreen({ navigation, route }: Props) {
   const pendingOnPhone = job.syncState === 'pending' && !serverJob;
   const allowVoid = canVoidJob(job.status, role);
   const allowCorrect = canCorrectPayment(job.status, role, job.completedAt, now) && !job.syncState;
+  // The customer changed their mind: anyone before payment, the owner after (not a split bill,
+  // a home wash or a free one; the server also refuses coupons, referrals and plans).
+  const allowServiceChange =
+    canChangeServices(job.status, role) &&
+    !job.syncState &&
+    online &&
+    job.deliveryMode !== 'doorstep' &&
+    !job.freeServiceIds?.length &&
+    !(job.status === 'paid' && job.cashAmount != null) &&
+    (job.vehicle as { vehicleTypeId?: string }).vehicleTypeId != null;
   const stepIndex = STEPS.findIndex((s) => s.status === job.status);
   const events = serverJob?.events ?? [];
   const washers = (job.washers ?? []).map((w) => w.user);
@@ -332,7 +376,9 @@ export function JobDetailScreen({ navigation, route }: Props) {
   const amountNote = isVoid
     ? 'Voided · not counted'
     : job.status === 'paid'
-      ? [`Paid by ${methodLabel(job.paymentMethod)}`, job.completedAt ? formatTime(job.completedAt) : null].filter(Boolean).join(' · ')
+      ? [`Paid by ${paymentLabel(job)}`, job.completedAt ? formatTime(job.completedAt) : null]
+          .filter(Boolean)
+          .join(' · ')
       : job.status === 'ready'
         ? 'To collect now'
         : 'To collect when it’s ready';
@@ -448,6 +494,20 @@ export function JobDetailScreen({ navigation, route }: Props) {
           ) : (
             <Text style={styles.amountsNote}>Amounts of paid washes are visible to the owner.</Text>
           )}
+          {allowServiceChange ? (
+            <Pressable
+              onPress={() => setSheet('services')}
+              style={({ pressed }) => [styles.fixLink, pressed && styles.pressed]}
+              accessibilityRole="button"
+            >
+              <Text style={styles.fixLinkText}>Customer changed their mind? Change services</Text>
+              <Text style={styles.voidLinkNote}>
+                {job.status === 'paid'
+                  ? 'Paid already: the bill changes, check the payment after.'
+                  : 'Express → Basic and the like. The bill is made again, no need to void.'}
+              </Text>
+            </Pressable>
+          ) : null}
 
           {/* Details */}
           {canSellPlan ? (
@@ -492,9 +552,13 @@ export function JobDetailScreen({ navigation, route }: Props) {
           {job.status === 'paid' ? (
             <FactRow
               label="Payment"
-              value={methodLabel(job.paymentMethod)}
+              value={paymentLabel(job)}
               tone="good"
-              note={[job.paidBy ? `to ${job.paidBy.name}` : null, job.completedAt ? formatTime(job.completedAt) : null]
+              note={[
+                splitNote,
+                job.paidBy ? `to ${job.paidBy.name}` : null,
+                job.completedAt ? formatTime(job.completedAt) : null,
+              ]
                 .filter(Boolean)
                 .join(' · ')}
               onPress={allowCorrect ? () => setSheet('correct') : undefined}
@@ -593,7 +657,10 @@ export function JobDetailScreen({ navigation, route }: Props) {
             >
               <Text style={styles.voidLinkText}>Void this wash</Text>
               <Text style={styles.voidLinkNote}>
-                {job.status === 'paid' ? 'Reverses collected money.' : 'Removes it from the board and totals.'} A reason is required.
+                {job.status === 'paid'
+                  ? 'Reverses collected money.'
+                  : 'Removes it from the board and totals.'}{' '}
+                A reason is required.
               </Text>
             </Pressable>
           ) : job.status === 'paid' && !isOwner ? (
@@ -618,8 +685,8 @@ export function JobDetailScreen({ navigation, route }: Props) {
         amount={job.total}
         subtitle={`${headline.title} · ${customerLine(job)}`}
         onClose={() => setSheet(null)}
-        onConfirm={async (method) => {
-          const message = await actions.pay(job.id, method);
+        onConfirm={async (choice) => {
+          const message = await actions.pay(job.id, choice);
           if (!message) setSheet(null);
           return message;
         }}
@@ -629,13 +696,22 @@ export function JobDetailScreen({ navigation, route }: Props) {
         visible={sheet === 'correct'}
         amount={job.total}
         subtitle={`${headline.title} · ${formatRupees(job.total)}`}
-        currentMethod={job.paymentMethod}
+        current={{
+          method: job.paymentMethod ?? 'cash',
+          cashAmount: job.cashAmount ?? null,
+          cashReceived: job.cashReceived ?? null,
+        }}
         onClose={() => setSheet(null)}
-        onConfirm={async (method, reason) => {
+        onConfirm={async (choice, reason) => {
           try {
             const res = await api.jobs[':id']['payment-method'].$patch({
               param: { id: job.id },
-              json: { paymentMethod: method, reason: reason ?? '' },
+              json: {
+                paymentMethod: choice.method,
+                cashAmount: choice.cashAmount ?? null,
+                cashReceived: choice.cashReceived ?? null,
+                reason: reason ?? '',
+              },
             });
             if (!res.ok) return apiErrorMessage(res);
             setSheet(null);
@@ -647,6 +723,23 @@ export function JobDetailScreen({ navigation, route }: Props) {
           }
         }}
       />
+
+      {allowServiceChange ? (
+        <ChangeServicesSheet
+          visible={sheet === 'services'}
+          jobId={job.id}
+          vehicleTypeId={(job.vehicle as { vehicleTypeId?: string }).vehicleTypeId ?? ''}
+          category={job.vehicle.vehicleType.category === 'bike' ? 'bike' : 'car'}
+          lines={job.jobServices}
+          discount={job.discount}
+          discountReason={job.discountReason ?? null}
+          onClose={() => setSheet(null)}
+          onSaved={() => {
+            showToast('Services changed. The bill is updated.');
+            void load();
+          }}
+        />
+      ) : null}
 
       <ReasonSheet
         visible={sheet === 'void'}

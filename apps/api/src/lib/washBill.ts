@@ -99,6 +99,8 @@ export async function loadBill(env: Env, shopId: string, jobId: string): Promise
     number: billNumber(shop.code, paidAt, job.id),
     at: paidAt,
     paymentMethod: job.paymentMethod,
+    cashAmount: job.cashAmount,
+    cashReceived: job.cashReceived,
     customer: { name: job.customer.name, phone: job.customer.phone },
     vehicle: { label: [model, sizeName(job.vehicle.vehicleType)].filter(Boolean).join(' · '), registration: walkIn ? null : job.vehicle.registrationNumber },
     lines: job.jobServices.map((l) => ({

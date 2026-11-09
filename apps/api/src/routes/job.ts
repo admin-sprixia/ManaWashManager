@@ -27,6 +27,8 @@ import {
   calculatePrice,
   canCorrectPayment,
   PAYMENT_FIX_MINUTES,
+  MAX_ROUND_OFF,
+  canChangeServices,
   canTransition,
   canVoidJob,
   COUPON_CODE_PATTERN,
@@ -59,7 +61,7 @@ import {
 import { checkFreeWashes, settleRewardsForPaidJob } from '../lib/rewards';
 import { occurredAt } from '../lib/clientTime';
 import { requireAuth, requireRole } from '../middleware/auth';
-import { formatIstDateOnly, startOfIstDay } from '../lib/istDate';
+import { formatIstDateOnly, parseIstDateOnly, startOfIstDay } from '../lib/istDate';
 import { reportQuerySchema, resolveReportWindow, windowMeta } from '../lib/reportWindow';
 import { billPdf } from '../lib/washBill';
 import { executionCtx, queuePlanWashMessage, queueWashMessage } from '../lib/washMessages';
@@ -160,6 +162,8 @@ const startJobSchema = z
       .string()
       .transform((r) => r.trim().toUpperCase().replace(/\s+/g, ''))
       .refine((r) => r.length >= 4 && r.length <= 15, 'Enter a valid registration number'),
+    /** “Another vehicle” for a saved customer with no number: the new plate joins their profile. */
+    customerId: z.string().min(1).max(64).optional(),
     /** Only sent when a known plate came in with a different phone and the operator chose. */
     ownership: z.enum(['new_owner', 'same_person']).optional(),
     /**
@@ -235,15 +239,60 @@ const setWashersSchema = z.object({ washerIds: washerIdsSchema });
 const setSellersSchema = z.object({
   sellerIds: sellerIdsSchema.refine((ids) => ids.length > 0, 'Pick who got this service'),
 });
+/** Paise. */
+const paiseSchema = z.number().int().min(0).max(100_000_000);
+/**
+ * Split bill: `cashAmount` is the cash part (the rest by `paymentMethod`, UPI or other).
+ * `cashReceived`: the cash actually handed over when more than the cash part (no change given).
+ */
+const splitFields = {
+  cashAmount: paiseSchema.nullish(),
+  cashReceived: paiseSchema.nullish(),
+};
 const markPaidSchema = z.object({
   paymentMethod: paymentMethodSchema,
   occurredAt: occurredAtSchema,
+  ...splitFields,
 });
 const voidSchema = z.object({ reason: reasonSchema, occurredAt: occurredAtSchema });
+/** The customer changed their mind: the wash's new services, priced again at today's prices. */
+const changeServicesSchema = z
+  .object({
+    services: pricingFields.services,
+    discount: pricingFields.discount,
+    discountReason: pricingFields.discountReason,
+    reason: reasonSchema,
+  })
+  .refine(discountNeedsReason, discountReasonIssue);
 const paymentCorrectionSchema = z.object({
   paymentMethod: paymentMethodSchema,
   reason: reasonSchema,
+  ...splitFields,
 });
+
+/**
+ * The split checked against the bill: a cash part only alongside UPI or other and below the total,
+ * and cash handed over never below the cash due nor more than MAX_ROUND_OFF over it.
+ */
+function checkSplit(
+  total: number,
+  body: { paymentMethod: PaymentMethod; cashAmount?: number | null; cashReceived?: number | null },
+): { cashAmount: number | null; cashReceived: number | null } | { message: string } {
+  const cashAmount = body.paymentMethod === 'cash' ? null : body.cashAmount || null;
+  if (cashAmount != null && cashAmount >= total) {
+    return { message: 'The cash part must be less than the bill. Choose Cash for all of it.' };
+  }
+  const cashDue = body.paymentMethod === 'cash' ? total : (cashAmount ?? 0);
+  const cashReceived = body.cashReceived ?? null;
+  if (cashReceived != null) {
+    if (cashDue === 0) return { message: 'No cash is due on this bill.' };
+    if (cashReceived < cashDue) return { message: 'Cash received can’t be less than the cash due.' };
+    if (cashReceived - cashDue > MAX_ROUND_OFF) {
+      return { message: `More than ₹${MAX_ROUND_OFF / 100} over the bill: give the change back instead.` };
+    }
+  }
+  return { cashAmount, cashReceived: cashReceived != null && cashReceived > cashDue ? cashReceived : null };
+}
 
 type PricingInput = z.infer<typeof createJobSchema>;
 
@@ -725,6 +774,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       ownership: body.ownership,
       make: body.make,
       model: body.model,
+      customerId: body.customerId,
     });
     if ('error' in ensured) {
       return c.json(
@@ -884,6 +934,18 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
     const db = c.get('db');
     return c.json(await jobRepo.listToday(db, startOfIstDay()));
   })
+  // The owner looks back at one day's washes (yesterday, or any date) from the home screen.
+  .get(
+    '/day',
+    requireRole('owner'),
+    zValidator('query', z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })),
+    async (c) => {
+      const from = parseIstDateOnly(c.req.valid('query').date);
+      if (!from) return c.json({ error: 'invalid_date' as const, message: 'That date isn’t valid.' }, 400);
+      const to = new Date(from.getTime() + 24 * 60 * 60 * 1000);
+      return c.json({ date: formatIstDateOnly(from), jobs: await jobRepo.listDay(c.get('db'), from, to) });
+    },
+  )
   // Owner reports: today / rolling 7 days / calendar month / calendar year / custom IST dates.
   // Window is always half-open [from, to) so day boundaries never double-count.
   .get('/stats', requireRole('owner'), zValidator('query', reportQuerySchema), async (c) => {
@@ -1089,6 +1151,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
         discount: job.discount,
         discountReason: job.discountReason,
         paymentMethod: job.paymentMethod,
+        cashAmount: job.cashAmount,
         /** A wash plan sold at the counter: money in, not a car washed. */
         planSale: job.planSaleId != null,
         customerName: job.customer.name,
@@ -1281,12 +1344,15 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       );
     }
 
+    const split = checkSplit(job.total, body);
+    if ('message' in split) return c.json({ error: 'invalid_split' as const, message: split.message }, 400);
     const paidAt = occurredAt(c, body.occurredAt);
     const paid = await jobRepo.markPaid(db, id, {
       from,
       paymentMethod: body.paymentMethod,
       userId,
       at: paidAt,
+      ...split,
     });
     if (!paid) {
       const now = await jobRepo.findBoardRow(db, id);
@@ -1389,7 +1455,13 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
           403,
         );
       }
-      if (job.paymentMethod === body.paymentMethod)
+      const split = checkSplit(job.total, body);
+      if ('message' in split) return c.json({ error: 'invalid_split' as const, message: split.message }, 400);
+      if (
+        job.paymentMethod === body.paymentMethod &&
+        (job.cashAmount ?? null) === split.cashAmount &&
+        (job.cashReceived ?? null) === split.cashReceived
+      )
         return c.json(await jobRepo.findBoardRow(db, id), 200);
 
       const changed = await jobRepo.changePaymentMethod(db, id, {
@@ -1397,6 +1469,7 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
         to: body.paymentMethod,
         userId: session.sub,
         reason: body.reason,
+        ...split,
       });
       if (changed) return c.json(changed, 200);
       const now = await jobRepo.findBoardRow(db, id);
@@ -1406,4 +1479,82 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
         409,
       );
     },
-  );
+  )
+  // Express → Basic halfway through: the wash's services change and the bill is priced again.
+  // Anyone before payment; the owner after. Washes whose bill a coupon, referral, free wash,
+  // plan or home visit shaped are voided and entered again instead.
+  .put('/:id/services', zValidator('json', changeServicesSchema), async (c) => {
+    const id = c.req.param('id');
+    const body = c.req.valid('json');
+    const db = c.get('db');
+    const session = c.get('session');
+    const refuse = (message: string) => c.json({ error: 'cannot_change_services' as const, message }, 409);
+
+    const job = await db.job.findUnique({
+      where: { id },
+      include: { vehicle: { select: { vehicleTypeId: true } }, jobServices: { include: { service: { select: { name: true } } } } },
+    });
+    if (!job) return c.json({ error: 'job_not_found' as const }, 404);
+    const from = job.status as JobStatus;
+    if (from === 'void') return refuse('This wash was voided.');
+    if (!canChangeServices(from, session.role)) {
+      return c.json({ error: 'owner_only' as const, message: 'This wash is paid. Only the owner can change its services.' }, 403);
+    }
+    if (from === 'paid' && job.cashAmount != null) {
+      return refuse('This bill was split between UPI and cash. Change the payment to one method first.');
+    }
+    if (job.planSaleId) return refuse('This bill sold a plan. Its services can’t change.');
+    if (job.planServiceId) return refuse('A plan paid for this wash. Void it and enter it again.');
+    if (job.deliveryMode === 'doorstep') return refuse('This is a home wash. Void it and enter it again.');
+    const [coupon, referral, freeWashes] = await Promise.all([
+      db.coupon.findFirst({ where: { redeemedJobId: id }, select: { id: true } }),
+      db.referral.findFirst({ where: { jobId: id }, select: { id: true } }),
+      db.rewardClaim.count({ where: { jobId: id } }),
+    ]);
+    if (coupon) return refuse('A coupon was used on this wash. Void it and enter it again.');
+    if (referral) return refuse('A referral offer was used on this wash. Void it and enter it again.');
+    if (freeWashes) return refuse('A free wash was used on this wash. Void it and enter it again.');
+
+    const priced = await priceJob(
+      db,
+      { vehicleTypeId: job.vehicle.vehicleTypeId, services: body.services, discount: body.discount, discountReason: body.discountReason, mode: 'hub' },
+      { d1: c.env.DB, shopId: session.shopId, at: job.createdAt, customer: { customerId: job.customerId }, jobId: id },
+    );
+    if ('error' in priced) return c.json({ error: priced.error, message: priced.message }, 400);
+
+    // A replay of the same change: nothing to do.
+    const sameLines =
+      job.jobServices.length === priced.lineItems.length &&
+      priced.lineItems.every((l) => job.jobServices.some((js) => js.serviceId === l.serviceId && js.quantity === l.quantity));
+    if (sameLines && job.discount === body.discount && job.total === priced.total) {
+      return c.json(await jobRepo.findBoardRow(db, id), 200);
+    }
+
+    const names = new Map(
+      (await db.service.findMany({ where: { id: { in: priced.lineItems.map((l) => l.serviceId) } }, select: { id: true, name: true } })).map(
+        (s) => [s.id, s.name],
+      ),
+    );
+    const describe = (lines: { name: string; quantity: number }[]) =>
+      lines.map((l) => (l.quantity > 1 ? `${l.name} ×${l.quantity}` : l.name)).join(', ');
+    // "names|total": the app shows the amounts only to those who may see them.
+    const fromNames = `${describe(job.jobServices.map((js) => ({ name: js.service.name, quantity: js.quantity })))}|${job.total}`;
+    const toNames = `${describe(priced.lineItems.map((l) => ({ name: names.get(l.serviceId) ?? 'Service', quantity: l.quantity })))}|${priced.total}`;
+
+    const changed = await jobRepo.changeServices(db, id, {
+      from,
+      fromTotal: job.total,
+      lineItems: priced.lineItems,
+      subtotal: priced.subtotal,
+      discount: body.discount,
+      discountReason: body.discount > 0 ? (body.discountReason ?? null) : null,
+      total: priced.total,
+      sellerIds: await resolveSellers(db, priced.lineItems, undefined, session.sub),
+      userId: session.sub,
+      fromNames,
+      toNames,
+      reason: body.reason,
+    });
+    if (changed) return c.json(changed, 200);
+    return c.json({ error: 'job_changed' as const, message: 'This job just changed. Check it and try again.' }, 409);
+  });

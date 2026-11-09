@@ -69,6 +69,7 @@ export async function sendWashMessage(env: Env, shopId: string, jobId: string, k
       total: job.total,
       discount: job.discount,
       paymentMethod: (job.paymentMethod as PaymentMethod | null) ?? null,
+      cashAmount: job.cashAmount,
       at,
       // Get Directions on Ready; Rate us on the bill (answered by the assistant).
       buttonPayload: kind === 'ready' ? `loc|${shopId}` : rateChoiceId(shopId),

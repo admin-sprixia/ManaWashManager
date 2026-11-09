@@ -27,6 +27,7 @@ import {
   isValidPhone,
   normalizePhone,
   parseServiceAppliesTo,
+  parseServiceKind,
   parseVehicleCategory,
   serviceAppliesToCategory,
   distanceKm,
@@ -137,7 +138,13 @@ interface CachedCatalog {
     kind?: string;
   }>;
   /** `bodyKey`: missing from catalogs saved by older versions (types are then matched by name). */
-  vehicleTypes: Array<{ id: string; name: string; sortOrder: number; category: string; bodyKey?: string | null }>;
+  vehicleTypes: Array<{
+    id: string;
+    name: string;
+    sortOrder: number;
+    category: string;
+    bodyKey?: string | null;
+  }>;
   prices: ServicePrice[];
   /** Staff commission per service per size; missing from catalogs saved by older versions. */
   commissions?: CommissionRate[];
@@ -222,7 +229,6 @@ export async function warmNewWash(shopId: string): Promise<void> {
   if (saved) remember(shopId, saved);
 }
 
-
 /**
  * Layout-only transitions. Android can leave views created under an opacity "create"
  * animation stuck invisible when several state changes land in the same frame.
@@ -286,6 +292,8 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   /** The saved vehicle picked from search; stays as the baseline while its details are edited. */
   const [known, setKnown] = useState<DirectoryEntry | null>(null);
   const [ownership, setOwnership] = useState<OwnershipChoice | null>(null);
+  /** “Another vehicle” for this saved customer: the new plate joins their profile. */
+  const [addingFor, setAddingFor] = useState<string | null>(null);
   const [vehiclePickerOpen, setVehiclePickerOpen] = useState(false);
   const [registration, setRegistration] = useState('');
   const [phone, setPhone] = useState('');
@@ -472,8 +480,8 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
   useEffect(() => {
     if (!opened) return;
     void refreshDirectory({ force: true });
-    if (!prefillReg) searchRef.current?.focus();
-  }, [opened, refreshDirectory, prefillReg]);
+    if (!prefillReg && !route.params?.addVehicleFor) searchRef.current?.focus();
+  }, [opened, refreshDirectory, prefillReg, route.params?.addVehicleFor]);
 
   // ---------- Vehicle + services ----------
 
@@ -614,8 +622,16 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
         const next = new Set(prev);
         if (next.has(serviceId)) next.delete(serviceId);
         else {
+          const picked = services.find((s) => s.id === serviceId);
+          // One main wash per bill: picking Basic replaces Express (add-ons stay).
+          if (picked && parseServiceKind(picked.kind) === 'wash') {
+            for (const id of [...next]) {
+              if (parseServiceKind(services.find((s) => s.id === id)?.kind) === 'wash')
+                next.delete(id);
+            }
+          }
           next.add(serviceId);
-          for (const id of services.find((s) => s.id === serviceId)?.includes ?? []) next.delete(id);
+          for (const id of picked?.includes ?? []) next.delete(id);
         }
         return next;
       });
@@ -755,7 +771,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     return fromServer.map((entry) => ({
       entry,
       field: server.plateEntry === entry ? ('plate' as const) : ('phone' as const),
-      needle: server.plateEntry === entry ? entry.registrationNumber : (entry.customerPhone ?? ""),
+      needle: server.plateEntry === entry ? entry.registrationNumber : (entry.customerPhone ?? ''),
     }));
   }, [localHits, mode, server.plateEntry, server.phoneEntries]);
 
@@ -837,6 +853,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     setKnown(entry);
     setMode('known');
     setOwnership(null);
+    setAddingFor(null);
     setVehiclePickerOpen(false);
     setRegistration(entry.registrationNumber);
     setPhone(entry.customerPhone ?? '');
@@ -855,6 +872,18 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     }
     scrollRef.current?.scrollTo({ y: 0, animated: true });
   };
+
+  // “New wash for another vehicle” on a customer's profile: straight to the plate, name and number kept.
+  const addVehicleFor = route.params?.addVehicleFor;
+  useEffect(() => {
+    if (!addVehicleFor || prefilled.current || vehicleTypes.length === 0 || !directory.ready)
+      return;
+    const entry = directory.entries.find((e) => e.customerId === addVehicleFor);
+    if (!entry) return;
+    prefilled.current = true;
+    startAddVehicle(entry);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addVehicleFor, vehicleTypes, directory.ready, directory.entries]);
 
   // Opened from a customer's profile: skip search and greet them straight away.
   useEffect(() => {
@@ -875,6 +904,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     setKnown(null);
     setMode('form');
     setOwnership(null);
+    setAddingFor(null);
     setRegistration(queryKind === 'plate' ? normalizeReg(q) : '');
     setPhone(queryKind === 'phone' ? normalizePhone(q.replace(/\D/g, '')) : '');
     setCustomerName(queryKind === 'name' ? titleCase(q) : '');
@@ -890,15 +920,26 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     focusSoon(phoneRef);
   };
 
-  const addVehicleForKnown = () => {
+  /** A wash for a vehicle of this saved customer's that isn't saved yet: their name and number stay. */
+  const startAddVehicle = (entry: DirectoryEntry) => {
     animate();
+    Keyboard.dismiss();
     setKnown(null);
     setMode('form');
+    setOwnership(null);
+    setVehiclePickerOpen(false);
+    setAddingFor(entry.customerId);
+    setPhone(entry.customerPhone ?? '');
+    setNoPhone(entry.customerPhone == null);
+    setCustomerName(entry.customerName);
     setRegistration('');
     setVehicleTypeId(null);
     clearModel();
     clearOrder();
     focusSoon(regRef);
+  };
+  const addVehicleForKnown = () => {
+    if (known) startAddVehicle(known);
   };
 
   const backToSearch = () => {
@@ -908,6 +949,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     setMode('search');
     setKnown(null);
     setOwnership(null);
+    setAddingFor(null);
     setRegistration('');
     setPhone('');
     setNoPhone(false);
@@ -1388,6 +1430,7 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
             id: jobId,
             occurredAt,
             customer: { phone: hasPhone ? phoneDigits : null, name },
+            customerId: addingFor && !hasPhone ? addingFor : undefined,
             registrationNumber: reg,
             ownership: conflict && ownership ? ownership : undefined,
             vehicleTypeId,

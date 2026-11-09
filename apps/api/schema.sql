@@ -302,6 +302,10 @@ CREATE TABLE jobs (
   visit_latitude REAL CHECK (visit_latitude IS NULL OR visit_latitude BETWEEN -90 AND 90), -- doorstep: where the home was
   visit_longitude REAL CHECK (visit_longitude IS NULL OR visit_longitude BETWEEN -180 AND 180),
   plan_sale_id TEXT, -- a bill a wash plan was sold on (money, not a wash)
+  -- Split payment: the bill's cash part (null = all by payment_method, which is then the method of
+  -- the rest); cash_received: cash actually taken when more than the cash part (round-off kept).
+  cash_amount INTEGER CHECK (cash_amount IS NULL OR cash_amount >= 0),
+  cash_received INTEGER CHECK (cash_received IS NULL OR cash_received >= 0),
   UNIQUE (shop_id, id),
   FOREIGN KEY (shop_id, customer_id) REFERENCES customers(shop_id, id),
   FOREIGN KEY (shop_id, vehicle_id) REFERENCES vehicles(shop_id, id),

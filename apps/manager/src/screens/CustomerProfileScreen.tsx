@@ -543,6 +543,18 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
                 </View>
               );
             })}
+            <Pressable
+              onPress={() => navigation.navigate('NewWash', { addVehicleFor: customerId })}
+              style={({ pressed }) => [
+                styles.vehicleRow,
+                styles.addVehicleRow,
+                pressed && styles.pressed,
+              ]}
+              accessibilityRole="button"
+            >
+              <IconPlus size={16} color={colors.water} />
+              <Text style={styles.addVehicleText}>New wash for another vehicle</Text>
+            </Pressable>
           </View>
         )}
 
@@ -695,6 +707,7 @@ export function CustomerProfileScreen({ route, navigation }: CustomerProfileScre
         visible={editing}
         customer={customer}
         vehicles={washableVehicles}
+        canMove={isOwner}
         onClose={() => setEditing(false)}
         onSaved={() => {
           void load();
@@ -1041,6 +1054,12 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     backgroundColor: colors.waterPale,
   },
+  addVehicleRow: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    gap: spacing.sm,
+  },
+  addVehicleText: { ...typography.bodyStrong, color: colors.water, fontSize: 15 },
   washPillText: { ...typography.label, color: colors.waterDeep },
   monthLabel: {
     ...typography.label,

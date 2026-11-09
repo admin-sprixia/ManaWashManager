@@ -8,6 +8,43 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-11-09
+
+### Added
+
+- **Split payment: UPI + Cash.** A new tile on the payment sheet for a bill paid partly by UPI and
+  partly in cash (₹500 UPI + ₹299 cash). Type the UPI part and the cash due is worked out; the QR
+  shows only the UPI part. The cash box counts only the cash part.
+- **Cash handed over without change.** "Customer gave more cash and wants no change?" records,
+  say, ₹300 taken for ₹299 (up to ₹100 over). The box expects the ₹300, and owner reports show
+  the extra as round-off. Works for Cash and for the cash part of a split.
+- **Change services.** If the customer changes their mind (Express → Basic), anyone can change an
+  unpaid wash's services from the wash page. The bill is made again at today's prices, a manual
+  discount stays, and the history records who changed what, from what, to what, and why. After
+  payment only the owner can change it (not on a split bill: fix the payment first). Washes that
+  used a coupon, referral, free wash, plan or home visit are voided and entered again instead.
+- **Another vehicle for the same customer.** "New wash for another vehicle" on the customer's
+  profile opens New Wash with their name and number filled in and the plate empty.
+- **Move a vehicle to another customer** (owner, in Edit customer), with its washes, for a
+  vehicle saved under the wrong or a duplicate profile.
+- **Yesterday & earlier days** (owner) on the home screen: any day's washes, with what was
+  collected in cash and UPI, a day at a time or from a calendar.
+
+### Changed
+
+- **One main wash per bill.** In New Wash, picking Basic replaces Express. Add-ons and protection
+  stay ticked.
+
+### Fixed
+
+- **A second vehicle for a customer with no number** went to a new, duplicate profile. It now
+  joins theirs.
+- **After photo not coming back from the camera.** When the camera hands nothing back after ✓,
+  the app now says so and offers "Camera again" or "Pick from gallery". Required photos are also
+  saved in the gallery, so the photo just taken is always there to pick.
+- **An owner changing a paid bill** no longer leaves the cash handed over for the old total
+  counted as extra cash.
+
 ## [1.0.4] - 2026-11-07
 
 ### Fixed
@@ -1074,7 +1111,8 @@ build was labelled 2.0.0.
   a customer profile.
 - **One shared MAJOR.MINOR.PATCH version** across every app and package.
 
-[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.4...HEAD
+[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.5...HEAD
+[1.0.5]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.1...v1.0.2

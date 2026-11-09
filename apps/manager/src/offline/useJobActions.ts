@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import type { PaymentMethod } from '@mana/domain';
+import type { PaymentChoice } from '../components/PaymentSheet';
 import { showToast, showAlert, IconGift, colors } from '@mana/ui';
 import { giftLine } from '../utils/rewards';
 import { useSync, type SubmitResult } from './SyncProvider';
@@ -83,10 +83,16 @@ export function useJobActions() {
   );
 
   const pay = useCallback(
-    async (jobId: string, paymentMethod: PaymentMethod) => {
+    async (jobId: string, choice: PaymentChoice) => {
       const result = await submit({
         kind: 'job.pay',
-        payload: { jobId, paymentMethod, occurredAt: new Date().toISOString() },
+        payload: {
+          jobId,
+          paymentMethod: choice.method,
+          cashAmount: choice.cashAmount ?? null,
+          cashReceived: choice.cashReceived ?? null,
+          occurredAt: new Date().toISOString(),
+        },
       });
       if (result.status === 'sent') announceWelcomeGift(result.data);
       return settle(result, 'Payment saved offline — will sync automatically');

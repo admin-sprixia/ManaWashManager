@@ -1,7 +1,7 @@
 {
   "name": "mana-wash-manager",
   "private": true,
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Sri Mana Wash — monorepo (React Native CLI app + Cloudflare Workers API + shared TypeScript packages)",
   "workspaces": [
     "apps/*",

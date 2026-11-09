@@ -76,6 +76,7 @@ jobs:
       - run: npm run test:rewards
       - run: npm run test:catalog
       - run: npm run test:access
+      - run: npm run test:wash-changes
       - name: API log
         if: failure()
         run: cat wrangler.log

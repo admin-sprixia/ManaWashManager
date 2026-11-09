@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
-import { PAYMENT_METHOD_LABEL, canSeeWashAmount, type UserRole } from '@mana/domain';
+import { canSeeWashAmount, paymentLabel, type UserRole } from '@mana/domain';
 import { IconCheck, IconGift, IconPlay, IconRupee, MakeLogo, colors, radius, spacing, statusColors, typography } from '@mana/ui';
 import type { BoardJob } from '../../offline/types';
 import { formatRupees } from '../../utils/format';
@@ -71,7 +71,7 @@ export const JobRow = memo(function JobRow({ job, busy, first, onOpen, onAction,
         ? washers
         : null;
   const services = servicesLine(job);
-  const paidVia = job.status === 'paid' && job.paymentMethod ? PAYMENT_METHOD_LABEL[job.paymentMethod] : null;
+  const paidVia = job.status === 'paid' && job.paymentMethod ? paymentLabel(job) : null;
 
   return (
     <Pressable

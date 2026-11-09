@@ -233,5 +233,27 @@ check('…and a day with none is empty', r.status === 200 && r.body?.jobs?.lengt
 r = await call(T.other, 'GET', `/jobs/day?date=${date}`);
 check('Another branch never sees these washes', r.status === 200 && !(r.body?.jobs ?? []).some((j) => ids.has(j.id)), show(r));
 
+// ─── Cancelling a paid wash entered wrong ───────────────────────────────────
+
+const paidWash = async () => {
+  const w = await start(T.staff, { services: [BASIC] });
+  await advance(w.id);
+  await call(T.staff, 'POST', `/jobs/${w.id}/pay`, { paymentMethod: 'cash' });
+  return w.id;
+};
+let p1 = await paidWash();
+r = await call(T.staff, 'POST', `/jobs/${p1}/void`, { reason: 'Entered again: Wrong vehicle number' });
+check('Staff can’t cancel a paid wash', r.status === 403 && r.body?.error === 'owner_only', show(r));
+r = await call(T.manager, 'POST', `/jobs/${p1}/void`, { reason: 'Entered again: Wrong vehicle number' });
+check('A manager cancels a paid wash entered wrong, within 15 minutes', r.status === 200 && r.body?.status === 'void', show(r));
+let p2 = await paidWash();
+d1Run(`UPDATE jobs SET completed_at = '${new Date(Date.now() - 20 * 60_000).toISOString()}' WHERE id = '${p2}';`);
+r = await call(T.manager, 'POST', `/jobs/${p2}/void`, { reason: 'Too late to cancel' });
+check('…but not 20 minutes after it was paid', r.status === 403 && /owner/.test(r.body?.message ?? ''), show(r));
+r = await call(T.owner, 'POST', `/jobs/${p2}/void`, { reason: 'Owner cancels it' });
+check('…the owner still can', r.status === 200 && r.body?.status === 'void', show(r));
+const dayAfter = (await call(T.owner, 'GET', `/jobs/day?date=${date}`)).body?.jobs ?? [];
+check('Cancelled washes stay in the day’s list, marked void, with who and why', [p1, p2].every((id) => dayAfter.find((j) => j.id === id)?.status === 'void'));
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

@@ -75,6 +75,7 @@ import {
   NEXT_STATUS,
   spacedPlate,
   STATUS_LABEL,
+  REDO_REASONS,
   VOID_REASONS,
   vehicleHeadline,
   vehicleModelLine,
@@ -183,7 +184,7 @@ export function JobDetailScreen({ navigation, route }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [sheet, setSheet] = useState<
-    'pay' | 'void' | 'correct' | 'start' | 'washers' | 'sellers' | 'services' | null
+    'pay' | 'void' | 'redo' | 'correct' | 'start' | 'washers' | 'sellers' | 'services' | null
   >(null);
   const [sharingBill, setSharingBill] = useState(false);
 
@@ -288,7 +289,7 @@ export function JobDetailScreen({ navigation, route }: Props) {
   const primaryLabel = actionLabel(job.status);
   const isVoid = job.status === 'void';
   const pendingOnPhone = job.syncState === 'pending' && !serverJob;
-  const allowVoid = canVoidJob(job.status, role);
+  const allowVoid = canVoidJob(job.status, role, job.completedAt, now);
   const allowCorrect = canCorrectPayment(job.status, role, job.completedAt, now) && !job.syncState;
   // The customer changed their mind: anyone before payment, the owner after (not a split bill,
   // a home wash or a free one; the server also refuses coupons, referrals and plans).
@@ -649,6 +650,19 @@ export function JobDetailScreen({ navigation, route }: Props) {
             </View>
           )}
 
+          {allowVoid && !job.syncState && !doorstep ? (
+            <Pressable
+              onPress={() => setSheet('redo')}
+              style={({ pressed }) => [styles.voidLink, pressed && styles.pressed]}
+              accessibilityRole="button"
+            >
+              <Text style={styles.fixLinkText}>Entered wrong? Cancel & enter again</Text>
+              <Text style={styles.voidLinkNote}>
+                Wrong vehicle, customer or size: this wash is cancelled (not counted) and New Wash opens
+                with the same vehicle and services to fix and start.
+              </Text>
+            </Pressable>
+          ) : null}
           {allowVoid && !job.syncState ? (
             <Pressable
               onPress={() => setSheet('void')}
@@ -664,7 +678,11 @@ export function JobDetailScreen({ navigation, route }: Props) {
               </Text>
             </Pressable>
           ) : job.status === 'paid' && !isOwner ? (
-            <Text style={styles.ownerNote}>Only the owner can void or correct a paid wash.</Text>
+            <Text style={styles.ownerNote}>
+              {role === 'manager'
+                ? `More than ${PAYMENT_FIX_MINUTES} minutes since it was paid: only the owner can cancel it now.`
+                : 'Only the owner, or a manager within 15 minutes of collecting, can cancel a paid wash.'}
+            </Text>
           ) : null}
         </View>
       </ScrollView>
@@ -740,6 +758,29 @@ export function JobDetailScreen({ navigation, route }: Props) {
           }}
         />
       ) : null}
+
+      <ReasonSheet
+        visible={sheet === 'redo'}
+        title="Cancel and enter again?"
+        subtitle={`${headline.title} · ${formatRupees(job.total)}${
+          job.status === 'paid' ? ' · already paid: mark the new wash paid the same way' : ''
+        }`}
+        confirmLabel="Cancel & enter again"
+        quickReasons={REDO_REASONS}
+        onClose={() => setSheet(null)}
+        onConfirm={async (reason) => {
+          const message = await actions.voidJob(job.id, `Entered again: ${reason}`);
+          if (message) return message;
+          setSheet(null);
+          showToast('Cancelled. Fix the details and start the wash again.');
+          const services = job.jobServices.map((l) => l.serviceId).filter((id): id is string => !!id);
+          navigation.replace(
+            'NewWash',
+            walkIn ? { services } : { registration: job.vehicle.registrationNumber, services },
+          );
+          return null;
+        }}
+      />
 
       <ReasonSheet
         visible={sheet === 'void'}

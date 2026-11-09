@@ -89,6 +89,17 @@ describe('normalizePhone', () => {
   });
 });
 
+describe('canVoidJob for a manager on a paid wash', () => {
+  const paidAt = new Date('2026-11-09T10:00:00Z');
+  it('allows it within the fix window and not after; staff never', () => {
+    expect(canVoidJob('paid', 'manager', paidAt, new Date('2026-11-09T10:14:00Z'))).toBe(true);
+    expect(canVoidJob('paid', 'manager', paidAt, new Date('2026-11-09T10:16:00Z'))).toBe(false);
+    expect(canVoidJob('paid', 'manager', null, new Date('2026-11-09T10:01:00Z'))).toBe(false);
+    expect(canVoidJob('paid', 'staff', paidAt, new Date('2026-11-09T10:01:00Z'))).toBe(false);
+    expect(canVoidJob('paid', 'owner', paidAt, new Date('2026-12-01T10:00:00Z'))).toBe(true);
+  });
+});
+
 describe('canVoidJob', () => {
   it('lets anyone void an unpaid job', () => {
     expect(canVoidJob('waiting', 'staff')).toBe(true);

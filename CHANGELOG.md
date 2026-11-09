@@ -8,6 +8,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-11-09
+
+### Added
+
+- **Cancel & enter again.** On the wash page, for a wash entered wrong (wrong vehicle number,
+  customer or size): one step cancels it with a reason (it stays in the history, voided and not
+  counted) and opens New Wash with the same vehicle and services ticked, to fix and start.
+
+### Changed
+
+- **Managers can cancel a paid wash within 15 minutes of collecting,** the same window as Change
+  payment. After that only the owner can; staff cancel unpaid washes only, as before. Washes are
+  never deleted: a cancelled wash keeps who cancelled it and why.
+
 ## [1.0.5] - 2026-11-09
 
 ### Added
@@ -1111,7 +1125,8 @@ build was labelled 2.0.0.
   a customer profile.
 - **One shared MAJOR.MINOR.PATCH version** across every app and package.
 
-[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.5...HEAD
+[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.6...HEAD
+[1.0.6]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.2...v1.0.3

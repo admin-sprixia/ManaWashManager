@@ -890,8 +890,12 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
     if (!prefillReg || prefilled.current || vehicleTypes.length === 0 || !directory.ready) return;
     prefilled.current = true;
     const entry = directory.entries.find((e) => e.registrationNumber === prefillReg);
-    if (entry) pickEntry(entry);
-    else setQuery(prefillReg);
+    if (entry) {
+      pickEntry(entry);
+      // A wash cancelled to be entered again: its services come back ticked, to fix and start.
+      const again = route.params?.services;
+      if (again?.length) setSelectedServiceIds(new Set(again));
+    } else setQuery(prefillReg);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefillReg, vehicleTypes, directory.ready, directory.entries]);
 

@@ -53,7 +53,8 @@ export type RootStackParamList = {
   HqHome: undefined;
   /** `mode`: open on that menu (the home tab it was started from), when the branch offers it. */
   /** `addVehicleFor`: a customer id, from their profile: a wash for a vehicle of theirs not saved yet. */
-  NewWash: { registration?: string; mode?: DeliveryMode; addVehicleFor?: string } | undefined;
+  /** `services`: service ids to tick (a wash cancelled to be entered again). */
+  NewWash: { registration?: string; mode?: DeliveryMode; addVehicleFor?: string; services?: string[] } | undefined;
   JobDetail: { jobId: string };
   CustomerProfile: { customerId: string };
   More: undefined;

@@ -154,13 +154,13 @@ await call(manager, 'PATCH', `/jobs/${jobId}/status`, { status: 'washing' });
 await call(manager, 'PATCH', `/jobs/${jobId}/status`, { status: 'ready' });
 r = await call(manager, 'POST', `/jobs/${jobId}/pay`, { paymentMethod: 'cash' });
 check('…and takes payment', r.status === 200, show(r));
-r = await call(manager, 'POST', `/jobs/${jobId}/void`, { reason: 'Testing money fixes' });
-check('The manager can’t void a paid wash', r.status === 403, show(r));
 r = await call(manager, 'PATCH', `/jobs/${jobId}/payment-method`, { paymentMethod: 'upi', reason: 'Testing money fixes' });
 check('The manager can change how it was paid within 15 minutes', r.status === 200 && r.body?.paymentMethod === 'upi', show(r));
 d1Run(`UPDATE jobs SET completed_at = strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now', '-20 minutes') WHERE id = '${jobId}';`);
 r = await call(manager, 'PATCH', `/jobs/${jobId}/payment-method`, { paymentMethod: 'cash', reason: 'Testing money fixes' });
 check('…but not after that', r.status === 403, show(r));
+r = await call(manager, 'POST', `/jobs/${jobId}/void`, { reason: 'Testing money fixes' });
+check('…nor cancel the paid wash after 15 minutes (only within them: see test:wash-changes)', r.status === 403, show(r));
 
 // ─── Editing a customer ───────────────────────────────────────────────────
 

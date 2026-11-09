@@ -1393,9 +1393,15 @@ export const jobRoutes = new Hono<{ Bindings: Env }>()
       await undoVoidedJobExtras(db, c.env.DB, id, session.sub);
       return c.json(await jobRepo.findBoardRow(db, id), 200);
     }
-    if (!canVoidJob(from, session.role)) {
+    if (!canVoidJob(from, session.role, job.completedAt)) {
       return c.json(
-        { error: 'owner_only' as const, message: 'Only the owner can void a paid job.' },
+        {
+          error: 'owner_only' as const,
+          message:
+            session.role === 'manager'
+              ? `It's more than ${PAYMENT_FIX_MINUTES} minutes since this was paid. Ask the owner to cancel it.`
+              : 'Only the owner can cancel a paid wash.',
+        },
         403,
       );
     }

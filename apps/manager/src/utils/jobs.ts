@@ -21,6 +21,9 @@ export const VOID_REASONS = [
   'Wrong vehicle or services',
 ];
 
+/** Why a wash is cancelled to be entered again. */
+export const REDO_REASONS = ['Entered wrong', 'Wrong vehicle number', 'Wrong customer', 'Wrong vehicle size'];
+
 type JobVehicle = BoardJob['vehicle'];
 
 export function vehicleBodyKey(vt: JobVehicle['vehicleType']): string | null {

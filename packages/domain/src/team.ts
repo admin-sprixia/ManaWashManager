@@ -122,14 +122,26 @@ export function isValidPhone(input: string): boolean {
 /** Minimum length for a void / correction reason — "mistake" is fine, "x" is not. */
 export const MIN_REASON_LENGTH = 3;
 
+/** How long after collecting anyone on shift can still fix how a wash was paid. */
+export const PAYMENT_FIX_MINUTES = 15;
+
 /**
  * Unpaid jobs can be voided by anyone on shift (wrong car entered, customer left). A paid job
- * means money changed hands, so undoing it is an owner-only correction.
+ * means money changed hands: the owner can void it any time, a manager only within
+ * PAYMENT_FIX_MINUTES of collecting (a wash entered wrong, caught at the counter), staff never.
  */
-export function canVoidJob(status: JobStatus, role: UserRole): boolean {
+export function canVoidJob(
+  status: JobStatus,
+  role: UserRole,
+  paidAt?: Date | string | null,
+  now: Date = new Date(),
+): boolean {
   if (status === 'void') return false;
-  if (status === 'paid') return role === 'owner';
-  return true;
+  if (status !== 'paid') return true;
+  if (role === 'owner') return true;
+  if (role !== 'manager' || !paidAt) return false;
+  const at = new Date(paidAt).getTime();
+  return Number.isFinite(at) && now.getTime() - at <= PAYMENT_FIX_MINUTES * 60_000;
 }
 
 /**
@@ -137,11 +149,10 @@ export function canVoidJob(status: JobStatus, role: UserRole): boolean {
  * once paid, only the owner (the money is already counted).
  */
 export function canChangeServices(status: JobStatus, role: UserRole): boolean {
-  return canVoidJob(status, role);
+  if (status === 'void') return false;
+  if (status === 'paid') return role === 'owner';
+  return true;
 }
-
-/** How long after collecting anyone on shift can still fix how a wash was paid. */
-export const PAYMENT_FIX_MINUTES = 15;
 
 /**
  * Changing how a paid job was paid (cash ↔ UPI) moves money between reconciliation buckets. The

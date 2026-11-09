@@ -62,7 +62,10 @@ export function EditCustomerSheet({
     setBusy(false);
     setMoving(null);
     setSearch('');
-  }, [visible, customer, vehicles]);
+    // Filled in once, when the sheet opens: the screen behind redraws (every minute, on sync),
+    // and that must never wipe what's being typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
 
   // Other customers matching the search (name, number or plate), one row each.
   const matches = useMemo(() => {

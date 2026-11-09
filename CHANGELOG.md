@@ -8,6 +8,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-11-09
+
+### Fixed
+
+- **The payment sheet no longer resets itself while you fill it in.** The wash page redraws every
+  minute (and when data syncs), and that wiped a half-filled correction back to "Cash": the
+  UPI part, cash received and method were lost. The same could clear a half-done Edit customer or
+  Change services. All three now fill in once, when they open.
+- **A split correction reads clearly in the history:** "corrected the payment split" instead of
+  "changed payment UPI → UPI".
+
 ## [1.0.6] - 2026-11-09
 
 ### Added
@@ -1125,7 +1136,8 @@ build was labelled 2.0.0.
   a customer profile.
 - **One shared MAJOR.MINOR.PATCH version** across every app and package.
 
-[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.6...HEAD
+[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.7...HEAD
+[1.0.7]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.6...v1.0.7
 [1.0.6]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.3...v1.0.4

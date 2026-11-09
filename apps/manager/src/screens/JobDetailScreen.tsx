@@ -127,7 +127,10 @@ function describeEvent(e: JobEvent, showAmount: boolean): string {
     case 'voided':
       return `${who} voided the job`;
     case 'payment_method_changed':
-      return `${who} changed payment ${methodLabel(e.fromValue)} → ${methodLabel(e.toValue)}`;
+      // Same method both sides: only the cash part or cash received changed (a split).
+      return e.fromValue === e.toValue
+        ? `${who} corrected the payment split`
+        : `${who} changed payment ${methodLabel(e.fromValue)} → ${methodLabel(e.toValue)}`;
     case 'washers_changed':
       return e.toValue ? `${who} changed washers to ${e.toValue}` : `${who} cleared who washed it`;
     case 'sellers_changed':

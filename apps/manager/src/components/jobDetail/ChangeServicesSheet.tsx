@@ -90,7 +90,10 @@ export function ChangeServicesSheet({
     return () => {
       alive = false;
     };
-  }, [visible, jobId, vehicleTypeId, category, lines]);
+    // Filled in once, when the sheet opens: the screen behind redraws (every minute, on sync),
+    // and that must never wipe what's being typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
 
   const byId = useMemo(() => new Map((menu ?? []).map((m) => [m.service.id, m])), [menu]);
 

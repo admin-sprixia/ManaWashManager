@@ -75,7 +75,10 @@ export function PaymentSheet({ visible, amount, subtitle, onClose, onConfirm, cu
     setReason('');
     setError(null);
     setBusy(false);
-  }, [visible, correcting, current, amount]);
+    // Filled in once, when the sheet opens: the screen behind redraws (every minute, on sync),
+    // and that must never wipe what's being typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
 
   const upiPart = tile === 'split' ? paiseOf(upiText) : null;
   const cashDue = tile === 'cash' ? amount : tile === 'split' ? amount - (upiPart ?? 0) : 0;

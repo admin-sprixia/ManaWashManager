@@ -8,6 +8,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.0.9] - 2026-11-09
+
+### Changed
+
+- **Washes by day, redesigned.** A deep-indigo header with the day (‹ › and a calendar), the
+  day's takings in large type with how many washes were paid, and a bar showing the cash and UPI
+  share. Coloured tiles below: Cash (in the box), UPI (to the bank) and the average bill. The
+  washes are grouped as Not paid yet, Paid and Voided, and each row shows the time it started
+  instead of "Earlier".
+
 ## [1.0.8] - 2026-11-09
 
 ### Added
@@ -1150,7 +1160,8 @@ build was labelled 2.0.0.
   a customer profile.
 - **One shared MAJOR.MINOR.PATCH version** across every app and package.
 
-[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.8...HEAD
+[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.9...HEAD
+[1.0.9]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.8...v1.0.9
 [1.0.8]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.7...v1.0.8
 [1.0.7]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.6...v1.0.7
 [1.0.6]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.5...v1.0.6

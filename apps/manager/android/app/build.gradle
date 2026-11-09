@@ -103,8 +103,8 @@ android {
         applicationId "com.sprixia.srimanawash"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 10008
-        versionName "1.0.8"
+        versionCode 10009
+        versionName "1.0.9"
         manifestPlaceholders = [mapsApiKey: mapsApiKey]
         buildConfigField "boolean", "MAPS_ENABLED", mapsApiKey ? "true" : "false"
         // React Native's prebuilt libraries ship every ABI; keep only the ones gradle.properties

@@ -1,6 +1,6 @@
 {
   "name": "@mana/ui",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "private": true,
   "description": "The MANA look, shared by every app: colour, spacing and type tokens, and the basic building blocks (buttons, cards, sheets, icons, alerts).",
   "main": "src/index.ts",

@@ -44,13 +44,15 @@ interface JobRowProps {
   viewerRole: UserRole;
   /** The board's clock, ticking each minute, so an amount hides on time without a refresh. */
   now: Date;
+  /** Always show the time it started (a past day's list), not "Earlier". */
+  showTime?: boolean;
 }
 
 /**
  * One job on the board: a plain full-width row. The company and model (or the plate) and the
  * total, the plate, the services, who and when, and the single next step.
  */
-export const JobRow = memo(function JobRow({ job, busy, first, onOpen, onAction, viewerRole, now }: JobRowProps) {
+export const JobRow = memo(function JobRow({ job, busy, first, onOpen, onAction, viewerRole, now, showTime }: JobRowProps) {
   const showAmount = canSeeWashAmount(job.status, viewerRole, job.completedAt, now);
   const isVoid = job.status === 'void';
   const action = actionLabel(job);
@@ -62,7 +64,7 @@ export const JobRow = memo(function JobRow({ job, busy, first, onOpen, onAction,
   const title = model ?? plateText;
   const doorstep = job.deliveryMode === 'doorstep';
   const inProgress = job.status === 'waiting' || job.status === 'washing';
-  const when = isToday(job.createdAt) ? formatTime(job.createdAt) : 'Earlier';
+  const when = showTime || isToday(job.createdAt) ? formatTime(job.createdAt) : 'Earlier';
   const washers = washerNames(job);
   const by =
     job.status === 'paid' && job.paidBy

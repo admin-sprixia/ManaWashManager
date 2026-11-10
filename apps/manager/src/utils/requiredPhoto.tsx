@@ -14,46 +14,48 @@ export interface TakenPhoto {
 }
 
 /**
- * The shop's rule that every car has a before and an after photo: explains why, opens the camera
- * and keeps the photo on this phone. If the camera hands nothing back, the person can open it
- * again or pick the photo just taken from the gallery. Null when they cancel.
+ * The before and after photos are asked for but optional (some tablets' cameras don't hand the
+ * photo back): explains why, opens the camera and keeps the photo on this phone. If the camera
+ * hands nothing back, the person can open it again, pick the photo from the gallery or skip.
+ * Resolves the photo, 'skip' (carry on without one) or null (go back, nothing done).
  */
-export async function takeRequiredPhoto(title: string, message: string): Promise<TakenPhoto | null> {
-  const go = await new Promise<boolean>((resolve) =>
+export async function offerPhoto(title: string, message: string): Promise<TakenPhoto | 'skip' | null> {
+  const choice = await new Promise<'camera' | 'skip' | null>((resolve) =>
     showAlert(
       title,
       message,
       [
-        { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
-        { text: 'Open camera', icon: <IconCamera size={20} color={colors.waterDeep} />, onPress: () => resolve(true) },
+        { text: 'Not now', style: 'cancel', onPress: () => resolve(null) },
+        { text: 'Skip photo', onPress: () => resolve('skip') },
+        { text: 'Open camera', icon: <IconCamera size={20} color={colors.waterDeep} />, onPress: () => resolve('camera') },
       ],
       { icon: <IconCamera size={26} color={colors.indigo} /> },
     ),
   );
-  if (!go) return null;
+  if (choice !== 'camera') return choice;
 
   // Saved to the gallery too: if the camera app hands nothing back (it happens on some tablets
   // after the tick), the photo just taken is still there to pick.
   let res: ImagePickerResponse | null = await launchCamera({ ...PICKER_OPTIONS, saveToPhotos: true }).catch(() => null);
   for (;;) {
     const asset = res && !res.didCancel ? res.assets?.find((a) => a.uri) : undefined;
-    if (asset?.uri) return keep(asset);
+    if (asset?.uri) return (await keep(asset)) ?? 'skip';
     if (res?.errorCode === 'camera_unavailable' || res?.errorCode === 'permission') {
       showToast(res.errorMessage ?? 'The camera isn’t available. Pick the photo from the gallery.', 'error');
     }
-    const next = await new Promise<'camera' | 'gallery' | null>((resolve) =>
+    const next = await new Promise<'camera' | 'gallery' | 'skip'>((resolve) =>
       showAlert(
         'No photo came back',
         'If you took the photo and tapped ✓, it is saved in the gallery: pick it from there. Or open the camera again.',
         [
-          { text: 'Cancel', style: 'cancel', onPress: () => resolve(null) },
+          { text: 'Skip photo', style: 'cancel', onPress: () => resolve('skip') },
           { text: 'Camera again', onPress: () => resolve('camera') },
           { text: 'Pick from gallery', onPress: () => resolve('gallery') },
         ],
         { icon: <IconCamera size={26} color={colors.indigo} /> },
       ),
     );
-    if (!next) return null;
+    if (next === 'skip') return 'skip';
     res =
       next === 'camera'
         ? await launchCamera({ ...PICKER_OPTIONS, saveToPhotos: true }).catch(() => null)

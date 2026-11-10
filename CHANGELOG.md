@@ -8,6 +8,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.0.10] - 2026-11-10
+
+### Changed
+
+- **Before and after photos are optional.** Starting a wash and marking it ready still ask for
+  the photo, now with **Skip photo** next to **Open camera** (and **Not now** to go back). If the
+  camera hands nothing back, "No photo came back" offers Skip photo too. Some tablets' cameras
+  don't always return the photo, and that must never stop a wash. A skipped photo can be added
+  later from the wash page.
+
 ## [1.0.9] - 2026-11-09
 
 ### Changed
@@ -1160,7 +1170,8 @@ build was labelled 2.0.0.
   a customer profile.
 - **One shared MAJOR.MINOR.PATCH version** across every app and package.
 
-[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.9...HEAD
+[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.10...HEAD
+[1.0.10]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.9...v1.0.10
 [1.0.9]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.8...v1.0.9
 [1.0.8]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.7...v1.0.8
 [1.0.7]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.6...v1.0.7

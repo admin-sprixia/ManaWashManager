@@ -77,7 +77,7 @@ import { VisitCard } from '../components/newWash/VisitCard';
 import { SellPlanSheet } from '../components/newWash/SellPlanSheet';
 import { VehicleModelPicker, useModelEdits } from '../components/newWash/VehicleModelPicker';
 import { BeforePhotos, type PendingPhoto } from '../components/newWash/BeforePhotos';
-import { takeRequiredPhoto } from '../utils/requiredPhoto';
+import { offerPhoto } from '../utils/requiredPhoto';
 import { deleteLocalCopy } from '../offline/photoFiles';
 import type { Point } from '../utils/location';
 import { useVehicleRewards } from '../components/newWash/useVehicleRewards';
@@ -1399,17 +1399,20 @@ export function NewWashScreen({ navigation, route }: NewWashScreenProps) {
 
   const startWash = async () => {
     if (missing || !vehicleTypeId || !breakdown || submitting) return;
-    // The shop's rule: no wash starts without a before photo of the car as it arrived.
+    // A before photo is asked for (scratches and dents on record) but optional: some tablets'
+    // cameras don't hand the photo back, and the wash must still start.
     let photos = beforePhotos;
     if (photos.length === 0) {
-      const taken = await takeRequiredPhoto(
-        'Take the before photo',
-        'Every car gets a before photo when it arrives: scratches and dents on record before anyone touches it.',
+      const taken = await offerPhoto(
+        'Take the before photo?',
+        'A photo of the car as it arrived puts scratches and dents on record. Skip it if the camera isn’t working.',
       );
-      if (!taken) return;
-      photos = [taken];
-      unsentPhotos.current = photos;
-      setBeforePhotos(photos);
+      if (taken === null) return;
+      if (taken !== 'skip') {
+        photos = [taken];
+        unsentPhotos.current = photos;
+        setBeforePhotos(photos);
+      }
     }
     setSubmitting(true);
     setError(null);

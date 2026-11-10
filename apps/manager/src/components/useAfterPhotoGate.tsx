@@ -1,13 +1,13 @@
 import { useCallback } from 'react';
 import { showToast } from '@mana/ui';
 import { useSync } from '../offline/SyncProvider';
-import { takeRequiredPhoto } from '../utils/requiredPhoto';
+import { offerPhoto } from '../utils/requiredPhoto';
 
 /**
- * The shop's rule: no car is marked ready without an after photo. It goes in the customer's bill
- * and is the record if anything is questioned later. Resolves true when the wash already has one
- * (on the server or waiting on this phone), or once one is taken with the camera now; false when
- * the person cancels.
+ * The after photo, asked for when a car is marked ready: it goes in the customer's bill and is the
+ * record if anything is questioned later. Optional (some tablets' cameras don't hand the photo
+ * back). Resolves true when the wash has one, one is taken now, or the person skips it; false
+ * when they go back.
  */
 export function useAfterPhotoGate() {
   const { shopItems, submit } = useSync();
@@ -19,11 +19,12 @@ export function useAfterPhotoGate() {
       );
       if (afterOnServer > 0 || queued) return true;
 
-      const photo = await takeRequiredPhoto(
-        'Take the after photo',
-        'Every car gets an after photo before it is marked ready. It goes in the customer’s bill and protects the shop if anything is questioned later.',
+      const photo = await offerPhoto(
+        'Take the after photo?',
+        'It goes in the customer’s bill and protects the shop if anything is questioned later. Skip it if the camera isn’t working; you can add it from the wash page.',
       );
-      if (!photo) return false;
+      if (photo === null) return false;
+      if (photo === 'skip') return true;
       try {
         const result = await submit({
           kind: 'photo.upload',

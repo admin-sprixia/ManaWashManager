@@ -139,7 +139,7 @@ check('A community-only plan can’t be sold at the counter', r.status === 400, 
 
 r = await call(OA, 'GET', `/shop-plans/vehicle?registrationNumber=${plate}`);
 const mine = r.body?.plans?.[0];
-check('New Wash sees the vehicle’s plan: 0 of 4 used, ends in a month', mine?.washesUsed === 0 && mine?.washesTotal === 4 && /^\d{4}-\d{2}-\d{2}$/.test(mine?.endsOn ?? '') && mine?.problem === null && mine?.service?.name === 'Basic Wash', show(r));
+check('New Wash sees the vehicle’s plan: 0 of 4 used, valid for 2 months', mine?.washesUsed === 0 && mine?.washesTotal === 4 && /^\d{4}-\d{2}-\d{2}$/.test(mine?.endsOn ?? '') && Date.parse(mine.endsOn) - Date.now() > 55 * 86_400_000 && Date.parse(mine.endsOn) - Date.now() < 63 * 86_400_000 && mine?.problem === null && mine?.service?.name === 'Basic Wash', show(r));
 
 // ─── Using it ────────────────────────────────────────────────────────────────
 

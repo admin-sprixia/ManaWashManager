@@ -1,7 +1,7 @@
 import { clockMinutes, formatClock, offDaysOf, WEEKDAY_LABELS, type OpeningHours } from './openingHours';
 import type { VehicleCategory } from './types';
 import { PRICE_SIZES, priceSize, priceSizeOfBody, type PriceSize } from './priceSizes';
-import { buildPlan, PLAN_GRACE_DAYS, PLAN_LENGTHS, PLAN_WASHES_A_MONTH, upgradeWashes } from './washPlans';
+import { buildPlan, MONTHLY_PLAN_VALID_MONTHS, PLAN_GRACE_DAYS, PLAN_LENGTHS, PLAN_WASHES_A_MONTH, upgradeWashes } from './washPlans';
 import type { ServiceKind } from './serviceNetwork';
 import { bodyTypeDef, bodyTypeForName } from './vehicleCatalog';
 import { VEHICLE_MAKES, vehicleGuideRows, vehicleTypeKeysFor, type VehicleGuideRow, type VehicleModelEdit } from './vehicleMakes';
@@ -878,8 +878,8 @@ function planStart(t: Turn, b: ChatBranch, x: Target): ChatMessage[] {
         say(t, `📅 *Monthly plans* · ${emojiOf(x)} ${labelOf(t, x)}`, `📅 *నెల ప్లాన్‌లు* · ${emojiOf(x)} ${labelOf(t, x)}`),
         say(
           t,
-          `${PLAN_WASHES_A_MONTH} washes a month, on any days you like. Pay once and save 8%.`,
-          `నెలకు ${PLAN_WASHES_A_MONTH} వాష్‌లు, మీకు నచ్చిన రోజుల్లో. ఒకేసారి చెల్లించండి, 8% ఆదా.`,
+          `${PLAN_WASHES_A_MONTH} washes to use within ${MONTHLY_PLAN_VALID_MONTHS} months, on any days you like. Pay once and save 8%.`,
+          `${PLAN_WASHES_A_MONTH} వాష్‌లు, ${MONTHLY_PLAN_VALID_MONTHS} నెలల్లో మీకు నచ్చిన రోజుల్లో వాడుకోండి. ఒకేసారి చెల్లించండి, 8% ఆదా.`,
         ),
         '',
         say(t, 'Pick a plan, or build your own 👇', 'ప్లాన్ ఎంచుకోండి, లేదా మీరే తయారు చేసుకోండి 👇'),

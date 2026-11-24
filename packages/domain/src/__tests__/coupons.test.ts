@@ -13,12 +13,12 @@ import {
 const bytes = (...values: number[]) => new Uint8Array(values);
 
 describe('reminderBucket', () => {
-  it('is quiet before 10 days, due from 10, comeback from 30', () => {
+  it('is quiet before 25 days, due from 25, comeback from 40', () => {
     expect(reminderBucket(0)).toBeNull();
-    expect(reminderBucket(9)).toBeNull();
-    expect(reminderBucket(10)).toBe('due');
-    expect(reminderBucket(29)).toBe('due');
-    expect(reminderBucket(30)).toBe('comeback');
+    expect(reminderBucket(24)).toBeNull();
+    expect(reminderBucket(25)).toBe('due');
+    expect(reminderBucket(39)).toBe('due');
+    expect(reminderBucket(40)).toBe('comeback');
     expect(reminderBucket(120)).toBe('comeback');
   });
 });

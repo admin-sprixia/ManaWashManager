@@ -5,6 +5,7 @@ import {
   PLAN_GRACE_DAYS,
   PLAN_WASHES_A_MONTH,
   planLastDay,
+  planValidMonths,
   planUseBy,
   secondCarPlanPrice,
   shopPlanProblem,
@@ -390,7 +391,7 @@ export const shopPlanRepo = {
     }
 
     const today = istDay(input.now);
-    const endsOn = planLastDay(today, sale.months);
+    const endsOn = planLastDay(today, planValidMonths(sale.months));
     const orderId = newId();
     const lineId = planServiceId(shopId);
     await db.service.upsert({

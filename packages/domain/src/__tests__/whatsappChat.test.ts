@@ -564,7 +564,7 @@ describe('WhatsApp assistant: numbers and PLANS', () => {
     const m = as(only(r.messages), 'list');
     expectValid([m]);
     expect(m.text).toBe(
-      ['📅 *Monthly plans* · 🚗 Hatchback', '4 washes a month, on any days you like. Pay once and save 8%.', '', 'Pick a plan, or build your own 👇'].join('\n'),
+      ['📅 *Monthly plans* · 🚗 Hatchback', '4 washes to use within 2 months, on any days you like. Pay once and save 8%.', '', 'Pick a plan, or build your own 👇'].join('\n'),
     );
     expect(m.button).toBe('Choose a plan');
     expect(m.rows).toEqual([

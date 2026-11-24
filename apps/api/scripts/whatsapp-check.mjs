@@ -560,22 +560,22 @@ check('a late “delivered” never undoes “read”', d1Rows(`SELECT status FR
       d1Run(`UPDATE jobs SET created_at = '${at}' WHERE vehicle_id = (SELECT vehicle_id FROM jobs WHERE id = '${jobId}')`);
     };
     const followUps = (name) => sent.filter((m) => m.type === 'template' && m.to === `91${phone}` && m.template?.name === name);
-    backdate(12);
+    backdate(27);
     await morning();
     const reminder = followUps('wash_reminder');
     const rParams = reminder[0]?.template?.components?.[0]?.parameters?.map((x) => x.text) ?? [];
     check(
-      '12 days after a wash, the morning run sends “time for a wash” with See prices and Stop offers',
-      reminder.length === 1 && rParams[1] === '12' && reminder[0].template.components[2]?.parameters?.[0]?.payload === 'STOP',
+      '27 days after a wash, the morning run sends “time for a wash” with See prices and Stop offers',
+      reminder.length === 1 && rParams[1] === '27' && reminder[0].template.components[2]?.parameters?.[0]?.payload === 'STOP',
       JSON.stringify(reminder).slice(0, 300),
     );
     await morning();
     check('…only once for that visit', followUps('wash_reminder').length === 1);
-    backdate(35);
+    backdate(45);
     await morning();
     const comeback = followUps('comeback_offer');
     const code = comeback[0]?.template?.components?.[0]?.parameters?.[4]?.text;
-    check('35 days on, a comeback offer goes out with a fresh coupon code', comeback.length === 1 && /^MANA-/.test(code ?? ''), JSON.stringify(comeback).slice(0, 300));
+    check('45 days on, a comeback offer goes out with a fresh coupon code', comeback.length === 1 && /^MANA-/.test(code ?? ''), JSON.stringify(comeback).slice(0, 300));
     check('…and the coupon is recorded as sent', d1Rows(`SELECT notified_at IS NOT NULL AS sent FROM coupons WHERE code = '${code}'`)[0]?.sent === 1);
     // Stop offers: nothing more after STOP.
     d1Run(`UPDATE coupons SET status = 'cancelled' WHERE code = '${code}'`);

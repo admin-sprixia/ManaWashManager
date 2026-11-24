@@ -281,3 +281,13 @@ describe('second car in the same home', () => {
     expect(secondCarIndexes([184900], false).size).toBe(0);
   });
 });
+
+describe('planValidMonths', () => {
+  it('gives a monthly plan 2 months, and keeps longer plans as they are', async () => {
+    const { planValidMonths, planLastDay } = await import('../washPlans');
+    expect(planValidMonths(1)).toBe(2);
+    expect(planValidMonths(3)).toBe(3);
+    expect(planValidMonths(13)).toBe(13);
+    expect(planLastDay('2026-11-24', planValidMonths(1))).toBe('2027-01-23');
+  });
+});

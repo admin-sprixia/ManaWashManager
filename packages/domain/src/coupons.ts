@@ -6,9 +6,9 @@
 const DAY_MS = 86_400_000;
 
 /** A vehicle shows up as "due for a wash" this many days after its last visit. */
-export const REMINDER_DUE_DAYS = 10;
+export const REMINDER_DUE_DAYS = 25;
 /** …and becomes eligible for a comeback coupon after this many. */
-export const COMEBACK_DAYS = 30;
+export const COMEBACK_DAYS = 40;
 export const COUPON_VALID_DAYS = 14;
 export const COUPON_MIN_PERCENT = 5;
 export const COUPON_MAX_PERCENT = 10;

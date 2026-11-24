@@ -8,6 +8,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.0.12] - 2026-11-24
+
+### Changed
+
+- **Monthly plans last 2 months.** A 4-wash plan sold at the shop can now be used for 2 months
+  instead of 1, since customers here wash about once a month. The 3- and 12-month plans keep
+  their length, and prices stay as they were. The WhatsApp assistant says "4 washes to use
+  within 2 months". The two plans already running were extended to match.
+- **The "time for a wash" reminder goes out 25 days after a visit** instead of 10, and the
+  comeback offer at 40 days instead of 30.
+
 ## [1.0.11] - 2026-11-24
 
 ### Added
@@ -1186,7 +1197,8 @@ build was labelled 2.0.0.
   a customer profile.
 - **One shared MAJOR.MINOR.PATCH version** across every app and package.
 
-[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.11...HEAD
+[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.12...HEAD
+[1.0.12]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.11...v1.0.12
 [1.0.11]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.10...v1.0.11
 [1.0.10]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.9...v1.0.10
 [1.0.9]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.8...v1.0.9

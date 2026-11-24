@@ -454,6 +454,14 @@ export const soldAtCommunities = (s: PlanSoldAt) => s !== 'shop';
 export const soldAtShop = (s: PlanSoldAt) => s !== 'community';
 
 /**
+ * How long a monthly plan (4 washes) can be used, in months. Around the shop people wash about
+ * once a month or less, so its 4 washes get 2 months; the 3- and 12-month plans keep their length.
+ * Prices and names stay "a month".
+ */
+export const MONTHLY_PLAN_VALID_MONTHS = 2;
+export const planValidMonths = (months: number) => (months <= 1 ? MONTHLY_PLAN_VALID_MONTHS : months);
+
+/**
  * The last day a plan sold on `startDay` can be used: its months later, less a day (sold 18 Oct
  * for 1 month: until 17 Nov). A start late in a month ends on the last day of a shorter month.
  */

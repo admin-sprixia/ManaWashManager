@@ -8,6 +8,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.0.11] - 2026-11-24
+
+### Added
+
+- **Customers' photos and videos in the WhatsApp inbox.** A photo, video, voice note or document
+  a customer sends to the business number is now saved and shown in their chat: photos in the
+  bubble (tap for full screen), and a video, voice note or document opens in the phone's own app.
+  Files sent before this version only show their label ("📷 Photo") and can't be recovered; the
+  chat says to ask the customer to send them again. Needs migration `0005_whatsapp_media`.
+
+### Fixed
+
+- **One "Our team will reply" for several photos.** A customer sending two photos (or a photo and
+  a video) together got the reply once per file. It now goes out once per half hour; the chat
+  still waits for a teammate.
+
 ## [1.0.10] - 2026-11-10
 
 ### Changed
@@ -1170,7 +1186,8 @@ build was labelled 2.0.0.
   a customer profile.
 - **One shared MAJOR.MINOR.PATCH version** across every app and package.
 
-[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.10...HEAD
+[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.11...HEAD
+[1.0.11]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.10...v1.0.11
 [1.0.10]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.9...v1.0.10
 [1.0.9]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.8...v1.0.9
 [1.0.8]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.7...v1.0.8

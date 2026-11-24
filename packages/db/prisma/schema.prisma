@@ -1029,6 +1029,9 @@ model WhatsAppMessage {
   updatedAt    String  @map("updated_at")
   /// A teammate's reply from the inbox.
   sentByUserId String? @map("sent_by_user_id")
+  /// A customer's photo, video, voice note or document, copied into the PHOTOS bucket.
+  mediaKey     String? @map("media_key")
+  mediaType    String? @map("media_type")
 
   @@index([phone, createdAt])
   @@map("whatsapp_messages")

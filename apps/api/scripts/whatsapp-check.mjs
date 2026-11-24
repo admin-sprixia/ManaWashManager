@@ -3,7 +3,7 @@
 // number for what's included, building a plan (everyday wash → mix → price), Not sure? → company → model, typing a model, directions,
 // Telugu (typed, and remembered for the number), STOP/START, a repeated delivery answered once, delivery reports, and the Ready and
 // bill templates a wash sends by itself (once each), and the inbox (a question waits for the team,
-// a teammate replies, the assistant stays quiet, Mark done), and the 10:00 follow-ups. Adds a throwaway owner to a branch of the
+// photos and a video saved and shown, one “we’ll reply” for them, a teammate replies, the assistant stays quiet, Mark done), and the 10:00 follow-ups. Adds a throwaway owner to a branch of the
 // business for that last part.
 // A stand-in Graph API on :8798 records what the server sends back. Only writes the whatsapp_*
 // tables and rate_limits, so it can run against your local data. Run the API with:
@@ -36,11 +36,22 @@ function check(name, ok, detail = '') {
 // ─── Stand-in Graph API ──────────────────────────────────────────────────────
 const sent = [];
 const uploads = [];
+const PHOTO_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0xe0, ...Array.from({ length: 64 }, (_, i) => i), 0xff, 0xd9]);
 let n = 0;
 const graph = createServer(async (req, res) => {
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
   const raw = Buffer.concat(chunks);
+  // A customer's photo: its id gives a link, the link (with the token) gives the file.
+  if (req.method === 'GET' && req.url?.startsWith('/file/')) {
+    res.writeHead(req.headers.authorization === 'Bearer standin' ? 200 : 401, { 'content-type': 'image/jpeg' });
+    return res.end(PHOTO_BYTES);
+  }
+  if (req.method === 'GET' && req.url?.startsWith('/media')) {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    const id = req.url.slice(1);
+    return res.end(JSON.stringify({ url: `http://127.0.0.1:8798/file/${id}`, mime_type: 'image/jpeg', file_size: PHOTO_BYTES.length, id }));
+  }
   res.writeHead(200, { 'content-type': 'application/json' });
   // A file upload (the PDF bill): keep it, answer with a media id.
   if ((req.headers['content-type'] ?? '').startsWith('multipart/form-data')) {
@@ -500,6 +511,9 @@ check('a late “delivered” never undoes “read”', d1Rows(`SELECT status FR
   const waiting = await call('GET', '/whatsapp/inbox?waiting=1');
   const convo = waiting.body?.conversations?.find((cv) => cv.phone === phone);
   check('the customer waits in the inbox, with their name and last message', convo?.name === 'Ravi Kumar' && convo.canReply && convo.last?.text?.includes('this scratch'), JSON.stringify(waiting.body).slice(0, 300));
+  const second = await say({ type: 'image', image: { id: 'media2', mime_type: 'image/jpeg' } });
+  const video = await say({ type: 'video', video: { id: 'media3', mime_type: 'video/mp4' } });
+  check('more photos and a video right after get no second “we’ll reply”', second.length === 0 && video.length === 0, JSON.stringify([...second, ...video]).slice(0, 200));
   const count = await call('GET', '/whatsapp/inbox/count');
   check('the board badge counts them', count.body?.waiting >= 1);
   const before = sent.length;
@@ -507,6 +521,17 @@ check('a late “delivered” never undoes “read”', d1Rows(`SELECT status FR
   const outgoing = sent.slice(before).find((m) => m.type === 'text' && m.to === `91${phone}`);
   check('a teammate’s reply goes out from the business number', replied.status === 201 && outgoing?.text?.body === 'Yes we do, ₹999 for a tractor wash.', JSON.stringify(replied.body));
   const thread = await call('GET', `/whatsapp/inbox/${phone}`);
+  const files = (thread.body?.messages ?? []).filter((m) => m.media);
+  check(
+    'the chat shows the photos and the video as saved files',
+    files.length === 3 && files.every((m) => m.media.saved && m.media.path) && files.map((m) => m.media.kind).join() === 'image,image,video',
+    JSON.stringify(files).slice(0, 400),
+  );
+  const file = files[0] ? await apiFetch(`${API}${files[0].media.path}`, { headers: { authorization: `Bearer ${token}` } }) : null;
+  const fileBytes = file?.ok ? Buffer.from(await file.arrayBuffer()) : null;
+  check('the photo opens from the app, as it was sent', file?.headers.get('content-type') === 'image/jpeg' && !!fileBytes?.equals(PHOTO_BYTES), `${file?.status}`);
+  const anon = files[0] ? await apiFetch(`${API}${files[0].media.path}`) : null;
+  check('…and only for a signed-in teammate', anon?.status === 401, `${anon?.status}`);
   const mine = thread.body?.messages?.at(-1);
   check('the chat shows the reply and who sent it, and it’s off the waiting list', mine?.by === 'WhatsApp Check' && !thread.body.awaitingSince, JSON.stringify(mine));
   const quiet = await text('ok I will come at 5');

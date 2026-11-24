@@ -269,6 +269,45 @@ export async function logOutgoing(
   return id;
 }
 
+/** Files a customer can send that the team should see; larger ones stay a label only. */
+export const MEDIA_FILE_KINDS = new Set(['image', 'video', 'audio', 'document', 'sticker']);
+const MEDIA_MAX_BYTES = 25 * 1024 * 1024;
+
+/**
+ * Copies a file a customer sent (photo, video, voice note, document) from WhatsApp into the
+ * PHOTOS bucket and notes it on their message, so the inbox can show it. WhatsApp only hands us a
+ * media id: its URL is fetched with the token, then the file itself. Best effort: on any failure
+ * the message keeps its "📷 Photo" label and the rest of the webhook carries on.
+ */
+export async function saveIncomingMedia(
+  env: Env,
+  m: { messageId: string; phone: string; mediaId: string; mimeType?: string | null },
+): Promise<boolean> {
+  const auth = { Authorization: `Bearer ${env.WHATSAPP_API_TOKEN!.trim()}`, 'User-Agent': 'mana-api' };
+  try {
+    const metaRes = await fetch(`${graphBase(env)}/${encodeURIComponent(m.mediaId)}`, { headers: auth });
+    if (!metaRes.ok) throw new Error(`media lookup ${metaRes.status}`);
+    const meta: { url?: string; mime_type?: string; file_size?: number } = await metaRes.json();
+    if (!meta.url) throw new Error('media lookup: no url');
+    if ((meta.file_size ?? 0) > MEDIA_MAX_BYTES) return false;
+    const fileRes = await fetch(meta.url, { headers: auth });
+    if (!fileRes.ok) throw new Error(`media download ${fileRes.status}`);
+    const bytes = await fileRes.arrayBuffer();
+    if (bytes.byteLength > MEDIA_MAX_BYTES) return false;
+    const type = (meta.mime_type ?? m.mimeType ?? 'application/octet-stream').split(';')[0]!.trim();
+    const key = `whatsapp/${m.phone}/${encodeURIComponent(m.messageId)}`;
+    await env.PHOTOS.put(key, bytes, { httpMetadata: { contentType: type } });
+    await d1(env)
+      .prepare(`UPDATE whatsapp_messages SET media_key = ?2, media_type = ?3, updated_at = ${NOW} WHERE id = ?1 AND direction = 'in'`)
+      .bind(m.messageId, key, clip(type, 100))
+      .run();
+    return true;
+  } catch (e) {
+    console.error('WhatsApp media download failed', e);
+    return false;
+  }
+}
+
 const STATUS_RANK: Record<string, number> = { sent: 1, delivered: 2, read: 3, failed: 4 };
 
 /** Meta's delivery report for a message we sent. Statuses arrive out of order; never step back. */

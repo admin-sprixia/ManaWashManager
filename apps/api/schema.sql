@@ -804,7 +804,9 @@ CREATE TABLE whatsapp_messages (
   job_id TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
-  sent_by_user_id TEXT -- a teammate's reply from the inbox
+  sent_by_user_id TEXT, -- a teammate's reply from the inbox
+  media_key TEXT, -- a customer's photo / video / voice note / document, copied into the PHOTOS bucket
+  media_type TEXT -- its type, e.g. image/jpeg
 );
 CREATE INDEX idx_whatsapp_messages_phone ON whatsapp_messages(phone, created_at);
 CREATE INDEX idx_whatsapp_messages_job ON whatsapp_messages(job_id) WHERE job_id IS NOT NULL;

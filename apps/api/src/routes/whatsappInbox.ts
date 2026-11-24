@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { createPlatformDb } from '@mana/db';
 import { requireAuth, requireRole } from '../middleware/auth';
-import { clearAwaiting, graphSend, logOutgoing, waId, whatsappConfigured } from '../lib/whatsapp';
+import { MEDIA_FILE_KINDS, clearAwaiting, graphSend, logOutgoing, waId, whatsappConfigured } from '../lib/whatsapp';
 import type { Env } from '../types';
 
 /**
@@ -125,11 +125,23 @@ export const whatsappInboxRoutes = new Hono<{ Bindings: Env }>()
         .first<{ phone: string; profileName: string | null; awaitingSince: string | null; lastInboundAt: string | null; stoppedOffers: string | null; customerName: string | null }>(),
       d1(c.env)
         .prepare(
-          `SELECT id, direction, kind, body, purpose, status, created_at AS at, sent_by_user_id AS sentBy
+          `SELECT id, direction, kind, body, purpose, status, created_at AS at, sent_by_user_id AS sentBy,
+                  media_key AS mediaKey, media_type AS mediaType
            FROM whatsapp_messages WHERE phone = ?1 ORDER BY created_at DESC LIMIT ${THREAD_MAX}`,
         )
         .bind(phone)
-        .all<{ id: string; direction: string; kind: string; body: string | null; purpose: string; status: string; at: string; sentBy: string | null }>(),
+        .all<{
+          id: string;
+          direction: string;
+          kind: string;
+          body: string | null;
+          purpose: string;
+          status: string;
+          at: string;
+          sentBy: string | null;
+          mediaKey: string | null;
+          mediaType: string | null;
+        }>(),
     ]);
     if (!contact) return c.json({ error: 'not_found' as const, message: 'No conversation with this number.' }, 404);
     const senderIds = [...new Set(messages.results.map((m) => m.sentBy).filter((id): id is string => !!id))];
@@ -153,7 +165,33 @@ export const whatsappInboxRoutes = new Hono<{ Bindings: Env }>()
         text: inboxPreview(m.direction, m.kind, m.body),
         status: m.status,
         at: m.at,
+        /**
+         * A file the customer sent: its kind (image, video, audio, document, sticker), type, and
+         * where the app fetches it. `saved: false` for one that came before files were kept, or
+         * couldn't be fetched from WhatsApp: only its label is known.
+         */
+        media:
+          m.direction === 'in' && MEDIA_FILE_KINDS.has(m.kind)
+            ? m.mediaKey
+              ? { kind: m.kind, type: m.mediaType, saved: true as const, path: `/whatsapp/inbox/${phone}/media/${encodeURIComponent(m.id)}` }
+              : { kind: m.kind, type: null, saved: false as const, path: null }
+            : null,
       })),
+    });
+  })
+  /** A file a customer sent, as it was copied from WhatsApp. */
+  .get('/:phone/media/:id', zValidator('param', phoneParam.extend({ id: z.string().min(1).max(200) })), async (c) => {
+    if (!(await inboxBusiness(c))) return c.json(notHere, 404);
+    const { phone, id } = c.req.valid('param');
+    const row = await d1(c.env)
+      .prepare(`SELECT media_key AS mediaKey, media_type AS mediaType FROM whatsapp_messages WHERE id = ?1 AND phone = ?2 AND direction = 'in'`)
+      .bind(id, phone)
+      .first<{ mediaKey: string | null; mediaType: string | null }>();
+    const object = row?.mediaKey ? await c.env.PHOTOS.get(row.mediaKey) : null;
+    if (!object) return c.json({ error: 'not_found' as const, message: 'This file isn’t saved.' }, 404);
+    return c.body(object.body, 200, {
+      'Content-Type': row?.mediaType ?? 'application/octet-stream',
+      'Cache-Control': 'private, max-age=86400',
     });
   })
   /** A teammate's reply, sent from the business number; the assistant then stays quiet a while. */

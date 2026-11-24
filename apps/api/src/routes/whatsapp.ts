@@ -15,8 +15,10 @@ import {
   chatPerson,
   logIncoming,
   logStatus,
+  MEDIA_FILE_KINDS,
   markReadTyping,
   phoneFromWaId,
+  saveIncomingMedia,
   sendChat,
   setAwaiting,
   setChatContext,
@@ -33,6 +35,12 @@ import type { Env } from '../types';
  * app (WhatsApp → Configuration) with WHATSAPP_VERIFY_TOKEN; every delivery is signed with
  * WHATSAPP_APP_SECRET and refused without a valid signature.
  */
+
+/**
+ * Several photos sent together arrive as separate messages: "we'll reply shortly" goes out once
+ * per this window, not once per photo.
+ */
+const MEDIA_ACK_SECONDS = 30 * 60;
 
 /** Replies to one number per 10 minutes; past that, someone is hammering the assistant. */
 const REPLIES_PER_WINDOW = 40;
@@ -60,9 +68,17 @@ interface WaMessage {
   button?: { payload?: string; text?: string };
   /** A photo's or video's caption, lifted from image/video/document. */
   caption?: string;
-  image?: { caption?: string };
-  video?: { caption?: string };
-  document?: { caption?: string; filename?: string };
+  image?: WaMedia;
+  video?: WaMedia;
+  audio?: WaMedia;
+  sticker?: WaMedia;
+  document?: WaMedia & { filename?: string };
+}
+/** A file the customer sent: WhatsApp gives its id, which is exchanged for the file itself. */
+interface WaMedia {
+  id?: string;
+  mime_type?: string;
+  caption?: string;
 }
 interface WaStatus {
   id: string;
@@ -192,11 +208,35 @@ async function handleMessage(env: Env, m: WaMessage, profileName: string | null,
   // Who they are is read before their message is logged, so a first "Hi" isn't a returning one.
   const person = await chatPerson(env, phone, env.WHATSAPP_BUSINESS_ID?.trim() || null, profileName);
   if (!(await logIncoming(env, { id: m.id, phone, kind: m.type, body, profileName }))) return;
+  try {
+    await answer(env, m.id, phone, input, person, getContext);
+  } finally {
+    // After the reply, so the customer isn't kept waiting on a large video.
+    const media = MEDIA_FILE_KINDS.has(m.type) ? m[m.type as 'image' | 'video' | 'audio' | 'document' | 'sticker'] : undefined;
+    if (media?.id && whatsappConfigured(env)) {
+      await saveIncomingMedia(env, { messageId: m.id, phone, mediaId: media.id, mimeType: media.mime_type });
+    }
+  }
+}
+
+async function answer(
+  env: Env,
+  messageId: string,
+  phone: string,
+  input: ChatInput,
+  person: Awaited<ReturnType<typeof chatPerson>>,
+  getContext: () => Promise<ChatContext>,
+) {
   const { count } = await countHit(env, `wa:${phone}`, WINDOW_SECONDS);
   if (count > REPLIES_PER_WINDOW) return;
   const result = chatReply(input, { ...(await getContext()), person });
+  if (input.kind === 'media' && result.forTeam && (await countHit(env, `wa-media-ack:${phone}`, MEDIA_ACK_SECONDS)).count > 1) {
+    // Already told them the team will reply: just keep them on the waiting list.
+    await setAwaiting(env, phone);
+    return;
+  }
   // Blue ticks and "typing…" only when the assistant is about to answer.
-  if (result.messages.length) await markReadTyping(env, m.id);
+  if (result.messages.length) await markReadTyping(env, messageId);
   if (result.marketing) await setMarketing(env, phone, result.marketing === 'start');
   if (result.lang) await setLanguage(env, phone, result.lang);
   if (result.context) await setChatContext(env, phone, result.context);

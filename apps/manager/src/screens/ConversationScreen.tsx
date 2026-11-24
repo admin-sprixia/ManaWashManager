@@ -1,21 +1,26 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   KeyboardAvoidingView,
   Linking,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
+  StatusBar,
   View,
 } from 'react-native';
+import ReactNativeBlobUtil from 'react-native-blob-util';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Svg, { Path } from 'react-native-svg';
-import { IconPhone, ScreenContainer, ScreenHeader, colors, radius, showToast, spacing, typography } from '@mana/ui';
-import { api, apiErrorMessage } from '../api/client';
+import { IconClose, IconPhone, ScreenContainer, ScreenHeader, colors, radius, showToast, spacing, typography } from '@mana/ui';
+import { API_BASE_URL, api, apiErrorMessage, imageHeaders } from '../api/client';
 import { bubbleTime, formatPhone, inboxTime } from '../utils/inbox';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 
@@ -28,7 +33,12 @@ interface Message {
   text: string;
   status: string;
   at: string;
+  /** A photo, video, voice note or document the customer sent. */
+  media: Media | null;
 }
+type Media =
+  | { kind: string; type: string | null; saved: true; path: string }
+  | { kind: string; type: string | null; saved: false; path: null };
 interface Thread {
   phone: string;
   name: string | null;
@@ -61,6 +71,12 @@ export function ConversationScreen({ navigation, route }: Props) {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const listRef = useRef<FlatList<Message>>(null);
+  const [headers, setHeaders] = useState<Record<string, string> | undefined>();
+  const [viewing, setViewing] = useState<string | null>(null);
+
+  useEffect(() => {
+    void imageHeaders().then(setHeaders);
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -163,7 +179,11 @@ export function ConversationScreen({ navigation, route }: Props) {
                   {newDay ? <Text style={styles.day}>{inboxTime(item.at)}</Text> : null}
                   <View style={[styles.bubble, item.fromCustomer ? styles.bubbleIn : styles.bubbleOut, item.status === 'failed' && styles.bubbleFailed]}>
                     {!item.fromCustomer && item.by ? <Text style={styles.by}>{item.by}</Text> : null}
-                    <Text style={styles.bubbleText}>{item.text}</Text>
+                    {item.media ? (
+                      <MediaBlock media={item.media} text={item.text} headers={headers} onOpenPhoto={setViewing} />
+                    ) : (
+                      <Text style={styles.bubbleText}>{item.text}</Text>
+                    )}
                     <Text style={styles.time}>
                       {bubbleTime(item.at)}
                       {item.fromCustomer ? '' : item.status === 'read' ? '  ✓✓ read' : item.status === 'delivered' ? '  ✓✓' : item.status === 'failed' ? '  not sent' : '  ✓'}
@@ -208,12 +228,147 @@ export function ConversationScreen({ navigation, route }: Props) {
           )}
         </KeyboardAvoidingView>
       )}
+      <PhotoViewer path={viewing} headers={headers} onClose={() => setViewing(null)} />
     </ScreenContainer>
+  );
+}
+
+const MEDIA_NAME: Record<string, string> = {
+  image: 'Photo',
+  sticker: 'Sticker',
+  video: 'Video',
+  audio: 'Voice note',
+  document: 'Document',
+};
+const MEDIA_ICON: Record<string, string> = { video: '▶️', audio: '🎤', document: '📄' };
+
+/** The caption the customer typed under the file ("📷 Photo: this scratch?" → "this scratch?"). */
+function captionOf(text: string): string | null {
+  const i = text.indexOf(': ');
+  return i >= 0 ? text.slice(i + 2).trim() || null : null;
+}
+
+/** File extension for a downloaded file, so the phone picks the right app to open it. */
+function extensionFor(type: string | null, kind: string): string {
+  const sub = (type ?? '').split('/')[1]?.split(';')[0]?.trim();
+  if (sub === 'mpeg' && kind === 'audio') return 'mp3';
+  if (sub === 'ogg' || sub === 'opus') return 'ogg';
+  if (sub === 'quicktime') return 'mov';
+  if (sub === 'vnd.openxmlformats-officedocument.wordprocessingml.document') return 'docx';
+  return sub && /^[a-z0-9]{2,5}$/.test(sub) ? sub : kind === 'video' ? 'mp4' : 'bin';
+}
+
+/**
+ * A file in the chat. Photos show in the bubble and open full screen; a video, voice note or
+ * document is fetched to the phone and opened in its own app (video player, PDF viewer).
+ */
+function MediaBlock({
+  media,
+  text,
+  headers,
+  onOpenPhoto,
+}: {
+  media: Media;
+  text: string;
+  headers?: Record<string, string>;
+  onOpenPhoto: (path: string) => void;
+}) {
+  const [opening, setOpening] = useState(false);
+  const caption = captionOf(text);
+  const name = MEDIA_NAME[media.kind] ?? 'File';
+  if (!media.saved) {
+    return (
+      <>
+        <Text style={styles.bubbleText}>{text}</Text>
+        <Text style={styles.mediaMissing}>Not saved in the app. Ask the customer to send it again.</Text>
+      </>
+    );
+  }
+  const path = media.path;
+  if (media.kind === 'image' || media.kind === 'sticker') {
+    return (
+      <>
+        <Pressable onPress={() => onOpenPhoto(path)} accessibilityLabel={`Open ${name.toLowerCase()}`}>
+          {headers ? (
+            <Image source={{ uri: `${API_BASE_URL}${path}`, headers }} style={media.kind === 'sticker' ? styles.sticker : styles.photo} resizeMode="cover" />
+          ) : (
+            <View style={styles.photo} />
+          )}
+        </Pressable>
+        {caption ? <Text style={styles.bubbleText}>{caption}</Text> : null}
+      </>
+    );
+  }
+  const open = async () => {
+    if (opening) return;
+    setOpening(true);
+    try {
+      const target = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/wa-${path.split('/').pop()!.replace(/[^A-Za-z0-9]/g, '').slice(-40)}.${extensionFor(media.type, media.kind)}`;
+      if (!(await ReactNativeBlobUtil.fs.exists(target))) {
+        const res = await ReactNativeBlobUtil.config({ path: target }).fetch('GET', `${API_BASE_URL}${path}`, headers ?? (await imageHeaders()));
+        if (res.info().status !== 200) {
+          await ReactNativeBlobUtil.fs.unlink(target).catch(() => undefined);
+          showToast(`Couldn’t open the ${name.toLowerCase()}.`, 'error');
+          return;
+        }
+      }
+      if (Platform.OS === 'android') {
+        await ReactNativeBlobUtil.android.actionViewIntent(target, media.type ?? '*/*', `Open ${name.toLowerCase()} with`);
+      } else {
+        await ReactNativeBlobUtil.ios.openDocument(target);
+      }
+    } catch {
+      showToast(`Couldn’t open the ${name.toLowerCase()}. Check the connection.`, 'error');
+    } finally {
+      setOpening(false);
+    }
+  };
+  return (
+    <>
+      <Pressable onPress={() => void open()} style={styles.fileTile} accessibilityLabel={`Open ${name.toLowerCase()}`}>
+        {opening ? <ActivityIndicator color={colors.indigo} size="small" /> : <Text style={styles.fileIcon}>{MEDIA_ICON[media.kind] ?? '📎'}</Text>}
+        <View style={styles.flex}>
+          <Text style={styles.fileName}>{name}</Text>
+          <Text style={styles.fileHint}>Tap to open</Text>
+        </View>
+      </Pressable>
+      {caption ? <Text style={styles.bubbleText}>{caption}</Text> : null}
+    </>
+  );
+}
+
+/** A customer's photo, full screen. */
+function PhotoViewer({ path, headers, onClose }: { path: string | null; headers?: Record<string, string>; onClose: () => void }) {
+  const insets = useSafeAreaInsets();
+  return (
+    <Modal visible={path != null} animationType="fade" onRequestClose={onClose} statusBarTranslucent>
+      <View style={styles.viewer}>
+        {path ? <Image source={{ uri: `${API_BASE_URL}${path}`, headers }} style={styles.viewerImage} resizeMode="contain" /> : null}
+        <Pressable
+          onPress={onClose}
+          hitSlop={10}
+          style={[styles.viewerClose, { top: Math.max(insets.top, StatusBar.currentHeight ?? 0) + spacing.sm }]}
+          accessibilityLabel="Close"
+        >
+          <IconClose size={18} color={colors.white} />
+        </Pressable>
+      </View>
+    </Modal>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  photo: { width: 220, height: 220, borderRadius: 10, backgroundColor: '#E5E7EB', marginBottom: 4 },
+  sticker: { width: 120, height: 120, marginBottom: 4 },
+  mediaMissing: { ...typography.caption, color: colors.slate, fontSize: 11.5, marginTop: 2 },
+  fileTile: { flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 190, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 10, backgroundColor: '#F0F2F5', marginBottom: 4 },
+  fileIcon: { fontSize: 22 },
+  fileName: { ...typography.bodyStrong, color: '#111B21', fontSize: 14 },
+  fileHint: { ...typography.caption, color: '#667781', fontSize: 11.5 },
+  viewer: { flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' },
+  viewerImage: { width: '100%', height: '100%' },
+  viewerClose: { position: 'absolute', right: spacing.md, width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF33' },
   headerPad: { paddingHorizontal: spacing.md },
   subtitle: { ...typography.caption, color: colors.slateDeep, textAlign: 'center', marginTop: -6, marginBottom: spacing.xs },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },

@@ -4,7 +4,10 @@ import {
   daysUntilReset,
   isRewardEligiblePlate,
   isRewardExpiringSoon,
+  isValidBonusStamps,
   isValidStampEvery,
+  isValidStampWeight,
+  maxBonusStamps,
   stampCard,
   stampsToGo,
   type StampVisit,
@@ -38,7 +41,7 @@ describe('stampCard', () => {
   const now = at('2026-10-03T12:00:00Z');
 
   it('is empty for a car that never had the service', () => {
-    expect(stampCard(10, [], now)).toEqual({ stamps: 0, free: 0, lastVisitAt: null, expiresAt: null });
+    expect(stampCard(10, [], now)).toEqual({ stamps: 0, free: 0, lastVisitAt: null, expiresAt: null, paidVisits: 0, bonus: 0 });
   });
 
   it('counts one stamp per paid visit', () => {
@@ -144,5 +147,56 @@ describe('rules', () => {
   it('leaves walk-in plates out', () => {
     expect(isRewardEligiblePlate('KA01AB1234')).toBe(true);
     expect(isRewardEligiblePlate('WALK-IN-1727950000000')).toBe(false);
+  });
+});
+
+describe('shared card: weights and welcome stamps', () => {
+  const now = at('2026-12-20T12:00:00Z');
+  const visit = (iso: string, stamps: number): StampVisit => ({ at: at(iso), free: false, stamps });
+
+  it('gives the welcome stamps on the first paid visit only', () => {
+    const one = stampCard(10, [paid('2026-12-01T10:00:00Z')], now, { bonus: 2 });
+    expect(one).toMatchObject({ stamps: 3, free: 0, paidVisits: 1, bonus: 2 });
+    const two = stampCard(10, [paid('2026-12-01T10:00:00Z'), paid('2026-12-10T10:00:00Z')], now, { bonus: 2 });
+    expect(two).toMatchObject({ stamps: 4, paidVisits: 2, bonus: 2 });
+  });
+
+  it('counts a Premium wash as 2 stamps', () => {
+    const card = stampCard(10, [visit('2026-12-01T10:00:00Z', 2), visit('2026-12-08T10:00:00Z', 1)], now, { bonus: 2 });
+    expect(card).toMatchObject({ stamps: 5, free: 0 });
+  });
+
+  it('turns 10 stamps into a free wash and carries the extra over', () => {
+    // 2 welcome + 1 + seven more = 10 → free; then a Premium on 9 → free + 1 left.
+    const visits = weekly('2026-06-01T10:00:00Z', 8);
+    expect(stampCard(10, visits, at('2026-08-01T12:00:00Z'), { bonus: 2 })).toMatchObject({ stamps: 0, free: 1 });
+    const more = [...weekly('2026-06-01T10:00:00Z', 16), visit('2026-09-25T10:00:00Z', 2)];
+    // 2 + 16 = 18 → 1 free, 8 left; +2 = 10 → 2 free, 0 left.
+    expect(stampCard(10, more, at('2026-10-01T12:00:00Z'), { bonus: 2 })).toMatchObject({ stamps: 0, free: 2 });
+    const carry = [...weekly('2026-06-01T10:00:00Z', 7), visit('2026-07-25T10:00:00Z', 2)];
+    // 2 + 7 = 9; +2 = 11 → 1 free, 1 left.
+    expect(stampCard(10, carry, at('2026-08-01T12:00:00Z'), { bonus: 2 })).toMatchObject({ stamps: 1, free: 1 });
+  });
+
+  it('uses up a free wash without earning a stamp', () => {
+    const visits = [...weekly('2026-06-01T10:00:00Z', 8), free('2026-08-01T10:00:00Z')];
+    expect(stampCard(10, visits, at('2026-08-02T12:00:00Z'), { bonus: 2 })).toMatchObject({ stamps: 0, free: 0, paidVisits: 8 });
+  });
+
+  it('gives no welcome stamps again after a reset', () => {
+    const visits = [paid('2026-01-05T10:00:00Z'), paid('2026-09-01T10:00:00Z')];
+    expect(stampCard(10, visits, at('2026-09-02T12:00:00Z'), { bonus: 2 })).toMatchObject({ stamps: 1, paidVisits: 1, bonus: 0 });
+  });
+
+  it('checks weights and welcome stamps', () => {
+    expect(isValidStampWeight(0)).toBe(false);
+    expect(isValidStampWeight(1)).toBe(true);
+    expect(isValidStampWeight(3)).toBe(true);
+    expect(isValidStampWeight(4)).toBe(false);
+    expect(maxBonusStamps(10)).toBe(5);
+    expect(isValidBonusStamps(2, 10)).toBe(true);
+    expect(isValidBonusStamps(6, 10)).toBe(false);
+    expect(isValidBonusStamps(-1, 10)).toBe(false);
+    expect(isValidBonusStamps(1.5, 10)).toBe(false);
   });
 });

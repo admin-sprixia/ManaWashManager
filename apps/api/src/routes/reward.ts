@@ -6,9 +6,11 @@ import {
   GIFT_ITEMS_MAX,
   GIFT_QUANTITY_MAX,
   isRewardEligiblePlate,
+  maxBonusStamps,
   roundStock,
   STAMP_EVERY_MAX,
   STAMP_EVERY_MIN,
+  STAMP_WEIGHT_MAX,
 } from '@mana/domain';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { reportQuerySchema, resolveReportWindow, windowMeta } from '../lib/reportWindow';
@@ -25,6 +27,29 @@ const ruleSchema = z.object({
     .min(STAMP_EVERY_MIN, `At least ${STAMP_EVERY_MIN} washes`)
     .max(STAMP_EVERY_MAX, `At most ${STAMP_EVERY_MAX} washes`),
 });
+
+/** Most services one card can collect from (a branch's whole wash list fits easily). */
+const CARD_EARNERS_MAX = 30;
+
+const cardSchema = z
+  .object({
+    every: ruleSchema.shape.every,
+    bonusStamps: z.number().int('Use a whole number').min(0, 'Can’t be below zero'),
+    earners: z
+      .array(
+        z.object({
+          serviceId: z.string().min(1).max(64),
+          stamps: z.number().int('Use a whole number').min(1, 'At least 1 stamp').max(STAMP_WEIGHT_MAX, `At most ${STAMP_WEIGHT_MAX} stamps`),
+        }),
+      )
+      .min(1)
+      .max(CARD_EARNERS_MAX, `At most ${CARD_EARNERS_MAX} services on one card`)
+      .refine((items) => new Set(items.map((i) => i.serviceId)).size === items.length, 'Each service can be added once'),
+  })
+  .refine((v) => v.bonusStamps <= maxBonusStamps(v.every), {
+    message: 'Welcome stamps can be at most half the card',
+    path: ['bonusStamps'],
+  });
 
 const giftSchema = z.object({
   items: z
@@ -82,16 +107,69 @@ export const rewardRoutes = new Hono<{ Bindings: Env }>()
       }
       const before = await rewardRepo.findRule(db, serviceId);
       await rewardRepo.saveRule(db, { serviceId, every, userId: c.get('session').sub });
-      if (!before || !before.active || before.every !== every) await rewardRepo.touchVehiclesWithService(db, serviceId);
+      if (!before || !before.active || before.every !== every || before.cardServiceId) {
+        await rewardRepo.touchVehiclesWithService(db, serviceId);
+      }
       return c.json({ ok: true as const, rules: (await rewardRepo.listRules(db)).filter((r) => r.active && r.serviceActive) });
     },
   )
-  // Switch a card off. History stays; switching it back on picks up where every car was.
+  // Turn on (or change) a card several services fill: e.g. Basic Wash's card, which Express
+  // fills with 1 stamp and Premium with 2, a free Basic Wash every 10, 2 welcome stamps. A card
+  // turned on now counts washes from now on.
+  .put(
+    '/cards/:serviceId',
+    requireRole('owner'),
+    zValidator('param', serviceParamSchema),
+    zValidator('json', cardSchema),
+    async (c) => {
+      const { serviceId } = c.req.valid('param');
+      const { every, bonusStamps, earners } = c.req.valid('json');
+      const db = c.get('db');
+      const invalid = (message: string) => c.json({ error: 'card_invalid' as const, message }, 400);
+      if (!earners.some((e) => e.serviceId === serviceId)) return invalid('The card’s own service must earn stamps on it.');
+      const ids = earners.map((e) => e.serviceId);
+      const [services, rules] = await Promise.all([
+        db.service.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, active: true } }),
+        rewardRepo.listRules(db),
+      ]);
+      const byId = new Map(services.map((s) => [s.id, s]));
+      const card = byId.get(serviceId);
+      if (!card || !card.active) {
+        return c.json({ error: 'service_not_found' as const, message: 'This service isn’t on the price list.' }, 404);
+      }
+      for (const id of ids) {
+        const s = byId.get(id);
+        if (!s || !s.active) return invalid('One of the services isn’t on the price list any more.');
+        if (id === serviceId) continue;
+        // A service with a running card of its own can't fill this one too.
+        const own = rules.find((r) => r.serviceId === id && r.active && !r.cardServiceId);
+        if (own) return invalid(`${s.name} has a stamp card of its own. Turn that card off first.`);
+      }
+      // Nor can this card's service already fill another card.
+      const fills = rules.find((r) => r.serviceId === serviceId && r.active && r.cardServiceId && r.cardServiceId !== serviceId);
+      if (fills) {
+        const other = rules.find((r) => r.serviceId === fills.cardServiceId);
+        return invalid(`${card.name} already fills the ${other?.serviceName ?? 'other'} card. Take it off that card first.`);
+      }
+      const touched = await rewardRepo.saveCard(db, {
+        serviceId,
+        every,
+        bonusStamps,
+        earners,
+        userId: c.get('session').sub,
+        now: new Date(),
+      });
+      for (const id of touched) await rewardRepo.touchVehiclesWithService(db, id);
+      return c.json({ ok: true as const, rules: (await rewardRepo.listRules(db)).filter((r) => r.active && r.serviceActive) });
+    },
+  )
+  // Switch a card off (and the services filling it). History stays; switching it back on
+  // picks up where every car was (a shared card counts from when it's turned on again).
   .delete('/rules/:serviceId', requireRole('owner'), zValidator('param', serviceParamSchema), async (c) => {
     const { serviceId } = c.req.valid('param');
     const db = c.get('db');
-    if (await rewardRepo.disableRule(db, serviceId, c.get('session').sub)) {
-      await rewardRepo.touchVehiclesWithService(db, serviceId);
+    for (const id of await rewardRepo.disableRule(db, serviceId, c.get('session').sub)) {
+      await rewardRepo.touchVehiclesWithService(db, id);
     }
     return c.json({ ok: true as const, rules: (await rewardRepo.listRules(db)).filter((r) => r.active && r.serviceActive) });
   })

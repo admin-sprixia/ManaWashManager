@@ -2,6 +2,7 @@ import { createPlatformDb, createShopDb, jobRepo, settingsRepo } from '@mana/db'
 import { bodyTypeForName, hoursSummary, parseOffDays, priceSizeOfBody } from '@mana/domain';
 import type { Env } from '../types';
 import { buildBillPdf, type BillInput, type BillPhoto } from './billPdf';
+import { billStampCard } from './rewards';
 
 /**
  * A paid wash's bill, ready to draw: its services and totals, the branch, and the before and after
@@ -66,7 +67,7 @@ export async function loadBill(env: Env, shopId: string, jobId: string): Promise
   const job = await jobRepo.findBoardRow(db, jobId);
   if (!job || job.status !== 'paid') return null;
   const pdb = createPlatformDb(env.DB);
-  const [shop, settings, before, after] = await Promise.all([
+  const [shop, settings, before, after, stampCard] = await Promise.all([
     pdb.shop.findUnique({
       where: { id: shopId },
       select: { name: true, code: true, city: true, address: true, contactPhone: true, opensAt: true, closesAt: true, weeklyOff: true, weeklyOffDays: true, businessId: true },
@@ -74,6 +75,7 @@ export async function loadBill(env: Env, shopId: string, jobId: string): Promise
     settingsRepo.listPublic(db),
     photos(env, shopId, jobId, 'before'),
     photos(env, shopId, jobId, 'after'),
+    billStampCard(db, job).catch(() => null),
   ]);
   if (!shop) return null;
   const business = shop.businessId ? await pdb.business.findUnique({ where: { id: shop.businessId }, select: { name: true } }) : null;
@@ -116,6 +118,7 @@ export async function loadBill(env: Env, shopId: string, jobId: string): Promise
     total: job.total,
     photos: { before, after },
     reviewUrl: settings.google_review_url ?? null,
+    stampCard,
   };
 }
 

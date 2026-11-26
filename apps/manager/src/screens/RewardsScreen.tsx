@@ -13,15 +13,18 @@ import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Circle, G, Path } from 'react-native-svg';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
+  BONUS_STAMPS_DEFAULT,
   GIFT_ITEMS_MAX,
   GIFT_QUANTITY_MAX,
   REWARD_EXPIRY_WARN_DAYS,
   REWARD_RESET_MONTHS,
+  STAMP_EVERY_DEFAULT,
   STAMP_EVERY_MAX,
   STAMP_EVERY_MIN,
+  STAMP_WEIGHT_MAX,
   formatStock,
+  maxBonusStamps,
   roundStock,
-  stampRuleLabel,
   type StockUnit,
 } from '@mana/domain';
 import {
@@ -51,7 +54,7 @@ import { useAuth } from '../api/auth';
 import { useSync } from '../offline/SyncProvider';
 import { useShop, type GiftItemView, type RewardRuleView, type StockItemView } from '../offline/ShopProvider';
 import type { RewardGift } from '../offline/types';
-import { formatDateTime } from '../utils/format';
+import { formatDateTime, formatDay } from '../utils/format';
 import { giftLine } from '../utils/rewards';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 
@@ -66,9 +69,43 @@ type OwedGift = RewardGift & {
 interface ServiceOption {
   id: string;
   name: string;
+  /** "car" | "bike" | "both". */
+  appliesTo: string;
+  /** "wash" | "protection" | "addon". */
+  kind: string;
 }
 
-const EVERY_PRESETS = [3, 5, 6, 8, 10];
+/** A stamp card as the owner sees it: its own rule, and every service that fills it (itself too). */
+interface CardGroup {
+  card: RewardRuleView;
+  earners: { serviceId: string; serviceName: string; stamps: number }[];
+}
+
+/** Rules grouped into cards. A service filling a card that's off fills nothing, so it's left out. */
+function groupCards(rules: RewardRuleView[]): CardGroup[] {
+  const cards = rules.filter((r) => !r.cardServiceId);
+  return cards.map((card) => ({
+    card,
+    earners: [
+      { serviceId: card.serviceId, serviceName: card.serviceName, stamps: card.stamps ?? 1 },
+      ...rules
+        .filter((r) => r.cardServiceId === card.serviceId)
+        .map((r) => ({ serviceId: r.serviceId, serviceName: r.serviceName, stamps: r.stamps ?? 1 })),
+    ],
+  }));
+}
+
+/** "Wed, 25 Nov": the shop day (India time) a card started counting. */
+function sinceDay(iso: string): string {
+  return formatDay(new Date(Date.parse(iso) + 330 * 60_000).toISOString().slice(0, 10));
+}
+
+/** "Basic Wash 1 · Express Wash 1 · Premium Wash 2". */
+function earnersLabel(group: CardGroup): string {
+  return group.earners.map((e) => `${e.serviceName} ${e.stamps}`).join(' · ');
+}
+
+const EVERY_PRESETS = [5, 8, 10, 12];
 
 /** Same alert colours as Inventory / Cash — amber when gifts are waiting, teal when clear. */
 const HERO_OWED = ['#F59E0B', '#D97706', '#92400E'] as const;
@@ -110,7 +147,7 @@ export function RewardsScreen({ navigation }: Props) {
   const [owedError, setOwedError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [giving, setGiving] = useState<string | null>(null);
-  const [ruleSheet, setRuleSheet] = useState<{ rule: RewardRuleView | null } | null>(null);
+  const [cardSheet, setCardSheet] = useState<{ group: CardGroup | null } | null>(null);
   const [giftSheet, setGiftSheet] = useState(false);
   const [services, setServices] = useState<ServiceOption[]>([]);
   const [tab, setTab] = useState<RewardsTab>('owed');
@@ -137,7 +174,11 @@ export function RewardsScreen({ navigation }: Props) {
       if (!res.ok) return;
       const body = await res.json();
       if (Array.isArray(body)) {
-        setServices(body.filter((s) => s.active).map((s) => ({ id: s.id, name: s.name })));
+        setServices(
+          body
+            .filter((s) => s.active)
+            .map((s) => ({ id: s.id, name: s.name, appliesTo: s.appliesTo, kind: s.kind })),
+        );
       }
     } catch {
       // Offline: setting up a card needs the connection anyway.
@@ -171,12 +212,14 @@ export function RewardsScreen({ navigation }: Props) {
     }
   };
 
-  const rules = rewards?.rules ?? [];
+  const rules = useMemo(() => rewards?.rules ?? [], [rewards]);
+  const cardGroups = useMemo(() => groupCards(rules), [rules]);
   const gift = rewards?.gift ?? [];
   const owedCount = owed?.length ?? rewards?.giftsOwed ?? 0;
   const giftShort = gift.filter((g) => g.balance < g.quantity).length;
   const nothingSetUp = rules.length === 0 && gift.length === 0;
   const needsAction = owedCount > 0 || giftShort > 0;
+  // A service can be on one card only: these are free to start a new card or join one.
   const unusedServices = services.filter((s) => !rules.some((r) => r.serviceId === s.id));
 
   useEffect(() => {
@@ -209,7 +252,7 @@ export function RewardsScreen({ navigation }: Props) {
 
   const tabs: { key: RewardsTab; label: string; count: number }[] = [
     { key: 'owed', label: 'Gifts owed', count: owedCount },
-    { key: 'cards', label: 'Stamp cards', count: rules.length },
+    { key: 'cards', label: 'Stamp cards', count: cardGroups.length },
     { key: 'gift', label: 'Welcome gift', count: gift.length },
   ];
 
@@ -222,7 +265,7 @@ export function RewardsScreen({ navigation }: Props) {
           right={
             isOwner && tab === 'cards' && unusedServices.length > 0 ? (
               <Pressable
-                onPress={() => setRuleSheet({ rule: null })}
+                onPress={() => setCardSheet({ group: null })}
                 disabled={!online}
                 style={({ pressed }) => [styles.addBtn, !online && styles.btnOff, pressed && styles.pressed]}
                 accessibilityRole="button"
@@ -286,7 +329,7 @@ export function RewardsScreen({ navigation }: Props) {
           <Text style={styles.heroMeta}>{heroMeta}</Text>
           <View style={styles.heroChips}>
             {[
-              { label: 'Stamp cards', value: rules.length, dot: null as string | null },
+              { label: 'Stamp cards', value: cardGroups.length, dot: null as string | null },
               { label: 'Gift items', value: gift.length, dot: giftShort > 0 ? '#FCA5A5' : null },
               {
                 label: 'Gifts owed',
@@ -406,7 +449,7 @@ export function RewardsScreen({ navigation }: Props) {
 
         {tab === 'cards' ? (
           <>
-            {rules.length === 0 ? (
+            {cardGroups.length === 0 ? (
               <View style={styles.emptyCard}>
                 <View style={[styles.emptyIcon, { backgroundColor: '#FEF3C7' }]}>
                   <IconStar size={28} color={colors.amberDeep} />
@@ -414,43 +457,54 @@ export function RewardsScreen({ navigation }: Props) {
                 <Text style={styles.emptyTitle}>No stamp cards yet</Text>
                 <Text style={styles.emptyBody}>
                   {isOwner
-                    ? 'Pick a service and how many paid washes earn one free — e.g. every 5th Foam Wash is free.'
+                    ? 'Pick the free wash (e.g. Basic Wash), then which washes fill the card. Tap + Card to start.'
                     : 'The owner hasn’t set up any stamp cards.'}
                 </Text>
               </View>
             ) : (
               <View style={styles.band}>
-                {rules.map((r, i) => (
-                  <Pressable
-                    key={r.serviceId}
-                    onPress={isOwner ? () => setRuleSheet({ rule: r }) : undefined}
-                    disabled={!isOwner}
-                    android_ripple={isOwner ? { color: colors.waterPale } : undefined}
-                    style={({ pressed }) => [
-                      styles.row,
-                      i < rules.length - 1 && styles.rowDivider,
-                      pressed && styles.pressedRow,
-                    ]}
-                    accessibilityRole={isOwner ? 'button' : undefined}
-                  >
-                    <View style={[styles.rowIcon, { backgroundColor: '#FEF3C7' }]}>
-                      <IconStar size={18} color={colors.amberDeep} />
-                    </View>
-                    <View style={styles.rowCopy}>
-                      <Text style={styles.rowTitle} numberOfLines={1}>
-                        {r.serviceName}
-                      </Text>
-                      <Text style={styles.rowMeta}>{stampRuleLabel(r.every)}</Text>
-                    </View>
-                    {isOwner ? <Text style={styles.editLink}>Edit</Text> : null}
-                  </Pressable>
-                ))}
+                {cardGroups.map((group, i) => {
+                  const { card } = group;
+                  const bonus = card.bonusStamps ?? 0;
+                  return (
+                    <Pressable
+                      key={card.serviceId}
+                      onPress={isOwner ? () => setCardSheet({ group }) : undefined}
+                      disabled={!isOwner}
+                      android_ripple={isOwner ? { color: colors.waterPale } : undefined}
+                      style={({ pressed }) => [
+                        styles.row,
+                        i < cardGroups.length - 1 && styles.rowDivider,
+                        pressed && styles.pressedRow,
+                      ]}
+                      accessibilityRole={isOwner ? 'button' : undefined}
+                    >
+                      <View style={[styles.rowIcon, { backgroundColor: '#FEF3C7' }]}>
+                        <IconStar size={18} color={colors.amberDeep} />
+                      </View>
+                      <View style={styles.rowCopy}>
+                        <Text style={styles.rowTitle} numberOfLines={1}>
+                          Free {card.serviceName}
+                        </Text>
+                        <Text style={styles.rowMeta}>
+                          {card.every} stamps for one free{bonus > 0 ? ` · ${bonus} welcome stamps` : ''}
+                        </Text>
+                        <Text style={styles.rowMeta}>Stamps: {earnersLabel(group)}</Text>
+                        {card.startsAt ? (
+                          <Text style={styles.rowMeta}>Counting washes since {sinceDay(card.startsAt)}</Text>
+                        ) : null}
+                      </View>
+                      {isOwner ? <Text style={styles.editLink}>Edit</Text> : null}
+                    </Pressable>
+                  );
+                })}
               </View>
             )}
             <Text style={styles.footnote}>
-              A stamp lands when a wash is paid (combos that include the service count too). Staff see “Free wash
-              ready” on New Wash; the customer can use it or save it. A card resets if the car doesn’t get that
-              service for {REWARD_RESET_MONTHS} months — staff are warned {REWARD_EXPIRY_WARN_DAYS} days before.
+              Stamps land when a wash is paid. Plan washes and washes that cost nothing don’t earn stamps. The bill on
+              WhatsApp shows the customer’s card. Staff see “Free wash ready” on New Wash; the customer can use it or
+              save it. A card resets if the vehicle has no wash for {REWARD_RESET_MONTHS} months — staff are warned{' '}
+              {REWARD_EXPIRY_WARN_DAYS} days before.
             </Text>
           </>
         ) : null}
@@ -513,12 +567,13 @@ export function RewardsScreen({ navigation }: Props) {
       </ScrollView>
 
       {isOwner ? (
-        <RuleSheet
-          target={ruleSheet}
-          services={unusedServices}
-          onClose={() => setRuleSheet(null)}
+        <CardSheet
+          target={cardSheet}
+          services={services}
+          rules={rules}
+          onClose={() => setCardSheet(null)}
           onSaved={() => {
-            setRuleSheet(null);
+            setCardSheet(null);
             void refreshRewards();
           }}
         />
@@ -583,43 +638,102 @@ function Stepper({
   );
 }
 
-/** Owner: turn a stamp card on for a service, change how many washes it takes, or switch it off. */
-function RuleSheet({
+/** The washes that usually fill a card: the same vehicles' washes, Premium counting 2. */
+function suggestedStamps(card: ServiceOption, candidates: ServiceOption[]): Map<string, number> {
+  const out = new Map<string, number>([[card.id, 1]]);
+  for (const s of candidates) {
+    if (s.id === card.id || s.kind !== 'wash' || s.appliesTo !== card.appliesTo) continue;
+    out.set(s.id, /premium/i.test(s.name) ? 2 : 1);
+  }
+  return out;
+}
+
+const WEIGHTS = Array.from({ length: STAMP_WEIGHT_MAX + 1 }, (_, i) => i);
+
+/**
+ * Owner: a stamp card — the free wash it gives, how many stamps fill it, the welcome stamps a
+ * new car starts with, and which washes put how many stamps on it. Or switch it off.
+ */
+function CardSheet({
   target,
   services,
+  rules,
   onClose,
   onSaved,
 }: {
-  target: { rule: RewardRuleView | null } | null;
+  target: { group: CardGroup | null } | null;
   services: ServiceOption[];
+  rules: RewardRuleView[];
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const rule = target?.rule ?? null;
-  const [serviceId, setServiceId] = useState<string | null>(null);
-  const [every, setEvery] = useState(5);
+  const group = target?.group ?? null;
+  const [cardId, setCardId] = useState<string | null>(null);
+  const [every, setEvery] = useState(STAMP_EVERY_DEFAULT);
+  const [bonus, setBonus] = useState(BONUS_STAMPS_DEFAULT);
+  const [weights, setWeights] = useState<Map<string, number>>(new Map());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Services this card may use: free ones, and the ones already on it.
+  const available = useMemo(() => {
+    const mine = new Set(group?.earners.map((e) => e.serviceId) ?? []);
+    return services.filter((s) => s.kind !== 'addon' && (mine.has(s.id) || !rules.some((r) => r.serviceId === s.id)));
+  }, [services, rules, group]);
+
   useEffect(() => {
     if (!target) return;
-    setServiceId(target.rule?.serviceId ?? null);
-    setEvery(target.rule?.every ?? 5);
+    const g = target.group;
+    setCardId(g?.card.serviceId ?? null);
+    setEvery(g?.card.every ?? STAMP_EVERY_DEFAULT);
+    setBonus(g ? (g.card.bonusStamps ?? 0) : BONUS_STAMPS_DEFAULT);
+    setWeights(new Map(g?.earners.map((e) => [e.serviceId, e.stamps]) ?? []));
     setSaving(false);
     setError(null);
   }, [target]);
 
+  const pickCard = (s: ServiceOption) => {
+    setCardId(s.id);
+    setWeights(suggestedStamps(s, available));
+    setError(null);
+  };
+
+  const setWeight = (id: string, n: number) => {
+    setWeights((prev) => {
+      const next = new Map(prev);
+      if (n === 0) next.delete(id);
+      else next.set(id, n);
+      return next;
+    });
+  };
+
+  const maxBonus = maxBonusStamps(every);
+  const bonusShown = Math.min(bonus, maxBonus);
+  const cardName = group?.card.serviceName ?? services.find((s) => s.id === cardId)?.name ?? null;
+  const cardService = services.find((s) => s.id === cardId);
+  // Washes that can fill this card: the same vehicles' (a car card isn't filled by bike washes).
+  const fillers = available
+    .filter((s) => s.id !== cardId && (!cardService || s.appliesTo === cardService.appliesTo || s.appliesTo === 'both' || weights.has(s.id)))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const earners = cardId
+    ? [{ serviceId: cardId, stamps: weights.get(cardId) ?? 1 }, ...[...weights.entries()].filter(([id]) => id !== cardId).map(([serviceId, stamps]) => ({ serviceId, stamps }))]
+    : [];
+  const nameOf = (id: string) => services.find((s) => s.id === id)?.name ?? rules.find((r) => r.serviceId === id)?.serviceName ?? 'Service';
+
   const save = async () => {
-    if (!serviceId || saving) return;
+    if (!cardId || saving) return;
     setSaving(true);
     setError(null);
     try {
-      const res = await api.rewards.rules[':serviceId'].$put({ param: { serviceId }, json: { every } });
+      const res = await api.rewards.cards[':serviceId'].$put({
+        param: { serviceId: cardId },
+        json: { every, bonusStamps: bonusShown, earners },
+      });
       if (!res.ok) {
         setError(await apiErrorMessage(res, 'Couldn’t save the stamp card.'));
         return;
       }
-      showToast(rule ? 'Stamp card updated' : 'Stamp card is on');
+      showToast(group ? 'Stamp card updated' : 'Stamp card is on');
       onSaved();
     } catch (e) {
       setError(offlineMessage(e, 'Couldn’t save the stamp card.'));
@@ -629,10 +743,10 @@ function RuleSheet({
   };
 
   const turnOff = () => {
-    if (!rule) return;
+    if (!group) return;
     showAlert(
-      `Turn off the ${rule.serviceName} card?`,
-      'New washes stop collecting stamps and New Wash stops offering its free wash. Cars keep their history — turn it back on and they pick up where they were.',
+      `Turn off the free ${group.card.serviceName} card?`,
+      'New washes stop collecting stamps and New Wash stops offering its free wash. If you turn it on again later, it starts counting from that day.',
       [
         { text: 'Keep it', style: 'cancel' },
         {
@@ -642,7 +756,7 @@ function RuleSheet({
             void (async () => {
               setSaving(true);
               try {
-                const res = await api.rewards.rules[':serviceId'].$delete({ param: { serviceId: rule.serviceId } });
+                const res = await api.rewards.rules[':serviceId'].$delete({ param: { serviceId: group.card.serviceId } });
                 if (!res.ok) {
                   setError(await apiErrorMessage(res, 'Couldn’t turn it off.'));
                   return;
@@ -661,24 +775,24 @@ function RuleSheet({
     );
   };
 
-  const picked = rule ? { id: rule.serviceId, name: rule.serviceName } : services.find((s) => s.id === serviceId);
+  const choices = available.filter((s) => s.kind === 'wash');
 
   return (
     <BottomSheet
       visible={target != null}
       onClose={onClose}
       dismissable={!saving}
-      title={rule ? rule.serviceName : 'New stamp card'}
-      subtitle={rule ? 'Change how many washes earn a free one' : 'Pick a service, then how many paid washes earn one free'}
+      title={group ? `Free ${group.card.serviceName}` : 'New stamp card'}
+      subtitle={group ? 'Change the card. It applies to every vehicle straight away.' : 'Pick the free wash, then which washes fill the card'}
       footer={
         <View style={styles.sheetFooter}>
           <Button
-            label={saving ? 'Saving…' : rule ? 'Save' : 'Turn on'}
+            label={saving ? 'Saving…' : group ? 'Save' : 'Turn on'}
             onPress={() => void save()}
             loading={saving}
-            disabled={!serviceId}
+            disabled={!cardId}
           />
-          {rule ? (
+          {group ? (
             <Pressable onPress={turnOff} disabled={saving} style={styles.offLink} accessibilityRole="button">
               <Text style={styles.offLinkText}>Turn off this card</Text>
             </Pressable>
@@ -686,19 +800,19 @@ function RuleSheet({
         </View>
       }
     >
-      {!rule ? (
+      {!group ? (
         <>
-          <Text style={styles.sheetLabel}>Service</Text>
-          {services.length === 0 ? (
-            <Text style={styles.sheetHint}>Every service already has a card.</Text>
+          <Text style={styles.sheetLabel}>The free wash</Text>
+          {choices.length === 0 ? (
+            <Text style={styles.sheetHint}>Every wash is already on a card.</Text>
           ) : (
             <View style={styles.chipWrap}>
-              {services.map((s) => {
-                const on = s.id === serviceId;
+              {choices.map((s) => {
+                const on = s.id === cardId;
                 return (
                   <Pressable
                     key={s.id}
-                    onPress={() => setServiceId(s.id)}
+                    onPress={() => pickCard(s)}
                     style={[styles.chip, on && styles.chipOn]}
                     accessibilityRole="button"
                     accessibilityState={{ selected: on }}
@@ -712,35 +826,77 @@ function RuleSheet({
         </>
       ) : null}
 
-      <Text style={styles.sheetLabel}>Paid washes for one free</Text>
-      <View style={styles.everyRow}>
-        <Stepper value={every} onChange={setEvery} min={STAMP_EVERY_MIN} max={STAMP_EVERY_MAX} label="washes" />
-        <View style={styles.chipWrapTight}>
-          {EVERY_PRESETS.map((n) => (
-            <Pressable
-              key={n}
-              onPress={() => setEvery(n)}
-              style={[styles.chip, every === n && styles.chipOn]}
-              accessibilityRole="button"
-              accessibilityState={{ selected: every === n }}
-            >
-              <Text style={[styles.chipText, every === n && styles.chipTextOn]}>{n}</Text>
-            </Pressable>
-          ))}
-        </View>
-      </View>
-      <View style={styles.preview}>
-        <IconStar size={16} color={colors.amberDeep} />
-        <Text style={styles.previewText}>
-          {picked
-            ? `${picked.name}: pay for ${every}, the next one is free.`
-            : `Pay for ${every}, the next one is free.`}
-        </Text>
-      </View>
-      {rule ? (
-        <Text style={styles.sheetHint}>
-          Changing the number applies to every car’s card straight away, counting the washes they’ve already had.
-        </Text>
+      {cardId ? (
+        <>
+          <Text style={styles.sheetLabel}>Stamps for one free wash</Text>
+          <View style={styles.everyRow}>
+            <Stepper value={every} onChange={setEvery} min={STAMP_EVERY_MIN} max={STAMP_EVERY_MAX} label="stamps" />
+            <View style={styles.chipWrapTight}>
+              {EVERY_PRESETS.map((n) => (
+                <Pressable
+                  key={n}
+                  onPress={() => setEvery(n)}
+                  style={[styles.chip, every === n && styles.chipOn]}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: every === n }}
+                >
+                  <Text style={[styles.chipText, every === n && styles.chipTextOn]}>{n}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
+          <Text style={styles.sheetLabel}>Welcome stamps on the first wash</Text>
+          <View style={styles.everyRow}>
+            <Stepper value={bonusShown} onChange={setBonus} min={0} max={maxBonus} label="welcome stamps" />
+            <Text style={[styles.sheetHint, styles.flex]}>Up to {maxBonus}. Once per vehicle.</Text>
+          </View>
+
+          <Text style={styles.sheetLabel}>Stamps each wash gives</Text>
+          <View style={styles.weightList}>
+            {[{ id: cardId, name: cardName ?? nameOf(cardId), own: true }, ...fillers.map((s) => ({ id: s.id, name: s.name, own: false }))].map((row) => {
+              const value = row.own ? (weights.get(row.id) ?? 1) : (weights.get(row.id) ?? 0);
+              return (
+                <View key={row.id} style={styles.weightRow}>
+                  <Text style={styles.weightName} numberOfLines={1}>
+                    {row.name}
+                  </Text>
+                  <View style={styles.weightChips}>
+                    {WEIGHTS.filter((n) => !(row.own && n === 0)).map((n) => {
+                      const on = value === n;
+                      return (
+                        <Pressable
+                          key={n}
+                          onPress={() => setWeight(row.id, n)}
+                          style={[styles.weightChip, on && styles.chipOn]}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: on }}
+                          accessibilityLabel={n === 0 ? `${row.name} gives no stamps` : `${row.name} gives ${n} stamps`}
+                        >
+                          <Text style={[styles.chipText, on && styles.chipTextOn]}>{n === 0 ? 'No' : n}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+
+          <View style={styles.preview}>
+            <IconStar size={16} color={colors.amberDeep} />
+            <Text style={styles.previewText}>
+              {`${earners.map((e) => `${nameOf(e.serviceId)} = ${e.stamps}`).join(', ')}. ${every} stamps = a free ${cardName ?? 'wash'}.${bonusShown > 0 ? ` New vehicles start with ${bonusShown} welcome stamps.` : ''}`}
+            </Text>
+          </View>
+          <Text style={styles.sheetHint}>
+            {group
+              ? group.card.startsAt
+                ? `Counting washes since ${sinceDay(group.card.startsAt)}.`
+                : 'Counts every vehicle’s past washes.'
+              : 'Counts washes from the moment you turn it on. Earlier washes don’t count.'}
+          </Text>
+        </>
       ) : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
     </BottomSheet>
@@ -1094,6 +1250,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFBEB',
     borderWidth: 1,
     borderColor: '#FDE68A',
+  },
+  weightList: { gap: spacing.sm },
+  weightRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  weightName: { ...typography.bodyStrong, color: colors.waterInk, fontSize: 14.5, flex: 1 },
+  weightChips: { flexDirection: 'row', gap: 6 },
+  weightChip: {
+    minWidth: 40,
+    height: 34,
+    paddingHorizontal: 10,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   previewText: { ...typography.body, color: colors.amberDeep, fontSize: 14, fontWeight: '600', flex: 1 },
   offLink: { alignSelf: 'center', paddingVertical: spacing.sm },

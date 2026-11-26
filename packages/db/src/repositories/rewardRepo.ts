@@ -14,6 +14,7 @@ import { stockRepo } from './stockRepo';
 
 /** One car's stamp card for one service, as the app shows it. */
 export interface RewardCardView {
+  /** The card's service: the free wash it gives (Basic Wash, also filled by Express and Premium). */
   serviceId: string;
   serviceName: string;
   every: number;
@@ -22,6 +23,31 @@ export interface RewardCardView {
   lastVisitAt: string | null;
   /** When the card resets unless the car gets this service again; null = nothing to lose. */
   expiresAt: string | null;
+  /** Paid visits since the card started or last reset; 1 = this card's first wash. */
+  paidVisits: number;
+  /** Welcome stamps on the card in its current run. */
+  bonus: number;
+}
+
+/** A stamp-card rule as stored: a card of its own, or a service that fills another's card. */
+interface RuleRow {
+  serviceId: string;
+  every: number;
+  cardServiceId: string | null;
+  stamps: number;
+  bonusStamps: number;
+  startsAt: Date | null;
+}
+
+/** The active cards, and which card (and how many stamps) each service's wash fills. */
+function cardsOf(rules: RuleRow[]) {
+  const cards = new Map(rules.filter((r) => !r.cardServiceId).map((r) => [r.serviceId, r]));
+  const earns = new Map<string, { card: string; stamps: number }>();
+  for (const r of rules) {
+    const card = r.cardServiceId ?? r.serviceId;
+    if (cards.has(card)) earns.set(r.serviceId, { card, stamps: r.stamps });
+  }
+  return { cards, earns };
 }
 
 /** A welcome-gift item, as owed to (or given to) a car. */
@@ -112,7 +138,7 @@ async function loadVisitRows(db: DbClient, vehicleWhere: Prisma.VehicleWhereInpu
   const [jobs, lines, claims] = await Promise.all([
     db.job.findMany({
       where: { vehicle: vehicleWhere, ...LIVE_JOB, jobServices: { some: STAMPING_LINE } },
-      select: { id: true, vehicleId: true, status: true, createdAt: true },
+      select: { id: true, vehicleId: true, status: true, total: true, createdAt: true },
     }),
     db.jobService.findMany({
       where: { job: { vehicle: vehicleWhere, ...LIVE_JOB }, ...STAMPING_LINE },
@@ -124,37 +150,42 @@ async function loadVisitRows(db: DbClient, vehicleWhere: Prisma.VehicleWhereInpu
 }
 
 /**
- * Every paid (or free-wash) visit that touches a stamp-card service, grouped by vehicle then
- * service. A combo stamps each card service it includes; one wash stamps a card at most once.
- * The line a community plan paid for stamps nothing: it was prepaid with the plan.
+ * Every paid (or free-wash) visit that fills a stamp card, grouped by vehicle then card. A
+ * service fills its own card or the one it's set to (Express and Premium fill Basic Wash's); a
+ * combo fills each card its services do. One wash stamps a card once, with the most stamps any of
+ * its lines gives. The line a plan paid for stamps nothing (it was prepaid), nor does a wash that
+ * cost nothing, nor one from before its card started.
  */
 function visitsByVehicle(
   { jobs, lines, claims }: Awaited<ReturnType<typeof loadVisitRows>>,
   combos: Map<string, string[]>,
-  ruleIds: Set<string>,
+  { cards, earns }: ReturnType<typeof cardsOf>,
 ): Map<string, Map<string, StampVisit[]>> {
-  const covered = new Map<string, Set<string>>();
+  const covered = new Map<string, Map<string, number>>();
+  const add = (set: Map<string, number>, serviceId: string) => {
+    const e = earns.get(serviceId);
+    if (e) set.set(e.card, Math.max(set.get(e.card) ?? 0, e.stamps));
+  };
   for (const line of lines) {
-    const set = covered.get(line.jobId) ?? new Set<string>();
-    if (line.serviceId === line.job.planServiceId) {
-      covered.set(line.jobId, set);
-      continue;
-    }
-    if (ruleIds.has(line.serviceId)) set.add(line.serviceId);
-    for (const s of combos.get(line.serviceId) ?? []) set.add(s);
+    const set = covered.get(line.jobId) ?? new Map<string, number>();
     covered.set(line.jobId, set);
+    if (line.serviceId === line.job.planServiceId) continue;
+    add(set, line.serviceId);
+    for (const s of combos.get(line.serviceId) ?? []) add(set, s);
   }
   const claimed = new Set(claims.map((c) => `${c.jobId}|${c.serviceId}`));
   const out = new Map<string, Map<string, StampVisit[]>>();
   for (const job of jobs) {
-    for (const serviceId of covered.get(job.id) ?? []) {
-      const free = claimed.has(`${job.id}|${serviceId}`);
+    for (const [card, stamps] of covered.get(job.id) ?? []) {
+      const startsAt = cards.get(card)?.startsAt;
+      if (startsAt && job.createdAt.getTime() < startsAt.getTime()) continue;
+      const free = claimed.has(`${job.id}|${card}`);
       // An unpaid wash earns nothing yet; a free wash counts as used from the moment it starts.
-      if (!free && job.status !== 'paid') continue;
+      if (!free && (job.status !== 'paid' || job.total <= 0)) continue;
       const byService = out.get(job.vehicleId) ?? new Map<string, StampVisit[]>();
-      const list = byService.get(serviceId) ?? [];
-      list.push({ at: job.createdAt, free });
-      byService.set(serviceId, list);
+      const list = byService.get(card) ?? [];
+      list.push({ at: job.createdAt, free, stamps });
+      byService.set(card, list);
       out.set(job.vehicleId, byService);
     }
   }
@@ -176,6 +207,11 @@ export const rewardRepo = {
       serviceActive: serviceById.get(r.serviceId)?.active ?? false,
       every: r.every,
       active: r.active,
+      /** Set: this service fills that service's card, `stamps` a wash. Null: a card of its own. */
+      cardServiceId: r.cardServiceId,
+      stamps: r.stamps,
+      bonusStamps: r.bonusStamps,
+      startsAt: iso(r.startsAt),
       updatedAt: r.updatedAt.toISOString(),
     }));
   },
@@ -190,18 +226,65 @@ export const rewardRepo = {
       db.rewardRule.upsert({
         where: { serviceId: data.serviceId },
         create: { serviceId: data.serviceId, every: data.every, updatedByUserId: data.userId, createdAt: now, updatedAt: now },
-        update: { every: data.every, active: true, updatedByUserId: data.userId, updatedAt: now },
+        // A card of its own again, as this (older) screen means it.
+        update: { every: data.every, active: true, cardServiceId: null, stamps: 1, updatedByUserId: data.userId, updatedAt: now },
       }),
     );
   },
 
-  /** Switches a card off; returns false when it wasn't on. */
-  async disableRule(db: DbClient, serviceId: string, userId: string) {
-    const res = await db.rewardRule.updateMany({
-      where: { serviceId, active: true },
+  /**
+   * Turns on (or changes) a card that several services fill: `serviceId`'s own card, with
+   * `earners` (the card's service among them) putting their stamps on it. A card switched on now
+   * counts washes from now; one already running keeps its start. Services that filled this card
+   * and aren't in `earners` stop. Returns every service whose cars' cards may have changed.
+   */
+  async saveCard(
+    db: DbClient,
+    data: { serviceId: string; every: number; bonusStamps: number; earners: { serviceId: string; stamps: number }[]; userId: string; now: Date },
+  ): Promise<string[]> {
+    const before = await db.rewardRule.findMany({ where: { OR: [{ serviceId: { in: [data.serviceId, ...data.earners.map((e) => e.serviceId)] } }, { cardServiceId: data.serviceId }] } });
+    const own = before.find((r) => r.serviceId === data.serviceId);
+    const running = own?.active && !own.cardServiceId;
+    const startsAt = running ? own.startsAt : data.now;
+    const ownStamps = data.earners.find((e) => e.serviceId === data.serviceId)?.stamps ?? 1;
+    const card = { every: data.every, active: true, cardServiceId: null, stamps: ownStamps, bonusStamps: data.bonusStamps, startsAt, updatedByUserId: data.userId, updatedAt: data.now };
+    await retryOnClash(() =>
+      db.rewardRule.upsert({ where: { serviceId: data.serviceId }, create: { serviceId: data.serviceId, ...card, createdAt: data.now }, update: card }),
+    );
+    for (const e of data.earners) {
+      if (e.serviceId === data.serviceId) continue;
+      const row = { every: data.every, active: true, cardServiceId: data.serviceId, stamps: e.stamps, bonusStamps: 0, startsAt: null, updatedByUserId: data.userId, updatedAt: data.now };
+      await retryOnClash(() =>
+        db.rewardRule.upsert({ where: { serviceId: e.serviceId }, create: { serviceId: e.serviceId, ...row, createdAt: data.now }, update: row }),
+      );
+    }
+    const keep = new Set(data.earners.map((e) => e.serviceId));
+    const dropped = before.filter((r) => r.cardServiceId === data.serviceId && r.active && !keep.has(r.serviceId)).map((r) => r.serviceId);
+    if (dropped.length) {
+      await db.rewardRule.updateMany({
+        where: { serviceId: { in: dropped } },
+        data: { active: false, updatedByUserId: data.userId, updatedAt: data.now },
+      });
+    }
+    return [...new Set([data.serviceId, ...keep, ...dropped])];
+  },
+
+  /**
+   * Switches a card off — and with it the services that filled it. Returns the services switched
+   * off (empty when it wasn't on).
+   */
+  async disableRule(db: DbClient, serviceId: string, userId: string): Promise<string[]> {
+    const live = await db.rewardRule.findMany({
+      where: { active: true, OR: [{ serviceId }, { cardServiceId: serviceId }] },
+      select: { serviceId: true },
+    });
+    if (!live.some((r) => r.serviceId === serviceId)) return [];
+    const ids = live.map((r) => r.serviceId);
+    await db.rewardRule.updateMany({
+      where: { serviceId: { in: ids } },
       data: { active: false, updatedByUserId: userId, updatedAt: new Date() },
     });
-    return res.count === 1;
+    return ids;
   },
 
   /**
@@ -250,15 +333,15 @@ export const rewardRepo = {
       Promise.all(wheres.map((where) => loadVisitRows(db, where))),
     ]);
     if (rules.length === 0) return new Map();
-    const ruleIds = new Set(rules.map((r) => r.serviceId));
+    const shape = cardsOf(rules);
     const combos = new Map<string, string[]>();
     for (const item of comboItems) {
-      if (!ruleIds.has(item.serviceId)) continue;
+      if (!shape.earns.has(item.serviceId)) continue;
       combos.set(item.comboId, [...(combos.get(item.comboId) ?? []), item.serviceId]);
     }
-    const visits = rows.map((r) => visitsByVehicle(r, combos, ruleIds));
+    const visits = rows.map((r) => visitsByVehicle(r, combos, shape));
     const serviceById = new Map(services.map((s) => [s.id, s]));
-    const ordered = [...rules].sort((a, b) => {
+    const ordered = [...shape.cards.values()].sort((a, b) => {
       const sa = serviceById.get(a.serviceId);
       const sb = serviceById.get(b.serviceId);
       return (sa?.sortOrder ?? 0) - (sb?.sortOrder ?? 0) || (sa?.name ?? '').localeCompare(sb?.name ?? '');
@@ -268,7 +351,7 @@ export const rewardRepo = {
       for (const [vehicleId, byService] of map) {
         const cards: RewardCardView[] = [];
         for (const rule of ordered) {
-          const card = stampCard(rule.every, byService.get(rule.serviceId) ?? [], now);
+          const card = stampCard(rule.every, byService.get(rule.serviceId) ?? [], now, { bonus: rule.bonusStamps });
           if (card.stamps === 0 && card.free === 0) continue;
           cards.push({
             serviceId: rule.serviceId,
@@ -278,6 +361,8 @@ export const rewardRepo = {
             free: card.free,
             lastVisitAt: iso(card.lastVisitAt),
             expiresAt: iso(card.expiresAt),
+            paidVisits: card.paidVisits,
+            bonus: card.bonus,
           });
         }
         if (cards.length > 0) out.set(vehicleId, cards);

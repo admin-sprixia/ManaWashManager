@@ -8,6 +8,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.0.13] - 2026-11-26
+
+### Added
+
+- **One stamp card filled by several washes.** The owner picks the free wash (e.g. Basic Wash)
+  and which washes fill its card, 1 to 3 stamps each: Basic and Express give 1, Premium 2. Every
+  10 stamps give one free Basic Wash (extra stamps carry over), and a vehicle starts with 2
+  welcome stamps on its first wash. A card counts washes from the moment it's turned on; earlier
+  washes don't count. Plan washes and washes that cost nothing earn no stamps. Set up in Rewards →
+  Stamp cards (+ Card, then pick Basic Wash: Express, Premium, 10 and 2 are filled in). Needs
+  migration `0006_shared_stamp_cards`.
+- **The stamp card on the bill.** The PDF bill shows the vehicle's card under the services
+  (stamps filled in, how many more for the free wash, or that a free wash is ready). The WhatsApp
+  bill gets a stamp line ("🟢🟢🟢⚪… 3 of 10. 7 more for a free Basic Wash!") through new
+  templates (`wash_bill_stamps`, `wash_invoice_stamps` and their `_plain` versions, English and
+  Telugu); until Meta approves them, the usual bill goes out instead.
+
+### Changed
+
+- Turning a stamp card off also turns off the washes that filled it; turning it on again counts
+  from that day.
+
 ## [1.0.12] - 2026-11-24
 
 ### Changed
@@ -1197,7 +1219,8 @@ build was labelled 2.0.0.
   a customer profile.
 - **One shared MAJOR.MINOR.PATCH version** across every app and package.
 
-[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.12...HEAD
+[Unreleased]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.13...HEAD
+[1.0.13]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.12...v1.0.13
 [1.0.12]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.11...v1.0.12
 [1.0.11]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.10...v1.0.11
 [1.0.10]: https://github.com/admin-sprixia/ManaWashManager/compare/v1.0.9...v1.0.10

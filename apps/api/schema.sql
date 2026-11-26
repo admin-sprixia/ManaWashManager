@@ -699,6 +699,13 @@ CREATE TABLE reward_rules (
   updated_by_user_id TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')),
+  -- Set: this service fills that service's card instead of its own, with `stamps` per wash.
+  card_service_id TEXT,
+  stamps INTEGER NOT NULL DEFAULT 1 CHECK (stamps BETWEEN 1 AND 3),
+  -- On a card's own rule: stamps a car gets on its first wash that counts, and the moment the
+  -- card started (washes before it don't count; null = all history counts).
+  bonus_stamps INTEGER NOT NULL DEFAULT 0 CHECK (bonus_stamps BETWEEN 0 AND 50),
+  starts_at TEXT,
   FOREIGN KEY (shop_id, service_id) REFERENCES services(shop_id, id),
   FOREIGN KEY (shop_id, updated_by_user_id) REFERENCES users(shop_id, id)
 );

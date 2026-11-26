@@ -1,6 +1,7 @@
 import { createPlatformDb, createShopDb, jobRepo, settingsRepo, shopPlanRepo } from '@mana/db';
 import { planUseBy, planWashMessage, rateChoiceId, washTemplateMessage, type ChatLang, type PaymentMethod, type WashTemplateKind } from '@mana/domain';
 import type { Env } from '../types';
+import { billStampCard } from './rewards';
 import { billPdf } from './washBill';
 import { graphSend, logOutgoing, uploadMedia, waId, whatsappConfigured } from './whatsapp';
 
@@ -60,6 +61,12 @@ export async function sendWashMessage(env: Env, shopId: string, jobId: string, k
     const model = [job.vehicle.make, job.vehicle.model].filter(Boolean).join(' ');
 
     const lang = await languageOf(env, phone);
+    // The stamp card on the bill: best effort — a bill never waits on it or fails for it.
+    const stampCard =
+      kind === 'bill' ? await billStampCard(createShopDb(env.DB, shopId), job).catch((e: unknown) => {
+        console.error(`Stamp card for job ${jobId} failed`, e);
+        return null;
+      }) : null;
     const input = {
       customerName: job.customer.name,
       vehicle: model || job.vehicle.vehicleType.name,
@@ -73,16 +80,20 @@ export async function sendWashMessage(env: Env, shopId: string, jobId: string, k
       at,
       // Get Directions on Ready; Rate us on the bill (answered by the assistant).
       buttonPayload: kind === 'ready' ? `loc|${shopId}` : rateChoiceId(shopId),
+      stampCard,
     };
     const languages = lang === 'te' ? (['te', 'en'] as const) : (['en'] as const);
     // "Rate us" only once the branch has its Google review link; until then the plain bill, or the
     // one with the button while Meta hasn't approved the plain one yet.
     const reviewUrl = kind === 'bill' ? (await settingsRepo.listPublic(createShopDb(env.DB, shopId))).google_review_url : null;
     const plainFirst = kind === 'bill' && !reviewUrl ? [true, false] : [false];
+    // With a stamp card, the version with the stamp line first; while Meta hasn't approved it,
+    // the usual bill (those tries aren't logged: nothing went wrong that the team must see).
+    const stampsFirst = stampCard ? [true, false] : [false];
     /** One template in one language; a Telugu one Meta hasn't approved yet falls back to English. */
     const send = async (which: WashTemplateKind, document: { id: string; filename: string } | null) => {
-      for (const plain of plainFirst) for (const l of languages) {
-        const m = washTemplateMessage(which, input, l, { plain });
+      for (const stamps of stampsFirst) for (const plain of plainFirst) for (const l of languages) {
+        const m = washTemplateMessage(which, input, l, { plain, stamps });
         const sent = await graphSend(env, {
           recipient_type: 'individual',
           to: waId(phone),
@@ -97,7 +108,9 @@ export async function sendWashMessage(env: Env, shopId: string, jobId: string, k
             ],
           },
         });
-        await logOutgoing(env, { phone, kind: document ? 'document' : 'template', body: m.preview, purpose: purposeOf(kind), sent, shopId, jobId });
+        if (sent.ok || !stamps) {
+          await logOutgoing(env, { phone, kind: document ? 'document' : 'template', body: m.preview, purpose: purposeOf(kind), sent, shopId, jobId });
+        }
         if (sent.ok) return true;
       }
       return false;

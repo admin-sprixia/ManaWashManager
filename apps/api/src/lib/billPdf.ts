@@ -1,5 +1,5 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage, type RGB } from 'pdf-lib';
-import { paymentSplit, RUPEE_GLYPH } from '@mana/domain';
+import { paymentSplit, REWARD_RESET_MONTHS, RUPEE_GLYPH, type BillStampCard } from '@mana/domain';
 import billLogo from '../assets/bill-logo.json';
 
 /**
@@ -36,6 +36,8 @@ export interface BillInput {
   total: number;
   photos: { before: BillPhoto[]; after: BillPhoto[] };
   reviewUrl: string | null;
+  /** The car's stamp card after this wash, when the wash filled one. */
+  stampCard?: BillStampCard | null;
 }
 
 const W = 595.28;
@@ -57,6 +59,7 @@ const LINE = hex('#E2E7FB');
 const PALE = hex('#F4F6FF');
 const TEAL = hex('#0E9F8E');
 const TEAL_PALE = hex('#E6F7F4');
+const GOLD_PALE = hex('#FBF5E9');
 const WHITE = rgb(1, 1, 1);
 
 const REPLACE: Record<string, string> = { '→': '->', '—': '-', '–': '-', '…': '...', '‘': "'", '’': "'", '“': '"', '”': '"', '×': 'x', '₹': 'Rs ' };
@@ -203,6 +206,7 @@ export async function buildBillPdf(input: BillInput): Promise<Uint8Array> {
 
   // ─── Totals ────────────────────────────────────────────────────────────────
   top += 12;
+  const totalsTop = top;
   const totalsX = M + tableW * 0.52;
   const totalsW = W - M - totalsX;
   const sub = (name: string, paise: number, minus = false, note: string | null = null) => {
@@ -226,6 +230,55 @@ export async function buildBillPdf(input: BillInput): Promise<Uint8Array> {
     text('You saved', totalsX + 12, top + 8, 8.5, bold, TEAL);
     price(input.discount, amtR, top + 8, 8.5, bold, TEAL);
     top += 18;
+  }
+  // ─── Stamp card, beside the totals ──────────────────────────────────────────
+  if (input.stampCard) {
+    const card = input.stampCard;
+    const cardW = tableW * 0.52 - 18;
+    const every = Math.max(1, card.every);
+    const filled = Math.min(Math.max(0, card.stamps), every - 1);
+    const pad = 12;
+    const dotsOn = every <= 20;
+    const rows = dotsOn && every > 10 ? 2 : 1;
+    const perRow = Math.ceil(every / rows);
+    const step = Math.min(22, (cardW - pad * 2) / perRow);
+    const r = Math.min(8, step / 2 - 1.5);
+    const extraLine = (card.free > 0 && filled > 0) || (card.free === 0 && card.welcome > 0);
+    const boxH = 58 + (dotsOn ? rows * step : 0) + (extraLine ? 11 : 0);
+    page.drawRectangle({ x: M, y: H - totalsTop - boxH, width: cardW, height: boxH, color: GOLD_PALE, borderColor: GOLD, borderWidth: 0.8 });
+    let y = totalsTop + 10;
+    text('STAMP CARD', M + pad, y, 7.5, bold, SLATE_LIGHT, { spacing: 1.3 });
+    y += 15;
+    if (dotsOn) {
+      for (let i = 0; i < every; i++) {
+        const cx = M + pad + (i % perRow) * step + step / 2;
+        const cy = H - (y + Math.floor(i / perRow) * step + step / 2);
+        if (i < filled) {
+          page.drawCircle({ x: cx, y: cy, size: r, color: TEAL });
+          page.drawSvgPath('M -3.2 0 L -1 2.4 L 3.4 -2.4', { x: cx, y: cy, borderColor: WHITE, borderWidth: 1.4 });
+        } else {
+          page.drawCircle({ x: cx, y: cy, size: r, color: WHITE, borderColor: GOLD, borderWidth: 1 });
+          if (i === every - 1) text('FREE', cx, H - cy - 3, 4.8, bold, GOLD, { align: 'center' });
+        }
+      }
+      y += rows * step + 6;
+    }
+    const left = every - filled;
+    const headline =
+      card.free > 0
+        ? `${card.free} free ${card.serviceName}${card.free === 1 ? '' : 'es'} ready for your next visit!`
+        : `${filled} of ${every} stamps - ${left} more for a free ${card.serviceName}`;
+    text(headline, M + pad, y, 9.5, bold, card.free > 0 ? TEAL : INK);
+    y += 13;
+    if (card.free > 0 && filled > 0) {
+      text(`Next card: ${filled} of ${every} stamps`, M + pad, y, 8, regular, SLATE);
+      y += 11;
+    } else if (card.welcome > 0) {
+      text(`Includes ${card.welcome} welcome stamp${card.welcome === 1 ? '' : 's'}`, M + pad, y, 8, regular, SLATE);
+      y += 11;
+    }
+    text(`Stamps stay while you wash at least once in ${REWARD_RESET_MONTHS} months.`, M + pad, y, 7, regular, SLATE_LIGHT);
+    top = Math.max(top, totalsTop + boxH + 12);
   }
   top += 22;
 

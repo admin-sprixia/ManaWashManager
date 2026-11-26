@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { followUpMessage, planWashMessage, WA_TEMPLATES, washMessageDate, washTemplateMessage, type WashMessageInput } from '../index';
+import { followUpMessage, planWashMessage, stampCardLine, WA_TEMPLATES, washMessageDate, washTemplateMessage, type WashMessageInput } from '../index';
 
 const wash: WashMessageInput = {
   customerName: 'Ravi Kumar',
@@ -137,5 +137,55 @@ describe('WhatsApp wash templates', () => {
     expect(m.buttonPayloads).toEqual(['loc|b1']);
     const done = planWashMessage({ ...input, left: [{ wash: 'Express Wash', count: 0 }] }, 'te');
     expect(done.params[4]).toBe('వాష్‌లు ఏమీ లేవు (కౌంటర్ వద్ద రీన్యూ చేసుకోండి)');
+  });
+});
+
+describe('Stamp card on the bill', () => {
+  const card = { serviceName: 'Basic Wash', every: 10, stamps: 4, free: 0, welcome: 2 };
+
+  it('has a stamp version of each bill, plain and with the button, in both languages', () => {
+    for (const name of ['wash_bill_stamps', 'wash_invoice_stamps', 'wash_bill_stamps_plain', 'wash_invoice_stamps_plain']) {
+      const versions = WA_TEMPLATES.filter((t) => t.name === name);
+      expect(versions.map((t) => t.language).sort()).toEqual(['en', 'te']);
+      for (const t of versions) {
+        expect(t.body).toContain('{{8}}');
+        expect(t.category).toBe('UTILITY');
+        expect(t.buttons.length).toBe(name.endsWith('_plain') ? 0 : 1);
+      }
+    }
+    expect(WA_TEMPLATES.filter((t) => t.name === 'wash_invoice_stamps').every((t) => t.header === 'DOCUMENT')).toBe(true);
+    // Same words as the usual bill, one line more.
+    const plainBill = WA_TEMPLATES.find((t) => t.name === 'wash_bill' && t.language === 'en')!;
+    const stampBill = WA_TEMPLATES.find((t) => t.name === 'wash_bill_stamps' && t.language === 'en')!;
+    expect(stampBill.body.replace(/⭐ \*Stamp card:\* \{\{8\}\}\n\n/, '')).toBe(plainBill.body);
+  });
+
+  it('writes the card with dots, the welcome stamps and what’s left', () => {
+    expect(stampCardLine(card, 'en')).toBe('🟢🟢🟢🟢⚪⚪⚪⚪⚪⚪ 4 of 10 (2 welcome stamps included). 6 more for a free Basic Wash!');
+    expect(stampCardLine({ ...card, welcome: 0, stamps: 9 }, 'en')).toBe('🟢🟢🟢🟢🟢🟢🟢🟢🟢⚪ 9 of 10. 1 more for a free Basic Wash!');
+    expect(stampCardLine(card, 'te')).toContain('10 లో 4 (2 స్వాగత స్టాంపులతో)');
+  });
+
+  it('says when a free wash is ready, with the next card when it has stamps', () => {
+    expect(stampCardLine({ ...card, stamps: 0, free: 1, welcome: 0 }, 'en')).toBe('🎁 1 free Basic Wash is ready for your next visit!');
+    expect(stampCardLine({ ...card, stamps: 1, free: 1, welcome: 0 }, 'en')).toBe(
+      '🎁 1 free Basic Wash is ready for your next visit! Next card: 🟢⚪⚪⚪⚪⚪⚪⚪⚪⚪ 1 of 10.',
+    );
+    expect(stampCardLine({ ...card, stamps: 0, free: 2, welcome: 0 }, 'en')).toBe('🎁 2 free Basic Washes are ready for your next visit!');
+  });
+
+  it('writes a long card without dots', () => {
+    expect(stampCardLine({ serviceName: 'Basic Wash', every: 20, stamps: 3, free: 0, welcome: 0 }, 'en')).toBe('3 of 20. 17 more for a free Basic Wash!');
+  });
+
+  it('sends the stamp version only when asked and there is a card', () => {
+    const withCard = washTemplateMessage('invoice', { ...wash, stampCard: card }, 'en', { stamps: true, plain: true });
+    expect(withCard.name).toBe('wash_invoice_stamps_plain');
+    expect(withCard.params).toHaveLength(8);
+    expect(withCard.preview).toContain('Stamp card:* 🟢🟢🟢🟢⚪');
+    expect(washTemplateMessage('bill', { ...wash, stampCard: card }, 'te', { stamps: true }).name).toBe('wash_bill_stamps');
+    expect(washTemplateMessage('bill', { ...wash, stampCard: null }, 'en', { stamps: true }).name).toBe('wash_bill');
+    expect(washTemplateMessage('bill', { ...wash, stampCard: card }, 'en').params).toHaveLength(7);
+    expect(washTemplateMessage('ready', { ...wash, stampCard: card }, 'en', { stamps: true }).name).toBe('wash_ready');
   });
 });

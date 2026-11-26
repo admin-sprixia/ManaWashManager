@@ -1,5 +1,5 @@
 import { directoryRepo, rewardRepo, type DbClient } from '@mana/db';
-import { isRewardEligiblePlate, REWARD_DISCOUNT_REASON } from '@mana/domain';
+import { isRewardEligiblePlate, REWARD_DISCOUNT_REASON, type BillStampCard } from '@mana/domain';
 
 type Line = { serviceId: string; priceAtTime: number };
 
@@ -79,4 +79,29 @@ export async function settleRewardsForPaidJob(db: DbClient, jobId: string, userI
   }
   if (rules > 0 || gifted) await directoryRepo.touchCustomer(db, job.customerId);
   return gifted;
+}
+
+/**
+ * The stamp card a paid wash filled (or used a free wash from), as its bill shows it — null when
+ * the wash didn't touch a card (no card set up, a walk-in, a plan wash, a wash that cost nothing).
+ * The card is worked out with this wash in it, so the bill shows the stamps just earned.
+ */
+export async function billStampCard(
+  db: DbClient,
+  job: { vehicleId: string; createdAt: Date; status: string; vehicle?: { registrationNumber: string } },
+  now = new Date(),
+): Promise<BillStampCard | null> {
+  if (job.status !== 'paid') return null;
+  if (job.vehicle && !isRewardEligiblePlate(job.vehicle.registrationNumber)) return null;
+  const cards = (await rewardRepo.cardsForVehicles(db, [job.vehicleId], now)).get(job.vehicleId) ?? [];
+  const at = job.createdAt.getTime();
+  const card = cards.find((c) => c.lastVisitAt != null && new Date(c.lastVisitAt).getTime() === at);
+  if (!card) return null;
+  return {
+    serviceName: card.serviceName,
+    every: card.every,
+    stamps: card.stamps,
+    free: card.free,
+    welcome: card.paidVisits === 1 ? card.bonus : 0,
+  };
 }

@@ -278,13 +278,81 @@ const BASE_TEMPLATES: WaTemplateDefinition[] = [
   },
 ];
 
+/**
+ * The bill with the car's stamp card under it ("Stamp card: 🟢🟢🟢⚪… 3 of 10"): the same words
+ * plus one line. Sent when the car has a card; until Meta approves these, the bill goes without.
+ */
+export const STAMPS_SUFFIX = '_stamps';
+const STAMP_LINE: Record<ChatLang, string> = { en: '⭐ *Stamp card:* {{8}}', te: '⭐ *స్టాంప్ కార్డ్:* {{8}}' };
+const STAMP_EXAMPLE: Record<ChatLang, string> = {
+  en: '🟢🟢🟢⚪⚪⚪⚪⚪⚪⚪ 3 of 10 (2 welcome stamps included). 7 more for a free Basic Wash!',
+  te: '🟢🟢🟢⚪⚪⚪⚪⚪⚪⚪ 10 లో 3 (2 స్వాగత స్టాంపులతో). ఇంకా 7 స్టాంపులతో Basic Wash ఉచితం!',
+};
+const isBill = (t: WaTemplateDefinition) => t.name === WA_TEMPLATE_NAMES.bill || t.name === WA_TEMPLATE_NAMES.invoice;
+const STAMP_BILLS = BASE_TEMPLATES.filter(isBill).map((t): WaTemplateDefinition => {
+  const lines = t.body.split('\n');
+  // Under the date, before the closing line.
+  const closing = lines.length - 1;
+  return {
+    ...t,
+    name: `${t.name}${STAMPS_SUFFIX}`,
+    body: [...lines.slice(0, closing), STAMP_LINE[t.language], '', ...lines.slice(closing)].join('\n'),
+    example: [...t.example, STAMP_EXAMPLE[t.language]],
+  };
+});
+
 /** The bill without its "Rate us" button: sent while the branch has no Google review link yet. */
 export const PLAIN_SUFFIX = '_plain';
-const PLAIN_BILLS = BASE_TEMPLATES.filter((t) => t.name === WA_TEMPLATE_NAMES.bill || t.name === WA_TEMPLATE_NAMES.invoice).map(
+const PLAIN_BILLS = [...BASE_TEMPLATES.filter(isBill), ...STAMP_BILLS].map(
   (t): WaTemplateDefinition => ({ ...t, name: `${t.name}${PLAIN_SUFFIX}`, buttons: [] }),
 );
 
-export const WA_TEMPLATES: WaTemplateDefinition[] = [...BASE_TEMPLATES, ...PLAIN_BILLS];
+export const WA_TEMPLATES: WaTemplateDefinition[] = [...BASE_TEMPLATES, ...STAMP_BILLS, ...PLAIN_BILLS];
+
+/** A car's stamp card as the bill shows it, right after this wash. */
+export interface BillStampCard {
+  /** The free wash the card gives: "Basic Wash". */
+  serviceName: string;
+  every: number;
+  stamps: number;
+  free: number;
+  /** Welcome stamps, when this wash was the card's first (else 0). */
+  welcome: number;
+}
+
+/** Dots for a card that fits on one line; longer cards are written as "3 of 20". */
+const DOTS_MAX = 12;
+
+/**
+ * The stamp line on the bill: "🟢🟢🟢⚪⚪⚪⚪⚪⚪⚪ 3 of 10 (2 welcome stamps included). 7 more for
+ * a free Basic Wash!", or, once a free wash is waiting, "🎁 1 free Basic Wash is ready…".
+ */
+export function stampCardLine(card: BillStampCard, lang: ChatLang): string {
+  const every = Math.max(1, card.every);
+  const stamps = Math.min(Math.max(0, card.stamps), every - 1);
+  const left = every - stamps;
+  const dots = every <= DOTS_MAX ? `${'🟢'.repeat(stamps)}${'⚪'.repeat(every - stamps)} ` : '';
+  const welcome =
+    card.welcome > 0
+      ? lang === 'te'
+        ? ` (${card.welcome} స్వాగత స్టాంపులతో)`
+        : ` (${card.welcome} welcome stamp${card.welcome === 1 ? '' : 's'} included)`
+      : '';
+  if (card.free > 0) {
+    const n = card.free;
+    const ready =
+      lang === 'te'
+        ? `🎁 మీకు ${n} ${card.serviceName} ఉచితం! తదుపరి సారి వాడుకోండి.`
+        : `🎁 ${n} free ${card.serviceName}${n === 1 ? ' is' : 'es are'} ready for your next visit!`;
+    if (stamps === 0) return ready;
+    return lang === 'te'
+      ? `${ready} తదుపరి కార్డ్: ${dots}${every} లో ${stamps}.`
+      : `${ready} Next card: ${dots}${stamps} of ${every}.`;
+  }
+  return lang === 'te'
+    ? `${dots}${every} లో ${stamps}${welcome}. ఇంకా ${left} స్టాంపులతో ${card.serviceName} ఉచితం!`
+    : `${dots}${stamps} of ${every}${welcome}. ${left} more for a free ${card.serviceName}!`;
+}
 
 /** What one wash's message needs. Amounts in paise. */
 export interface WashMessageInput {
@@ -304,6 +372,8 @@ export interface WashMessageInput {
   at: Date;
   /** The quick-reply button's payload: directions for Ready, the review link for the bill. */
   buttonPayload: string;
+  /** The car's stamp card after this wash, for the bill's stamp line (null: no card). */
+  stampCard?: BillStampCard | null;
 }
 
 /** A filled-in template, ready for the Cloud API's `template` object. */
@@ -357,10 +427,12 @@ export function washTemplateMessage(
   kind: WashTemplateKind,
   input: WashMessageInput,
   lang: ChatLang,
-  opts: { plain?: boolean } = {},
+  opts: { plain?: boolean; stamps?: boolean } = {},
 ): WashTemplateMessage {
   const plain = Boolean(opts.plain) && kind !== 'ready';
-  const templateName = `${WA_TEMPLATE_NAMES[kind]}${plain ? PLAIN_SUFFIX : ''}`;
+  // The stamp line only when asked for and there's a card to show.
+  const stamps = Boolean(opts.stamps) && kind !== 'ready' && input.stampCard != null;
+  const templateName = `${WA_TEMPLATE_NAMES[kind]}${stamps ? STAMPS_SUFFIX : ''}${plain ? PLAIN_SUFFIX : ''}`;
   const def = WA_TEMPLATES.find((t) => t.name === templateName && t.language === lang)!;
   let params: string[];
   // The invoice is the bill with the PDF on top: the same words.
@@ -376,6 +448,7 @@ export function washTemplateMessage(
         ? `${single} + ${PAYMENT_LABEL.cash[lang]}`
         : single;
     params = [name(input, lang), input.place, vehicleLine(input), services || 'Wash', `${rupees(input.total)}${saved}`, method, washMessageDate(input.at)];
+    if (stamps) params.push(stampCardLine(input.stampCard!, lang));
   }
   params = params.map(clean);
   return { name: templateName, language: lang, params, buttonPayload: input.buttonPayload, hasButton: def.buttons.length > 0, preview: fill(def, params) };

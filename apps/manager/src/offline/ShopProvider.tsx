@@ -79,6 +79,12 @@ export interface RewardRuleView {
   serviceId: string;
   serviceName: string;
   every: number;
+  /** Set: this service fills that service's card, `stamps` a wash. Null/absent: a card of its own. */
+  cardServiceId?: string | null;
+  stamps?: number;
+  /** On a card: welcome stamps on a car's first wash, and when it started counting. */
+  bonusStamps?: number;
+  startsAt?: string | null;
 }
 
 export interface GiftItemView {

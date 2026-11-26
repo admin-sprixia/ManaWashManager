@@ -18,6 +18,9 @@ export interface RewardCard {
   lastVisitAt: string | null;
   /** When the card resets unless the car gets this service again; null = nothing to lose. */
   expiresAt: string | null;
+  /** Paid visits since the card started or last reset, and its welcome stamps (newer servers). */
+  paidVisits?: number;
+  bonus?: number;
 }
 
 /** A welcome-gift item owed to, or handed over to, a car (API `RewardGiftView`). */

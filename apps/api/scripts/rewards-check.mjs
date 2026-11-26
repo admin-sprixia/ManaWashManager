@@ -53,9 +53,19 @@ const SUV = `vt_rw_s_${run}`;
 const FW = `svc_rw_fw_${run}`;
 const PL = `svc_rw_pl_${run}`;
 const CB = `svc_rw_cb_${run}`;
+const BW = `svc_rw_bw_${run}`;
+const EX = `svc_rw_ex_${run}`;
+const PR = `svc_rw_pr_${run}`;
 const CLOTH = `stk_rw_cloth_${run}`;
 const FRESH = `stk_rw_fresh_${run}`;
-const price = { [FW]: { [HATCH]: 30000, [SUV]: 50000 }, [PL]: { [HATCH]: 20000, [SUV]: 25000 }, [CB]: { [HATCH]: 45000, [SUV]: 65000 } };
+const price = {
+  [FW]: { [HATCH]: 30000, [SUV]: 50000 },
+  [PL]: { [HATCH]: 20000, [SUV]: 25000 },
+  [CB]: { [HATCH]: 45000, [SUV]: 65000 },
+  [BW]: { [SUV]: 40000 },
+  [EX]: { [SUV]: 30000 },
+  [PR]: { [SUV]: 60000 },
+};
 
 sql(
   `INSERT INTO shops (id, code, name) VALUES ('${SHOP}', '${rand(6)}', 'Rewards Check Wash');` +
@@ -66,6 +76,7 @@ sql(
     `INSERT INTO services (id, shop_id, name, applies_to, sort_order) VALUES ('${FW}', '${SHOP}', 'Full Wash', 'car', 0);` +
     `INSERT INTO services (id, shop_id, name, applies_to, sort_order) VALUES ('${PL}', '${SHOP}', 'Polish', 'car', 1);` +
     `INSERT INTO services (id, shop_id, name, applies_to, sort_order) VALUES ('${CB}', '${SHOP}', 'Wash + Polish', 'car', 2);` +
+    `INSERT INTO services (id, shop_id, name, applies_to, sort_order) VALUES ('${BW}', '${SHOP}', 'Basic Wash', 'car', 3), ('${EX}', '${SHOP}', 'Express Wash', 'car', 4), ('${PR}', '${SHOP}', 'Premium Wash', 'car', 5);` +
     `INSERT INTO service_combo_items (shop_id, combo_id, service_id) VALUES ('${SHOP}', '${CB}', '${FW}'), ('${SHOP}', '${CB}', '${PL}');` +
     Object.entries(price)
       .flatMap(([svc, byType]) =>
@@ -395,6 +406,89 @@ r = await pay(O, ps.body?.id);
 r = await lookup(P.reg);
 check('A plan wash’s Full Wash earns no stamp (still 1 from the paid wash)', card(r).stamps === 1, show(r));
 check('…but the Polish paid on the same bill does', card(r, PL).stamps === 1, show(r));
+
+// ─── One card, several washes: Basic, Express and Premium fill the Basic Wash card ─────────
+
+const shared = { every: 10, bonusStamps: 2, earners: [{ serviceId: BW, stamps: 1 }, { serviceId: EX, stamps: 1 }, { serviceId: PR, stamps: 2 }] };
+// A wash from before the card started: must never count.
+const OLD = { reg: plate(), phone: customerPhone() };
+await paidWash(OLD, { services: [BW] });
+sql(`UPDATE jobs SET created_at = '${stamp(-3)}' WHERE vehicle_id = (SELECT id FROM vehicles WHERE registration_number = '${OLD.reg}')`);
+
+r = await call(S, 'PUT', `/rewards/cards/${BW}`, shared);
+check('Staff can’t set up a shared card', r.status === 403, show(r));
+r = await call(O, 'PUT', `/rewards/cards/${BW}`, { ...shared, bonusStamps: 6 });
+check('Welcome stamps can be at most half the card', r.status === 400, show(r));
+r = await call(O, 'PUT', `/rewards/cards/${BW}`, { ...shared, earners: [{ serviceId: EX, stamps: 1 }] });
+check('The card’s own wash must fill it', r.status === 400 && r.body?.error === 'card_invalid', show(r));
+r = await call(O, 'PUT', `/rewards/cards/${BW}`, { ...shared, earners: [...shared.earners, { serviceId: PR, stamps: 1 }] });
+check('A wash can’t be listed twice', r.status === 400, show(r));
+r = await call(O, 'PUT', `/rewards/cards/${BW}`, { ...shared, earners: [...shared.earners.slice(0, 2), { serviceId: PR, stamps: 4 }] });
+check('At most 3 stamps a wash', r.status === 400, show(r));
+r = await call(O, 'PUT', `/rewards/cards/${BW}`, { ...shared, earners: [...shared.earners, { serviceId: PL, stamps: 1 }] });
+check('A wash with a card of its own can’t fill another', r.status === 400 && r.body?.error === 'card_invalid', show(r));
+r = await call(O, 'PUT', `/rewards/cards/${BW}`, shared);
+const rulesNow = r.body?.rules ?? [];
+check(
+  'Owner turns on the Basic Wash card: Express 1, Premium 2, 10 for a free one, 2 welcome stamps',
+  r.status === 200 &&
+    rulesNow.find((x) => x.serviceId === BW)?.cardServiceId === null &&
+    rulesNow.find((x) => x.serviceId === BW)?.bonusStamps === 2 &&
+    typeof rulesNow.find((x) => x.serviceId === BW)?.startsAt === 'string' &&
+    rulesNow.find((x) => x.serviceId === EX)?.cardServiceId === BW &&
+    rulesNow.find((x) => x.serviceId === PR)?.stamps === 2,
+  show(r),
+);
+r = await call(O, 'PUT', `/rewards/cards/${EX}`, { ...shared, earners: [{ serviceId: EX, stamps: 1 }] });
+check('A wash filling a card can’t start its own card meanwhile', r.status === 400 && r.body?.error === 'card_invalid', show(r));
+
+r = await lookup(OLD.reg);
+check('Washes from before the card started don’t count', card(r, BW).stamps === 0, show(r));
+
+const SC = { reg: plate(), phone: customerPhone() };
+await paidWash(SC, { services: [PR] });
+r = await lookup(SC.reg);
+check('First wash a Premium: 2 stamps + 2 welcome = 4', card(r, BW).stamps === 4 && card(r, BW).paidVisits === 1 && card(r, BW).bonus === 2, show(r));
+check('…shown as one card, the free Basic Wash', r.body?.cards?.length === 1 && card(r, BW).serviceName === 'Basic Wash', show(r));
+await paidWash(SC, { services: [EX] });
+await paidWash(SC, { services: [BW] });
+r = await lookup(SC.reg);
+check('Express and Basic add 1 each, no welcome stamps again', card(r, BW).stamps === 6 && card(r, BW).paidVisits === 3, show(r));
+await paidWash(SC, { services: [EX, PR] });
+r = await lookup(SC.reg);
+check('One wash fills the card once, with its biggest count (Express + Premium = 2)', card(r, BW).stamps === 8, show(r));
+r = await paidWash(SC, { services: [BW], discount: 40000, discountReason: 'On the house' });
+r = await lookup(SC.reg);
+check('A wash that cost nothing earns no stamp', card(r, BW).stamps === 8, show(r));
+await paidWash(SC, { services: [PR] });
+r = await lookup(SC.reg);
+check('Premium on 8 fills the card: 1 free Basic Wash', card(r, BW).free === 1 && card(r, BW).stamps === 0, show(r));
+r = await start(O, { ...SC, services: [PR], rewardServiceIds: [BW] });
+check('The free wash is a Basic Wash: it must be on the bill', r.status === 409 && r.body?.error === 'reward_invalid', show(r));
+const eFree = await start(O, { ...SC, services: [BW], rewardServiceIds: [BW] });
+check('Using the free Basic Wash: nothing to pay', eFree.status === 201 && eFree.body.total === 0, show(eFree));
+await pay(O, eFree.body?.id);
+r = await lookup(SC.reg);
+check('…the card is empty again and the free wash earned nothing', card(r, BW).free === 0 && card(r, BW).stamps === 0, show(r));
+
+r = await call(O, 'PUT', `/rewards/cards/${BW}`, { ...shared, earners: shared.earners.filter((e) => e.serviceId !== EX) });
+check('Taking Express off the card switches it off', r.status === 200 && !r.body.rules?.some((x) => x.serviceId === EX), show(r));
+check('…and keeps the card’s start', r.body.rules?.find((x) => x.serviceId === BW)?.startsAt === rulesNow.find((x) => x.serviceId === BW)?.startsAt, show(r));
+await call(O, 'PUT', `/rewards/cards/${BW}`, shared);
+
+r = await call(O, 'DELETE', `/rewards/rules/${BW}`);
+check('Turning the card off turns off the washes filling it', r.status === 200 && !r.body.rules?.some((x) => [BW, EX, PR].includes(x.serviceId)), show(r));
+await paidWash(SC, { services: [EX] });
+r = await lookup(SC.reg);
+check('…no card while it’s off', !r.body?.cards?.some((x) => x.serviceId === BW), show(r));
+// Turned on again: counts from now (the earlier washes stay out).
+await new Promise((res) => setTimeout(res, 20));
+r = await call(O, 'PUT', `/rewards/cards/${BW}`, shared);
+r = await lookup(SC.reg);
+check('Turned on again, it counts from that moment', !r.body?.cards?.some((x) => x.serviceId === BW), show(r));
+await paidWash(SC, { services: [EX] });
+r = await lookup(SC.reg);
+check('…the next wash starts a fresh card, welcome stamps and all', card(r, BW).stamps === 3 && card(r, BW).bonus === 2 && card(r, BW).paidVisits === 1, show(r));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
